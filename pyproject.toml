@@ -1,0 +1,37 @@
+[project]
+name = "goal"
+version="0.0.1"
+
+[tool.setuptools.packages.find]
+include =["goal*"]
+
+[tool.ruff]
+output-format="concise"
+exclude = ["node_modules", "__pycache__"]
+lint.select = [
+    "F",  # Pyflakes
+    "E",  # PEP8
+    "W",  # PEP8
+    "C90",  # McCabe
+    "D",  # Pydocstyle
+    "R",  # Ruff-specific
+    "N",  # Naming
+    "I",  # Import conventions
+    "SIM",  # flake8-simplify
+    "UP",  # pyupgrade
+    "RUF",  # ruff-specific rules
+    "ARG",  # flake8-unused-arguments
+    "TRY",  # tryceratops
+    "PLR0402", # import a.b as b -> from a import b
+]
+
+lint.ignore = [
+    "E501",  # Example: Ignore line length warnings
+    "D",     # Ignore all docstring-related warnings
+    "ARG002",# Ignore unused-argument in method > problematic eg when required by parent class / interface
+    "TRY003",# Allow to write exception messages in place instead of subclassing
+    "RUF001",# Allow confusable characters (eg σ)
+]
+
+[tool.ruff.format]
+docstring-code-format = true
