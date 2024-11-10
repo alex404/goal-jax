@@ -1,6 +1,7 @@
 from abc import abstractmethod
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 
 
@@ -76,3 +77,29 @@ class MultivariateGaussian(ExponentialFamily):
             - 0.5 * jnp.linalg.slogdet(self.covariance)[1]
             - 0.5 * self.dim * jnp.log(2 * jnp.pi)
         )
+
+
+class Categorical(ExponentialFamily):
+    """Categorical distribution as exponential family"""
+
+    n_categories: int
+    logits: jnp.ndarray
+
+    def __init__(self, n_categories: int):
+        self.n_categories = n_categories
+        self.logits = jnp.zeros(n_categories)
+
+    def sufficient_statistic(self, x: jnp.ndarray) -> jnp.ndarray:
+        """One-hot encoding"""
+        return jax.nn.one_hot(x, self.n_categories)
+
+    def log_base_measure(self, x: jnp.ndarray) -> float:
+        """Base measure is constant 1, so log is 0"""
+        return 0.0
+
+    def potential(self, natural_params: jnp.ndarray) -> float:
+        """Log sum exp of natural parameters"""
+        return float(jax.nn.logsumexp(natural_params))
+
+    def to_natural(self) -> jnp.ndarray:
+        return self.logits

@@ -22,7 +22,7 @@ def create_true_model() -> Harmonium:
     mixture = create_gaussian_mixture(dim=2, n_components=2)
 
     # Set up visible Gaussian (trusx in Haskell)
-    mixture = mixture.replace(
+    return mixture.replace(
         visible=MultivariateGaussian(
             dim=2,
             mean=jnp.array([0.0, 0.0]),
@@ -31,8 +31,6 @@ def create_true_model() -> Harmonium:
         # Interaction matrix (trusfa in Haskell)
         interaction=jnp.array([[1.0], [0.0]]),
     )
-
-    return mixture
 
 
 def initialize_hmog() -> Harmonium:
