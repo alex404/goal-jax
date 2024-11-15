@@ -2,6 +2,14 @@ site_name: goal-jax
 
 theme:
   name: material
+  features:
+    # Remove if you don't want nested navigation
+    - navigation.sections
+    # These will give a flatter appearance
+    - navigation.tabs
+    - navigation.expand
+    # This will make admonitions (note blocks) less prominent
+    - content.code.annotate
 
 plugins:
   - search
@@ -33,3 +41,11 @@ extra_javascript:
 
 watch:
   - goal  # Add your source directory to watch
+
+nav:
+  - Home: index.md
+  - Reference:
+      - Linear Operators: linear.md
+      - Exponential Families: exponential_family.md
+  # - Development: ""  # Section header
+  #     - Contributing: contributing.md  # Future addition

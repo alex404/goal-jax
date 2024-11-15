@@ -1,5 +1,1 @@
-# goal-jax
-
-## Exponential Family
-
-::: goal.exponential_family
+/home/alex404/code/goal-jax/README.md

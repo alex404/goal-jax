@@ -6,7 +6,7 @@ from typing import Union
 import jax
 import jax.numpy as jnp
 
-from goal.exponential_family import ClosedFormExponentialFamily, ParameterType
+from goal.exponential_family import ClosedFormExponentialFamily, Parameterization
 from goal.linear import create_linear_map, symmetric_to_vector, vector_to_symmetric
 
 
@@ -23,7 +23,7 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
     dim: int
     operator_type: str  # 'general', 'symmetric', 'posdef', 'diagonal', or 'scale'
     params: jnp.ndarray
-    _param_type: ParameterType
+    _param_type: Parameterization
 
     @staticmethod
     def parameter_count(dim: int, operator_type: str) -> int:
@@ -39,7 +39,7 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
         operator_type: str = "posdef",
     ) -> "MultivariateGaussian":
         """Create from source parameters with specified operator type."""
-        if operator_type not in ["general", "symmetric", "posdef", "diagonal", "scale"]:
+        if operator_type not in ["symmetric", "posdef", "diagonal", "scale"]:
             raise ValueError(f"Invalid operator type: {operator_type}")
 
         dim = mean.shape[0]
@@ -60,7 +60,7 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
         return cls(
             dim=dim,
             params=natural_params,
-            _param_type=ParameterType.NATURAL,
+            _param_type=Parameterization.NATURAL,
             operator_type=operator_type,
         )
 
@@ -123,7 +123,7 @@ class Categorical(ClosedFormExponentialFamily):
 
     n_categories: int
     params: jnp.ndarray
-    _param_type: ParameterType
+    _param_type: Parameterization
 
     @classmethod
     def from_source(cls, probs: jnp.ndarray) -> "Categorical":
@@ -133,7 +133,7 @@ class Categorical(ClosedFormExponentialFamily):
 
         n_categories = len(probs) + 1
         return cls(
-            n_categories=n_categories, params=probs, _param_type=ParameterType.MEAN
+            n_categories=n_categories, params=probs, _param_type=Parameterization.MEAN
         )
 
     @classmethod
@@ -146,7 +146,7 @@ class Categorical(ClosedFormExponentialFamily):
         return cls(
             n_categories=n_categories,
             params=log_prob_ratios,
-            _param_type=ParameterType.NATURAL,
+            _param_type=Parameterization.NATURAL,
         )
 
     def to_source(self) -> jnp.ndarray:
@@ -201,19 +201,19 @@ class Poisson(ClosedFormExponentialFamily):
     """
 
     params: jnp.ndarray
-    _param_type: ParameterType
+    _param_type: Parameterization
 
     @classmethod
     def from_source(cls, rate: float) -> "Poisson":
         """Create from rate parameter λ (source parameter)."""
         if rate <= 0:
             raise ValueError(f"Rate must be positive, got {rate}")
-        return cls(params=jnp.array([rate]), _param_type=ParameterType.MEAN)
+        return cls(params=jnp.array([rate]), _param_type=Parameterization.MEAN)
 
     @classmethod
     def from_natural(cls, log_rate: float) -> "Poisson":
         """Create from log rate parameter log(λ)."""
-        return cls(params=jnp.array([log_rate]), _param_type=ParameterType.NATURAL)
+        return cls(params=jnp.array([log_rate]), _param_type=Parameterization.NATURAL)
 
     def to_source(self) -> float:
         """Get source parameter (rate λ)."""

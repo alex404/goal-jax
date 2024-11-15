@@ -1,3 +1,15 @@
 # Goal: Geometric OptimizAtion Libraries
 
-A Python implementation of geometric optimization libraries, focusing on information geometry and statistical modeling.
+# goal-jax
+
+A JAX implementation of information geometric algorithms and exponential families.
+
+## Overview
+
+`goal-jax` provides tools for working with exponential families and their geometry, including:
+
+* Efficient implementations of common exponential families
+* Automatic conversion between different parameterizations (natural ↔ mean)
+* Specialized linear operators for covariance structures
+* Information geometric optimization tools
+
