@@ -1,0 +1,3 @@
+# Distributions
+
+::: goal.distributions

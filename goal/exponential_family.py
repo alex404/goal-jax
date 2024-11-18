@@ -4,9 +4,14 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from enum import Enum, auto
+from typing import TypeVar
 
 import jax
 import jax.numpy as jnp
+
+from goal.manifold import Manifold
+
+### Core Definitions ###
 
 
 class Parameterization(Enum):
@@ -17,8 +22,11 @@ class Parameterization(Enum):
     SOURCE = auto()
 
 
+EF = TypeVar("EF", bound="ExponentialFamily")
+
+
 @dataclass(frozen=True)
-class ExponentialFamily(ABC):
+class ExponentialFamily(Manifold, ABC):
     """Base class for exponential families.
 
     An exponential family is a family of probability distributions whose density
@@ -35,11 +43,10 @@ class ExponentialFamily(ABC):
     * $A(\\theta)$ is the log partition function
     """
 
-    params: jnp.ndarray  # Flat array of parameters
-    _param_type: Parameterization
+    parameterization: Parameterization
 
     @abstractmethod
-    def sufficient_statistic(self, x: jnp.ndarray) -> jnp.ndarray:
+    def sufficient_statistic(self: EF, x: jnp.ndarray) -> "EF":
         """Convert point to sufficient statistics (flat array).
 
         Maps a point x to its sufficient statistic T(x), where:
@@ -48,16 +55,30 @@ class ExponentialFamily(ABC):
         T: \\mathcal{X} \\to \\mathbb{R}^d
         $$
         """
-        pass
+        ...
+
+    @abstractmethod
+    def average_sufficient_statistic(self: EF, xs: jnp.ndarray) -> "EF":
+        """Compute mean sufficient statistics (MLE) from data.
+
+        Args:
+            xs: Array of shape (batch_size, *data_dims) containing observations
+
+        Returns:
+            An ExponentialFamily object in mean coordinates corresponding to
+            the average sufficient statistics of xs
+        """
+        batch_sufficient_stats = jax.vmap(self.sufficient_statistic)(xs)
+        avg_params = jnp.mean(batch_sufficient_stats.params, axis=0)
+        return replace(self, params=avg_params, parameterization=Parameterization.MEAN)
 
     @abstractmethod
     def log_base_measure(self, x: jnp.ndarray) -> jnp.ndarray:
         """Compute log of base measure h(x)."""
-        pass
+        ...
 
-    def dimension(self) -> int:
-        """Return dimension of the parameter space."""
-        return len(self.params)
+
+DEF = TypeVar("DEF", bound="DifferentiableExponentialFamily")
 
 
 @dataclass(frozen=True)
@@ -90,11 +111,11 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
         Note:
             Must be called in natural parameterization.
         """
-        if self._param_type != Parameterization.NATURAL:
+        if self.parameterization != Parameterization.NATURAL:
             raise ValueError("Log partition function requires natural parameters")
         return self._compute_log_partition_function(self.params)
 
-    def to_mean(self) -> "ExponentialFamily":
+    def to_mean(self: DEF) -> "DEF":
         """Convert to mean parameterization η = ∇A(θ).
 
         The mean parameters are obtained by differentiating the log partition function:
@@ -106,7 +127,7 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
         This relationship follows from the fact that A(θ) is the cumulant generating
         function of the sufficient statistics.
         """
-        if self._param_type == Parameterization.MEAN:
+        if self.parameterization == Parameterization.MEAN:
             logging.warning("Already in mean coordinates")
             return self
         mean_params = jax.grad(self._compute_log_partition_function)(self.params)
@@ -122,13 +143,16 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
         Note:
             Must be called in natural parameterization.
         """
-        if self._param_type != Parameterization.NATURAL:
+        if self.parameterization != Parameterization.NATURAL:
             raise ValueError("Log density requires natural parameters")
         return (
-            jnp.dot(self.params, self.sufficient_statistic(x))
+            jnp.dot(self.params, self.sufficient_statistic(x).params)
             + self.log_base_measure(x)
             - self.log_partition_function()
         )
+
+
+CFEF = TypeVar("CFEF", bound="ClosedFormExponentialFamily")
 
 
 @dataclass(frozen=True)
@@ -167,11 +191,11 @@ class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
         Note:
             Must be called in mean parameterization.
         """
-        if self._param_type != Parameterization.MEAN:
+        if self.parameterization != Parameterization.MEAN:
             raise ValueError("Negative entropy requires mean parameters")
         return self._compute_negative_entropy(self.params)
 
-    def to_natural(self) -> "ExponentialFamily":
+    def to_natural(self: CFEF) -> "CFEF":
         """Convert to natural parameterization θ = ∇(-H(η)).
 
         The natural parameters are obtained by differentiating the negative entropy:
@@ -183,7 +207,7 @@ class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
         This relationship follows from the convex duality between the log partition
         function and the negative entropy.
         """
-        if self._param_type == Parameterization.NATURAL:
+        if self.parameterization == Parameterization.NATURAL:
             logging.warning("Already in natural coordinates")
             return self
         natural_params = jax.grad(self._compute_negative_entropy)(self.params)

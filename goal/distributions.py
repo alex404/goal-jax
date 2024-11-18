@@ -1,114 +1,124 @@
 """Core probability distributions as exponential families."""
 
-from dataclasses import dataclass
-from typing import Union
+from dataclasses import dataclass, replace
+from typing import Protocol, Type
 
 import jax
 import jax.numpy as jnp
 
 from goal.exponential_family import ClosedFormExponentialFamily, Parameterization
-from goal.linear import create_linear_map, symmetric_to_vector, vector_to_symmetric
+from goal.linear import Diagonal, LinearOperator, Scale, Symmetric
 
 
-@dataclass(frozen=True, kw_only=True)
-class MultivariateGaussian(ClosedFormExponentialFamily):
+class CovarianceMatrix(Protocol):
+    """Protocol for covariance matrices in exponential families.
+
+    Requires methods needed for efficient computation of exponential
+    family operations like log partition functions and entropy.
     """
-    Multivariate Gaussian distribution with flexible covariance representation.
 
-    Source parameters: (μ, Σ) mean and covariance
-    Natural parameters: [η, vec(Θ)] where η = Σ^{-1}μ, Θ = -1/2 Σ^{-1}
-    Mean parameters: [μ, vec(M)] where M = μμ^T + Σ
+    def matvec(self, v: jnp.ndarray) -> jnp.ndarray: ...
+    def transpose(self) -> "CovarianceMatrix": ...
+    def logdet(self) -> jnp.ndarray: ...
+    def inverse(self) -> "CovarianceMatrix": ...
+    def to_vector(self) -> jnp.ndarray: ...
+    @property
+    def cholesky(self) -> jnp.ndarray: ...
+
+
+@dataclass(frozen=True)
+class MultivariateGaussian(ClosedFormExponentialFamily):
+    """Multivariate Gaussian distribution.
+
+    The multivariate Gaussian distribution as an exponential family:
+
+    $$p(x; \\mu, \\Sigma) = (2\\pi)^{-d/2}|\\Sigma|^{-1/2}\\exp\\left(-\\frac{1}{2}(x-\\mu)^T\\Sigma^{-1}(x-\\mu)\\right)$$
+
+    Natural parameters: $\\theta = (\\theta_1, \\theta_2)$ where:
+        $\\theta_1 = \\Sigma^{-1}\\mu$
+        $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$
+    Mean parameters: $\\eta = (\\eta_1, \\eta_2)$ where:
+        $\\eta_1 = \\mu$
+        $\\eta_2 = \\mu\\mu^T + \\Sigma$
     """
 
     dim: int
-    operator_type: str  # 'general', 'symmetric', 'posdef', 'diagonal', or 'scale'
     params: jnp.ndarray
     _param_type: Parameterization
-
-    @staticmethod
-    def parameter_count(dim: int, operator_type: str) -> int:
-        """Return number of parameters needed for given dimension and operator type."""
-        op = create_linear_map(jnp.eye(dim), operator_type)
-        return dim + op.parameter_count()
+    _operator_type: Type[LinearOperator]
 
     @classmethod
-    def from_source(
-        cls,
-        mean: jnp.ndarray,
-        covariance: Union[jnp.ndarray, float],
-        operator_type: str = "posdef",
+    def from_mean_and_covariance(
+        cls, mean: jnp.ndarray, covariance: LinearOperator
     ) -> "MultivariateGaussian":
-        """Create from source parameters with specified operator type."""
-        if operator_type not in ["symmetric", "posdef", "diagonal", "scale"]:
-            raise ValueError(f"Invalid operator type: {operator_type}")
-
-        dim = mean.shape[0]
-        operator = create_linear_map(covariance, operator_type)
-
-        # Compute natural parameters
-        precision = operator.inverse()
-        eta = precision @ mean
-        theta = -0.5 * precision.to_vector()
-        natural_params = jnp.concatenate([eta, theta])
-
-        expected_size = cls.parameter_count(dim, operator_type)
-        if len(natural_params) != expected_size:
-            raise ValueError(
-                f"Parameter dimension mismatch. Expected {expected_size}, got {len(natural_params)}"
-            )
-
         return cls(
-            dim=dim,
-            params=natural_params,
-            _param_type=Parameterization.NATURAL,
-            operator_type=operator_type,
+            dim=mean.shape[0],
+            params=jnp.concatenate([mean, covariance.params]),
+            _param_type=Parameterization.SOURCE,
+            _operator_type=type(covariance),
         )
 
+    def split_params(self) -> tuple[jnp.ndarray, LinearOperator]:
+        """Split parameters into vector and operator components."""
+        loc, scale_vec = self.params[: self.dim], self.params[self.dim :]
+        return loc, self._operator_type.from_matrix(scale_vec)
+
+    def split_vector_matrix(self) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Split parameters into vector and full matrix components."""
+        loc, operator = self.split_params()
+        if self._param_type == Parameterization.NATURAL:
+            return loc, rescale_precision_matrix(operator)
+        return loc, operator.matrix
+
     def sufficient_statistic(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Returns flat array of [x, vec(xx^T)]."""
-        if x.shape != (self.dim,):
-            raise ValueError(
-                f"Input shape {x.shape} does not match dimension {self.dim}"
-            )
-
-        outer_x = jnp.outer(x, x)
-        if self.operator_type in ["general", "symmetric", "posdef"]:
-            second_moment = symmetric_to_vector(outer_x)
-        elif self.operator_type == "diagonal":
-            second_moment = jnp.diag(outer_x)
-        else:  # scale
-            second_moment = jnp.array([jnp.mean(jnp.diag(outer_x))])
-
-        return jnp.concatenate([x, second_moment])
+        """Returns sufficient statistics $[x, \\text{vec}(xx^T)]$."""
+        second_moment = jnp.outer(x, x)
+        sym = Symmetric.from_matrix(second_moment)
+        return jnp.concatenate([x, sym.params])
 
     def log_base_measure(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Compute log base measure (constant)."""
+        """Compute log base measure.
+
+        $$h(x) = -\\frac{d}{2}\\log(2\\pi)$$
+        """
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
 
     def _compute_log_partition_function(
         self, natural_params: jnp.ndarray
     ) -> jnp.ndarray:
-        """Compute log partition function for natural parameters."""
-        eta = natural_params[: self.dim]
-        theta_vec = natural_params[self.dim :]
-        precision = create_linear_map(-2 * theta_vec, self.operator_type)
-        x = precision.inverse() @ eta
-        logdet = precision.logdet()
-        return 0.25 * jnp.dot(eta, x) - 0.5 * logdet
+        theta1, precision = natural_params[: self.dim], natural_params[self.dim :]
+        precision_op = self._operator_type.from_matrix(precision)
+        x = precision_op.inverse() @ theta1
+        return 0.25 * jnp.dot(theta1, x) - 0.5 * precision_op.logdet()
 
     def _compute_negative_entropy(self, mean_params: jnp.ndarray) -> jnp.ndarray:
-        """Compute negative entropy for mean parameters."""
-        mean = mean_params[: self.dim]
-        if self.operator_type in ["general", "symmetric", "posdef"]:
-            second_moment = vector_to_symmetric(mean_params[self.dim :], self.dim)
-        elif self.operator_type == "diagonal":
-            second_moment = jnp.diag(mean_params[self.dim :])
-        else:  # scale
-            second_moment = mean_params[self.dim] * jnp.eye(self.dim)
+        mean, second_moment = mean_params[: self.dim], mean_params[self.dim :]
+        second_moment_op = self._operator_type.from_matrix(second_moment)
+        covariance_op = second_moment_op - self._operator_type.outer_product(mean, mean)
+        return -0.5 * covariance_op.logdet() - 0.5 * self.dim * (
+            1 + jnp.log(2 * jnp.pi)
+        )
 
-        covariance = second_moment - jnp.outer(mean, mean)
-        cov_op = create_linear_map(covariance, self.operator_type)
-        return -0.5 * cov_op.logdet() - 0.5 * self.dim * (1 + jnp.log(2 * jnp.pi))
+    def to_mean(self) -> "MultivariateGaussian":
+        """Convert to mean parameters."""
+        if self._param_type == Parameterization.SOURCE:
+            mu, sigma = self.split_params()
+            second_moment = sigma.matrix + jnp.outer(mu, mu)
+            return replace(
+                self,
+                params=jnp.concatenate([mu, second_moment]),
+                _param_type=Parameterization.MEAN,
+            )
+
+        # If not source, rely on superclass method
+        return super().to_mean()
+
+    def to_natural(self) -> "MultivariateGaussian":
+        """Convert to natural parameters."""
+        if self._param_type == Parameterization.SOURCE:
+            self.to_mean().to_natural()
+
+        return super().to_natural()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -241,3 +251,22 @@ class Poisson(ClosedFormExponentialFamily):
         """Negative entropy is λ(log(λ) - 1)."""
         rate = mean_params[0]
         return rate * (jnp.log(rate) - 1)
+
+
+### Helper Functions ###
+
+
+def rescale_precision_matrix(precision: LinearOperator) -> jnp.ndarray:
+    """Rescale precision matrix for natural parameters.
+
+    For symmetric matrices with non-zero off-diagonal elements, halves those elements
+    to account for the fact that e.g. the interactions $x_1x_2$ and $x_2x_1$ are counted
+    only once in the minimal representation of natural parameters, but both are present
+    when using the precision matrix as a quadratic form.
+    """
+    if isinstance(precision, (Scale, Diagonal)):
+        return precision.matrix  # No off-diagonals to scale
+
+    matrix = precision.matrix
+    off_diag_mask = ~jnp.eye(matrix.shape[0], dtype=bool)
+    return matrix.at[off_diag_mask].divide(2)

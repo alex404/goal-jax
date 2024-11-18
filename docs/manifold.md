@@ -1,0 +1,3 @@
+# Manifolds
+
+::: goal.manifold
