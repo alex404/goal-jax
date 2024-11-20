@@ -26,10 +26,9 @@ from typing import Type, TypeVar
 
 import jax.numpy as jnp
 
-from goal.manifold import Manifold
-
 ### TypeVar Definitions ###
 
+LO = TypeVar("LO", bound="LinearOperator")
 S = TypeVar("S", bound="Square")
 SYM = TypeVar("SYM", bound="Symmetric")
 PD = TypeVar("PD", bound="PositiveDefinite")
@@ -40,7 +39,8 @@ ID = TypeVar("ID", bound="Identity")
 ### Classes ###
 
 
-class LinearOperator(Manifold, ABC):
+@dataclass(frozen=True)
+class LinearOperator(ABC):
     """Abstract base class for linear maps between vector spaces. A linear map $L: V \\mapsto W$ between vector spaces satisfies
         $L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$.
 
@@ -51,6 +51,20 @@ class LinearOperator(Manifold, ABC):
         - Uses JAX's array operations for efficiency
         - Supports vectorization via jit/vmap
     """
+
+    params: jnp.ndarray
+
+    def __add__(self: LO, other: LO) -> LO:
+        return type(self)(self.params + other.params)
+
+    def __sub__(self: LO, other: LO) -> LO:
+        return type(self)(self.params - other.params)
+
+    def __mul__(self: LO, scalar: float) -> LO:
+        return type(self)(scalar * self.params)
+
+    def __rmul__(self: LO, scalar: float) -> LO:
+        return self.__mul__(scalar)
 
     @abstractmethod
     def matvec(self, v: jnp.ndarray) -> jnp.ndarray:

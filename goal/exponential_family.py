@@ -1,49 +1,58 @@
-"""Core definitions for exponential families and their parameterizations."""
+"""Core definitions for exponential families and their parameterizations.
 
-import logging
+This module defines the structure of exponential families and their various
+parameter spaces, with a focus on the dually flat structure arising from
+convex conjugacy between the log partition function and negative entropy.
+"""
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
-from enum import Enum, auto
-from typing import Type, TypeVar
+from dataclasses import dataclass
+from typing import TypeVar
 
 import jax
 import jax.numpy as jnp
 from jax._src.prng import PRNGKeyArray
 
-from goal.manifold import Manifold
-
-### TypeVars ###
+from goal.manifold import Coordinates, Manifold, Point
 
 
+# Coordinate systems for exponential families
+class Natural(Coordinates):
+    """Natural parameters $\\theta \\in \\Theta$ defining an exponential family through:
+
+    $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
+    """
+
+    pass
+
+
+class Mean(Coordinates):
+    """Mean parameters $\\eta \\in \\text{H}$ given by expectations of sufficient statistics:
+
+    $$\\eta = \\mathbb{E}_{p(x;\\theta)}[\\mathbf s(x)]$$
+    """
+
+    pass
+
+
+class Source(Coordinates):
+    """Source parameters $\\omega \\in \\Omega$ representing conventional parameterizations."""
+
+    pass
+
+
+# Type variables for exponential family types
 EF = TypeVar("EF", bound="ExponentialFamily")
 DEF = TypeVar("DEF", bound="DifferentiableExponentialFamily")
 CFEF = TypeVar("CFEF", bound="ClosedFormExponentialFamily")
 
-### Core Definitions ###
-
-
-class Parameterization(Enum):
-    """Standard parameter spaces for exponential families:
-
-    * NATURAL: Natural parameters $\\theta \\in \\Theta$
-    * MEAN: Mean parameters $\\eta \\in \\text{H}$
-    * SOURCE: Source parameters $\\omega \\in \\Omega$
-
-    The source parameterization to represent the conventional parameters of a distribution e.g. mean and covariance of a Gaussian.
-
-    """
-
-    NATURAL = auto()
-    MEAN = auto()
-    SOURCE = auto()
-
 
 @dataclass(frozen=True)
 class ExponentialFamily(Manifold, ABC):
-    """Base class for exponential families.
+    """Base manifold class for exponential families.
 
-    An exponential family is a family of probability distributions whose density
-    has the form:
+    An exponential family is a manifold of probability distributions with densities
+    of the form:
 
     $$
     p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
@@ -51,67 +60,62 @@ class ExponentialFamily(Manifold, ABC):
 
     where:
 
-    * $\\theta \\in \\Theta$ are the natural parameters
-    * $\\mathbf s(x)$ is the sufficient statistic
-    * $\\mu(x)$ is the base measure
-    * $\\psi(\\theta)$ is the log partition function
+    * $\\theta \\in \\Theta$ are the natural parameters,
+    * $\\mathbf s(x)$ is the sufficient statistic,
+    * $\\mu(x)$ is the base measure, and
+    * $\\psi(\\theta)$ is the log partition function.
+
+    The manifold structure includes:
+
+    * Dimension of the parameter space
+    * Maps between coordinate systems (Natural, Mean, Source)
+    * Operations valid in each coordinate system
     """
 
-    parameterization: Parameterization
-
-    @classmethod
     @abstractmethod
-    def _compute_sufficient_statistic(
-        cls: Type[EF], x: jnp.ndarray, **hyperparams
-    ) -> jnp.ndarray:
-        """Convert point to sufficient statistics (flat array). This is the internal implementation."""
-        ...
-
-    @classmethod
-    def sufficient_statistic(cls: Type[EF], x: jnp.ndarray, **hyperparams) -> EF:
-        """Convert point to sufficient statistics.
-
-        Maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in the mean parameter space, where:
-
-        $$
-        \\mathbf s: \\mathcal{X} \\mapsto \\text{H}
-        $$
+    def _compute_sufficient_statistic(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Internal method to compute sufficient statistics.
 
         Args:
             x: Array of shape (*data_dims) containing a single observation
-            **hyperparams: Additional parameters for the distribution
-        Returns:
-            Mean coordinates of the sufficient statistics of x
-        """
-        return cls(
-            params=cls._compute_sufficient_statistic(x, **hyperparams),
-            parameterization=Parameterization.MEAN,
-            **hyperparams,
-        )
 
-    @classmethod
-    def average_sufficient_statistic(
-        cls: Type[EF], xs: jnp.ndarray, **hyperparams
-    ) -> "EF":
-        """Take average of the sufficient statistics of a batch of observations.
+        Returns:
+            Array of sufficient statistics
+        """
+        pass
+
+    def sufficient_statistic(self: EF, x: jnp.ndarray) -> Point[Mean, EF]:
+        """Convert observation to sufficient statistics.
+
+        Maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in mean coordinates:
+
+        $$\\mathbf s: \\mathcal{X} \\mapsto \\text{H}$$
+
+        Args:
+            x: Array of shape (*data_dims) containing a single observation
+
+        Returns:
+            Mean coordinates of the sufficient statistics
+        """
+        return Point(self._compute_sufficient_statistic(x), self)
+
+    def average_sufficient_statistic(self: EF, xs: jnp.ndarray) -> Point[Mean, EF]:
+        """Average sufficient statistics of a batch of observations.
 
         Args:
             xs: Array of shape (batch_size, *data_dims) containing observations
-            **hyperparams: Additional parameters for the distribution
 
         Returns:
-            Mean coordinates corresponding of the average sufficient statistics of xs
+            Mean coordinates of average sufficient statistics
         """
-        batch_sufficient_stats = jax.vmap(cls.sufficient_statistic)(xs)
-        avg_params = jnp.mean(batch_sufficient_stats.params, axis=0)
-        return cls(
-            params=avg_params, parameterization=Parameterization.MEAN, **hyperparams
-        )
+        batch_stats = jax.vmap(self.sufficient_statistic)(xs)
+        avg_params = jnp.mean(batch_stats.params, axis=0)
+        return Point(avg_params, self)
 
     @abstractmethod
     def log_base_measure(self, x: jnp.ndarray) -> jnp.ndarray:
         """Compute log of base measure $\\mu(x)$."""
-        ...
+        pass
 
 
 @dataclass(frozen=True)
@@ -124,7 +128,7 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
     \\psi(\\theta) = \\log \\int_{\\mathcal{X}} \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x))dx
     $$
 
-    The gradient of $\\psi(\\theta)$ gives the mean parameters:
+    Its gradient gives the mean parameters:
 
     $$
     \\eta = \\nabla \\psi(\\theta) = \\mathbb{E}_{p(x;\\theta)}[\\mathbf s(x)]
@@ -135,53 +139,30 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
     def _compute_log_partition_function(
         self, natural_params: jnp.ndarray
     ) -> jnp.ndarray:
-        """Compute log partition function $\\psi(\\theta)$ for given natural parameters."""
+        """Internal method to compute $\\psi(\\theta)$."""
         pass
 
-    def log_partition_function(self) -> jnp.ndarray:
-        """Log partition function $\\psi(\\theta)$ evaluated at current parameters.
+    def log_partition_function(self: DEF, p: Point[Natural, DEF]) -> jnp.ndarray:
+        """Compute log partition function $\\psi(\\theta)$."""
+        return self._compute_log_partition_function(p.params)
 
-        Note:
-            Must be called in natural parameterization.
-        """
-        if self.parameterization != Parameterization.NATURAL:
-            raise ValueError("Log partition function requires natural parameters")
-        return self._compute_log_partition_function(self.params)
+    def to_mean(self: DEF, p: Point[Natural, DEF]) -> Point[Mean, DEF]:
+        """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
+        mean_params = jax.grad(self._compute_log_partition_function)(p.params)
+        return Point(mean_params, self)
 
-    def to_mean(self: DEF) -> "DEF":
-        """Convert to mean parameterization $\\eta = \\nabla \\psi(\\theta)$.
-
-        The mean parameters are obtained by differentiating the log partition function:
-
-        $$
-        \\eta = \\nabla \\psi(\\theta)
-        $$
-
-        This relationship follows from the fact that $\\psi(\\theta)$ is the cumulant generating
-        function of the sufficient statistics.
-        """
-        if self.parameterization == Parameterization.MEAN:
-            logging.warning("Already in mean coordinates")
-            return self
-        mean_params = jax.grad(self._compute_log_partition_function)(self.params)
-        return replace(self, params=mean_params, parameterization=Parameterization.MEAN)
-
-    def log_density(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Compute log density at point $x$.
+    def log_density(self: DEF, p: Point[Natural, DEF], x: jnp.ndarray) -> jnp.ndarray:
+        """Compute log density at x.
 
         $$
         \\log p(x;\\theta) = \\theta \\cdot \\mathbf s(x) + \\log \\mu(x) - \\psi(\\theta)
         $$
-
-        Note:
-            Must be called in natural parameterization.
         """
-        if self.parameterization != Parameterization.NATURAL:
-            raise ValueError("Log density requires natural parameters")
+        suff_stats = self.sufficient_statistic(x)
         return (
-            jnp.dot(self.params, self.sufficient_statistic(x).params)
+            jnp.dot(p.params, suff_stats.params)
             + self.log_base_measure(x)
-            - self.log_partition_function()
+            - self.log_partition_function(p)
         )
 
 
@@ -189,8 +170,8 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
 class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
     """Exponential family with closed form entropy and parameter conversions.
 
-    For many common exponential families, the entropy has a closed form in terms
-    of the mean parameters. The negative entropy is the convex conjugate of the
+    For many exponential families, the entropy has a closed form in terms
+    of mean parameters. The negative entropy is the convex conjugate of the
     log partition function:
 
     $$
@@ -206,64 +187,39 @@ class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
     $$
     \\eta = \\nabla \\psi(\\theta)
     $$
-
-    This duality allows efficient conversion between parameterizations.
     """
 
     @abstractmethod
     def _compute_negative_entropy(self, mean_params: jnp.ndarray) -> jnp.ndarray:
-        """Compute negative entropy for given mean parameters."""
+        """Internal method to compute $-\\text{H}(\\eta)$."""
         pass
 
-    def negative_entropy(self) -> jnp.ndarray:
-        """Compute negative entropy at current parameters.
+    def negative_entropy(self: CFEF, p: Point[Mean, CFEF]) -> jnp.ndarray:
+        """Compute negative entropy $-\\text{H}(\\eta)$."""
+        return self._compute_negative_entropy(p.params)
 
-        Note:
-            Must be called in mean parameterization.
-        """
-        if self.parameterization != Parameterization.MEAN:
-            raise ValueError("Negative entropy requires mean parameters")
-        return self._compute_negative_entropy(self.params)
-
-    def to_natural(self: CFEF) -> "CFEF":
-        """Convert to natural parameterization $\\theta = \\nabla(-\\text{H}(\\eta))$.
-
-        The natural parameters are obtained by differentiating the negative entropy:
-
-        $$
-        \\theta = \\nabla(-\\text{H}(\\eta))
-        $$
-
-        This relationship follows from the convex duality between the log partition
-        function and the negative entropy.
-        """
-        if self.parameterization == Parameterization.NATURAL:
-            logging.warning("Already in natural coordinates")
-            return self
-        natural_params = jax.grad(self._compute_negative_entropy)(self.params)
-        return replace(
-            self, params=natural_params, parameterization=Parameterization.NATURAL
-        )
+    def to_natural(self: CFEF, p: Point[Mean, CFEF]) -> Point[Natural, CFEF]:
+        """Convert mean to natural parameters via $\\theta = \\nabla(-\\text{H}(\\eta))$."""
+        natural_params = jax.grad(self._compute_negative_entropy)(p.params)
+        return Point(natural_params, self)
 
 
 class Generative(ABC):
-    """Adds sampling capabilities to probability distributions.
+    """Mixin for distributions that support random sampling.
 
-    This mixin class provides an interface for generating random samples from
-    probability distributions. It is designed to work with JAX's random number
-    generation system.
+    Designed to work with JAX's random number generation system.
     """
 
     @abstractmethod
-    def sample(self, key: PRNGKeyArray, n: int = 1) -> jnp.ndarray:
+    def sample(self, p: Point, key: PRNGKeyArray, n: int = 1) -> jnp.ndarray:
         """Generate random samples from the distribution.
 
         Args:
-            key: JAX random key for random number generation
+            p: Parameters of the distribution
+            key: JAX random key
             n: Number of samples to generate (default=1)
 
         Returns:
-            Array of samples. If n=1, shape is event_shape.
-            Otherwise shape is (n, *event_shape).
+            Array of shape (n, *event_shape) containing samples
         """
         pass

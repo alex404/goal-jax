@@ -1,44 +1,81 @@
-"""Core definitions for parameterized objects. A manifold is a space that can be parameterized by a flat vector of real numbers."""
+"""Core definitions for parameterized objects and their geometry.
 
-from abc import ABC
+A manifold is a space that can be parameterized by coordinates in R^n. Points on
+the manifold are represented by their coordinates in a particular coordinate system.
+"""
+
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Generic, TypeVar
 
 import jax.numpy as jnp
 
+
+# Coordinate system types
+class Coordinates:
+    """Base class for coordinate system type markers."""
+
+    pass
+
+
+# Type variables
+C = TypeVar("C", bound=Coordinates)
 M = TypeVar("M", bound="Manifold")
 
 
 @dataclass(frozen=True)
-class Manifold(ABC):
-    """A class that represents both a mathematical manifold $\\mathcal M$ and a point $p \\in \\mathcal M$ on that manifold.
+class Point(Generic[C, M]):
+    """A point p in a manifold M represented in coordinate system C.
 
-    A manifold is a topological space that locally resembles Euclidean space and supports
-    calculus. Points on the manifold are represented by coordinates in $\\mathbb{R}^n$ through charts.
+    A point is defined by its coordinates in $\\mathbb R^n$ along with the manifold structure
+    that gives meaning to these coordinates. The coordinate system C determines what
+    operations are valid on the point.
 
-    As a manifold $\\mathcal M$, subclasses of this class may define:
-
-    - charts (parameterizations) giving local coordinates,
-    - transition maps between different charts, or
-    - the tangent bundle at a particular point.
-
-    As a point $p \\in \\mathcal M$, instances of this class contain `params` that represent the coordinates of the point in $\\mathbb{R}^n$.
+    Args:
+        params: Coordinates of the point in $\\mathbb R^n$
+        manifold: The manifold this point belongs to, containing the geometric structure
     """
 
     params: jnp.ndarray
+    manifold: M
 
-    def dimension(self) -> int:
-        """Return dimension of the parameter space."""
-        return len(self.params)
+    def __add__(self, other: "Point[C, M]") -> "Point[C, M]":
+        """Add points in the same coordinate system."""
+        assert self.manifold == other.manifold
+        return Point(self.params + other.params, self.manifold)
 
-    def __add__(self: M, other: M) -> M:
-        return type(self)(self.params + other.params)
+    def __sub__(self, other: "Point[C, M]") -> "Point[C, M]":
+        """Subtract points in the same coordinate system."""
+        assert self.manifold == other.manifold
+        return Point(self.params - other.params, self.manifold)
 
-    def __sub__(self: M, other: M) -> M:
-        return type(self)(self.params - other.params)
+    def __mul__(self, scalar: float) -> "Point[C, M]":
+        """Scalar multiplication in coordinate space."""
+        return Point(scalar * self.params, self.manifold)
 
-    def __mul__(self: M, scalar: float) -> M:
-        return type(self)(scalar * self.params)
-
-    def __rmul__(self: M, scalar: float) -> M:
+    def __rmul__(self, scalar: float) -> "Point[C, M]":
+        """Right scalar multiplication in coordinate space."""
         return self.__mul__(scalar)
+
+
+@dataclass(frozen=True)
+class Manifold(ABC):
+    """A manifold $\\mathcal M$ with associated geometric structure.
+
+    A manifold is a topological space that locally resembles Euclidean space and supports
+    calculus. The manifold defines the geometric structure including:
+
+    - Dimension of the parameter space
+    - Valid coordinate systems/charts
+    - Transition maps between coordinate systems
+    - Geometric operations like metrics and geodesics
+
+    Manifolds are immutable and define operations on points rather than containing
+    point data themselves.
+    """
+
+    @property
+    @abstractmethod
+    def dim(self) -> int:
+        """Return dimension of the parameter space."""
+        pass
