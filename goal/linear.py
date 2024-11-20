@@ -22,10 +22,22 @@ Notes:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Type, TypeVar
 
 import jax.numpy as jnp
 
 from goal.manifold import Manifold
+
+### TypeVar Definitions ###
+
+S = TypeVar("S", bound="Square")
+SYM = TypeVar("SYM", bound="Symmetric")
+PD = TypeVar("PD", bound="PositiveDefinite")
+D = TypeVar("D", bound="Diagonal")
+SC = TypeVar("SC", bound="Scale")
+ID = TypeVar("ID", bound="Identity")
+
+### Classes ###
 
 
 class LinearOperator(Manifold, ABC):
@@ -48,11 +60,6 @@ class LinearOperator(Manifold, ABC):
     @abstractmethod
     def transpose(self) -> "LinearOperator":
         """Transpose of the linear map."""
-        pass
-
-    @abstractmethod
-    def parameter_count(self) -> int:
-        """Number of parameters needed to represent the map."""
         pass
 
     @abstractmethod
@@ -93,10 +100,8 @@ class Square(LinearOperator):
     """Arbitrary square matrices $A \\in \\mathbb R^{n \\times n}$.
 
     Properties:
-
         - LU decomposition used for determinant/inverse
         - Parameterized by full matrix
-
     """
 
     def matvec(self, v: jnp.ndarray) -> jnp.ndarray:
@@ -108,27 +113,32 @@ class Square(LinearOperator):
     def transpose(self) -> "Square":
         return Square(self.matrix.T)
 
-    def parameter_count(self) -> int:
-        return self.matrix.size
-
     def logdet(self) -> jnp.ndarray:
         return jnp.linalg.slogdet(self.matrix)[1]
+
+    @property
+    def side_length(self) -> int:
+        return self.params.shape[0]
 
     @property
     def matrix(self) -> jnp.ndarray:
         return self.params
 
     @classmethod
-    def from_matrix(cls, matrix: jnp.ndarray) -> "Square":
+    def from_matrix(cls: Type[S], matrix: jnp.ndarray) -> S:
         return cls(matrix)
 
     @classmethod
-    def outer_product(cls, v1: jnp.ndarray, v2: jnp.ndarray) -> "Square":
+    def outer_product(cls: Type[S], v1: jnp.ndarray, v2: jnp.ndarray) -> S:
         return cls(jnp.outer(v1, v2))
+
+    @classmethod
+    def from_params(cls: Type[S], params: jnp.ndarray, dim: int) -> S:
+        return cls(params)
 
 
 @dataclass(frozen=True)
-class Symmetric(LinearOperator):
+class Symmetric(Square):
     """Represents matrices $A$ where $A = A^{T}$.
 
     Properties:
@@ -138,52 +148,53 @@ class Symmetric(LinearOperator):
     """
 
     def matvec(self, v: jnp.ndarray) -> jnp.ndarray:
-        """Matrix-vector product using vectorized operations."""
-        # Reconstruct matrix using vectorized operations
-        matrix = _expand_triangular(self.params)
-        return jnp.dot(matrix, v)
+        return jnp.dot(self.matrix, v)
 
-    def transpose(self) -> "Symmetric":
+    def transpose(self: SYM) -> SYM:
         return self
 
-    def parameter_count(self) -> int:
-        return self.params.size
+    @property
+    def side_length(self) -> int:
+        return int((jnp.sqrt(1 + 8 * self.params.size) - 1) / 2)
 
     def logdet(self) -> jnp.ndarray:
-        matrix = _expand_triangular(self.params)
-        return jnp.linalg.slogdet(matrix)[1]
+        return jnp.linalg.slogdet(self.matrix)[1]
 
-    def inverse(self) -> "Symmetric":
-        """Compute inverse."""
-        matrix = _expand_triangular(self.params)
+    def inverse(self: SYM) -> SYM:
+        matrix = self.matrix
         inv = jnp.linalg.inv(matrix)
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return Symmetric(inv[i_upper])
+        return type(self)(inv[i_upper])
 
     @property
     def matrix(self) -> jnp.ndarray:
-        n = self.params.size
+        """Expand vector of upper triangular elements to symmetric matrix."""
+        vec = self.params
+        n = vec.size
         dim = int((jnp.sqrt(1 + 8 * n) - 1) / 2)
         matrix = jnp.zeros((dim, dim))
         i_upper = jnp.triu_indices(dim)
-        matrix = matrix.at[i_upper].set(self.params)
+        matrix = matrix.at[i_upper].set(vec)
         return matrix + jnp.triu(matrix, k=1).T
 
     @classmethod
-    def from_matrix(cls, matrix: jnp.ndarray) -> "Symmetric":
+    def from_matrix(cls: Type[SYM], matrix: jnp.ndarray) -> SYM:
         i_upper = jnp.triu_indices(matrix.shape[0])
         return cls(matrix[i_upper])
 
     @classmethod
-    def outer_product(cls, v1: jnp.ndarray, v2: jnp.ndarray) -> "Symmetric":
-        """Create symmetric matrix from outer product."""
+    def outer_product(cls: Type[SYM], v1: jnp.ndarray, v2: jnp.ndarray) -> SYM:
         matrix = jnp.outer(v1, v2)
         i_upper = jnp.triu_indices(matrix.shape[0])
         return cls(matrix[i_upper])
 
+    @classmethod
+    def from_params(cls: Type[SYM], params: jnp.ndarray, dim: int) -> SYM:
+        return cls(params)
+
 
 @dataclass(frozen=True)
-class PositiveDefinite(LinearOperator):
+class PositiveDefinite(Symmetric):
     """Symmetric positive definite matrix operator. Mathematical Definition where $A$ satisfies
         $x^T A x > 0, \\forall x \\neq 0$
 
@@ -192,184 +203,128 @@ class PositiveDefinite(LinearOperator):
         - Unique Cholesky decomposition $A = LL^T$
         - Inverse exists and is positive definite
         - Parameterized by upper triangular elements
-
-    Implementation:
-        Stores both upper triangular elements and Cholesky factor
     """
 
-    _chol: jnp.ndarray  # Lower triangular Cholesky factor for computation
-
     def matvec(self, v: jnp.ndarray) -> jnp.ndarray:
-        """Matrix-vector product using Cholesky factor for efficiency."""
-        return self._chol @ (self._chol.T @ v)
+        chol = self.cholesky
+        return chol @ (chol.T @ v)
 
-    def transpose(self) -> "PositiveDefinite":
+    def transpose(self: PD) -> PD:
         return self
 
-    def parameter_count(self) -> int:
-        return self.params.size
+    def inverse(self: PD) -> PD:
+        inv_chol = jnp.linalg.inv(self.cholesky)
+        return self.from_cholesky(inv_chol.T)
 
     def logdet(self) -> jnp.ndarray:
         """Compute logdet using Cholesky factor."""
-        return 2.0 * jnp.sum(jnp.log(jnp.diag(self._chol)))
-
-    def inverse(self) -> "PositiveDefinite":
-        """Compute inverse via Cholesky decomposition."""
-        inv_chol = jnp.linalg.inv(self._chol)
-        # The transpose of inv_chol is the Cholesky factor of the inverse
-        return PositiveDefinite.from_cholesky(inv_chol.T)
-
-    @classmethod
-    def from_cholesky(cls, chol: jnp.ndarray) -> "PositiveDefinite":
-        """Create from Cholesky factor."""
-        matrix = chol @ chol.T
-        i_upper = jnp.triu_indices(matrix.shape[0])
-        return cls(matrix[i_upper], chol)
+        return 2.0 * jnp.sum(jnp.log(jnp.diag(self.cholesky)))
 
     @property
     def cholesky(self) -> jnp.ndarray:
-        return self._chol
-
-    @property
-    def matrix(self) -> jnp.ndarray:
-        return self._chol @ self._chol.T
+        """Compute Cholesky decomposition."""
+        return jnp.linalg.cholesky(self.matrix)
 
     @classmethod
-    def from_matrix(cls, matrix: jnp.ndarray) -> "PositiveDefinite":
-        chol = jnp.linalg.cholesky(matrix)
+    def from_cholesky(cls: Type[PD], chol: jnp.ndarray) -> PD:
+        matrix = chol @ chol.T
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return cls(matrix[i_upper], chol)
+        return cls(matrix[i_upper])
 
     @classmethod
-    def outer_product(cls, v1: jnp.ndarray, v2: jnp.ndarray) -> "PositiveDefinite":
-        """Create positive definite matrix from outer product."""
+    def from_matrix(cls: Type[PD], matrix: jnp.ndarray) -> PD:
+        i_upper = jnp.triu_indices(matrix.shape[0])
+        return cls(matrix[i_upper])
+
+    @classmethod
+    def outer_product(cls: Type[PD], v1: jnp.ndarray, v2: jnp.ndarray) -> PD:
         matrix = jnp.outer(v1, v2)
         i_upper = jnp.triu_indices(matrix.shape[0])
-        chol = jnp.linalg.cholesky(matrix)  # This might fail if not PD
-        return cls(matrix[i_upper], chol)
+        return cls(matrix[i_upper])
+
+    @classmethod
+    def from_params(cls: Type[PD], params: jnp.ndarray, dim: int) -> PD:
+        return cls(params)
 
 
 @dataclass(frozen=True)
-class Diagonal(LinearOperator):
+class Diagonal(PositiveDefinite):
     """Diagonal matrix operator."""
 
     def matvec(self, v: jnp.ndarray) -> jnp.ndarray:
-        """Matrix-vector product (elementwise multiply)."""
         return self.params * v
 
-    def transpose(self) -> "Diagonal":
-        return self
-
-    def parameter_count(self) -> int:
-        return self.params.size
-
-    def logdet(self) -> jnp.ndarray:
-        return jnp.sum(jnp.log(self.params))
-
-    def inverse(self) -> "Diagonal":
-        return Diagonal(1.0 / self.params)
-
-    @property
-    def cholesky(self) -> jnp.ndarray:
-        return jnp.diag(jnp.sqrt(self.params))
+    def inverse(self: D) -> D:
+        return type(self)(1.0 / self.params)
 
     @property
     def matrix(self) -> jnp.ndarray:
         return jnp.diag(self.params)
 
+    @property
+    def cholesky(self) -> jnp.ndarray:
+        return jnp.diag(jnp.sqrt(self.params))
+
     @classmethod
-    def from_matrix(cls, matrix: jnp.ndarray) -> "Diagonal":
+    def from_matrix(cls: Type[D], matrix: jnp.ndarray) -> D:
         return cls(jnp.diag(matrix))
 
     @classmethod
-    def outer_product(cls, v1: jnp.ndarray, v2: jnp.ndarray) -> "Diagonal":
-        """Create diagonal matrix from element-wise product."""
+    def outer_product(cls: Type[D], v1: jnp.ndarray, v2: jnp.ndarray) -> D:
         return cls(v1 * v2)
+
+    @classmethod
+    def from_params(cls: Type[D], params: jnp.ndarray, dim: int) -> D:
+        return cls(params)
 
 
 @dataclass(frozen=True)
-class Scale(LinearOperator):
+class Scale(Diagonal):
     """Scalar multiple of identity matrix."""
 
-    _dim: int
-
-    def matvec(self, v: jnp.ndarray) -> jnp.ndarray:
-        return self.params * v
-
-    def transpose(self) -> "Scale":
-        return self
-
-    def parameter_count(self) -> int:
-        return 1
+    _side_length: int
 
     def logdet(self) -> jnp.ndarray:
-        return self._dim * jnp.log(self.params)
+        return self._side_length * jnp.log(self.params)
 
-    def inverse(self) -> "Scale":
-        return Scale(1.0 / self.params, self._dim)
-
-    @property
-    def cholesky(self) -> jnp.ndarray:
-        return jnp.sqrt(self.params) * jnp.eye(self._dim)
+    def inverse(self: SC) -> SC:
+        return type(self)(1.0 / self.params, self._side_length)
 
     @property
     def matrix(self) -> jnp.ndarray:
-        return self.params * jnp.eye(self._dim)
+        return self.params * jnp.eye(self._side_length)
 
     @classmethod
-    def from_matrix(cls, matrix: jnp.ndarray) -> "Scale":
-        """Create scale matrix using average of diagonal."""
+    def from_matrix(cls: Type[SC], matrix: jnp.ndarray) -> SC:
         return cls(jnp.mean(jnp.diag(matrix)), matrix.shape[0])
 
     @classmethod
-    def outer_product(cls, v1: jnp.ndarray, v2: jnp.ndarray) -> "Scale":
-        """Create scale matrix using average of element-wise product."""
+    def outer_product(cls: Type[SC], v1: jnp.ndarray, v2: jnp.ndarray) -> SC:
         return cls(jnp.mean(v1 * v2), v1.shape[0])
 
+    @classmethod
+    def from_params(cls: Type[SC], params: jnp.ndarray, dim: int) -> SC:
+        return cls(params, dim)
 
-@dataclass
-class Identity(LinearOperator):
+
+@dataclass(frozen=True)
+class Identity(Scale):
     """Identity operator."""
-
-    _dim: int
 
     def matvec(self, v: jnp.ndarray) -> jnp.ndarray:
         return v
 
-    def transpose(self) -> "Identity":
-        return self
-
-    def parameter_count(self) -> int:
-        return 0
-
-    def to_vector(self) -> jnp.ndarray:
-        return jnp.array([])
-
     def logdet(self) -> jnp.ndarray:
         return jnp.array(0.0)
 
-    def inverse(self) -> "Identity":
-        return self
-
-    @property
-    def matrix(self) -> jnp.ndarray:
-        return jnp.eye(self._dim)
-
     @classmethod
-    def from_matrix(cls, matrix: jnp.ndarray) -> "Identity":
+    def from_matrix(cls: Type[ID], matrix: jnp.ndarray) -> ID:
         return cls(jnp.array([]), matrix.shape[0])
 
     @classmethod
-    def outer_product(cls, v1: jnp.ndarray, v2: jnp.ndarray) -> "Identity":
-        """Create identity matrix (ignores inputs)."""
+    def outer_product(cls: Type[ID], v1: jnp.ndarray, v2: jnp.ndarray) -> ID:
         return cls(jnp.array([]), v1.shape[0])
 
-
-def _expand_triangular(vec: jnp.ndarray) -> jnp.ndarray:
-    """Expand vector of upper triangular elements to symmetric matrix."""
-    n = vec.size
-    dim = int((jnp.sqrt(1 + 8 * n) - 1) / 2)
-    matrix = jnp.zeros((dim, dim))
-    i_upper = jnp.triu_indices(dim)
-    matrix = matrix.at[i_upper].set(vec)
-    return matrix + jnp.triu(matrix, k=1).T
+    @classmethod
+    def from_params(cls: Type[ID], params: jnp.ndarray, dim: int) -> ID:
+        return cls(jnp.array([]), dim)

@@ -11,49 +11,35 @@ import numpy as np
 from scipy import stats
 
 from goal.distributions import Categorical, MultivariateGaussian, Poisson
-from goal.exponential_family import ParameterType
-from goal.linear import vector_to_symmetric
+from goal.exponential_family import Parameterization
+from goal.linear import PositiveDefinite
 
 
 def test_gaussian(ax, mu: float = 2.0, sigma: float = 1.5) -> MultivariateGaussian:
     """Test univariate Gaussian distribution and plot results."""
     # Create distribution
     mu_arr = jnp.array([mu])
-    sigma_arr = jnp.array([[sigma**2]])
+    covariance = PositiveDefinite.from_params(jnp.array([sigma**2]), dim=1)
 
     print("Parameter shapes:")
     print(f"Mean shape: {mu_arr.shape}")
-    print(f"Covariance shape: {sigma_arr.shape}")
+    print(f"Covariance shape: {covariance.matrix.shape}")
 
-    gaussian = MultivariateGaussian.from_source(
-        mean=mu_arr, covariance=sigma_arr, operator_type="posdef"
-    )
+    gaussian = MultivariateGaussian.from_mean_and_covariance(mu_arr, covariance)
+    nat_gaussian = gaussian.to_natural()
+    loc, precision = nat_gaussian.split_matrix()
 
-    nat_params = gaussian.to_natural().params
     print("\nNatural parameters:")
-    print(f"Natural parameter shape: {nat_params.shape}")
-    print(f"Parameters: {nat_params}")
-
-    dim = gaussian.dim
-    eta = nat_params[:dim]
-    theta_vec = nat_params[dim:]
-
-    print("\nParameter components:")
-    print(f"eta shape: {eta.shape}")
-    print(f"theta_vec shape: {theta_vec.shape}")
-
-    if theta_vec.size == 1:
-        theta_mat = jnp.array([[theta_vec[0]]])
-    else:
-        theta_mat = vector_to_symmetric(-2 * theta_vec, dim)
-
-    print(f"Reconstructed precision matrix shape: {theta_mat.shape}")
+    print(f"Precision weighted mean: {loc}")
+    print(f"Precision matrix: {precision}")
 
     # Generate points for plotting
     x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
-    x_points = jnp.array([[xi] for xi in x])  # Correct - creates a list first
+    x_points = [jnp.array([xi]) for xi in x]  # Each x as a 1D array
 
-    our_densities = jnp.exp(jnp.array([gaussian.log_density(xi) for xi in x_points]))
+    our_densities = jnp.exp(
+        jnp.array([nat_gaussian.log_density(xi) for xi in x_points])
+    )
     scipy_densities = stats.norm.pdf(x, loc=mu, scale=sigma)
 
     ax.plot(x, our_densities, "b-", label="Implementation")
@@ -79,7 +65,6 @@ def test_categorical(ax, probs=None) -> Categorical:
     if probs is None:
         probs = jnp.array([0.1, 0.2, 0.4, 0.2, 0.1])
 
-    # Create distribution in natural coordinates
     categorical = Categorical.from_source(probs[:-1])
     nat_categorical = categorical.to_natural()
 
@@ -125,7 +110,6 @@ def test_poisson(ax, rate: float = 5.0) -> Poisson:
     Returns:
         The created Poisson instance
     """
-    # Create distribution in natural coordinates
     poisson = Poisson.from_source(rate)
     nat_poisson = poisson.to_natural()
 
@@ -159,7 +143,7 @@ def test_coordinate_transforms(dist, test_point: jnp.ndarray, dist_name: str):
     print(f"Test point shape: {test_point.shape}")
 
     # Convert to natural coordinates if needed
-    if dist._param_type != ParameterType.NATURAL:
+    if dist.parameterization != Parameterization.NATURAL:
         dist = dist.to_natural()
 
     natural_form = dist
@@ -192,9 +176,7 @@ def main():
 
         # Test coordinate transforms with proper shapes
         print("\n=== Testing Coordinate Transforms ===")
-        test_coordinate_transforms(
-            gaussian, jnp.array([1.5]), "Gaussian"
-        )  # Changed shape
+        test_coordinate_transforms(gaussian, jnp.array([1.5]), "Gaussian")
         test_coordinate_transforms(categorical, jnp.array([2]), "Categorical")
         test_coordinate_transforms(poisson, jnp.array([3]), "Poisson")
 

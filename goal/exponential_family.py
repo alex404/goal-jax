@@ -4,25 +4,38 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from enum import Enum, auto
-from typing import TypeVar
+from typing import Type, TypeVar
 
 import jax
 import jax.numpy as jnp
+from jax._src.prng import PRNGKeyArray
 
 from goal.manifold import Manifold
+
+### TypeVars ###
+
+
+EF = TypeVar("EF", bound="ExponentialFamily")
+DEF = TypeVar("DEF", bound="DifferentiableExponentialFamily")
+CFEF = TypeVar("CFEF", bound="ClosedFormExponentialFamily")
 
 ### Core Definitions ###
 
 
 class Parameterization(Enum):
-    """Parameter space representation."""
+    """Standard parameter spaces for exponential families:
+
+    * NATURAL: Natural parameters $\\theta \\in \\Theta$
+    * MEAN: Mean parameters $\\eta \\in \\text{H}$
+    * SOURCE: Source parameters $\\omega \\in \\Omega$
+
+    The source parameterization to represent the conventional parameters of a distribution e.g. mean and covariance of a Gaussian.
+
+    """
 
     NATURAL = auto()
     MEAN = auto()
     SOURCE = auto()
-
-
-EF = TypeVar("EF", bound="ExponentialFamily")
 
 
 @dataclass(frozen=True)
@@ -33,68 +46,88 @@ class ExponentialFamily(Manifold, ABC):
     has the form:
 
     $$
-    p(x; \\theta) = h(x)\\exp(\\langle\\theta, T(x)\\rangle - A(\\theta))
+    p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
     $$
 
     where:
+
     * $\\theta \\in \\Theta$ are the natural parameters
-    * $T(x)$ is the sufficient statistic
-    * $h(x)$ is the base measure
-    * $A(\\theta)$ is the log partition function
+    * $\\mathbf s(x)$ is the sufficient statistic
+    * $\\mu(x)$ is the base measure
+    * $\\psi(\\theta)$ is the log partition function
     """
 
     parameterization: Parameterization
 
+    @classmethod
     @abstractmethod
-    def sufficient_statistic(self: EF, x: jnp.ndarray) -> "EF":
-        """Convert point to sufficient statistics (flat array).
-
-        Maps a point x to its sufficient statistic T(x), where:
-
-        $$
-        T: \\mathcal{X} \\to \\mathbb{R}^d
-        $$
-        """
+    def _compute_sufficient_statistic(
+        cls: Type[EF], x: jnp.ndarray, **hyperparams
+    ) -> jnp.ndarray:
+        """Convert point to sufficient statistics (flat array). This is the internal implementation."""
         ...
 
-    @abstractmethod
-    def average_sufficient_statistic(self: EF, xs: jnp.ndarray) -> "EF":
-        """Compute mean sufficient statistics (MLE) from data.
+    @classmethod
+    def sufficient_statistic(cls: Type[EF], x: jnp.ndarray, **hyperparams) -> EF:
+        """Convert point to sufficient statistics.
+
+        Maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in the mean parameter space, where:
+
+        $$
+        \\mathbf s: \\mathcal{X} \\mapsto \\text{H}
+        $$
+
+        Args:
+            x: Array of shape (*data_dims) containing a single observation
+            **hyperparams: Additional parameters for the distribution
+        Returns:
+            Mean coordinates of the sufficient statistics of x
+        """
+        return cls(
+            params=cls._compute_sufficient_statistic(x, **hyperparams),
+            parameterization=Parameterization.MEAN,
+            **hyperparams,
+        )
+
+    @classmethod
+    def average_sufficient_statistic(
+        cls: Type[EF], xs: jnp.ndarray, **hyperparams
+    ) -> "EF":
+        """Take average of the sufficient statistics of a batch of observations.
 
         Args:
             xs: Array of shape (batch_size, *data_dims) containing observations
+            **hyperparams: Additional parameters for the distribution
 
         Returns:
-            An ExponentialFamily object in mean coordinates corresponding to
-            the average sufficient statistics of xs
+            Mean coordinates corresponding of the average sufficient statistics of xs
         """
-        batch_sufficient_stats = jax.vmap(self.sufficient_statistic)(xs)
+        batch_sufficient_stats = jax.vmap(cls.sufficient_statistic)(xs)
         avg_params = jnp.mean(batch_sufficient_stats.params, axis=0)
-        return replace(self, params=avg_params, parameterization=Parameterization.MEAN)
+        return cls(
+            params=avg_params, parameterization=Parameterization.MEAN, **hyperparams
+        )
 
     @abstractmethod
     def log_base_measure(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Compute log of base measure h(x)."""
+        """Compute log of base measure $\\mu(x)$."""
         ...
-
-
-DEF = TypeVar("DEF", bound="DifferentiableExponentialFamily")
 
 
 @dataclass(frozen=True)
 class DifferentiableExponentialFamily(ExponentialFamily, ABC):
     """Exponential family with differentiable log partition function.
 
-    The log partition function A(θ) is given by:
+    The log partition function $\\psi(\\theta)$ is given by:
 
     $$
-    A(\\theta) = \\log \\int_{\\mathcal{X}} h(x)\\exp(\\langle\\theta, T(x)\\rangle)dx
+    \\psi(\\theta) = \\log \\int_{\\mathcal{X}} \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x))dx
     $$
 
-    The gradient of A(θ) gives the mean parameters:
+    The gradient of $\\psi(\\theta)$ gives the mean parameters:
 
     $$
-    \\eta = \\nabla A(\\theta) = \\mathbb{E}_{p(x;\\theta)}[T(x)]
+    \\eta = \\nabla \\psi(\\theta) = \\mathbb{E}_{p(x;\\theta)}[\\mathbf s(x)]
     $$
     """
 
@@ -102,11 +135,11 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
     def _compute_log_partition_function(
         self, natural_params: jnp.ndarray
     ) -> jnp.ndarray:
-        """Compute log partition function A(θ) for given natural parameters."""
+        """Compute log partition function $\\psi(\\theta)$ for given natural parameters."""
         pass
 
     def log_partition_function(self) -> jnp.ndarray:
-        """Log partition function A(θ) evaluated at current parameters.
+        """Log partition function $\\psi(\\theta)$ evaluated at current parameters.
 
         Note:
             Must be called in natural parameterization.
@@ -116,28 +149,28 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
         return self._compute_log_partition_function(self.params)
 
     def to_mean(self: DEF) -> "DEF":
-        """Convert to mean parameterization η = ∇A(θ).
+        """Convert to mean parameterization $\\eta = \\nabla \\psi(\\theta)$.
 
         The mean parameters are obtained by differentiating the log partition function:
 
         $$
-        \\eta = \\nabla A(\\theta)
+        \\eta = \\nabla \\psi(\\theta)
         $$
 
-        This relationship follows from the fact that A(θ) is the cumulant generating
+        This relationship follows from the fact that $\\psi(\\theta)$ is the cumulant generating
         function of the sufficient statistics.
         """
         if self.parameterization == Parameterization.MEAN:
             logging.warning("Already in mean coordinates")
             return self
         mean_params = jax.grad(self._compute_log_partition_function)(self.params)
-        return replace(self, params=mean_params, _param_type=Parameterization.MEAN)
+        return replace(self, params=mean_params, parameterization=Parameterization.MEAN)
 
     def log_density(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Compute log density at point x.
+        """Compute log density at point $x$.
 
         $$
-        \\log p(x;\\theta) = \\langle\\theta, T(x)\\rangle + \\log h(x) - A(\\theta)
+        \\log p(x;\\theta) = \\theta \\cdot \\mathbf s(x) + \\log \\mu(x) - \\psi(\\theta)
         $$
 
         Note:
@@ -152,9 +185,6 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
         )
 
 
-CFEF = TypeVar("CFEF", bound="ClosedFormExponentialFamily")
-
-
 @dataclass(frozen=True)
 class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
     """Exponential family with closed form entropy and parameter conversions.
@@ -164,17 +194,17 @@ class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
     log partition function:
 
     $$
-    -H(\\eta) = \\sup_{\\theta} \\{\\langle\\theta, \\eta\\rangle - A(\\theta)\\}
+    -\\text{H}(\\eta) = \\sup_{\\theta} \\{\\theta \\cdot \\eta - \\psi(\\theta)\\}
     $$
 
     The gradient relationship between natural and mean parameters is symmetric:
 
     $$
-    \\theta = \\nabla(-H(\\eta))
+    \\theta = \\nabla(-\\text{H}(\\eta))
     $$
 
     $$
-    \\eta = \\nabla A(\\theta)
+    \\eta = \\nabla \\psi(\\theta)
     $$
 
     This duality allows efficient conversion between parameterizations.
@@ -196,12 +226,12 @@ class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
         return self._compute_negative_entropy(self.params)
 
     def to_natural(self: CFEF) -> "CFEF":
-        """Convert to natural parameterization θ = ∇(-H(η)).
+        """Convert to natural parameterization $\\theta = \\nabla(-\\text{H}(\\eta))$.
 
         The natural parameters are obtained by differentiating the negative entropy:
 
         $$
-        \\theta = \\nabla(-H(\\eta))
+        \\theta = \\nabla(-\\text{H}(\\eta))
         $$
 
         This relationship follows from the convex duality between the log partition
@@ -212,5 +242,28 @@ class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
             return self
         natural_params = jax.grad(self._compute_negative_entropy)(self.params)
         return replace(
-            self, params=natural_params, _param_type=Parameterization.NATURAL
+            self, params=natural_params, parameterization=Parameterization.NATURAL
         )
+
+
+class Generative(ABC):
+    """Adds sampling capabilities to probability distributions.
+
+    This mixin class provides an interface for generating random samples from
+    probability distributions. It is designed to work with JAX's random number
+    generation system.
+    """
+
+    @abstractmethod
+    def sample(self, key: PRNGKeyArray, n: int = 1) -> jnp.ndarray:
+        """Generate random samples from the distribution.
+
+        Args:
+            key: JAX random key for random number generation
+            n: Number of samples to generate (default=1)
+
+        Returns:
+            Array of samples. If n=1, shape is event_shape.
+            Otherwise shape is (n, *event_shape).
+        """
+        pass
