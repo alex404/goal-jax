@@ -1,81 +1,76 @@
 """Core definitions for parameterized objects and their geometry.
 
-A manifold is a space that can be parameterized by coordinates in R^n. Points on
-the manifold are represented by their coordinates in a particular coordinate system.
+A [Manifold][goal.manifold.Manifold] is a space that can be locally represented by $\\mathbb R^n$. A [`Point`][goal.manifold.Point] on the [`Manifold`][goal.manifold.Manifold] can then be locally represented by their [`Coordinates`][goal.manifold.Coordinates] in $\\mathbb R^n$.
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-import jax.numpy as jnp
+from jax import Array
 
 
 # Coordinate system types
 class Coordinates:
-    """Base class for coordinate system type markers."""
+    """Base class for coordinate systems.
 
-    pass
+    In theory, a coordinate system (or chart) $(U, \\phi)$ consists of an open set $U \\subset \\mathcal{M}$ and a homeomorphism $\\phi: U \\to \\mathbb{R}^n$ mapping points to their coordinate representation. In practice, `Coordinates` do not exist at runtime and only help type checking.
+    """
+
+    ...
 
 
 # Type variables
 C = TypeVar("C", bound=Coordinates)
+"""Type variable for types of `Coordinates`."""
+
 M = TypeVar("M", bound="Manifold")
-
-
-@dataclass(frozen=True)
-class Point(Generic[C, M]):
-    """A point p in a manifold M represented in coordinate system C.
-
-    A point is defined by its coordinates in $\\mathbb R^n$ along with the manifold structure
-    that gives meaning to these coordinates. The coordinate system C determines what
-    operations are valid on the point.
-
-    Args:
-        params: Coordinates of the point in $\\mathbb R^n$
-        manifold: The manifold this point belongs to, containing the geometric structure
-    """
-
-    params: jnp.ndarray
-    manifold: M
-
-    def __add__(self, other: "Point[C, M]") -> "Point[C, M]":
-        """Add points in the same coordinate system."""
-        assert self.manifold == other.manifold
-        return Point(self.params + other.params, self.manifold)
-
-    def __sub__(self, other: "Point[C, M]") -> "Point[C, M]":
-        """Subtract points in the same coordinate system."""
-        assert self.manifold == other.manifold
-        return Point(self.params - other.params, self.manifold)
-
-    def __mul__(self, scalar: float) -> "Point[C, M]":
-        """Scalar multiplication in coordinate space."""
-        return Point(scalar * self.params, self.manifold)
-
-    def __rmul__(self, scalar: float) -> "Point[C, M]":
-        """Right scalar multiplication in coordinate space."""
-        return self.__mul__(scalar)
+"""Type variable for `Manifold` types."""
 
 
 @dataclass(frozen=True)
 class Manifold(ABC):
-    """A manifold $\\mathcal M$ with associated geometric structure.
+    """A manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$. A manifold has a geometric structure described by:
 
-    A manifold is a topological space that locally resembles Euclidean space and supports
-    calculus. The manifold defines the geometric structure including:
+    - The dimension $n$ of the manifold,
+    - valid coordinate systems,
+    - Transition maps between coordinate systems, and
+    - Geometric constructions like tangent spaces and metrics.
 
-    - Dimension of the parameter space
-    - Valid coordinate systems/charts
-    - Transition maps between coordinate systems
-    - Geometric operations like metrics and geodesics
-
-    Manifolds are immutable and define operations on points rather than containing
-    point data themselves.
+    In our implementation, a `Manifold` is immutable and defines operations on points rather than containing points itself.
     """
 
     @property
     @abstractmethod
-    def dim(self) -> int:
-        """Return dimension of the parameter space."""
-        pass
+    def dimension(self) -> int:
+        """The dimension of the manifold."""
+        ...
+
+
+@dataclass(frozen=True)
+class Point(Generic[C, M]):
+    """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
+
+    Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
+
+    - Addition: $\\phi(p) + \\phi(q)$
+    - Scalar multiplication: $\\alpha\\phi(p)$
+    - Vector subtraction: $\\phi(p) - \\phi(q)$
+
+    Args:
+        params: Coordinate vector $x = \\phi(p) \\in \\mathbb{R}^n$
+    """
+
+    params: Array
+
+    def __add__(self, other: "Point[C, M]") -> "Point[C, M]":
+        return Point(self.params + other.params)
+
+    def __sub__(self, other: "Point[C, M]") -> "Point[C, M]":
+        return Point(self.params - other.params)
+
+    def __mul__(self, scalar: float) -> "Point[C, M]":
+        return Point(scalar * self.params)
+
+    def __rmul__(self, scalar: float) -> "Point[C, M]":
+        return self.__mul__(scalar)

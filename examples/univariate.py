@@ -17,7 +17,7 @@ def test_gaussian(
     """Test univariate Gaussian distribution and plot results."""
     # Create distribution and point
     mu_arr = jnp.array([mu])
-    covariance = PositiveDefinite.from_params(jnp.array([sigma**2]), dim=1)
+    covariance = PositiveDefinite.from_params(jnp.array([sigma**2]), side_length=1)
 
     print("Parameter shapes:")
     print(f"Mean shape: {mu_arr.shape}")
@@ -26,7 +26,7 @@ def test_gaussian(
     manifold = MultivariateGaussian(data_dim=1, covariance_shape=PositiveDefinite)
     p_source = manifold.from_mean_and_covariance(mu_arr, covariance)
     # Convert to natural via mean coordinates
-    p_natural = manifold.to_natural(Point(p_source.params, manifold))
+    p_natural = manifold.to_natural(Point(p_source.params))
 
     print("\nNatural parameters:")
     loc, precision = manifold.split_params(p_natural)
@@ -60,7 +60,7 @@ def test_categorical(ax, probs=None) -> tuple[Categorical, Point[Natural, Catego
     manifold = Categorical(n_categories=len(probs))
     p_source = manifold.from_probs(probs)
     # Convert to natural via mean coordinates
-    p_natural = manifold.to_natural(Point(p_source.params, manifold))
+    p_natural = manifold.to_natural(Point(p_source.params))
 
     print("\nCategorical parameters:")
     print(f"Natural parameters: {p_natural.params}")
@@ -99,7 +99,7 @@ def test_poisson(ax, rate: float = 5.0) -> tuple[Poisson, Point[Natural, Poisson
     manifold = Poisson()
     p_source = manifold.from_rate(rate)
     # Convert to natural via mean coordinates
-    p_natural = manifold.to_natural(Point(p_source.params, manifold))
+    p_natural = manifold.to_natural(Point(p_source.params))
 
     print("\nPoisson parameters:")
     print(f"Natural parameters: {p_natural.params}")

@@ -5,6 +5,15 @@ version="0.0.1"
 [tool.setuptools.packages.find]
 include =["goal*"]
 
+[tool.pyright]
+include = ["goal"]
+typeCheckingMode = "strict"
+# reportMissingTypeStubs = "warning"
+# reportUnknownVariableType = "none"
+reportUnknownParameterType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+
 [tool.ruff]
 output-format="concise"
 exclude = ["node_modules", "__pycache__"]
@@ -29,12 +38,10 @@ lint.ignore = [
     "E501",  # Example: Ignore line length warnings
     "D",     # Ignore all docstring-related warnings
     "ARG002",# Ignore unused-argument in method > problematic eg when required by parent class / interface
+    "ARG003",# Ignore unused-argument in method > problematic eg when required by parent class / interface
     "TRY003",# Allow to write exception messages in place instead of subclassing
     "RUF001",# Allow confusable characters (eg σ)
 ]
 
 [tool.ruff.format]
 docstring-code-format = true
-
-[tool.pdoc]
-math = true
