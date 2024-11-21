@@ -38,7 +38,7 @@ lint.ignore = [
     "E501",  # Example: Ignore line length warnings
     "D",     # Ignore all docstring-related warnings
     "ARG002",# Ignore unused-argument in method > problematic eg when required by parent class / interface
-    "ARG003",# Ignore unused-argument in method > problematic eg when required by parent class / interface
+    "ARG003",# Unused parameters
     "TRY003",# Allow to write exception messages in place instead of subclassing
     "RUF001",# Allow confusable characters (eg σ)
 ]

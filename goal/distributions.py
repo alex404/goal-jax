@@ -8,9 +8,9 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from goal.exponential_family import ClosedFormExponentialFamily, Mean, Source
+from goal.exponential_family import ClosedFormExponentialFamily, Mean
 from goal.linear import Diagonal, PositiveDefinite, Scale
-from goal.manifold import Coordinates, Point
+from goal.manifold import C, Point
 
 
 @dataclass(frozen=True)
@@ -21,11 +21,11 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
         data_dim: Dimension of the data space.
         covariance_shape: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
 
-    The standard expression for the Gaussian density in source coordinates is
+    The standard expression for the Gaussian density is
 
     $$p(x; \\mu, \\Sigma) = (2\\pi)^{-d/2}|\\Sigma|^{-1/2}e^{-\\frac{1}{2}(x-\\mu) \\cdot \\Sigma^{-1} \\cdot (x-\\mu)}.$$
 
-    where:
+    where
 
     - $\\mu$ is the mean vector,
     - $\\Sigma$ is the covariance matrix, and
@@ -82,7 +82,10 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
     def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:
         natural_params = jnp.asarray(natural_params)
         theta1, theta2 = self.split_params(Point(natural_params))
-        return -0.25 * theta1 @ theta2.inverse() @ theta1 - 0.5 * (-2 * theta2).logdet()
+        return (
+            -0.25 * jnp.dot(theta1, theta2.inverse() @ theta1)
+            - 0.5 * (-2 * theta2).logdet()
+        )
 
     def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
         mean_params = jnp.asarray(mean_params)
@@ -100,13 +103,22 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
 
     def from_mean_and_covariance(
         self, mean: Array, covariance: PositiveDefinite
-    ) -> Point[Source, "MultivariateGaussian"]:
-        """Construct point from mean and covariance parameters in source coordinates."""
-        params = jnp.concatenate([mean, covariance.params])
+    ) -> Point[Mean, "MultivariateGaussian"]:
+        """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
+        second_moment = self.covariance_shape.outer_product(mean, mean) + covariance
+        params = jnp.concatenate([mean, second_moment.params])
         return Point(params)
 
+    def to_mean_and_covariance(
+        self, p: Point[Mean, "MultivariateGaussian"]
+    ) -> tuple[Array, PositiveDefinite]:
+        """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
+        mean, second_moment = self.split_params(p)
+        covariance = second_moment - self.covariance_shape.outer_product(mean, mean)
+        return mean, covariance
+
     def split_params(
-        self, p: Point[Coordinates, "MultivariateGaussian"]
+        self, p: Point[C, "MultivariateGaussian"]
     ) -> tuple[Array, PositiveDefinite]:
         """Split parameters into location and scale components."""
         operator = self.covariance_shape.from_params(
@@ -139,7 +151,7 @@ class Categorical(ClosedFormExponentialFamily):
 
     $$\\phi(\\eta) = \\sum_{i=0}^d \\eta_i \\log(\\eta_i).$$
 
-    As such, the the mapping from natural to mean parameters is given by $\\theta_i = \\log(\\eta_i/\\eta_0)$ for $i=1,\\ldots,d$. Finally, the source parameters are the same as the mean parameters.
+    As such, the the mapping from natural to mean parameters is given by $\\theta_i = \\log(\\eta_i/\\eta_0)$ for $i=1,\\ldots,d$.
     """
 
     n_categories: int
@@ -184,7 +196,7 @@ class Poisson(ClosedFormExponentialFamily):
 
     $$p(k; \\eta) = \\frac{\\eta^k e^{-\\eta}}{k!}.$$
 
-    The base measure is $\\mu(k) = -\\log(k!)$, and the sufficient statistic is simply the count itself. The log-partition function is given by $\\psi(\\theta) = e^{\\theta},$ and the negative entropy is given by $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$. As such, the mapping between the natural and mean parameters is given by $\\theta = \\log(\\eta)$. The source parameters ($\\lambda$) are the same as the mean parameters.
+    The base measure is $\\mu(k) = -\\log(k!)$, and the sufficient statistic is simply the count itself. The log-partition function is given by $\\psi(\\theta) = e^{\\theta},$ and the negative entropy is given by $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$. As such, the mapping between the natural and mean parameters is given by $\\theta = \\log(\\eta)$.
     """
 
     @property
@@ -196,7 +208,7 @@ class Poisson(ClosedFormExponentialFamily):
         return jnp.asarray(x)
 
     def log_base_measure(self, x: ArrayLike) -> Array:
-        k = jnp.asarray(x)
+        k = jnp.asarray(x, dtype=jnp.float32)
         return -jax.lax.lgamma(k + 1)
 
     def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:

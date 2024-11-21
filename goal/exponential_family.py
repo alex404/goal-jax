@@ -34,12 +34,6 @@ class Mean(Coordinates):
     ...
 
 
-class Source(Coordinates):
-    """Source parameters $\\omega \\in \\Omega$ representing conventional parameterizations (e.g. mean and covariance)."""
-
-    ...
-
-
 # Type variables for exponential family types
 EF = TypeVar("EF", bound="ExponentialFamily")
 """Type variable for types of `ExponentialFamily`."""
