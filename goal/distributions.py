@@ -42,8 +42,6 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
     Consequently, the mean parameters are given simply by the first and second moments $\\eta_1 = \\mu$ and $\\eta_2 = \\mu\\mu^T + \\Sigma$, and the natural parameters are given by $\\theta_1 = \\Sigma^{-1}\\mu$ and $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$.
 
     Finally, we handle different covariance structures (full, diagonal, scalar) through the `LinearOperator` hierarchy, so that the sufficient statistics and parameters are lowerer-dimensional, and the given manifold is a submanifold of the unrestricted family of Gaussians.
-
-
     """
 
     # Attributes
@@ -51,7 +49,7 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
     data_dim: int
     """Dimension of the data space."""
 
-    covariance_shape: Type[PositiveDefinite]
+    covariance_shape: Type[PositiveDefinite] = PositiveDefinite
     """Covariance structure (e.g. `Scale`, `Diagonal`, `PositiveDefinite`)."""
 
     @property
@@ -82,10 +80,13 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
     def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:
         natural_params = jnp.asarray(natural_params)
         theta1, theta2 = self.split_params(Point(natural_params))
-        return (
-            -0.25 * jnp.dot(theta1, theta2.inverse() @ theta1)
-            - 0.5 * (-2 * theta2).logdet()
-        )
+
+        precision = -2 * theta2
+        covariance = precision.inverse()  # This is Σ
+
+        mean = covariance.matvec(theta1)
+
+        return 0.5 * jnp.dot(theta1, mean) - 0.5 * precision.logdet()
 
     def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
         mean_params = jnp.asarray(mean_params)
@@ -95,11 +96,10 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
         outer_mean = self.covariance_shape.outer_product(mean, mean)
         covariance = second_moment - outer_mean
 
-        return -0.5 * covariance.logdet() - 0.5 * self.data_dim * (
-            1 + jnp.log(2 * jnp.pi)
-        )
+        log_det = covariance.logdet()
+        entropy = 0.5 * (self.data_dim + self.data_dim * jnp.log(2 * jnp.pi) + log_det)
 
-    # Additional methods
+        return -entropy
 
     def from_mean_and_covariance(
         self, mean: Array, covariance: PositiveDefinite

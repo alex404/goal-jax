@@ -22,18 +22,9 @@ def test_gaussian(
     mu_arr = jnp.array([mu])
     covariance = PositiveDefinite.from_params(jnp.array([sigma**2]), side_length=1)
 
-    print("Parameter shapes:")
-    print(f"Mean shape: {mu_arr.shape}")
-    print(f"Covariance shape: {covariance.params.shape}")
-
-    manifold = MultivariateGaussian(data_dim=1, covariance_shape=PositiveDefinite)
+    manifold = MultivariateGaussian(data_dim=1)
     p_mean = manifold.from_mean_and_covariance(mu_arr, covariance)
     p_natural = manifold.to_natural(p_mean)
-
-    print("\nNatural parameters:")
-    loc, precision = manifold.split_params(p_natural)
-    print(f"Precision weighted mean: {loc}")
-    print(f"Precision parameters: {precision.params}")
 
     # Generate points for plotting
     x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
@@ -62,9 +53,6 @@ def test_categorical(
     manifold = Categorical(n_categories=len(probs))
     p_mean = manifold.from_probs(probs)
     p_natural = manifold.to_natural(p_mean)
-
-    print("\nCategorical parameters:")
-    print(f"Natural parameters: {p_natural.params}")
 
     # Plot PMF
     categories = np.arange(len(probs))
@@ -104,31 +92,20 @@ def test_poisson(
     p_mean = Point[Mean, Poisson](jnp.array(rate))
     p_natural = manifold.to_natural(p_mean)
 
-    print("\nPoisson parameters:")
-    print(f"Natural parameters: {p_natural.params}")
-
     # Generate points for plotting
     max_k = int(stats.poisson.ppf(0.999, rate))
     k = np.arange(0, max_k + 1)
-    print(f"k shape: {k.shape}")
 
     # Compute densities
     our_pmf: Array = jnp.exp(
         jnp.array([manifold.log_density(p_natural, float(k[i])) for i in range(len(k))])
     )
-    print(f"our_pmf shape: {our_pmf.shape}")
     scipy_pmf: npt.NDArray[np.float64] = stats.poisson.pmf(k, rate)
-    print(f"scipy_pmf shape: {scipy_pmf.shape}")
 
     # Convert to numpy arrays for plotting
     k_np: npt.NDArray[np.int_] = np.asarray(k, dtype=np.int_)
     our_pmf_np: npt.NDArray[np.float64] = np.asarray(our_pmf, dtype=np.float64)
     scipy_pmf_np: npt.NDArray[np.float64] = np.asarray(scipy_pmf, dtype=np.float64)
-
-    print("Final shapes:")
-    print(f"k_np: {k_np.shape}")
-    print(f"our_pmf_np: {our_pmf_np.shape}")
-    print(f"scipy_pmf_np: {scipy_pmf_np.shape}")
 
     # Plot results
     width = 0.35
@@ -146,63 +123,58 @@ def test_coordinate_transforms(
     ef: CFEF,
     p_natural: Point[Natural, CFEF],
     test_point: jnp.ndarray,
-    dist_name: str,
 ):
     """Test coordinate transformations for a given distribution."""
-    print(f"\n{dist_name} coordinate transforms:")
-    print(f"Test point shape: {test_point.shape}")
 
     # Transform to mean coordinates and back
     p_mean = ef.to_mean(p_natural)
     p_natural2 = ef.to_natural(p_mean)
+
+    print("\nParameter conversion:")
+
+    print(f"Natural parameters: {p_natural.params}")
+    print(f"Mean parameters: {p_mean.params}")
+    print(f"Natural parameters (recovered): {p_natural2.params}")
 
     # Compare log densities
     log_density_nat = ef.log_density(p_natural, test_point)
     log_density_nat2 = ef.log_density(p_natural2, test_point)
 
     # Convert to float for printing to avoid any nan display issues
-    print(f"Natural form log density: {float(log_density_nat):.4f}")
-    print(f"Mean->Natural form log density: {float(log_density_nat2):.4f}")
+    print("\nLog densities:")
+
+    print(f"Natural parameter log-density: {float(log_density_nat):.4f}")
+    print(f"Recovered natural parameter log-density: {float(log_density_nat2):.4f}")
 
 
 def main():
     """Run all distribution tests and plots."""
     _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
-    try:
-        print("\n=== Testing Gaussian Distribution ===")
-        gaussian_manifold, gaussian_point = test_gaussian(ax1)
+    print("\nTesting Gaussian Distribution:")
 
-        print("\n=== Testing Categorical Distribution ===")
-        categorical_manifold, categorical_point = test_categorical(ax2)
+    gaussian_manifold, gaussian_point = test_gaussian(ax1)
+    test_coordinate_transforms(gaussian_manifold, gaussian_point, jnp.array([3.0]))
 
-        print("\n=== Testing Poisson Distribution ===")
-        poisson_manifold, poisson_point = test_poisson(ax3)
+    print("\nTesting Categorical Distribution:")
 
-        plt.tight_layout()
-        plt.show()
+    categorical_manifold, categorical_point = test_categorical(ax2)
+    test_coordinate_transforms(
+        categorical_manifold,
+        categorical_point,
+        jnp.array(2),
+    )
+    print("\nTesting Poisson Distribution:")
 
-        # Test coordinate transforms with proper shapes
-        print("\n=== Testing Coordinate Transforms ===")
-        test_coordinate_transforms(
-            gaussian_manifold, gaussian_point, jnp.array([1.5]).reshape(1), "Gaussian"
-        )
-        test_coordinate_transforms(
-            categorical_manifold,
-            categorical_point,
-            jnp.array(2),
-            "Categorical",  # scalar value
-        )
-        test_coordinate_transforms(
-            poisson_manifold,
-            poisson_point,
-            jnp.array(3),
-            "Poisson",  # scalar value
-        )
+    poisson_manifold, poisson_point = test_poisson(ax3)
+    test_coordinate_transforms(
+        poisson_manifold,
+        poisson_point,
+        jnp.array(1),
+    )
 
-    except Exception as e:
-        print(f"\nError during testing: {e!s}")
-        raise
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":
