@@ -9,6 +9,7 @@ import numpy as np
 from jax import Array
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
+from scipy import stats
 from scipy.special import factorial
 
 from goal.distributions import Categorical, MultivariateGaussian, Poisson
@@ -153,7 +154,7 @@ def plot_gaussian_results(
     ax.plot(x, np_est_densities, "g--", label="MLE Estimate")
     ax.plot(
         x,
-        1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x - mu) / sigma) ** 2),
+        stats.norm.pdf(x, loc=mu, scale=sigma),
         "r--",
         label="Theory",
     )
@@ -237,7 +238,7 @@ def main():
     _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
     # Parameters
-    n_samples = 1000
+    n_samples = 10000
 
     # # Gaussian test
     print("\nTesting Gaussian Distribution:")
@@ -246,7 +247,7 @@ def main():
     gaussian = MultivariateGaussian(data_dim=1)
 
     samples, true_dens, est_dens = compute_gaussian_results(
-        keys[0], gaussian, jnp.array([mu]), jnp.array([sigma**2]), x_eval, n_samples
+        keys[0], gaussian, jnp.array([mu]), jnp.array([sigma]), x_eval, n_samples
     )
     plot_gaussian_results(ax1, mu, sigma, samples, true_dens, est_dens)
 
