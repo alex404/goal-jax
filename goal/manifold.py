@@ -28,7 +28,7 @@ M = TypeVar("M", bound="Manifold")
 """Type variable for `Manifold` types."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class Manifold(ABC):
     """A manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$. A manifold has a geometric structure described by:
 
@@ -37,7 +37,7 @@ class Manifold(ABC):
     - Transition maps between coordinate systems, and
     - Geometric constructions like tangent spaces and metrics.
 
-    In our implementation, a `Manifold` is immutable and defines operations on points rather than containing points itself.
+    In our implementation, a `Manifold` defines operations on `Point`s rather than containing `Point`s itself - it also acts as a "Point factory", and should be used to create points rather than the `Point` constructor itself.
     """
 
     @property

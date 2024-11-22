@@ -1,177 +1,238 @@
 """Test script for univariate distributions in the exponential family."""
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.typing as npt
 from jax import Array
 from matplotlib.axes import Axes
-from scipy import stats
 
 from goal.distributions import Categorical, MultivariateGaussian, Poisson
-from goal.exponential_family import CFEF, Mean, Natural
 from goal.linear import PositiveDefinite
-from goal.manifold import Point
 
 
-def test_gaussian(
-    ax: Axes, mu: float = 2.0, sigma: float = 1.5
-) -> tuple[MultivariateGaussian, Point[Natural, MultivariateGaussian]]:
-    """Test univariate Gaussian distribution and plot results."""
-    # Create distribution and point
-    mu_arr = jnp.array([mu])
-    covariance = PositiveDefinite.from_params(jnp.array([sigma**2]), side_length=1)
+@jax.jit
+def compute_gaussian_results(
+    manifold: MultivariateGaussian,
+    mu: Array,
+    sigma: Array,
+    eval_points: Array,
+    n_samples: int,
+) -> tuple[Array, Array, Array]:
+    """Run Gaussian computations with JAX.
 
-    manifold = MultivariateGaussian(data_dim=1)
-    p_mean = manifold.from_mean_and_covariance(mu_arr, covariance)
+    Returns:
+        samples, true_densities, estimated_densities
+    """
+    # Create ground truth distribution
+    covariance = PositiveDefinite.from_params(sigma**2, side_length=1)
+    p_mean = manifold.from_mean_and_covariance(mu, covariance)
     p_natural = manifold.to_natural(p_mean)
 
-    # Generate points for plotting
+    # Sample and estimate
+    samples = manifold.sample(p_natural, n_samples)
+    p_mean_est = manifold.average_sufficient_statistic(samples)
+    p_natural_est = manifold.to_natural(p_mean_est)
+
+    # Compute densities using vmap
+    compute_density = lambda p, x: manifold.log_density(p, x)
+    true_densities = jax.vmap(lambda x: compute_density(p_natural, x))(eval_points)
+    est_densities = jax.vmap(lambda x: compute_density(p_natural_est, x))(eval_points)
+
+    return samples, jnp.exp(true_densities), jnp.exp(est_densities)
+
+
+@jax.jit
+def compute_categorical_results(
+    manifold: Categorical,
+    probs: Array,
+    n_samples: int,
+) -> tuple[Array, Array, Array]:
+    """Run Categorical computations with JAX.
+
+    Returns:
+        samples, true_probs, estimated_probs
+    """
+    # Create ground truth distribution
+    p_mean = manifold.from_probs(probs)
+    p_natural = manifold.to_natural(p_mean)
+
+    # Sample and estimate
+    samples = manifold.sample(p_natural, n_samples)
+    p_mean_est = manifold.average_sufficient_statistic(samples)
+    p_natural_est = manifold.to_natural(p_mean_est)
+
+    # Compute densities using vmap
+    categories = jnp.arange(probs.shape[0])
+    compute_prob = lambda p, k: jnp.exp(manifold.log_density(p, k))
+    true_probs = jax.vmap(lambda k: compute_prob(p_natural, k))(categories)
+    est_probs = jax.vmap(lambda k: compute_prob(p_natural_est, k))(categories)
+
+    return samples, true_probs, est_probs
+
+
+@jax.jit
+def compute_poisson_results(
+    manifold: Poisson,
+    rate: Array,
+    eval_points: Array,
+    n_samples: int,
+) -> tuple[Array, Array, Array]:
+    """Run Poisson computations with JAX.
+
+    Returns:
+        samples, true_pmf, estimated_pmf
+    """
+    # Create ground truth distribution
+    p_mean = manifold.mean_point(rate)
+    p_natural = manifold.to_natural(p_mean)
+
+    # Sample and estimate
+    samples = manifold.sample(p_natural, n_samples)
+    p_mean_est = manifold.average_sufficient_statistic(samples)
+    p_natural_est = manifold.to_natural(p_mean_est)
+
+    # Compute PMFs using vmap
+    compute_pmf = lambda p, k: manifold.log_density(p, k)
+    true_pmf = jax.vmap(lambda k: compute_pmf(p_natural, k))(eval_points)
+    est_pmf = jax.vmap(lambda k: compute_pmf(p_natural_est, k))(eval_points)
+
+    return samples, jnp.exp(true_pmf), jnp.exp(est_pmf)
+
+
+def plot_gaussian_results(
+    ax: Axes,
+    mu: float,
+    sigma: float,
+    samples: Array,
+    true_densities: Array,
+    est_densities: Array,
+) -> None:
+    """Plot Gaussian results using numpy/matplotlib."""
     x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
-    x_points = [jnp.array([xi]) for xi in x]  # Each x as a 1D array
 
-    our_densities = jnp.exp(
-        jnp.array([manifold.log_density(p_natural, xi) for xi in x_points])
+    # Convert everything to numpy for plotting
+    samples = np.array(samples.squeeze())
+    true_densities = np.array(true_densities)
+    est_densities = np.array(est_densities)
+
+    ax.hist(samples, bins=50, density=True, alpha=0.3, label="Samples")
+    ax.plot(x, true_densities, "b-", label="Implementation")
+    ax.plot(x, est_densities, "g--", label="MLE Estimate")
+    ax.plot(
+        x,
+        1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x - mu) / sigma) ** 2),
+        "r--",
+        label="Theory",
     )
-    scipy_densities = stats.norm.pdf(x, loc=mu, scale=sigma)
 
-    ax.plot(x, our_densities, "b-", label="Implementation")
-    ax.plot(x, scipy_densities, "r--", label="Scipy")
     ax.set_title("Gaussian Density")
     ax.set_xlabel("x")
     ax.set_ylabel("Density")
     ax.legend()
 
-    return manifold, p_natural
 
-
-def test_categorical(
-    ax: Axes, probs: Array = jnp.array([0.1, 0.2, 0.4, 0.2, 0.1])
-) -> tuple[Categorical, Point[Natural, Categorical]]:
-    """Test Categorical distribution and plot results."""
-
-    manifold = Categorical(n_categories=len(probs))
-    p_mean = manifold.from_probs(probs)
-    p_natural = manifold.to_natural(p_mean)
-
-    # Plot PMF
+def plot_categorical_results(
+    ax: Axes,
+    probs: Array,
+    samples: Array,
+    true_probs: Array,
+    est_probs: Array,
+) -> None:
+    """Plot Categorical results using numpy/matplotlib."""
     categories = np.arange(len(probs))
-    # Make sure to pass category indices as integers
-    cat_probs = jnp.exp(
-        jnp.array([manifold.log_density(p_natural, i) for i in categories])
-    )
+    width = 0.25
 
-    width = 0.35
-    ax.bar(
-        categories - width / 2,
-        np.array(cat_probs),
-        width,
-        alpha=0.6,
-        label="Implementation",
-    )
-    ax.bar(
-        categories + width / 2,
-        np.array(probs),
-        width,
-        alpha=0.6,
-        label="True Probabilities",
-    )
+    # Convert everything to numpy for plotting
+    samples = np.array(samples)
+    true_probs = np.array(true_probs)
+    est_probs = np.array(est_probs)
+    probs = np.array(probs)
+
+    # Sample frequencies
+    sample_freqs = np.bincount(samples, minlength=len(probs)) / len(samples)
+    ax.bar(categories, sample_freqs, width=1.0, alpha=0.2, label="Samples")
+
+    # Plot bars
+    ax.bar(categories - width, true_probs, width, alpha=0.6, label="Implementation")
+    ax.bar(categories, est_probs, width, alpha=0.6, label="MLE Estimate")
+    ax.bar(categories + width, probs, width, alpha=0.6, label="True Probabilities")
+
     ax.set_title("Categorical PMF")
     ax.set_xlabel("Category")
     ax.set_ylabel("Probability")
     ax.legend()
 
-    return manifold, p_natural
 
-
-def test_poisson(
-    ax: Axes, rate: float = 5.0
-) -> tuple[Poisson, Point[Natural, Poisson]]:
-    """Test Poisson distribution and plot results."""
-    manifold = Poisson()
-    p_mean = Point[Mean, Poisson](jnp.array(rate))
-    p_natural = manifold.to_natural(p_mean)
-
-    # Generate points for plotting
-    max_k = int(stats.poisson.ppf(0.999, rate))
+def plot_poisson_results(
+    ax: Axes,
+    rate: float,
+    samples: Array,
+    true_pmf: Array,
+    est_pmf: Array,
+) -> None:
+    """Plot Poisson results using numpy/matplotlib."""
+    max_k = int(rate * 2 + 4 * np.sqrt(rate))
     k = np.arange(0, max_k + 1)
 
-    # Compute densities
-    our_pmf: Array = jnp.exp(
-        jnp.array([manifold.log_density(p_natural, float(k[i])) for i in range(len(k))])
+    # Convert everything to numpy for plotting
+    samples = np.array(samples)
+    true_pmf = np.array(true_pmf)
+    est_pmf = np.array(est_pmf)
+
+    ax.hist(samples, bins=range(max_k + 2), density=True, alpha=0.3, label="Samples")
+    ax.plot(k, true_pmf, "b-", label="Implementation", alpha=0.8)
+    ax.plot(k, est_pmf, "g--", label="MLE Estimate", alpha=0.8)
+    ax.plot(
+        k,
+        rate**k * np.exp(-rate) / np.math.factorial(k),
+        "r:",
+        label="Theory",
+        alpha=0.8,
     )
-    scipy_pmf: npt.NDArray[np.float64] = stats.poisson.pmf(k, rate)
 
-    # Convert to numpy arrays for plotting
-    k_np: npt.NDArray[np.int_] = np.asarray(k, dtype=np.int_)
-    our_pmf_np: npt.NDArray[np.float64] = np.asarray(our_pmf, dtype=np.float64)
-    scipy_pmf_np: npt.NDArray[np.float64] = np.asarray(scipy_pmf, dtype=np.float64)
-
-    # Plot results
-    width = 0.35
-    ax.bar(k_np - width / 2, our_pmf_np, width, alpha=0.6, label="Implementation")
-    ax.bar(k_np + width / 2, scipy_pmf_np, width, alpha=0.6, label="Scipy")
     ax.set_title(f"Poisson PMF (λ={rate})")
     ax.set_xlabel("k")
     ax.set_ylabel("Probability")
     ax.legend()
 
-    return manifold, p_natural
-
-
-def test_coordinate_transforms(
-    ef: CFEF,
-    p_natural: Point[Natural, CFEF],
-    test_point: jnp.ndarray,
-):
-    """Test coordinate transformations for a given distribution."""
-
-    # Transform to mean coordinates and back
-    p_mean = ef.to_mean(p_natural)
-    p_natural2 = ef.to_natural(p_mean)
-
-    print("\nParameter conversion:")
-
-    print(f"Natural parameters: {p_natural.params}")
-    print(f"Mean parameters: {p_mean.params}")
-    print(f"Natural parameters (recovered): {p_natural2.params}")
-
-    # Compare log densities
-    log_density_nat = ef.log_density(p_natural, test_point)
-    log_density_nat2 = ef.log_density(p_natural2, test_point)
-
-    # Convert to float for printing to avoid any nan display issues
-    print("\nLog densities:")
-
-    print(f"Natural parameter log-density: {float(log_density_nat):.4f}")
-    print(f"Recovered natural parameter log-density: {float(log_density_nat2):.4f}")
-
 
 def main():
     """Run all distribution tests and plots."""
+    # Create figure
     _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
+    # Parameters
+    n_samples = 1000
+
+    # Gaussian test
     print("\nTesting Gaussian Distribution:")
+    mu, sigma = 2.0, 1.5
+    x_eval = jnp.array([[x] for x in jnp.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)])
+    gaussian = MultivariateGaussian(data_dim=1)
+    samples, true_dens, est_dens = compute_gaussian_results(
+        gaussian, jnp.array([mu]), jnp.array([sigma**2]), x_eval, n_samples
+    )
+    plot_gaussian_results(ax1, mu, sigma, samples, true_dens, est_dens)
 
-    gaussian_manifold, gaussian_point = test_gaussian(ax1)
-    test_coordinate_transforms(gaussian_manifold, gaussian_point, jnp.array([3.0]))
-
+    # Categorical test
     print("\nTesting Categorical Distribution:")
-
-    categorical_manifold, categorical_point = test_categorical(ax2)
-    test_coordinate_transforms(
-        categorical_manifold,
-        categorical_point,
-        jnp.array(2),
+    probs = jnp.array([0.1, 0.2, 0.4, 0.2, 0.1])
+    categorical = Categorical(n_categories=len(probs))
+    samples, true_probs, est_probs = compute_categorical_results(
+        categorical, probs, n_samples
     )
+    plot_categorical_results(ax2, probs, samples, true_probs, est_probs)
+
+    # Poisson test
     print("\nTesting Poisson Distribution:")
-
-    poisson_manifold, poisson_point = test_poisson(ax3)
-    test_coordinate_transforms(
-        poisson_manifold,
-        poisson_point,
-        jnp.array(1),
+    rate = 5.0
+    k_eval = jnp.arange(0, int(rate * 2 + 4 * jnp.sqrt(rate)) + 1, dtype=float)
+    poisson = Poisson()
+    samples, true_pmf, est_pmf = compute_poisson_results(
+        poisson, jnp.array(rate), k_eval, n_samples
     )
+    plot_poisson_results(ax3, rate, samples, true_pmf, est_pmf)
 
     plt.tight_layout()
     plt.show()

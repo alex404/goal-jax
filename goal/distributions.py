@@ -8,13 +8,13 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from goal.exponential_family import ClosedFormExponentialFamily, Mean
+from goal.exponential_family import ClosedForm, Generative, Mean, Natural
 from goal.linear import Diagonal, PositiveDefinite, Scale
 from goal.manifold import C, Point
 
 
-@dataclass(frozen=True)
-class MultivariateGaussian(ClosedFormExponentialFamily):
+@dataclass
+class MultivariateGaussian(ClosedForm, Generative):
     """Multivariate Gaussian distributions.
 
     Parameters:
@@ -101,6 +101,26 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
 
         return -entropy
 
+    def _sample(
+        self: "MultivariateGaussian",
+        p: Point[Natural, "MultivariateGaussian"],
+        key: ArrayLike,
+        n: int = 1,
+    ) -> Array:
+        mean_point = self.to_mean(p)
+        mean, covariance = self.to_mean_and_covariance(mean_point)
+
+        # Draw standard normal samples and transform
+        key = jnp.asarray(key)
+        shape = (n, self.data_dim)
+        z = jax.random.normal(key, shape)
+
+        # Transform using Cholesky for numerical stability
+        chol = covariance.cholesky
+        return mean + (chol @ z.T).T
+
+    # Additional methods
+
     def from_mean_and_covariance(
         self, mean: Array, covariance: PositiveDefinite
     ) -> Point[Mean, "MultivariateGaussian"]:
@@ -127,8 +147,8 @@ class MultivariateGaussian(ClosedFormExponentialFamily):
         return p.params[: self.data_dim], operator
 
 
-@dataclass(frozen=True)
-class Categorical(ClosedFormExponentialFamily):
+@dataclass
+class Categorical(ClosedForm, Generative):
     """Categorical distribution over $n$ states, of dimension $d = n-1$.
 
     Parameters:
@@ -161,15 +181,7 @@ class Categorical(ClosedFormExponentialFamily):
         """Dimension $d$ is (`n_categories` - 1) due to the sum-to-one constraint."""
         return self.n_categories - 1
 
-    def from_probs(self, probs: Array) -> Point[Mean, "Categorical"]:
-        """Construct the mean parameters from the complete probabilities, dropping the first element."""
-        return Point(probs[1:])
-
-    def to_probs(self, p: Point[Mean, "Categorical"]) -> Array:
-        """Return the probabilities of all labels."""
-        probs = p.params
-        prob0 = 1 - jnp.sum(probs)
-        return jnp.concatenate([jnp.array([prob0]), probs])
+    # Core class methods
 
     def _compute_sufficient_statistic(self, x: ArrayLike) -> Array:
         one_hot = jax.nn.one_hot(x, self.n_categories)
@@ -186,9 +198,35 @@ class Categorical(ClosedFormExponentialFamily):
         probs = self.to_probs(Point(mean_params))
         return jnp.sum(probs * jnp.log(probs))
 
+    def _sample(
+        self: "Categorical",
+        p: Point[Natural, "Categorical"],
+        key: ArrayLike,
+        n: int = 1,
+    ) -> Array:
+        mean_point = self.to_mean(p)
+        probs = self.to_probs(mean_point)
 
-@dataclass(frozen=True)
-class Poisson(ClosedFormExponentialFamily):
+        key = jnp.asarray(key)
+        # Use Gumbel-Max trick: argmax(log(p) + Gumbel(0,1)) ~ Categorical(p)
+        g = jax.random.gumbel(key, shape=(n, self.n_categories))
+        return jnp.argmax(jnp.log(probs) + g, axis=-1)
+
+    # Additional methods
+
+    def from_probs(self, probs: Array) -> Point[Mean, "Categorical"]:
+        """Construct the mean parameters from the complete probabilities, dropping the first element."""
+        return Point(probs[1:])
+
+    def to_probs(self, p: Point[Mean, "Categorical"]) -> Array:
+        """Return the probabilities of all labels."""
+        probs = p.params
+        prob0 = 1 - jnp.sum(probs)
+        return jnp.concatenate([jnp.array([prob0]), probs])
+
+
+@dataclass
+class Poisson(ClosedForm, Generative):
     """
     The Poisson distribution over counts.
 
@@ -217,3 +255,13 @@ class Poisson(ClosedFormExponentialFamily):
     def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
         rate = jnp.asarray(mean_params)
         return rate * (jnp.log(rate) - 1)
+
+    def _sample(
+        self: "Poisson", p: Point[Natural, "Poisson"], key: ArrayLike, n: int = 1
+    ) -> Array:
+        mean_point = self.to_mean(p)
+        rate = mean_point.params
+
+        key = jnp.asarray(key)
+        # JAX's Poisson sampler expects rate parameter
+        return jax.random.poisson(key, rate, shape=(n,))

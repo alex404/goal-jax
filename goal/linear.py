@@ -22,8 +22,10 @@ Notes:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Type, TypeVar, cast
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -230,13 +232,16 @@ class PositiveDefinite(Symmetric):
         return chol @ (chol.T @ v)
 
     def inverse(self: PD) -> PD:
-        inv_chol = jnp.linalg.inv(self.cholesky)  # type: ignore
+        chol = self.cholesky
+        inv_chol = jax.scipy.linalg.solve_triangular(
+            chol, jnp.eye(chol.shape[0]), lower=True
+        )
         return self.from_cholesky(inv_chol.T)
 
     def logdet(self) -> Array:
         return 2.0 * jnp.sum(jnp.log(jnp.diag(self.cholesky)))
 
-    @property
+    @cached_property
     def cholesky(self) -> Array:
         """Compute the Cholesky decomposition."""
         return jnp.linalg.cholesky(self.matrix)  # type: ignore
@@ -283,7 +288,7 @@ class Diagonal(PositiveDefinite):
     def matrix(self) -> Array:
         return jnp.diag(self.params)
 
-    @property
+    @cached_property
     def cholesky(self) -> Array:
         return jnp.diag(jnp.sqrt(self.params))
 

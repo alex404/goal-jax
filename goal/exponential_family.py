@@ -37,13 +37,15 @@ class Mean(Coordinates):
 # Type variables for exponential family types
 EF = TypeVar("EF", bound="ExponentialFamily")
 """Type variable for types of `ExponentialFamily`."""
-DEF = TypeVar("DEF", bound="DifferentiableExponentialFamily")
-"""Type variable for types of `DifferentiableExponentialFamily`."""
-CFEF = TypeVar("CFEF", bound="ClosedFormExponentialFamily")
-"""Type variable for types of `ClosedFormExponentialFamily`."""
+DEF = TypeVar("DEF", bound="Differentiable")
+"""Type variable for types of `Differentiable`."""
+CFEF = TypeVar("CFEF", bound="ClosedForm")
+"""Type variable for types of `ClosedForm`."""
+GEF = TypeVar("GEF", bound="Generative")
+"""Type variable for types of `Generative`."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class ExponentialFamily(Manifold, ABC):
     """Base manifold class for exponential families.
 
@@ -100,8 +102,8 @@ class ExponentialFamily(Manifold, ABC):
         Returns:
             Mean coordinates of average sufficient statistics
         """
-        batch_stats = jax.vmap(self.sufficient_statistic)(xs)
-        avg_params = jnp.mean(batch_stats.params, axis=0)
+        batch_stats = jax.vmap(self._compute_sufficient_statistic)(xs)
+        avg_params = jnp.mean(batch_stats, axis=0)
         return Point(avg_params)
 
     @abstractmethod
@@ -109,9 +111,17 @@ class ExponentialFamily(Manifold, ABC):
         """Compute log of base measure $\\mu(x)$."""
         ...
 
+    def natural_point(self: EF, params: Array) -> Point[Natural, EF]:
+        """Construct a point in natural coordinates."""
+        return Point[Natural, EF](params)
 
-@dataclass(frozen=True)
-class DifferentiableExponentialFamily(ExponentialFamily, ABC):
+    def mean_point(self: EF, params: Array) -> Point[Mean, EF]:
+        """Construct a point in mean coordinates."""
+        return Point[Mean, EF](params)
+
+
+@dataclass
+class Differentiable(ExponentialFamily, ABC):
     """Exponential family with an analytically tractable log-partition function, which thereby permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
 
     The log partition function $\\psi(\\theta)$ is given by:
@@ -156,8 +166,8 @@ class DifferentiableExponentialFamily(ExponentialFamily, ABC):
         )
 
 
-@dataclass(frozen=True)
-class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
+@dataclass
+class ClosedForm(Differentiable, ABC):
     """An exponential family comprising distributions for which the entropy can be evaluated in closed-form. The negative entropy is the convex conjugate of the log-partition function
 
     $$
@@ -184,22 +194,33 @@ class ClosedFormExponentialFamily(DifferentiableExponentialFamily, ABC):
         return Point(natural_params)
 
 
-# class Generative(ABC):
-#     """Mixin for distributions that support random sampling.
-#
-#     Designed to work with JAX's random number generation system.
-#     """
-#
-#     @abstractmethod
-#     def sample(self, p: Point, key: PRNGKeyArray, n: int = 1) -> Array:
-#         """Generate random samples from the distribution.
-#
-#         Args:
-#             p: Parameters of the distribution
-#             key: JAX random key
-#             n: Number of samples to generate (default=1)
-#
-#         Returns:
-#             Array of shape (n, *event_shape) containing samples
-#         """
-#         ...
+class Generative(ExponentialFamily, ABC):
+    """An `ExponentialFamily` that supports random sampling.
+
+    Sampling is performed on distributions in natural coordinates. This enables estimation of mean parameters even when closed-form expressions for the log partition function are unavailable.
+    """
+
+    random_key: Array = jax.random.PRNGKey(0)
+
+    @abstractmethod
+    def _sample(self: GEF, p: Point[Natural, GEF], key: Array, n: int) -> Array: ...
+
+    def sample(self: GEF, p: Point[Natural, GEF], n: int = 1) -> Array:
+        """Generate random samples from the distribution.
+
+        Args:
+            p: Parameters in natural coordinates
+            n: Number of samples to generate (default=1)
+
+        Returns:
+            Array of shape (n, *data_dims) containing samples
+        """
+        self.random_key, subkey = jax.random.split(self.random_key)
+        return self._sample(p, subkey, n)
+
+    def stochastic_to_mean(
+        self: GEF, p: Point[Natural, GEF], n: int
+    ) -> Point[Mean, GEF]:
+        """Estimate mean parameters via Monte Carlo sampling."""
+        samples = self.sample(p, n)
+        return self.average_sufficient_statistic(samples)
