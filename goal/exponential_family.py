@@ -45,7 +45,7 @@ GEF = TypeVar("GEF", bound="Generative")
 """Type variable for types of `Generative`."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExponentialFamily(Manifold, ABC):
     """Base manifold class for exponential families.
 
@@ -120,7 +120,7 @@ class ExponentialFamily(Manifold, ABC):
         return Point[Mean, EF](params)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Differentiable(ExponentialFamily, ABC):
     """Exponential family with an analytically tractable log-partition function, which thereby permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
 
@@ -166,7 +166,7 @@ class Differentiable(ExponentialFamily, ABC):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ClosedForm(Differentiable, ABC):
     """An exponential family comprising distributions for which the entropy can be evaluated in closed-form. The negative entropy is the convex conjugate of the log-partition function
 
@@ -194,18 +194,15 @@ class ClosedForm(Differentiable, ABC):
         return Point(natural_params)
 
 
+@dataclass(frozen=True)
 class Generative(ExponentialFamily, ABC):
     """An `ExponentialFamily` that supports random sampling.
 
     Sampling is performed on distributions in natural coordinates. This enables estimation of mean parameters even when closed-form expressions for the log partition function are unavailable.
     """
 
-    random_key: Array = jax.random.PRNGKey(0)
-
     @abstractmethod
-    def _sample(self: GEF, p: Point[Natural, GEF], key: Array, n: int) -> Array: ...
-
-    def sample(self: GEF, p: Point[Natural, GEF], n: int = 1) -> Array:
+    def sample(self: GEF, key: ArrayLike, p: Point[Natural, GEF], n: int = 1) -> Array:
         """Generate random samples from the distribution.
 
         Args:
@@ -215,12 +212,11 @@ class Generative(ExponentialFamily, ABC):
         Returns:
             Array of shape (n, *data_dims) containing samples
         """
-        self.random_key, subkey = jax.random.split(self.random_key)
-        return self._sample(p, subkey, n)
+        ...
 
     def stochastic_to_mean(
-        self: GEF, p: Point[Natural, GEF], n: int
+        self: GEF, key: ArrayLike, p: Point[Natural, GEF], n: int
     ) -> Point[Mean, GEF]:
         """Estimate mean parameters via Monte Carlo sampling."""
-        samples = self.sample(p, n)
+        samples = self.sample(key, p, n)
         return self.average_sufficient_statistic(samples)

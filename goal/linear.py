@@ -21,7 +21,7 @@ Notes:
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Type, TypeVar, cast
 
@@ -32,16 +32,17 @@ from jax import Array
 ### TypeVar Definitions ###
 
 LO = TypeVar("LO", bound="LinearOperator")
-S = TypeVar("S", bound="Square")
-SYM = TypeVar("SYM", bound="Symmetric")
+SQ = TypeVar("SQ", bound="Square")
+SY = TypeVar("SY", bound="Symmetric")
 PD = TypeVar("PD", bound="PositiveDefinite")
-D = TypeVar("D", bound="Diagonal")
+DI = TypeVar("DI", bound="Diagonal")
 SC = TypeVar("SC", bound="Scale")
 ID = TypeVar("ID", bound="Identity")
 
 ### Classes ###
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class LinearOperator(ABC):
     """Abstract base class for linear maps between vector spaces. A linear map $L: V \\mapsto W$ between vector spaces satisfies
@@ -59,13 +60,13 @@ class LinearOperator(ABC):
     """Parametric representation of the linear map."""
 
     def __add__(self: LO, other: LO) -> LO:
-        return type(self)(self.params + other.params)
+        return replace(self, params=self.params + other.params)
 
     def __sub__(self: LO, other: LO) -> LO:
-        return type(self)(self.params - other.params)
+        return replace(self, params=self.params - other.params)
 
     def __mul__(self: LO, scalar: float) -> LO:
-        return type(self)(scalar * self.params)
+        return replace(self, params=scalar * self.params)
 
     def __rmul__(self: LO, scalar: float) -> LO:
         return self.__mul__(scalar)
@@ -113,6 +114,7 @@ class LinearOperator(ABC):
         ...
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Square(LinearOperator):
     """Arbitrary square matrices $A \\in \\mathbb R^{n \\times n}$.
@@ -122,44 +124,45 @@ class Square(LinearOperator):
         - Parameterized by full matrix
     """
 
+    side_length: int
+
+    def __add__(self: SQ, other: SQ) -> SQ:
+        return replace(self, params=self.params + other.params)
+
+    def __sub__(self: SQ, other: SQ) -> SQ:
+        return replace(self, params=self.params - other.params)
+
+    def __mul__(self: SQ, scalar: float) -> SQ:
+        return replace(self, params=scalar * self.params)
+
     def matvec(self, v: Array) -> Array:
         return jnp.dot(self.matrix, v)
 
-    def inverse(self) -> "Square":
+    def inverse(self: SQ) -> SQ:
         prms: Array = self.params
         inv: Array = cast(Array, jnp.linalg.inv(prms))
-        return Square(inv)
+        return replace(self, params=inv)
 
-    def transpose(self) -> "Square":
-        return Square(self.matrix.T)
+    def transpose(self: SQ) -> SQ:
+        return replace(self, params=self.matrix.T)
 
     def logdet(self) -> Array:
         return jnp.linalg.slogdet(self.matrix)[1]  # type: ignore
-
-    @property
-    def side_length(self) -> int:
-        """Side length of square matrix."""
-        return self.params.shape[0]
 
     @property
     def matrix(self) -> Array:
         return self.params
 
     @classmethod
-    def from_matrix(cls: Type[S], matrix: Array) -> S:
-        return cls(matrix)
+    def from_matrix(cls: Type[SQ], matrix: Array) -> SQ:
+        return cls(matrix, matrix.shape[0])
 
     @classmethod
-    def outer_product(cls: Type[S], v1: Array, v2: Array) -> S:
-        return cls(jnp.outer(v1, v2))
-
-    @classmethod
-    def from_params(cls: Type[S], params: Array, side_length: int) -> S:
-        """Construct from parameters and side length."""
-        side_length = side_length
-        return cls(params)
+    def outer_product(cls: Type[SQ], v1: Array, v2: Array) -> SQ:
+        return cls(jnp.outer(v1, v2), v1.shape[0])
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Symmetric(Square):
     """Represents matrices $A$ where $A = A^{T}$.
@@ -173,48 +176,40 @@ class Symmetric(Square):
     def matvec(self, v: Array) -> Array:
         return jnp.dot(self.matrix, v)
 
-    def transpose(self: SYM) -> SYM:
+    def transpose(self: SY) -> SY:
         return self
-
-    @property
-    def side_length(self) -> int:
-        return int((jnp.sqrt(1 + 8 * self.params.size) - 1) / 2)
 
     def logdet(self) -> Array:
         return jnp.linalg.slogdet(self.matrix)[1]  # type: ignore
 
-    def inverse(self: SYM) -> SYM:
+    def inverse(self: SY) -> SY:
         matrix = self.matrix
         inv = jnp.linalg.inv(matrix)  # type: ignore
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return type(self)(inv[i_upper])
+        return replace(self, params=inv[i_upper])
 
     @property
     def matrix(self) -> Array:
         vec = self.params
-        n = vec.size
-        dim = int((jnp.sqrt(1 + 8 * n) - 1) / 2)
+        dim = self.side_length
         matrix = jnp.zeros((dim, dim))
         i_upper = jnp.triu_indices(dim)
         matrix = matrix.at[i_upper].set(vec)
         return matrix + jnp.triu(matrix, k=1).T
 
     @classmethod
-    def from_matrix(cls: Type[SYM], matrix: Array) -> SYM:
+    def from_matrix(cls: Type[SY], matrix: Array) -> SY:
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return cls(matrix[i_upper])
+        return cls(matrix[i_upper], matrix.shape[0])
 
     @classmethod
-    def outer_product(cls: Type[SYM], v1: Array, v2: Array) -> SYM:
+    def outer_product(cls: Type[SY], v1: Array, v2: Array) -> SY:
         matrix = jnp.outer(v1, v2)
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return cls(matrix[i_upper])
-
-    @classmethod
-    def from_params(cls: Type[SYM], params: Array, side_length: int) -> SYM:
-        return cls(params)
+        return cls(matrix[i_upper], matrix.shape[0])
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class PositiveDefinite(Symmetric):
     """Symmetric positive definite matrix operator. Mathematical Definition where $A$ satisfies
@@ -250,24 +245,21 @@ class PositiveDefinite(Symmetric):
     def from_cholesky(cls: Type[PD], chol: Array) -> PD:
         matrix = chol @ chol.T
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return cls(matrix[i_upper])
+        return cls(matrix[i_upper], matrix.shape[0])
 
     @classmethod
     def from_matrix(cls: Type[PD], matrix: Array) -> PD:
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return cls(matrix[i_upper])
+        return cls(matrix[i_upper], matrix.shape[0])
 
     @classmethod
     def outer_product(cls: Type[PD], v1: Array, v2: Array) -> PD:
         matrix = jnp.outer(v1, v2)
         i_upper = jnp.triu_indices(matrix.shape[0])
-        return cls(matrix[i_upper])
-
-    @classmethod
-    def from_params(cls: Type[PD], params: Array, side_length: int) -> PD:
-        return cls(params)
+        return cls(matrix[i_upper], matrix.shape[0])
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Diagonal(PositiveDefinite):
     """Diagonal matrix operator.
@@ -281,8 +273,8 @@ class Diagonal(PositiveDefinite):
     def matvec(self, v: Array) -> Array:
         return self.params * v
 
-    def inverse(self: D) -> D:
-        return type(self)(1.0 / self.params)
+    def inverse(self: DI) -> DI:
+        return replace(self, params=1.0 / self.params)
 
     @property
     def matrix(self) -> Array:
@@ -293,18 +285,15 @@ class Diagonal(PositiveDefinite):
         return jnp.diag(jnp.sqrt(self.params))
 
     @classmethod
-    def from_matrix(cls: Type[D], matrix: Array) -> D:
-        return cls(jnp.diag(matrix))
+    def from_matrix(cls: Type[DI], matrix: Array) -> DI:
+        return cls(jnp.diag(matrix), matrix.shape[0])
 
     @classmethod
-    def outer_product(cls: Type[D], v1: Array, v2: Array) -> D:
-        return cls(v1 * v2)
-
-    @classmethod
-    def from_params(cls: Type[D], params: Array, side_length: int) -> D:
-        return cls(params)
+    def outer_product(cls: Type[DI], v1: Array, v2: Array) -> DI:
+        return cls(v1 * v2, v1.shape[0])
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Scale(Diagonal):
     """Scalar multiple of identity matrix defined by a single parameter.
@@ -315,17 +304,15 @@ class Scale(Diagonal):
         - Inverse is the reciprocal
     """
 
-    _side_length: int
-
     def logdet(self) -> Array:
-        return self._side_length * jnp.log(self.params)
+        return self.side_length * jnp.log(self.params)
 
     def inverse(self: SC) -> SC:
-        return type(self)(1.0 / self.params, self._side_length)
+        return replace(self, params=1.0 / self.params)
 
     @property
     def matrix(self) -> Array:
-        return self.params * jnp.eye(self._side_length)
+        return self.params * jnp.eye(self.side_length)
 
     @classmethod
     def from_matrix(cls: Type[SC], matrix: Array) -> SC:
@@ -340,6 +327,7 @@ class Scale(Diagonal):
         return cls(params, side_length)
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Identity(Scale):
     """Identity operator. Most operations are $O(1)$."""

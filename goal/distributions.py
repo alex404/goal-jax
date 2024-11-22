@@ -13,7 +13,8 @@ from goal.linear import Diagonal, PositiveDefinite, Scale
 from goal.manifold import C, Point
 
 
-@dataclass
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
 class MultivariateGaussian(ClosedForm, Generative):
     """Multivariate Gaussian distributions.
 
@@ -101,10 +102,10 @@ class MultivariateGaussian(ClosedForm, Generative):
 
         return -entropy
 
-    def _sample(
+    def sample(
         self: "MultivariateGaussian",
-        p: Point[Natural, "MultivariateGaussian"],
         key: ArrayLike,
+        p: Point[Natural, "MultivariateGaussian"],
         n: int = 1,
     ) -> Array:
         mean_point = self.to_mean(p)
@@ -141,13 +142,12 @@ class MultivariateGaussian(ClosedForm, Generative):
         self, p: Point[C, "MultivariateGaussian"]
     ) -> tuple[Array, PositiveDefinite]:
         """Split parameters into location and scale components."""
-        operator = self.covariance_shape.from_params(
-            p.params[self.data_dim :], self.data_dim
-        )
+        operator = self.covariance_shape(p.params[self.data_dim :], self.data_dim)
         return p.params[: self.data_dim], operator
 
 
-@dataclass
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
 class Categorical(ClosedForm, Generative):
     """Categorical distribution over $n$ states, of dimension $d = n-1$.
 
@@ -198,10 +198,10 @@ class Categorical(ClosedForm, Generative):
         probs = self.to_probs(Point(mean_params))
         return jnp.sum(probs * jnp.log(probs))
 
-    def _sample(
+    def sample(
         self: "Categorical",
-        p: Point[Natural, "Categorical"],
         key: ArrayLike,
+        p: Point[Natural, "Categorical"],
         n: int = 1,
     ) -> Array:
         mean_point = self.to_mean(p)
@@ -225,7 +225,8 @@ class Categorical(ClosedForm, Generative):
         return jnp.concatenate([jnp.array([prob0]), probs])
 
 
-@dataclass
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
 class Poisson(ClosedForm, Generative):
     """
     The Poisson distribution over counts.
@@ -256,8 +257,8 @@ class Poisson(ClosedForm, Generative):
         rate = jnp.asarray(mean_params)
         return rate * (jnp.log(rate) - 1)
 
-    def _sample(
-        self: "Poisson", p: Point[Natural, "Poisson"], key: ArrayLike, n: int = 1
+    def sample(
+        self: "Poisson", key: ArrayLike, p: Point[Natural, "Poisson"], n: int = 1
     ) -> Array:
         mean_point = self.to_mean(p)
         rate = mean_point.params

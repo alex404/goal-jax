@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
+import jax
 from jax import Array
 
 
@@ -28,7 +29,7 @@ M = TypeVar("M", bound="Manifold")
 """Type variable for `Manifold` types."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class Manifold(ABC):
     """A manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$. A manifold has a geometric structure described by:
 
@@ -47,6 +48,7 @@ class Manifold(ABC):
         ...
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Point(Generic[C, M]):
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
