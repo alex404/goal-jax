@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from scipy import stats
 from scipy.special import factorial
 
-from goal.distributions import Categorical, MultivariateGaussian, Poisson
+from goal.distributions import Categorical, Gaussian, Poisson
 from goal.exponential_family import Natural
 from goal.linear import PositiveDefinite
 from goal.manifold import Point
@@ -20,11 +20,11 @@ from goal.manifold import Point
 
 def compute_gaussian_results(
     key: Array,
-    manifold: MultivariateGaussian,
-    mu: Array,
+    manifold: Gaussian,
+    mu: float,
     sigma: Array,
     eval_points: Array,
-    n_samples: int,
+    sample_size: int,
 ) -> Tuple[Array, Array, Array]:
     """Run Gaussian computations with JAX.
 
@@ -37,12 +37,12 @@ def compute_gaussian_results(
     p_natural = manifold.to_natural(p_mean)
 
     # Sample and estimate
-    samples = manifold.sample(key, p_natural, n_samples)
-    p_mean_est = manifold.average_sufficient_statistic(samples)
+    sample = manifold.sample(key, p_natural, sample_size)
+    p_mean_est = manifold.average_sufficient_statistic(sample)
     p_natural_est = manifold.to_natural(p_mean_est)
 
     # Compute densities using vmap
-    def compute_density(p: Point[Natural, MultivariateGaussian], x: Array) -> Array:
+    def compute_density(p: Point[Natural, Gaussian], x: Array) -> Array:
         return manifold.log_density(p, x)
 
     true_densities = jax.vmap(compute_density, in_axes=(None, 0))(
@@ -52,7 +52,7 @@ def compute_gaussian_results(
         p_natural_est, eval_points
     )
 
-    return samples, jnp.exp(true_densities), jnp.exp(est_densities)
+    return sample, jnp.exp(true_densities), jnp.exp(est_densities)
 
 
 compute_gaussian_results = jax.jit(
@@ -100,7 +100,7 @@ compute_categorical_results = jax.jit(
 
 def compute_poisson_results(
     manifold: Poisson,
-    rate: Array,
+    rate: float,
     eval_points: Array,
     n_samples: int,
     key: Array,
@@ -238,37 +238,37 @@ def main():
     _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
     # Parameters
-    n_samples = 10000
+    sample_size = 10000
 
     # # Gaussian test
     print("\nTesting Gaussian Distribution:")
     mu, sigma = 2.0, 1.5
     x_eval = jnp.array([[x] for x in jnp.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)])
-    gaussian = MultivariateGaussian(data_dim=1)
+    gaussian = Gaussian(data_dim=1)
 
-    samples, true_dens, est_dens = compute_gaussian_results(
-        keys[0], gaussian, jnp.array([mu]), jnp.array([sigma]), x_eval, n_samples
+    sample, true_dens, est_dens = compute_gaussian_results(
+        keys[0], gaussian, mu, jnp.array([sigma]), x_eval, sample_size
     )
-    plot_gaussian_results(ax1, mu, sigma, samples, true_dens, est_dens)
+    plot_gaussian_results(ax1, mu, sigma, sample, true_dens, est_dens)
 
     # Categorical test
     print("\nTesting Categorical Distribution:")
     probs = jnp.array([0.1, 0.2, 0.4, 0.2, 0.1])
     categorical = Categorical(n_categories=len(probs))
-    samples, true_probs, est_probs = compute_categorical_results(
-        categorical, probs, n_samples, keys[1]
+    sample, true_probs, est_probs = compute_categorical_results(
+        categorical, probs, sample_size, keys[1]
     )
-    plot_categorical_results(ax2, probs, samples, true_probs, est_probs)
+    plot_categorical_results(ax2, probs, sample, true_probs, est_probs)
 
     # Poisson test
     print("\nTesting Poisson Distribution:")
     rate = 5.0
     k_eval = jnp.arange(0, int(rate * 2 + 4 * jnp.sqrt(rate)) + 1, dtype=float)
     poisson = Poisson()
-    samples, true_pmf, est_pmf = compute_poisson_results(  # type: ignore
-        poisson, jnp.array(rate), k_eval, n_samples, keys[2]
+    sample, true_pmf, est_pmf = compute_poisson_results(  # type: ignore
+        poisson, rate, k_eval, sample_size, keys[2]
     )
-    plot_poisson_results(ax3, rate, samples, true_pmf, est_pmf)
+    plot_poisson_results(ax3, rate, sample, true_pmf, est_pmf)
 
     plt.tight_layout()
     plt.show()

@@ -67,16 +67,7 @@ class ExponentialFamily(Manifold, ABC):
     """
 
     @abstractmethod
-    def _compute_sufficient_statistic(self, x: ArrayLike) -> Array:
-        """Internal method to compute sufficient statistics.
-
-        Args:
-            x: Array of shape (*data_dims) containing a single observation
-
-        Returns:
-            Array of sufficient statistics
-        """
-        ...
+    def _compute_sufficient_statistic(self, x: ArrayLike) -> Array: ...
 
     def sufficient_statistic(self: EF, x: ArrayLike) -> Point[Mean, EF]:
         """Convert observation to sufficient statistics.
@@ -86,7 +77,7 @@ class ExponentialFamily(Manifold, ABC):
         $$\\mathbf s: \\mathcal{X} \\mapsto \\text{H}$$
 
         Args:
-            x: Array of shape (*data_dims) containing a single observation
+            x: ArrayLike containing a single observation
 
         Returns:
             Mean coordinates of the sufficient statistics
@@ -97,7 +88,7 @@ class ExponentialFamily(Manifold, ABC):
         """Average sufficient statistics of a batch of observations.
 
         Args:
-            xs: Array of shape (batch_size, *data_dims) containing observations
+            xs: ArrayLike of shape (batch_size, data_dim) containing : batch of observations
 
         Returns:
             Mean coordinates of average sufficient statistics
@@ -111,13 +102,13 @@ class ExponentialFamily(Manifold, ABC):
         """Compute log of base measure $\\mu(x)$."""
         ...
 
-    def natural_point(self: EF, params: Array) -> Point[Natural, EF]:
+    def natural_point(self: EF, params: ArrayLike) -> Point[Natural, EF]:
         """Construct a point in natural coordinates."""
-        return Point[Natural, EF](params)
+        return Point[Natural, EF](jnp.atleast_1d(params))
 
-    def mean_point(self: EF, params: Array) -> Point[Mean, EF]:
+    def mean_point(self: EF, params: ArrayLike) -> Point[Mean, EF]:
         """Construct a point in mean coordinates."""
-        return Point[Mean, EF](params)
+        return Point[Mean, EF](jnp.atleast_1d(params))
 
 
 @dataclass(frozen=True)

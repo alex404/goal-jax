@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array, random
 
-from goal.distributions import Categorical, MultivariateGaussian, Poisson
+from goal.distributions import Categorical, Gaussian, Poisson
 from goal.exponential_family import Mean
 from goal.linear import (
     PositiveDefinite,
@@ -18,8 +18,8 @@ def test_point_creation():
     """Test if Points can be created inside jitted functions."""
 
     @jax.jit
-    def make_point(params: Array) -> Point[Mean, MultivariateGaussian]:
-        return Point[Mean, MultivariateGaussian](params)
+    def make_point(params: Array) -> Point[Mean, Gaussian]:
+        return Point[Mean, Gaussian](params)
 
     params: Array = jnp.array([1.0, 2.0, 3.0])
     try:
@@ -59,10 +59,10 @@ def test_linear_operators():
 def test_distributions():
     """Test if distribution operations can be jitted."""
 
-    # Test MultivariateGaussian
+    # Test Gaussian
     @jax.jit
     def gaussian_test(params: jnp.ndarray, x: jnp.ndarray) -> tuple[Any, ...]:
-        mvn = MultivariateGaussian(2)  # 2D Gaussian
+        mvn = Gaussian(2)  # 2D Gaussian
         p = mvn.natural_point(params)
         result1 = mvn.log_density(p, x)
         result2 = mvn.log_partition_function(p)
@@ -94,9 +94,9 @@ def test_distributions():
         )  # mean and covariance params
         x = jnp.array([1.0, 1.0])
         _ = gaussian_test(gauss_params, x)  # type: ignore
-        print("✓ MultivariateGaussian operations are jit-compatible")
+        print("✓ Gaussian operations are jit-compatible")
     except Exception as e:
-        print("✗ MultivariateGaussian operations failed under jit:", str(e))
+        print("✗ Gaussian operations failed under jit:", str(e))
 
     try:
         # Test Categorical
@@ -122,7 +122,7 @@ def test_sampling():
 
     @jax.jit
     def sample_test(key: jnp.ndarray, params: jnp.ndarray) -> Any:
-        dist = MultivariateGaussian(2)
+        dist = Gaussian(2)
         p = dist.natural_point(params)
         return dist.sample(key, p, n=10)
 

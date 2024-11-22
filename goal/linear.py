@@ -126,18 +126,6 @@ class Square(LinearOperator):
 
     side_length: int
 
-    def __add__(self: SQ, other: SQ) -> SQ:
-        return replace(self, params=self.params + other.params)
-
-    def __sub__(self: SQ, other: SQ) -> SQ:
-        return replace(self, params=self.params - other.params)
-
-    def __mul__(self: SQ, scalar: float) -> SQ:
-        return replace(self, params=scalar * self.params)
-
-    def matvec(self, v: Array) -> Array:
-        return jnp.dot(self.matrix, v)
-
     def inverse(self: SQ) -> SQ:
         prms: Array = self.params
         inv: Array = cast(Array, jnp.linalg.inv(prms))

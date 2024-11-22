@@ -15,8 +15,8 @@ from goal.manifold import C, Point
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class MultivariateGaussian(ClosedForm, Generative):
-    """Multivariate Gaussian distributions.
+class Gaussian(ClosedForm, Generative):
+    """(Multivariate) Gaussian distributions.
 
     Parameters:
         data_dim: Dimension of the data space.
@@ -103,9 +103,9 @@ class MultivariateGaussian(ClosedForm, Generative):
         return -entropy
 
     def sample(
-        self: "MultivariateGaussian",
+        self: "Gaussian",
         key: ArrayLike,
-        p: Point[Natural, "MultivariateGaussian"],
+        p: Point[Natural, "Gaussian"],
         n: int = 1,
     ) -> Array:
         mean_point = self.to_mean(p)
@@ -123,24 +123,23 @@ class MultivariateGaussian(ClosedForm, Generative):
     # Additional methods
 
     def from_mean_and_covariance(
-        self, mean: Array, covariance: PositiveDefinite
-    ) -> Point[Mean, "MultivariateGaussian"]:
+        self, mean: ArrayLike, covariance: PositiveDefinite
+    ) -> Point[Mean, "Gaussian"]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
+        mean = jnp.atleast_1d(mean)
         second_moment = self.covariance_shape.outer_product(mean, mean) + covariance
         params = jnp.concatenate([mean, second_moment.params])
         return Point(params)
 
     def to_mean_and_covariance(
-        self, p: Point[Mean, "MultivariateGaussian"]
+        self, p: Point[Mean, "Gaussian"]
     ) -> tuple[Array, PositiveDefinite]:
         """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
         mean, second_moment = self.split_params(p)
         covariance = second_moment - self.covariance_shape.outer_product(mean, mean)
-        return mean, covariance
+        return jnp.squeeze(mean), covariance
 
-    def split_params(
-        self, p: Point[C, "MultivariateGaussian"]
-    ) -> tuple[Array, PositiveDefinite]:
+    def split_params(self, p: Point[C, "Gaussian"]) -> tuple[Array, PositiveDefinite]:
         """Split parameters into location and scale components."""
         operator = self.covariance_shape(p.params[self.data_dim :], self.data_dim)
         return p.params[: self.data_dim], operator
@@ -214,8 +213,9 @@ class Categorical(ClosedForm, Generative):
 
     # Additional methods
 
-    def from_probs(self, probs: Array) -> Point[Mean, "Categorical"]:
+    def from_probs(self, probs: ArrayLike) -> Point[Mean, "Categorical"]:
         """Construct the mean parameters from the complete probabilities, dropping the first element."""
+        probs = jnp.atleast_1d(probs)
         return Point(probs[1:])
 
     def to_probs(self, p: Point[Mean, "Categorical"]) -> Array:
@@ -251,11 +251,11 @@ class Poisson(ClosedForm, Generative):
         return -jax.lax.lgamma(k + 1)
 
     def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:
-        return jnp.exp(jnp.asarray(natural_params))
+        return jnp.squeeze(jnp.exp(jnp.asarray(natural_params)))
 
     def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
         rate = jnp.asarray(mean_params)
-        return rate * (jnp.log(rate) - 1)
+        return jnp.squeeze(rate * (jnp.log(rate) - 1))
 
     def sample(
         self: "Poisson", key: ArrayLike, p: Point[Natural, "Poisson"], n: int = 1
