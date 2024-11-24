@@ -293,7 +293,7 @@ class Scale(Diagonal):
     """
 
     def logdet(self) -> Array:
-        return self.side_length * jnp.log(self.params)
+        return jnp.squeeze(self.side_length * jnp.log(self.params))
 
     def inverse(self: SC) -> SC:
         return replace(self, params=1.0 / self.params)
@@ -309,10 +309,6 @@ class Scale(Diagonal):
     @classmethod
     def outer_product(cls: Type[SC], v1: Array, v2: Array) -> SC:
         return cls(jnp.mean(v1 * v2), v1.shape[0])
-
-    @classmethod
-    def from_params(cls: Type[SC], params: Array, side_length: int) -> SC:
-        return cls(params, side_length)
 
 
 @jax.tree_util.register_dataclass
@@ -333,7 +329,3 @@ class Identity(Scale):
     @classmethod
     def outer_product(cls: Type[ID], v1: Array, v2: Array) -> ID:
         return cls(jnp.array([]), v1.shape[0])
-
-    @classmethod
-    def from_params(cls: Type[ID], params: Array, side_length: int) -> ID:
-        return cls(jnp.array([]), side_length)

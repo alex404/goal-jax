@@ -156,6 +156,15 @@ class Differentiable(ExponentialFamily, ABC):
             - self.log_partition_function(p)
         )
 
+    def density(self: DEF, p: Point[Natural, DEF], x: ArrayLike) -> Array:
+        """Compute density at x.
+
+        $$
+        p(x;\\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
+        $$
+        """
+        return jnp.exp(self.log_density(p, x))
+
 
 @dataclass(frozen=True)
 class ClosedForm(Differentiable, ABC):

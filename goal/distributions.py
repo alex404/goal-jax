@@ -5,8 +5,7 @@ from typing import Type
 
 import jax
 import jax.numpy as jnp
-from jax import Array
-from jax.typing import ArrayLike
+from jaxtyping import Array, ArrayLike, Float
 
 from goal.exponential_family import ClosedForm, Generative, Mean, Natural
 from goal.linear import Diagonal, PositiveDefinite, Scale
@@ -70,10 +69,10 @@ class Gaussian(ClosedForm, Generative):
 
     # Core class methods
 
-    def _compute_sufficient_statistic(self, x: ArrayLike) -> Array:
-        x = jnp.asarray(x)
+    def _compute_sufficient_statistic(self, x: ArrayLike) -> Float[Array, " d"]:
+        x = jnp.atleast_1d(x)
         second_moment = self.covariance_shape.outer_product(x, x)
-        return jnp.concatenate([x, second_moment.params])
+        return jnp.concatenate([x, second_moment.params.ravel()])
 
     def log_base_measure(self, x: ArrayLike) -> Array:
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
@@ -123,10 +122,9 @@ class Gaussian(ClosedForm, Generative):
     # Additional methods
 
     def from_mean_and_covariance(
-        self, mean: ArrayLike, covariance: PositiveDefinite
+        self, mean: Array, covariance: PositiveDefinite
     ) -> Point[Mean, "Gaussian"]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
-        mean = jnp.atleast_1d(mean)
         second_moment = self.covariance_shape.outer_product(mean, mean) + covariance
         params = jnp.concatenate([mean, second_moment.params])
         return Point(params)
@@ -213,9 +211,8 @@ class Categorical(ClosedForm, Generative):
 
     # Additional methods
 
-    def from_probs(self, probs: ArrayLike) -> Point[Mean, "Categorical"]:
+    def from_probs(self, probs: Array) -> Point[Mean, "Categorical"]:
         """Construct the mean parameters from the complete probabilities, dropping the first element."""
-        probs = jnp.atleast_1d(probs)
         return Point(probs[1:])
 
     def to_probs(self, p: Point[Mean, "Categorical"]) -> Array:

@@ -41,6 +41,7 @@ lint.ignore = [
     "ARG003",# Unused parameters
     "TRY003",# Allow to write exception messages in place instead of subclassing
     "RUF001",# Allow confusable characters (eg σ)
+    "F722",  # spurious errors because of jaxtyping
 ]
 
 [tool.ruff.format]

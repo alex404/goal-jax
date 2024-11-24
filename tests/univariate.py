@@ -1,4 +1,4 @@
-"""Test script for univariate distributions in the exponential family."""
+"""Test script for univariate auistributions in the exponential family."""
 
 from typing import Tuple
 
@@ -21,9 +21,8 @@ from goal.manifold import Point
 def compute_gaussian_results(
     key: Array,
     manifold: Gaussian,
-    mu: float,
+    mu: Array,
     sigma: Array,
-    eval_points: Array,
     sample_size: int,
 ) -> Tuple[Array, Array, Array]:
     """Run Gaussian computations with JAX.
@@ -32,6 +31,9 @@ def compute_gaussian_results(
         samples, true_densities, estimated_densities
     """
     # Create ground truth distribution
+    eval_points = jnp.array(
+        [x for x in jnp.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)]
+    )
     covariance = PositiveDefinite(sigma**2, 1)
     p_mean = manifold.from_mean_and_covariance(mu, covariance)
     p_natural = manifold.to_natural(p_mean)
@@ -43,7 +45,7 @@ def compute_gaussian_results(
 
     # Compute densities using vmap
     def compute_density(p: Point[Natural, Gaussian], x: Array) -> Array:
-        return manifold.log_density(p, x)
+        return manifold.density(p, x)
 
     true_densities = jax.vmap(compute_density, in_axes=(None, 0))(
         p_natural, eval_points
@@ -52,18 +54,18 @@ def compute_gaussian_results(
         p_natural_est, eval_points
     )
 
-    return sample, jnp.exp(true_densities), jnp.exp(est_densities)
+    return sample, true_densities, est_densities
 
 
 compute_gaussian_results = jax.jit(
-    compute_gaussian_results, static_argnames=["manifold", "n_samples"]
+    compute_gaussian_results, static_argnames=["manifold", "sample_size"]
 )
 
 
 def compute_categorical_results(
     manifold: Categorical,
     probs: Array,
-    n_samples: int,
+    sample_size: int,
     key: Array,
 ) -> tuple[Array, Array, Array]:
     """Run Categorical computations with JAX.
@@ -76,16 +78,15 @@ def compute_categorical_results(
     p_natural = manifold.to_natural(p_mean)
 
     # Sample and estimate
-    samples = manifold.sample(key, p_natural, n_samples)
+    samples = manifold.sample(key, p_natural, sample_size)
     p_mean_est = manifold.average_sufficient_statistic(samples)
     p_natural_est = manifold.to_natural(p_mean_est)
 
     # Compute densities using vmap
     categories = jnp.arange(probs.shape[0])
 
-    # compute_prob = lambda p, k: jnp.exp(manifold.log_density(p, k))
     def compute_prob(p: Point[Natural, Categorical], k: Array) -> Array:
-        return jnp.exp(manifold.log_density(p, k))
+        return manifold.density(p, k)
 
     true_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural, categories)
     est_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural_est, categories)
@@ -94,15 +95,14 @@ def compute_categorical_results(
 
 
 compute_categorical_results = jax.jit(
-    compute_categorical_results, static_argnames=["manifold", "n_samples"]
+    compute_categorical_results, static_argnames=["manifold", "sample_size"]
 )
 
 
 def compute_poisson_results(
     manifold: Poisson,
     rate: float,
-    eval_points: Array,
-    n_samples: int,
+    sample_size: int,
     key: Array,
 ) -> tuple[Array, Array, Array]:
     """Run Poisson computations with JAX.
@@ -111,25 +111,28 @@ def compute_poisson_results(
         samples, true_pmf, estimated_pmf
     """
     # Create ground truth distribution
+
+    max_k = 20
+    eval_points = jnp.arange(0, max_k + 1, dtype=int)
     p_mean = manifold.mean_point(rate)
     p_natural = manifold.to_natural(p_mean)
 
     # Sample and estimate
-    samples = manifold.sample(key, p_natural, n_samples)
+    samples = manifold.sample(key, p_natural, sample_size)
     p_mean_est = manifold.average_sufficient_statistic(samples)
     p_natural_est = manifold.to_natural(p_mean_est)
 
     def compute_pmf(p: Point[Natural, Poisson], k: Array) -> Array:
-        return manifold.log_density(p, k)
+        return manifold.density(p, k)
 
     true_pmf = jax.vmap(compute_pmf, in_axes=(None, 0))(p_natural, eval_points)
     est_pmf = jax.vmap(compute_pmf, in_axes=(None, 0))(p_natural_est, eval_points)
 
-    return samples, jnp.exp(true_pmf), jnp.exp(est_pmf)
+    return samples, true_pmf, est_pmf
 
 
 compute_poisson_results = jax.jit(
-    compute_poisson_results, static_argnames=["manifold", "n_samples"]
+    compute_poisson_results, static_argnames=["manifold", "sample_size"]
 )
 
 
@@ -205,7 +208,7 @@ def plot_poisson_results(
     est_pmf: Array,
 ) -> None:
     """Plot Poisson results using numpy/matplotlib."""
-    max_k = int(rate * 2 + 4 * np.sqrt(rate))
+    max_k = 20
     k = np.arange(0, max_k + 1)
 
     # Convert everything to numpy for plotting
@@ -243,11 +246,10 @@ def main():
     # # Gaussian test
     print("\nTesting Gaussian Distribution:")
     mu, sigma = 2.0, 1.5
-    x_eval = jnp.array([[x] for x in jnp.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)])
     gaussian = Gaussian(data_dim=1)
 
     sample, true_dens, est_dens = compute_gaussian_results(
-        keys[0], gaussian, mu, jnp.array([sigma]), x_eval, sample_size
+        keys[0], gaussian, jnp.atleast_1d(mu), jnp.atleast_1d(sigma), sample_size
     )
     plot_gaussian_results(ax1, mu, sigma, sample, true_dens, est_dens)
 
@@ -263,10 +265,9 @@ def main():
     # Poisson test
     print("\nTesting Poisson Distribution:")
     rate = 5.0
-    k_eval = jnp.arange(0, int(rate * 2 + 4 * jnp.sqrt(rate)) + 1, dtype=float)
     poisson = Poisson()
-    sample, true_pmf, est_pmf = compute_poisson_results(  # type: ignore
-        poisson, rate, k_eval, sample_size, keys[2]
+    sample, true_pmf, est_pmf = compute_poisson_results(
+        poisson, rate, sample_size, keys[2]
     )
     plot_poisson_results(ax3, rate, sample, true_pmf, est_pmf)
 
