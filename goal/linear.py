@@ -308,7 +308,7 @@ class Scale(Diagonal):
 
     @classmethod
     def outer_product(cls: Type[SC], v1: Array, v2: Array) -> SC:
-        return cls(jnp.mean(v1 * v2), v1.shape[0])
+        return cls(jnp.atleast_1d(jnp.mean(v1 * v2)), v1.shape[0])
 
 
 @jax.tree_util.register_dataclass

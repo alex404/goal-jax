@@ -55,12 +55,12 @@ class Gaussian(ClosedForm, Generative):
     @property
     def covariance_dim(self) -> int:
         """Number of parameters needed for representing the covariance."""
-        if issubclass(self.covariance_shape, Scale):
+        if self.covariance_shape == Scale:
             return 1
-        if issubclass(self.covariance_shape, Diagonal):
+        if self.covariance_shape == Diagonal:
             return self.data_dim
         n = self.data_dim
-        return (n * (n + 1)) // 2  # Triangular number for symmetric matrix
+        return (n * (n + 1)) // 2  # Triangular number for PositiveDefinite matrix
 
     @property
     def dimension(self) -> int:
@@ -72,25 +72,24 @@ class Gaussian(ClosedForm, Generative):
     def _compute_sufficient_statistic(self, x: ArrayLike) -> Float[Array, " d"]:
         x = jnp.atleast_1d(x)
         second_moment = self.covariance_shape.outer_product(x, x)
-        return jnp.concatenate([x, second_moment.params.ravel()])
+        return self._join_params(x, second_moment)
 
     def log_base_measure(self, x: ArrayLike) -> Array:
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
-    def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:
+    def _compute_log_partition_function(self, natural_params: Array) -> Array:
         natural_params = jnp.asarray(natural_params)
-        theta1, theta2 = self.split_params(Point(natural_params))
+        theta1, theta2 = self.split_natural_params(Point(natural_params))
 
         precision = -2 * theta2
         covariance = precision.inverse()  # This is Σ
-
         mean = covariance.matvec(theta1)
 
         return 0.5 * jnp.dot(theta1, mean) - 0.5 * precision.logdet()
 
     def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
         mean_params = jnp.asarray(mean_params)
-        mean, second_moment = self.split_params(Point(mean_params))
+        mean, second_moment = self.split_mean_params(Point(mean_params))
 
         # Compute covariance without forming full matrices
         outer_mean = self.covariance_shape.outer_product(mean, mean)
@@ -121,26 +120,72 @@ class Gaussian(ClosedForm, Generative):
 
     # Additional methods
 
+    def _split_params(self, p: Point[C, "Gaussian"]) -> tuple[Array, PositiveDefinite]:
+        """Split parameters into location and scale components."""
+        params = p.params[self.data_dim :]
+
+        operator = self.covariance_shape(params, self.data_dim)
+        return p.params[: self.data_dim], operator
+
+    def _join_params(self, mean: Array, covariance: PositiveDefinite) -> Array:
+        """Join location and scale parameters into a single array."""
+        return jnp.concatenate([mean, covariance.params])
+
     def from_mean_and_covariance(
         self, mean: Array, covariance: PositiveDefinite
     ) -> Point[Mean, "Gaussian"]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
         second_moment = self.covariance_shape.outer_product(mean, mean) + covariance
-        params = jnp.concatenate([mean, second_moment.params])
+        params = self._join_params(mean, second_moment)
         return Point(params)
 
     def to_mean_and_covariance(
         self, p: Point[Mean, "Gaussian"]
     ) -> tuple[Array, PositiveDefinite]:
         """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
-        mean, second_moment = self.split_params(p)
+        mean, second_moment = self.split_mean_params(p)
         covariance = second_moment - self.covariance_shape.outer_product(mean, mean)
-        return jnp.squeeze(mean), covariance
+        return mean, covariance
 
-    def split_params(self, p: Point[C, "Gaussian"]) -> tuple[Array, PositiveDefinite]:
-        """Split parameters into location and scale components."""
-        operator = self.covariance_shape(p.params[self.data_dim :], self.data_dim)
-        return p.params[: self.data_dim], operator
+    def split_mean_params(
+        self, p: Point[Mean, "Gaussian"]
+    ) -> tuple[Array, PositiveDefinite]:
+        return self._split_params(p)
+
+    def join_mean_params(
+        self, mean: Array, covariance: PositiveDefinite
+    ) -> Point[Mean, "Gaussian"]:
+        return Point(self._join_params(mean, covariance))
+
+    def split_natural_params(
+        self, p: Point[Natural, "Gaussian"]
+    ) -> tuple[Array, PositiveDefinite]:
+        loc, scale = self._split_params(p)
+
+        if not issubclass(self.covariance_shape, Diagonal):
+            scale_params = scale.params
+            i_diag = (
+                jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
+            )
+            scaled_params = scale_params / 2
+            scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
+            scale_params = scaled_params
+            scale = self.covariance_shape(scale_params, self.data_dim)
+
+        return loc, scale
+
+    def join_natural_params(
+        self, loc: Array, scale: PositiveDefinite
+    ) -> Point[Natural, "Gaussian"]:
+        scale_params = scale.params
+        if not issubclass(self.covariance_shape, Diagonal):
+            i_diag = (
+                jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
+            )
+            scaled_params = scale_params * 2
+            scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
+            scale_params = scaled_params
+        return Point(jnp.concatenate([loc, scale_params]))
 
 
 @jax.tree_util.register_dataclass
@@ -187,10 +232,10 @@ class Categorical(ClosedForm, Generative):
     def log_base_measure(self, x: ArrayLike) -> Array:
         return jnp.array(0.0)
 
-    def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:
+    def _compute_log_partition_function(self, natural_params: Array) -> Array:
         return jnp.log1p(jnp.sum(jnp.exp(natural_params)))
 
-    def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
+    def _compute_negative_entropy(self, mean_params: Array) -> Array:
         mean_params = jnp.asarray(mean_params)
         probs = self.to_probs(Point(mean_params))
         return jnp.sum(probs * jnp.log(probs))
@@ -247,10 +292,10 @@ class Poisson(ClosedForm, Generative):
         k = jnp.asarray(x, dtype=jnp.float32)
         return -jax.lax.lgamma(k + 1)
 
-    def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:
+    def _compute_log_partition_function(self, natural_params: Array) -> Array:
         return jnp.squeeze(jnp.exp(jnp.asarray(natural_params)))
 
-    def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
+    def _compute_negative_entropy(self, mean_params: Array) -> Array:
         rate = jnp.asarray(mean_params)
         return jnp.squeeze(rate * (jnp.log(rate) - 1))
 

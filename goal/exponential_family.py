@@ -129,7 +129,7 @@ class Differentiable(ExponentialFamily, ABC):
     """
 
     @abstractmethod
-    def _compute_log_partition_function(self, natural_params: ArrayLike) -> Array:
+    def _compute_log_partition_function(self, natural_params: Array) -> Array:
         """Internal method to compute $\\psi(\\theta)$."""
         ...
 
@@ -180,7 +180,7 @@ class ClosedForm(Differentiable, ABC):
     """
 
     @abstractmethod
-    def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
+    def _compute_negative_entropy(self, mean_params: Array) -> Array:
         """Internal method to compute $\\phi(\\eta)$."""
         ...
 
