@@ -20,7 +20,6 @@ Notes:
 
 """
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Type, TypeVar, cast
@@ -44,74 +43,62 @@ ID = TypeVar("ID", bound="Identity")
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class LinearOperator(ABC):
-    """Abstract base class for linear maps between vector spaces. A linear map $L: V \\mapsto W$ between vector spaces satisfies
+class LinearOperator:
+    """Linear maps between vector spaces. A linear map $L: V \\mapsto W$ between vector spaces satisfies
         $L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$.
 
-    In general we store the matrix representation $A \\in \\mathbb R^{m \\times n}$ of the linear map, but subclasses may make parametric assumptions that allow more efficient representations.
-
-    JAX Implementation:
-        - All operations return new objects (immutable)
-        - Uses JAX's array operations for efficiency
-        - Supports vectorization via jit/vmap
+    Represented by its full matrix form $A \\in \\mathbb R^{m \\times n}$.
     """
 
     params: Array
-    """Parametric representation of the linear map."""
+    """Matrix representation."""
 
-    def __add__(self: LO, other: LO) -> LO:
+    def __add__(self, other: "LinearOperator") -> "LinearOperator":
         return replace(self, params=self.params + other.params)
 
-    def __sub__(self: LO, other: LO) -> LO:
+    def __sub__(self, other: "LinearOperator") -> "LinearOperator":
         return replace(self, params=self.params - other.params)
 
-    def __mul__(self: LO, scalar: float) -> LO:
+    def __mul__(self, scalar: float) -> "LinearOperator":
         return replace(self, params=scalar * self.params)
 
-    def __rmul__(self: LO, scalar: float) -> LO:
+    def __rmul__(self, scalar: float) -> "LinearOperator":
         return self.__mul__(scalar)
 
-    @abstractmethod
     def matvec(self, v: Array) -> Array:
         """Matrix-vector product $Av$."""
-        ...
+        return jnp.dot(self.params, v)
 
-    @abstractmethod
     def transpose(self) -> "LinearOperator":
         """Transpose of the linear map."""
-        ...
+        return replace(self, params=self.params.T)
 
-    @abstractmethod
     def logdet(self) -> Array:
         """Compute the log determinant of the matrix $\\log|A|$."""
-        ...
+        return jnp.linalg.slogdet(self.params)[1]  # type: ignore
 
-    @abstractmethod
     def inverse(self) -> "LinearOperator":
         """Compute the inverse $A^{-1}$ of the matrix."""
-        ...
+        return replace(self, params=jnp.linalg.inv(self.params))
 
     def __matmul__(self, v: Array) -> Array:
         """Allow @ syntax for matrix-vector product."""
         return self.matvec(v)
 
     @property
-    @abstractmethod
     def matrix(self) -> Array:
         """Returns the full matrix representation $A$."""
-        ...
+        return self.params
 
     @classmethod
-    @abstractmethod
     def from_matrix(cls, matrix: Array) -> "LinearOperator":
-        """Construct the linear map by extracting parameters from the given matrix."""
-        ...
+        """Construct from a matrix."""
+        return cls(matrix)
 
     @classmethod
-    @abstractmethod
     def outer_product(cls, v1: Array, v2: Array) -> "LinearOperator":
-        """Construct a linear map from the outer product $\\mathbf{v} \\otimes \\mathbf{w}$."""
-        ...
+        """Construct from outer product $\\mathbf{v} \\otimes \\mathbf{w}$."""
+        return cls(jnp.outer(v1, v2))
 
 
 @jax.tree_util.register_dataclass

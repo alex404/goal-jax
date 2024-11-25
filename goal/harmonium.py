@@ -1,70 +1,122 @@
-import equinox as eqx
+"""Core definitions for harmonium models - product exponential families combining observable and latent variables."""
+
+from dataclasses import dataclass
+from typing import Generic, TypeVar
+
+import jax
 import jax.numpy as jnp
+from jax import Array
+from jax.typing import ArrayLike
 
-from goal.exponential_family import Categorical, ExponentialFamily
+from goal.exponential_family import ExponentialFamily
+from goal.linear import LinearOperator
+from goal.manifold import C, Point
 
-
-class Harmonium(ExponentialFamily):
-    """Base Harmonium model - product of exponential families with interaction"""
-
-    visible: ExponentialFamily
-    hidden: ExponentialFamily
-    interaction: jnp.ndarray
-
-    def sufficient_statistic(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Compute sufficient statistics from joint observation (x, z)"""
-        x_vis, x_hid = x  # Unpack the tuple
-        tx = self.visible.sufficient_statistic(x_vis)
-        tz = self.hidden.sufficient_statistic(x_hid)
-        return jnp.concatenate([tx, tz, (tx[:, None] * tz[None, :]).ravel()])
-
-    def log_base_measure(self, x: jnp.ndarray) -> float:
-        """Sum of component base measures"""
-        x_vis, x_hid = x  # Unpack the tuple
-        return float(
-            self.visible.log_base_measure(x_vis) + self.hidden.log_base_measure(x_hid)
-        )
-
-    def potential(self, natural_params: jnp.ndarray) -> float:
-        """Log partition function"""
-        n_visible = len(self.visible.to_natural())
-        n_hidden = len(self.hidden.to_natural())
-        nx = natural_params[:n_visible]
-        nz = natural_params[n_visible : n_visible + n_hidden]
-        nxz = natural_params[n_visible + n_hidden :].reshape(n_visible, n_hidden)
-
-        return float(
-            self.visible.potential(nx)
-            + self.hidden.potential(nz)
-            + jnp.sum(nxz * self.interaction)
-        )
-
-    def to_natural(self) -> jnp.ndarray:
-        """Convert to natural parameters"""
-        nx = self.visible.to_natural()
-        nz = self.hidden.to_natural()
-        return jnp.concatenate([nx, nz, self.interaction.ravel()])
-
-    def replace(self, **updates) -> "Harmonium":
-        """Create new Harmonium with updated fields"""
-        return eqx.tree_at(
-            lambda m: [getattr(m, k) for k in updates],
-            self,
-            [updates[k] for k in updates],
-        )
+OBS = TypeVar("OBS", bound=ExponentialFamily)
+LAT = TypeVar("LAT", bound=ExponentialFamily)
 
 
-def create_gaussian_mixture(dim: int, n_components: int) -> Harmonium:
-    """Create a Gaussian mixture model as a Harmonium"""
-    from .exponential_family import MultivariateGaussian
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class Harmonium(ExponentialFamily, Generic[OBS, LAT]):
+    """An exponential family harmonium combining observable and latent distributions.
 
-    # Component distributions
-    observable = MultivariateGaussian(
-        dim=dim, mean=jnp.zeros(dim), covariance=jnp.eye(dim)
-    )
-    latent = Categorical(n_components)
+    A harmonium combines two exponential families into a joint distribution:
+        - Observable family O defining p(x)
+        - Latent family L defining p(z)
 
-    # Interaction matrix
-    interaction = jnp.zeros((dim, n_components))
+    The joint distribution takes the form:
+        p(x,z) ∝ exp(θ_x · s(x) + θ_z · s(z) + s(x)^T W s(z))
 
-    return Harmonium(visible=observable, hidden=latent, interaction=interaction)
+    where:
+        - θ_x are the observable biases
+        - θ_z are the latent biases
+        - W is the interaction matrix
+        - s(x), s(z) are sufficient statistics
+
+    Args:
+        observable: The observable exponential family
+        latent: The latent exponential family
+    """
+
+    observable: OBS
+    """The observable exponential family"""
+
+    latent: LAT
+    """The latent exponential family"""
+
+    @property
+    def dimension(self) -> int:
+        """Total dimension includes biases + interaction parameters."""
+        obs_dim = self.observable.dimension
+        lat_dim = self.latent.dimension
+        return obs_dim + lat_dim + (obs_dim * lat_dim)
+
+    def _split_params(
+        self, p: Point[C, "Harmonium[LAT,OBS]"]
+    ) -> tuple[Array, LinearOperator, Array]:
+        """Split harmonium parameters into observable bias, interaction, and latent bias.
+
+        Args:
+            p: Point on the harmonium manifold
+
+        Returns:
+            Triple of (observable_bias, interaction_matrix, latent_bias)
+        """
+        obs_dim = self.observable.dimension
+        lat_dim = self.latent.dimension
+        obs_params = p.params[:obs_dim]
+        lat_params = p.params[obs_dim : obs_dim + lat_dim]
+        int_params = p.params[obs_dim + lat_dim :].reshape(obs_dim, lat_dim)
+        return obs_params, LinearOperator.from_matrix(int_params), lat_params
+
+    def _join_params(
+        self, obs: Array, interaction: LinearOperator, lat: Array
+    ) -> Array:
+        """Join parameters into a single array.
+
+        Args:
+            obs: Observable bias parameters
+            interaction: Interaction matrix
+            lat: Latent bias parameters
+
+        Returns:
+            Concatenated parameter array
+        """
+        return jnp.concatenate([obs.ravel(), lat.ravel(), interaction.matrix.ravel()])
+
+    def _compute_sufficient_statistic(self, x: ArrayLike) -> Array:
+        """Compute sufficient statistics for joint observation.
+
+        Args:
+            x: Array of shape (..., obs_dim + lat_dim) containing concatenated
+               observable and latent variables
+
+        Returns:
+            Array of sufficient statistics
+        """
+        obs_dim = self.observable.dimension
+        obs = x[..., :obs_dim]
+        lat = x[..., obs_dim:]
+
+        obs_stats = self.observable._compute_sufficient_statistic(obs)
+        lat_stats = self.latent._compute_sufficient_statistic(lat)
+        interaction = LinearOperator.from_matrix(jnp.outer(obs_stats, lat_stats))
+
+        return self._join_params(obs_stats, interaction, lat_stats)
+
+    def log_base_measure(self, x: ArrayLike) -> Array:
+        """Compute log base measure for joint observation.
+
+        Args:
+            x: Array of shape (..., obs_dim + lat_dim) containing concatenated
+               observable and latent variables
+
+        Returns:
+            Log base measure value
+        """
+        obs_dim = self.observable.dimension
+        obs = x[..., :obs_dim]
+        lat = x[..., obs_dim:]
+
+        return self.observable.log_base_measure(obs) + self.latent.log_base_measure(lat)
