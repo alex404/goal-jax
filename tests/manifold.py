@@ -6,17 +6,23 @@ import jax.numpy as jnp
 from jax import Array
 
 
-class Natural: ...
+class Coordinates: ...
 
 
-class Mean: ...
+class Natural(Coordinates): ...
 
 
-C = TypeVar("C", Natural, Mean)
-C1 = TypeVar("C1", Natural, Mean)
-C2 = TypeVar("C2", Natural, Mean)
+class Mean(Coordinates): ...
+
+
+C = TypeVar("C", Coordinates, tuple[Coordinates, Coordinates])
+C1 = TypeVar("C1", bound=Coordinates)
+C2 = TypeVar("C2", bound=Coordinates)
 M = TypeVar("M", bound="Manifold")
 N = TypeVar("N", bound="Manifold")
+
+type NaturalMap = tuple[Natural, Mean]
+type MeanMap = tuple[Mean, Natural]
 
 
 @dataclass(frozen=True)

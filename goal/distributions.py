@@ -5,7 +5,8 @@ from typing import Type
 
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike, Float
+from jax import Array
+from jax.typing import ArrayLike
 
 from goal.exponential_family import ClosedForm, Generative, Mean, Natural
 from goal.linear import Diagonal, PositiveDefinite, Scale
@@ -69,7 +70,7 @@ class Gaussian(ClosedForm, Generative):
 
     # Core class methods
 
-    def _compute_sufficient_statistic(self, x: ArrayLike) -> Float[Array, " d"]:
+    def _compute_sufficient_statistic(self, x: ArrayLike) -> Array:
         x = jnp.atleast_1d(x)
         second_moment = self.covariance_shape.outer_product(x, x)
         return self._join_params(x, second_moment)
