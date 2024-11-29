@@ -1,6 +1,6 @@
 """Core definitions for exponential families and their parameterizations.
 
-This module defines the structure of an [`ExponentialFamily`][goal.exponential_family.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.exponential_family.DifferentiableExponentialFamily.log_partition_function] and the [`negative_entropy`][goal.exponential_family.ClosedFormExponentialFamily.negative_entropy].
+This module defines the structure of an [`ExponentialFamily`][goal.exponential_family.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.exponential_family.Differentiable.log_partition_function] and the [`negative_entropy`][goal.exponential_family.ClosedForm.negative_entropy].
 """
 
 from abc import ABC, abstractmethod
@@ -12,19 +12,10 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from goal.manifold import Coordinates, Manifold, Point
+from goal.manifold import Coordinates, Dual, Manifold, Point
 
 
 # Coordinate systems for exponential families
-class Natural(Coordinates):
-    """Natural parameters $\\theta \\in \\Theta$ defining an exponential family through:
-
-    $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
-    """
-
-    ...
-
-
 class Mean(Coordinates):
     """Mean parameters $\\eta \\in \\text{H}$ given by expectations of sufficient statistics:
 
@@ -32,6 +23,13 @@ class Mean(Coordinates):
     """
 
     ...
+
+
+type Natural = Dual[Mean]
+"""Natural parameters $\\theta \\in \\Theta$ defining an exponential family through:
+
+$$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
+"""
 
 
 # Type variables for exponential family types

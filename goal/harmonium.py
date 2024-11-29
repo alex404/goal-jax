@@ -9,7 +9,7 @@ from jax import Array
 from jax.typing import ArrayLike
 
 from goal.exponential_family import ExponentialFamily
-from goal.linear import LinearOperator
+from goal.linear import Rectangular
 from goal.manifold import C, Point
 
 OBS = TypeVar("OBS", bound=ExponentialFamily)
@@ -54,7 +54,7 @@ class Harmonium(ExponentialFamily, Generic[OBS, LAT]):
 
     def _split_params(
         self, p: Point[C, "Harmonium[LAT,OBS]"]
-    ) -> tuple[Array, LinearOperator, Array]:
+    ) -> tuple[Array, Rectangular, Array]:
         """Split harmonium parameters into observable bias, interaction, and latent bias.
 
         Args:
@@ -68,10 +68,10 @@ class Harmonium(ExponentialFamily, Generic[OBS, LAT]):
         obs_params = p.params[:obs_dim]
         lat_params = p.params[obs_dim : obs_dim + lat_dim]
         int_params = p.params[obs_dim + lat_dim :].reshape(obs_dim, lat_dim)
-        return obs_params, LinearOperator.from_matrix(int_params), lat_params
+        return obs_params, Rectangular.from_matrix(int_params), lat_params
 
     def _join_params(
-        self, obs: Array, interaction: LinearOperator, lat: Array
+        self, obs: Array, interaction: Rectangular, lat: Array
     ) -> Array:
         """Join parameters into a single array.
 
@@ -101,7 +101,7 @@ class Harmonium(ExponentialFamily, Generic[OBS, LAT]):
 
         obs_stats = self.observable._compute_sufficient_statistic(obs)
         lat_stats = self.latent._compute_sufficient_statistic(lat)
-        interaction = LinearOperator.from_matrix(jnp.outer(obs_stats, lat_stats))
+        interaction = Rectangular.from_matrix(jnp.outer(obs_stats, lat_stats))
 
         return self._join_params(obs_stats, interaction, lat_stats)
 

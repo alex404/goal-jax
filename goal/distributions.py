@@ -1,7 +1,7 @@
 """Core exponential families."""
 
 from dataclasses import dataclass
-from typing import Type
+from typing import Type, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,10 @@ from jax.typing import ArrayLike
 
 from goal.exponential_family import ClosedForm, Generative, Mean, Natural
 from goal.linear import Diagonal, PositiveDefinite, Scale
-from goal.manifold import C, Point
+from goal.manifold import Coordinates, Point
+
+C = TypeVar("C", bound=Coordinates)
+PD = TypeVar("PD", bound=PositiveDefinite)
 
 
 @jax.tree_util.register_dataclass

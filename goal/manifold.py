@@ -5,7 +5,6 @@ A [Manifold][goal.manifold.Manifold] is a space that can be locally represented 
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, TypeVar
 
 import jax
 from jax import Array
@@ -21,12 +20,12 @@ class Coordinates:
     ...
 
 
-# Type variables
-C = TypeVar("C", bound=Coordinates)
-"""Type variable for types of `Coordinates`."""
+class Dual[C: Coordinates](Coordinates):
+    """Dual coordinates to a given coordinate system.
 
-M = TypeVar("M", bound="Manifold")
-"""Type variable for `Manifold` types."""
+    For a vector space $V$, its dual space $V^*$ consists of linear functionals $\\{V \\mapsto \\mathbb R\\}$.
+    Where $V$ has coordinates $\\theta$, $V^*$ has dual coordinates $\\theta^*$.
+    """
 
 
 @dataclass(frozen=True)
@@ -50,7 +49,7 @@ class Manifold(ABC):
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Point(Generic[C, M]):
+class Point[C: Coordinates, M: Manifold]:
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
     Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
