@@ -3,6 +3,8 @@
 This module defines the structure of an [`ExponentialFamily`][goal.exponential_family.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.exponential_family.Differentiable.log_partition_function] and the [`negative_entropy`][goal.exponential_family.ClosedForm.negative_entropy].
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TypeVar

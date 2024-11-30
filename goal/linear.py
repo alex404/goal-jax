@@ -5,13 +5,13 @@ structure. Each specialization maintains key matrix operations (multiplication, 
 inverse) while exploiting structure for efficiency:
 
 Operator Type    | Storage   | Matmul    | Inverse/Det
-----------------|-----------|-----------|-------------
-Rectangular     | O(n²)     | O(n²)     | O(n³)
-Symmetric       | O(n²/2)   | O(n²)     | O(n³)
-Pos. Definite   | O(n²/2)   | O(n²)     | O(n³) Cholesky
-Diagonal        | O(n)      | O(n)      | O(n)
-Scale           | O(1)      | O(n)      | O(1)
-Identity        | O(1)      | O(1)      | O(1)
+----------------|------------|-----------|-------------
+Rectangular     | $O(n^2)$   | $O(n^2)$  | $O(n^3)$
+Symmetric       | $O(n^2/2)$ | $O(n^2)$  | $O(n^3)$
+Pos. Definite   | $O(n^2/2)$ | $O(n^2)$  | $O(n^3)$ (Cholesky)
+Diagonal        | $O(n)$     | $O(n)$    | $O(n^3)$
+Scale           | $O(1)$     | $O(n)$    | $O(1)$
+Identity        | $O(1)$     | $O(1)$    | $O(1)$
 
 Notes:
    - All operators are immutable to align with JAX's functional style
@@ -20,9 +20,11 @@ Notes:
 
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -30,363 +32,374 @@ from jax import Array
 
 from goal.manifold import Coordinates, Dual, Manifold, Point
 
-### TypeVar Definitions ###
-
-LM = TypeVar("LM", bound="LinearMap[Any, Any]")
-RE = TypeVar("RE", bound="Rectangular[Any, Any]")
-# SQ = TypeVar("SQ", bound="Square")
-# SY = TypeVar("SY", bound="Symmetric")
-# PD = TypeVar("PD", bound="PositiveDefinite")
-# DI = TypeVar("DI", bound="Diagonal")
-# SC = TypeVar("SC", bound="Scale")
-# ID = TypeVar("ID", bound="Identity")
-
-C = TypeVar("C", bound=Coordinates)
-D = TypeVar("D", bound=Coordinates)
-# M = TypeVar("M", bound="Manifold")
-# N = TypeVar("N", bound="Manifold")
+### Types ###
 
 
 class TypeMap[C, D](Coordinates): ...
 
 
-### Classes ###
+C = TypeVar("C", bound=Coordinates)
+D = TypeVar("D", bound=Coordinates)
+
+LM = TypeVar("LM", bound="LinearMap[MatrixRep, Manifold, Manifold]")
+SM = TypeVar("SM", bound="SquareMap[Square, Manifold]")
+PDM = TypeVar("PDM", bound="PositiveDefiniteMap[PositiveDefinite, Manifold]")
+
+
+### Linear Maps ###
 
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class LinearMap[M: Manifold, N: Manifold](Manifold, ABC):
-    """Manifold of linear maps between vector spaces.
+class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
+    """Linear map between manifolds using a specific matrix representation.
 
-    A linear map $L: V \\mapsto W$ between vector spaces satisfies $L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$.
+    A linear map $L: V \\to W$ between vector spaces satisfies:
 
-    The manifold itself just stores the source and target manifolds and serves as a factory for creating specific linear transformations as points.
+    $$L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$$
+
+    The map is stored in a specific representation (full, symmetric, etc) defined by R.
+
+    Args:
+        domain: The source/domain manifold $V$
+        codomain: The target/codomain manifold $W$
+        rep: The matrix representation strategy
     """
 
     domain: N
     codomain: M
+    rep: R
 
     @property
     def dimension(self) -> int:
-        """Dimension of the linear map manifold itself."""
-        return self.codomain.dimension * self.domain.dimension
-
-    def __call__(self: LM, f: Point[TypeMap[C, D], LM], p: Point[D, N]) -> Point[C, M]:
-        """Apply the linear map represented by `f` to transform the point `p` in the domain of `f`."""
-        ...
-
-    @abstractmethod
-    def transpose(
-        self: LM, f: Point[TypeMap[C, D], LM]
-    ) -> Point[TypeMap[Dual[D], Dual[C]], LM]:
-        """Transpose of the linear map.
-
-        For a map $L: V \\mapsto W$, returns $L^T: W^* \\mapsto V^*$. When $V$ and $W$ are dual spaces, the coordinate systems remain unchanged, and since this is the standard scenario we consider in this library, we type `transpose` under this assumption.
-        """
-        ...
-
-    # @abstractmethod
-    # def outerproduct(
-    #     self: LM,
-    #     v: Point[C, M],  # Vector in source space
-    #     w: Point[D, N],  # Vector in target space
-    # ) -> Point[TypeMap[C, Dual[D]], LM]:
-    #     """Outer product $v \\otimes w$ of vectors in the `domain` and `codomain`."""
-
-    @abstractmethod
-    def to_matrix(self: LM, point: Point[TypeMap[C, D], LM]) -> Array:
-        """Convert a point in this manifold to its matrix representation."""
-        ...
-
-    @abstractmethod
-    def from_matrix(
-        self: LM, matrix: Array
-    ) -> Point[TypeMap[Coordinates, Coordinates], LM]:
-        """Create a point in this manifold from a matrix representation."""
-        ...
+        return self.rep.num_params(self.shape)
 
     @property
     def shape(self) -> tuple[int, int]:
-        """Shape of the linear maps in this manifold: (target_dim, source_dim)."""
+        """Shape of the linear maps."""
         return (self.codomain.dimension, self.domain.dimension)
 
-
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class TransposedLinearMap[N: Manifold, M: Manifold](LinearMap[M, N], ABC): ...
-
-
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class Rectangular[M: Manifold, N: Manifold](LinearMap[M, N]):
-    """Unconstrained map between two vector spaces, represented by its full matrix form $A \\in \\mathbb R^{m \\times n}$."""
-
     def __call__(
-        self: "Rectangular[M, N]",
-        f: Point[TypeMap[C, D], "Rectangular[M, N]"],
+        self: LM,
+        f: Point[TypeMap[C, D], LM],
         p: Point[D, N],
     ) -> Point[C, M]:
-        """Matrix-vector product $Av$."""
-        matrix = self.to_matrix(f)
-        result = jnp.dot(matrix, p.params)
-        return Point(result)
-
-    def opposite_space(self: "Rectangular[M, N]") -> "Rectangular[N, M]":
-        """Map in the opposite direction."""
-        return Rectangular(self.codomain, self.domain)
+        """Apply the linear map to transform a point."""
+        return Point(self.rep.matvec(f.params, p.params, self.shape))
 
     def transpose(
-        self: RE, f: Point[TypeMap[C, D], RE]
-    ) -> Point[TypeMap[Dual[D], Dual[C]], "Rectangular[N, M]"]:
+        self: LM, f: Point[TypeMap[C, D], LM]
+    ) -> Point[TypeMap[Dual[D], Dual[C]], LM]:
         """Transpose of the linear map."""
-        op = self.opposite_space()
-        trans: Point[TypeMap[Dual[D], Dual[C]], RE] = op.from_matrix(
-            self.to_matrix(f).T
-        )
-        return trans
+        return Point(self.rep.transpose(f.params, self.shape))
 
-    def to_matrix(self: "Rectangular[M, N]", point: Point[TypeMap[C, D], RE]) -> Array:
-        return point.params
+    def to_dense(self, f: Point[TypeMap[C, D], LM]) -> Array:
+        """Convert to dense matrix representation."""
+        return self.rep.to_dense(f.params, self.shape)
 
-    def from_matrix(
-        self: "Rectangular[M, N]", matrix: Array
-    ) -> Point[TypeMap[Coordinates, Coordinates], "Rectangular[M, N]"]:
-        return Point(matrix)
+    def from_dense(
+        self: LM, matrix: Array
+    ) -> Point[TypeMap[Coordinates, Coordinates], LM]:
+        """Create point from dense matrix."""
+        return Point(self.rep.from_dense(matrix))
 
-    # def transpose(self: RE) -> TransposedLinearMap[RE]:
-    #     """Transpose of the linear map."""
-    #     return replace(self, params=self.matrix.T.flatten(), shape=self.shape[::-1])
-
-    #
-    # @property
-    # def matrix(self) -> Array:
-    #     """Returns the full matrix representation $A$."""
-    #     return self.params.reshape(self.shape)
-    #
-    # @classmethod
-    # def from_matrix(cls, matrix: Array) -> "Rectangular":
-    #     """Construct from a matrix."""
-    #     return cls(matrix.flatten(), matrix.shape)
-    #
-    # @classmethod
-    # def outer_product(cls, v1: Array, v2: Array) -> "Rectangular":
-    #     """Construct from outer product $\\mathbf{v} \\otimes \\mathbf{w}$."""
-    #     outer = jnp.outer(v1, v2)
-    #     return cls(outer.flatten(), outer.shape)
+    def outer_product(
+        self: LM, v: Point[C, M], w: Point[D, N]
+    ) -> Point[TypeMap[C, Dual[D]], LM]:
+        """Outer product of points."""
+        return Point(self.rep.outer_product(v.params, w.params))
 
 
-# @jax.tree_util.register_dataclass
-# @dataclass(frozen=True)
-# class Square(Rectangular):
-#     """Arbitrary square matrices $A \\in \\mathbb R^{n \\times n}$.
-#
-#     Properties:
-#         - LU decomposition used for determinant/inverse
-#         - Parameterized by full matrix
-#     """
-#
-#     side_length: int
-#
-#     def inverse(self: SQ) -> SQ:
-#         prms: Array = self.params
-#         inv: Array = cast(Array, jnp.linalg.inv(prms))
-#         return replace(self, params=inv)
-#
-#     def transpose(self: SQ) -> SQ:
-#         return replace(self, params=self.matrix.T)
-#
-#     def logdet(self) -> Array:
-#         return jnp.linalg.slogdet(self.matrix)[1]  # type: ignore
-#
-#     @property
-#     def matrix(self) -> Array:
-#         return self.params
-#
-#     @classmethod
-#     def from_matrix(cls: Type[SQ], matrix: Array) -> SQ:
-#         return cls(matrix, matrix.shape[0])
-#
-#     @classmethod
-#     def outer_product(cls: Type[SQ], v1: Array, v2: Array) -> SQ:
-#         return cls(jnp.outer(v1, v2), v1.shape[0])
-#
-#
-# @jax.tree_util.register_dataclass
-# @dataclass(frozen=True)
-# class Symmetric(Square):
-#     """Represents matrices $A$ where $A = A^{T}$.
-#
-#     Properties:
-#         - Real eigenvalues
-#         - Orthogonal eigenvectors
-#         - Parameterized by upper triangular elements
-#     """
-#
-#     def matvec(self, v: Array) -> Array:
-#         return jnp.dot(self.matrix, v)
-#
-#     def transpose(self: SY) -> SY:
-#         return self
-#
-#     def logdet(self) -> Array:
-#         return jnp.linalg.slogdet(self.matrix)[1]  # type: ignore
-#
-#     def inverse(self: SY) -> SY:
-#         matrix = self.matrix
-#         inv = jnp.linalg.inv(matrix)  # type: ignore
-#         i_upper = jnp.triu_indices(matrix.shape[0])
-#         return replace(self, params=inv[i_upper])
-#
-#     @property
-#     def matrix(self) -> Array:
-#         vec = self.params
-#         dim = self.side_length
-#         matrix = jnp.zeros((dim, dim))
-#         i_upper = jnp.triu_indices(dim)
-#         matrix = matrix.at[i_upper].set(vec)
-#         return matrix + jnp.triu(matrix, k=1).T
-#
-#     @classmethod
-#     def from_matrix(cls: Type[SY], matrix: Array) -> SY:
-#         i_upper = jnp.triu_indices(matrix.shape[0])
-#         return cls(matrix[i_upper], matrix.shape[0])
-#
-#     @classmethod
-#     def outer_product(cls: Type[SY], v1: Array, v2: Array) -> SY:
-#         matrix = jnp.outer(v1, v2)
-#         i_upper = jnp.triu_indices(matrix.shape[0])
-#         return cls(matrix[i_upper], matrix.shape[0])
-#
-#
-# @jax.tree_util.register_dataclass
-# @dataclass(frozen=True)
-# class PositiveDefinite(Symmetric):
-#     """Symmetric positive definite matrix operator. Mathematical Definition where $A$ satisfies
-#         $x^T A x > 0, \\forall x \\neq 0$
-#
-#     Properties:
-#         - All eigenvalues strictly positive
-#         - Unique Cholesky decomposition $A = LL^T$
-#         - Inverse exists and is positive definite
-#         - Parameterized by upper triangular elements
-#     """
-#
-#     def matvec(self, v: Array) -> Array:
-#         chol = self.cholesky
-#         return chol @ (chol.T @ v)
-#
-#     def inverse(self: PD) -> PD:
-#         chol = self.cholesky
-#         inv_chol = jax.scipy.linalg.solve_triangular(
-#             chol, jnp.eye(chol.shape[0]), lower=True
-#         )
-#         return self.from_cholesky(inv_chol.T)
-#
-#     def logdet(self) -> Array:
-#         return 2.0 * jnp.sum(jnp.log(jnp.diag(self.cholesky)))
-#
-#     @cached_property
-#     def cholesky(self) -> Array:
-#         """Compute the Cholesky decomposition."""
-#         return jnp.linalg.cholesky(self.matrix)  # type: ignore
-#
-#     @classmethod
-#     def from_cholesky(cls: Type[PD], chol: Array) -> PD:
-#         matrix = chol @ chol.T
-#         i_upper = jnp.triu_indices(matrix.shape[0])
-#         return cls(matrix[i_upper], matrix.shape[0])
-#
-#     @classmethod
-#     def from_matrix(cls: Type[PD], matrix: Array) -> PD:
-#         i_upper = jnp.triu_indices(matrix.shape[0])
-#         return cls(matrix[i_upper], matrix.shape[0])
-#
-#     @classmethod
-#     def outer_product(cls: Type[PD], v1: Array, v2: Array) -> PD:
-#         matrix = jnp.outer(v1, v2)
-#         i_upper = jnp.triu_indices(matrix.shape[0])
-#         return cls(matrix[i_upper], matrix.shape[0])
-#
-#
-# @jax.tree_util.register_dataclass
-# @dataclass(frozen=True)
-# class Diagonal(PositiveDefinite):
-#     """Diagonal matrix operator.
-#
-#     Properties:
-#
-#         - Most operations are element-wise
-#         - Computational complexity scales linearly with dimension
-#     """
-#
-#     def matvec(self, v: Array) -> Array:
-#         return self.params * v
-#
-#     def inverse(self: DI) -> DI:
-#         return replace(self, params=1.0 / self.params)
-#
-#     @property
-#     def matrix(self) -> Array:
-#         return jnp.diag(self.params)
-#
-#     @cached_property
-#     def cholesky(self) -> Array:
-#         return jnp.diag(jnp.sqrt(self.params))
-#
-#     @classmethod
-#     def from_matrix(cls: Type[DI], matrix: Array) -> DI:
-#         return cls(jnp.diag(matrix), matrix.shape[0])
-#
-#     @classmethod
-#     def outer_product(cls: Type[DI], v1: Array, v2: Array) -> DI:
-#         return cls(v1 * v2, v1.shape[0])
-#
-#
-# @jax.tree_util.register_dataclass
-# @dataclass(frozen=True)
-# class Scale(Diagonal):
-#     """Scalar multiple of identity matrix defined by a single parameter.
-#
-#     Properties:
-#
-#         - Efficiently represents isotropic scaling
-#         - Inverse is the reciprocal
-#     """
-#
-#     def logdet(self) -> Array:
-#         return jnp.squeeze(self.side_length * jnp.log(self.params))
-#
-#     def inverse(self: SC) -> SC:
-#         return replace(self, params=1.0 / self.params)
-#
-#     @property
-#     def matrix(self) -> Array:
-#         return self.params * jnp.eye(self.side_length)
-#
-#     @classmethod
-#     def from_matrix(cls: Type[SC], matrix: Array) -> SC:
-#         return cls(jnp.mean(jnp.diag(matrix)), matrix.shape[0])
-#
-#     @classmethod
-#     def outer_product(cls: Type[SC], v1: Array, v2: Array) -> SC:
-#         return cls(jnp.atleast_1d(jnp.mean(v1 * v2)), v1.shape[0])
-#
-#
-# @jax.tree_util.register_dataclass
-# @dataclass(frozen=True)
-# class Identity(Scale):
-#     """Identity operator. Most operations are $O(1)$."""
-#
-#     def matvec(self, v: Array) -> Array:
-#         return v
-#
-#     def logdet(self) -> Array:
-#         return jnp.array(0.0)
-#
-#     @classmethod
-#     def from_matrix(cls: Type[ID], matrix: Array) -> ID:
-#         return cls(jnp.array([]), matrix.shape[0])
-#
-#     @classmethod
-#     def outer_product(cls: Type[ID], v1: Array, v2: Array) -> ID:
-#         return cls(jnp.array([]), v1.shape[0])
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
+    """Linear map with square matrix representation. Inherits from LinearMap.
+
+    Args:
+        domain: The source/target manifold $V = W$
+        rep: The square matrix representation strategy
+
+    Properties:
+        - Square matrix shape $n \\times n$
+        - Inverse and determinant operations
+    """
+
+    def inverse(self: SM, f: Point[TypeMap[C, D], SM]) -> Point[TypeMap[D, C], SM]:
+        """Matrix inverse."""
+        return Point(self.rep.inverse(f.params, self.shape))
+
+    def logdet(self: SM, f: Point[TypeMap[C, D], SM]) -> Array:
+        """Log determinant."""
+        return self.rep.logdet(f.params, self.shape)
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class PositiveDefiniteMap[R: PositiveDefinite, M: Manifold](SquareMap[R, M]):
+    """Linear map with positive definite matrix representation. Inherits from SquareMap.
+
+    Args:
+        domain: The source/target manifold $V = W$
+        rep: The positive definite matrix representation strategy
+
+    Properties:
+        - Symmetric positive definite matrix shape $n \\times n$
+        - Cholesky decomposition for inverse and determinant
+    """
+
+    def cholesky(
+        self: PDM,
+        f: Point[TypeMap[C, D], PDM],
+    ) -> Point[TypeMap[C, D], PDM]:
+        """Cholesky decomposition."""
+        return Point(self.rep.cholesky(f.params, self.shape))
+
+
+### Matrix Representations ###
+
+
+class MatrixRep(ABC):
+    """Base class defining how to interpret and manipulate matrix parameters.
+
+    All matrix parameters are stored as 1D arrays for compatibility with Point. Each subclass defines how to reshape and manipulate these parameters while maintaining their specific structure (full, symmetric, diagonal, etc.)
+    """
+
+    @abstractmethod
+    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+        """Matrix-vector multiplication."""
+        ...
+
+    @abstractmethod
+    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
+        """Transform parameters to represent the transposed matrix."""
+        ...
+
+    @abstractmethod
+    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+        """Convert 1D parameters to dense matrix form."""
+        ...
+
+    @abstractmethod
+    def from_dense(self, matrix: Array) -> Array:
+        """Convert dense matrix to 1D parameters."""
+        ...
+
+    @abstractmethod
+    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+        """Shape of 1D parameter array needed for matrix dimensions."""
+        ...
+
+    @abstractmethod
+    def outer_product(self, v1: Array, v2: Array) -> Array:
+        """Construct parameters from outer product $v_1 \\otimes v_2$."""
+        ...
+
+
+class Rectangular(MatrixRep):
+    """Full matrix representation with no special structure."""
+
+    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+        matrix = self.to_dense(params, shape)
+        return jnp.dot(matrix, vector)
+
+    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
+        matrix = self.to_dense(params, shape).T
+        return matrix.reshape(-1)
+
+    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+        return params.reshape(shape)
+
+    def from_dense(self, matrix: Array) -> Array:
+        return matrix.reshape(-1)
+
+    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+        n, m = matrix_shape
+        return n * m
+
+    def outer_product(self, v1: Array, v2: Array) -> Array:
+        """Create parameters from outer product."""
+        matrix = jnp.outer(v1, v2)
+        return self.from_dense(matrix)
+
+
+class Square(Rectangular):
+    """Square matrix representation.
+
+    Properties:
+        - $n \\times n$ matrix shape
+        - Parameters stored as full matrix in row-major order
+    """
+
+    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
+        matrix = self.to_dense(params, shape)
+        inv = jnp.linalg.inv(matrix)  # type: ignore
+        return self.from_dense(inv)
+
+    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+        matrix = self.to_dense(params, shape)
+        return jnp.linalg.slogdet(matrix)[1]  # type: ignore
+
+
+class Symmetric(Square):
+    """Symmetric matrix representation where $A = A^T$.
+
+    Properties:
+        - Stores only upper/lower triangular elements
+        - Parameter vector contains n*(n+1)/2 elements for $n \\times n$ matrix
+        - Self-transpose, real eigenvalues
+    """
+
+    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
+        """Symmetric matrices are self-transpose."""
+        return params
+
+    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+        n = shape[0]
+        matrix = jnp.zeros((n, n))
+        i_upper = jnp.triu_indices(n)
+        matrix = matrix.at[i_upper].set(params)
+        return matrix + jnp.triu(matrix, k=1).T
+
+    def from_dense(self, matrix: Array) -> Array:
+        n = matrix.shape[0]
+        i_upper = jnp.triu_indices(n)
+        return matrix[i_upper]
+
+    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+        n = matrix_shape[0]
+        return (n * (n + 1)) // 2
+
+
+class PositiveDefinite(Symmetric):
+    """Symmetric positive definite matrix representation.
+
+    Properties:
+        - Symmetric $n \\times n$ matrix with $x^T A x > 0$ for all $x \\neq 0$
+        - All eigenvalues strictly positive
+        - Unique Cholesky decomposition $A = LL^T$
+        - Parameterized by upper triangular elements
+    """
+
+    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
+        """Inverse via Cholesky decomposition."""
+        chol = self.cholesky(params, shape)
+        n = shape[0]
+        eye = jnp.eye(n)
+        # Solve L L^T x = I
+        inv_chol = jax.scipy.linalg.solve_triangular(chol, eye, lower=True)
+        inv = inv_chol.T @ inv_chol
+        return self.from_dense(inv)
+
+    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+        """Log determinant via Cholesky."""
+        chol = self.cholesky(params, shape)
+        return 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+
+    def cholesky(self, params: Array, shape: tuple[int, int]) -> Array:
+        """Compute lower triangular Cholesky factor L where A = LL^T."""
+        matrix = self.to_dense(params, shape)
+        return jnp.linalg.cholesky(matrix)  # type: ignore
+
+
+class Diagonal(PositiveDefinite):
+    """Diagonal matrix representation $A = \\text{diag}(a_1, ..., a_n)$.
+
+    Properties:
+        - Only diagonal elements stored, zero elsewhere
+        - Most operations reduce to element-wise operations on diagonal
+        - $O(n)$ storage and operations
+    """
+
+    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+        return params * vector
+
+    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
+        return params
+
+    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+        n = shape[0]
+        matrix = jnp.zeros((n, n))
+        return matrix.at[jnp.diag_indices(n)].set(params)
+
+    def from_dense(self, matrix: Array) -> Array:
+        return jnp.diag(matrix)
+
+    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+        return matrix_shape[0]
+
+    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
+        return 1.0 / params
+
+    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+        return jnp.sum(jnp.log(params))
+
+    def cholesky(self, params: Array, shape: tuple[int, int]) -> Array:
+        return jnp.sqrt(params)
+
+    def outer_product(self, v1: Array, v2: Array) -> Array:
+        """Create parameters from outer product, keeping only diagonal."""
+        return v1 * v2
+
+
+class Scale(Diagonal):
+    """Scale transformation $A = \\alpha I$.
+
+    Properties:
+        - Single parameter $\\alpha$ represents uniform scaling
+        - All operations are $O(1)$ in storage
+        - Matrix operations reduce to scalar operations on $\\alpha$
+    """
+
+    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+        return params[0] * vector
+
+    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+        n = shape[0]
+        return params[0] * jnp.eye(n)
+
+    def from_dense(self, matrix: Array) -> Array:
+        return jnp.array([jnp.mean(jnp.diag(matrix))])
+
+    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+        return 1
+
+    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+        n = shape[0]
+        return n * jnp.log(params[0])
+
+    def outer_product(self, v1: Array, v2: Array) -> Array:
+        """Average outer product to single scale parameter."""
+        return jnp.array([jnp.mean(v1 * v2)])
+
+
+class Identity(Scale):
+    """Identity transformation $A = I$.
+
+    Properties:
+        - Zero parameters - fully determined by shape
+        - All operations are $O(1)$ and parameter-free
+        - Acts as multiplicative identity in composition
+    """
+
+    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+        return vector
+
+    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+        n = shape[0]
+        return jnp.eye(n)
+
+    def from_dense(self, matrix: Array) -> Array:
+        return jnp.array([])
+
+    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+        return 0
+
+    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
+        return params
+
+    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+        return jnp.array(0.0)
+
+    def outer_product(self, v1: Array, v2: Array) -> Array:
+        """Identity ignores input vectors."""
+        return jnp.array([])

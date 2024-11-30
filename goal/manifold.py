@@ -3,6 +3,8 @@
 A [Manifold][goal.manifold.Manifold] is a space that can be locally represented by $\\mathbb R^n$. A [`Point`][goal.manifold.Point] on the [`Manifold`][goal.manifold.Manifold] can then be locally represented by their [`Coordinates`][goal.manifold.Coordinates] in $\\mathbb R^n$.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -64,14 +66,14 @@ class Point[C: Coordinates, M: Manifold]:
 
     params: Array
 
-    def __add__(self, other: "Point[C, M]") -> "Point[C, M]":
+    def __add__(self, other: Point[C, M]) -> Point[C, M]:
         return Point(self.params + other.params)
 
-    def __sub__(self, other: "Point[C, M]") -> "Point[C, M]":
+    def __sub__(self, other: Point[C, M]) -> Point[C, M]:
         return Point(self.params - other.params)
 
-    def __mul__(self, scalar: float) -> "Point[C, M]":
+    def __mul__(self, scalar: float) -> Point[C, M]:
         return Point(scalar * self.params)
 
-    def __rmul__(self, scalar: float) -> "Point[C, M]":
+    def __rmul__(self, scalar: float) -> Point[C, M]:
         return self.__mul__(scalar)
