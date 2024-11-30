@@ -12,7 +12,7 @@ from scipy.special import factorial
 
 from .common import (
     CategoricalResults,
-    GaussianResults,
+    NormalResults,
     PoissonResults,
     UnivariateResults,
     analysis_path,
@@ -20,8 +20,8 @@ from .common import (
 )
 
 
-def plot_gaussian_results(ax: Axes, results: GaussianResults) -> None:
-    """Plot Gaussian results using numpy/matplotlib."""
+def plot_gaussian_results(ax: Axes, results: NormalResults) -> None:
+    """Plot Normal results using numpy/matplotlib."""
     mu = results["mu"]
     sigma = results["sigma"]
     sample = results["sample"]

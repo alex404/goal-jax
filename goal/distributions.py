@@ -10,18 +10,24 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from goal.exponential_family import ClosedForm, Generative, Mean, Natural
+from goal.exponential_family import (
+    ClosedForm,
+    Generative,
+    Mean,
+    Natural,
+)
 from goal.linear import (
     Diagonal,
     Identity,
+    LinearMap,
+    MatrixRep,
     PositiveDefinite,
-    PositiveDefiniteMap,
     Scale,
-    TypeMap,
 )
-from goal.manifold import Coordinates, Point
+from goal.manifold import Coordinates, Euclidean, Point, reduce_double_dual
 
 C = TypeVar("C", bound=Coordinates)
+D = TypeVar("D", bound=Coordinates)
 PD = TypeVar("PD", bound=PositiveDefinite)
 
 type FullNormal = Normal[PositiveDefinite]
@@ -29,7 +35,10 @@ type DiagonalNormal = Normal[Diagonal]
 type IsotropicNormal = Normal[Scale]
 type StandardNormal = Normal[Identity]
 
-N = TypeVar("N", bound=Normal[PositiveDefinite])
+type Covariance[R: MatrixRep] = LinearMap[R, Euclidean, Euclidean]
+type FullCovariance = Covariance[PositiveDefinite]
+type DiagonalCovariance = Covariance[Diagonal]
+type IsotropicCovariance = Covariance[Scale]
 
 
 @jax.tree_util.register_dataclass
@@ -66,18 +75,18 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
     # Attributes
 
-    covariance_shape: PositiveDefiniteMap[R, StandardNormal]
+    covariance: Covariance[R]
     """Covariance structure (e.g. `Scale`, `Diagonal`, `PositiveDefinite`)."""
 
     @property
     def data_dim(self) -> int:
         """Dimension of the data space."""
-        return self.covariance_shape.shape[0]
+        return self.covariance.shape[0]
 
     @property
     def dimension(self) -> int:
         """Total dimension = `data_dim` + `covariance_dim`."""
-        return self.data_dim + self.covariance_shape.dimension
+        return self.data_dim + self.covariance.dimension
 
     # Core class methods
 
@@ -85,99 +94,169 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         x = jnp.atleast_1d(x)
 
         # Create point in StandardNormal
-        x_point: Point[Mean, StandardNormal] = Point(x)
+        x_point: Point[Mean, Euclidean] = Point(x)
 
         # Compute outer product with appropriate structure
-        second_moment: Point[
-            TypeMap[Mean, Natural], PositiveDefiniteMap[R, StandardNormal]
-        ] = self.covariance_shape.outer_product(x_point, x_point)
+        second_moment: Point[Mean, Covariance[R]] = self.covariance.outer_product(
+            x_point, x_point
+        )
 
         # Concatenate components into parameter vector
-        return jnp.concatenate([x_point.params, second_moment.params])
+        return self._join_params(x_point, second_moment)
 
-    # def log_base_measure(self, x: ArrayLike) -> Array:
-    #     return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
-    #
-    # def _compute_log_partition_function(self, natural_params: Array) -> Array:
-    #     natural_params = jnp.asarray(natural_params)
-    #     theta1, theta2 = self.split_natural_params(Point(natural_params))
-    #
-    #     precision = -2 * theta2
-    #     covariance = precision.inverse()  # This is Σ
-    #     mean = covariance.matvec(theta1)
-    #
-    #     return 0.5 * jnp.dot(theta1, mean) - 0.5 * precision.logdet()
-    #
-    # def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
-    #     mean_params = jnp.asarray(mean_params)
-    #     mean, second_moment = self.split_mean_params(Point(mean_params))
-    #
-    #     # Compute covariance without forming full matrices
-    #     outer_mean = self.covariance_shape.outer_product(mean, mean)
-    #     covariance = second_moment - outer_mean
-    #
-    #     log_det = covariance.logdet()
-    #     entropy = 0.5 * (self.data_dim + self.data_dim * jnp.log(2 * jnp.pi) + log_det)
-    #
-    #     return -entropy
-    #
-    # def sample(
-    #     self: Normal,
-    #     key: ArrayLike,
-    #     p: Point[Natural, Normal],
-    #     n: int = 1,
-    # ) -> Array:
-    #     mean_point = self.to_mean(p)
-    #     mean, covariance = self.to_mean_and_covariance(mean_point)
-    #
-    #     # Draw standard normal samples and transform
-    #     key = jnp.asarray(key)
-    #     shape = (n, self.data_dim)
-    #     z = jax.random.normal(key, shape)
-    #
-    #     # Transform using Cholesky for numerical stability
-    #     chol = covariance.cholesky
-    #     return mean + (chol @ z.T).T
-    #
-    # # Additional methods
-    #
-    # def _split_params(self, p: Point[C, Normal]) -> tuple[Array, PositiveDefinite]:
-    #     """Split parameters into location and scale components."""
-    #     params = p.params[self.data_dim :]
-    #
-    #     operator = self.covariance_shape(params, self.data_dim)
-    #     return p.params[: self.data_dim], operator
-    #
-    # def _join_params(self, mean: Array, covariance: PositiveDefinite) -> Array:
-    #     """Join location and scale parameters into a single array."""
-    #     return jnp.concatenate([mean, covariance.params])
-    #
-    # def from_mean_and_covariance(
-    #     self, mean: Array, covariance: PositiveDefinite
-    # ) -> Point[Mean, Normal]:
-    #     """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
-    #     second_moment = self.covariance_shape.outer_product(mean, mean) + covariance
-    #     params = self._join_params(mean, second_moment)
-    #     return Point(params)
-    #
-    # def to_mean_and_covariance(
-    #     self, p: Point[Mean, Normal]
-    # ) -> tuple[Array, PositiveDefinite]:
-    #     """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
-    #     mean, second_moment = self.split_mean_params(p)
-    #     covariance = second_moment - self.covariance_shape.outer_product(mean, mean)
-    #     return mean, covariance
-    #
-    # def split_mean_params(
-    #     self, p: Point[Mean, Normal]
-    # ) -> tuple[Array, PositiveDefinite]:
-    #     return self._split_params(p)
-    #
-    # def join_mean_params(
-    #     self, mean: Array, covariance: PositiveDefinite
-    # ) -> Point[Mean, Normal]:
-    #     return Point(self._join_params(mean, covariance))
-    #
+    def log_base_measure(self, x: ArrayLike) -> Array:
+        return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
+
+    def _compute_log_partition_function(self, natural_params: Array) -> Array:
+        natural_params = jnp.asarray(natural_params)
+        theta1, theta2 = self.split_natural_params(Point(natural_params))
+
+        precision = -2 * theta2
+        covariance: Point[Mean, Covariance[R]] = reduce_double_dual(
+            self.covariance.inverse(precision)
+        )
+        mean = self.covariance(covariance, theta1)
+
+        return 0.5 * jnp.dot(theta1.params, mean.params) - 0.5 * self.covariance.logdet(
+            precision
+        )
+
+    def _compute_negative_entropy(self, mean_params: ArrayLike) -> Array:
+        mean_params = jnp.asarray(mean_params)
+        mean, second_moment = self.split_mean_params(Point(mean_params))
+
+        # Compute covariance without forming full matrices
+        outer_mean = self.covariance.outer_product(mean, mean)
+        covariance = second_moment - outer_mean
+
+        log_det = self.covariance.logdet(covariance)
+        entropy = 0.5 * (self.data_dim + self.data_dim * jnp.log(2 * jnp.pi) + log_det)
+
+        return -entropy
+
+    def sample(
+        self: Normal[R],
+        key: ArrayLike,
+        p: Point[Natural, Normal[R]],
+        n: int = 1,
+    ) -> Array:
+        mean_point = self.to_mean(p)
+        mean, covariance = self.to_mean_and_covariance(mean_point)
+
+        # Draw standard normal samples
+        key = jnp.asarray(key)
+        shape = (n, self.data_dim)
+        z = jax.random.normal(key, shape)
+
+        def transform(zi: Array) -> Array:
+            mzi: Point[Natural, Euclidean] = Point(zi)
+            return self.covariance(covariance, mzi).params
+
+        return jax.vmap(transform)(z) + mean.params
+
+    # Additional methods
+
+    def _split_params(
+        self, p: Point[C, Normal[R]]
+    ) -> tuple[Point[C, Euclidean], Point[C, Covariance[R]]]:
+        """Split parameters into location and scale components.
+
+        Args:
+            p: Point in Normal manifold coordinates
+
+        Returns:
+            Tuple of (location vector, covariance matrix)
+        """
+        loc_params = p.params[: self.data_dim]
+        cov_params = p.params[self.data_dim :]
+
+        return Point(loc_params), Point(cov_params)
+
+    def _join_params(
+        self,
+        loc: Point[C, Euclidean],
+        cov: Point[C, Covariance[R]],
+    ) -> Array:
+        """Join location and scale parameters into a single array."""
+        return jnp.concatenate([loc.params, cov.params])
+
+    def from_mean_and_covariance(
+        self,
+        mean: Point[Mean, Euclidean],
+        covariance: Point[Mean, Covariance[R]],
+    ) -> Point[Mean, Normal[R]]:
+        """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
+        # Create the second moment η₂ = μμᵀ + Σ
+        outer = self.covariance.outer_product(mean, mean)
+        second_moment = outer + covariance
+
+        return Point(self._join_params(mean, second_moment))
+
+    def to_mean_and_covariance(
+        self, p: Point[Mean, Normal[R]]
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[R]]]:
+        """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
+        # Split into μ and η₂
+        mean, second_moment = self._split_params(p)
+
+        # Compute Σ = η₂ - μμᵀ
+        outer = self.covariance.outer_product(mean, mean)
+        covariance = second_moment - outer
+
+        return mean, covariance
+
+    def split_mean_params(
+        self, p: Point[Mean, Normal[R]]
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[R]]]:
+        """Split parameters into mean and second-moment components."""
+        return self._split_params(p)
+
+    def join_mean_params(
+        self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance[R]]
+    ) -> Point[Mean, Normal[R]]:
+        """Join mean and second-moment parameters."""
+        return Point(self._join_params(mean, second_moment))
+
+    def split_natural_params(
+        self, p: Point[Natural, Normal[R]]
+    ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[R]]]:
+        """Split parameters into natural location and precision components."""
+        # First do basic parameter split
+        loc, precision = self._split_params(p)
+
+        # We need to rescale off-precision params
+        if not issubclass(type(self.covariance.rep), Diagonal):
+            precision_params = precision.params
+            i_diag = (
+                jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
+            )
+
+            scaled_params = precision_params / 2  # First undo the -1/2
+            scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
+            precision: Point[Natural, Covariance[R]] = Point(scaled_params)
+
+        return loc, precision
+
+    def join_natural_params(
+        self,
+        loc: Point[Natural, Euclidean],
+        precision: Point[Natural, Covariance[R]],
+    ) -> Point[Natural, Normal[R]]:
+        """Join natural location and precision parameters."""
+        precision_params = precision.params
+
+        # We need to rescale off-precision params
+        if not issubclass(type(self.covariance.rep), Diagonal):
+            i_diag = (
+                jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
+            )
+
+            scaled_params = precision_params * 2  # First multiply by -1/2
+            scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
+            precision_params = scaled_params
+
+        return Point(self._join_params(loc, Point(precision_params)))
+
     # def split_natural_params(
     #     self, p: Point[Natural, Normal]
     # ) -> tuple[Array, PositiveDefinite]:
@@ -207,7 +286,6 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
     #         scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
     #         scale_params = scaled_params
     #     return Point(jnp.concatenate([loc, scale_params]))
-    #
 
 
 @jax.tree_util.register_dataclass

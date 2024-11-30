@@ -35,15 +35,8 @@ from goal.manifold import Coordinates, Dual, Manifold, Point
 ### Types ###
 
 
-class TypeMap[C, D](Coordinates): ...
-
-
 C = TypeVar("C", bound=Coordinates)
 D = TypeVar("D", bound=Coordinates)
-
-LM = TypeVar("LM", bound="LinearMap[MatrixRep, Manifold, Manifold]")
-SM = TypeVar("SM", bound="SquareMap[Square, Manifold]")
-PDM = TypeVar("PDM", bound="PositiveDefiniteMap[PositiveDefinite, Manifold]")
 
 
 ### Linear Maps ###
@@ -80,79 +73,65 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         return (self.codomain.dimension, self.domain.dimension)
 
     def __call__(
-        self: LM,
-        f: Point[TypeMap[C, D], LM],
-        p: Point[D, N],
-    ) -> Point[C, M]:
+        self: LinearMap[R, M, N],
+        f: Point[C, LinearMap[R, M, N]],
+        p: Point[Dual[C], M],
+    ) -> Point[C, N]:
         """Apply the linear map to transform a point."""
         return Point(self.rep.matvec(f.params, p.params, self.shape))
 
+    def inverse(
+        self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
+    ) -> Point[Dual[C], LinearMap[R, M, N]]:
+        """Matrix inverse (requires square matrix)."""
+        if not isinstance(self.rep, Square):
+            raise TypeError(
+                f"{self.rep.__class__.__name__} matrices do not support inverse. "
+                "This operation requires a square matrix."
+            )
+        return Point(self.rep.inverse(f.params, self.shape))
+
+    def logdet(self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]) -> Array:
+        """Log determinant (requires square matrix)."""
+        if not isinstance(self.rep, Square):
+            raise TypeError(
+                f"{self.rep.__class__.__name__} matrices do not support logdet. "
+                "This operation requires a square matrix."
+            )
+        return self.rep.logdet(f.params, self.shape)
+
+    def cholesky(
+        self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
+    ) -> Point[C, LinearMap[R, M, N]]:
+        """Cholesky decomposition (requires positive definite matrix)."""
+        if not isinstance(self.rep, PositiveDefinite):
+            raise TypeError(
+                f"{self.rep.__class__.__name__} matrices do not support Cholesky decomposition. "
+                "This operation requires a positive definite matrix."
+            )
+        return Point(self.rep.cholesky(f.params, self.shape))
+
     def transpose(
-        self: LM, f: Point[TypeMap[C, D], LM]
-    ) -> Point[TypeMap[Dual[D], Dual[C]], LM]:
+        self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
+    ) -> Point[C, LinearMap[R, M, N]]:
         """Transpose of the linear map."""
         return Point(self.rep.transpose(f.params, self.shape))
 
-    def to_dense(self, f: Point[TypeMap[C, D], LM]) -> Array:
+    def to_dense(self, f: Point[C, LinearMap[R, M, N]]) -> Array:
         """Convert to dense matrix representation."""
         return self.rep.to_dense(f.params, self.shape)
 
     def from_dense(
-        self: LM, matrix: Array
-    ) -> Point[TypeMap[Coordinates, Coordinates], LM]:
+        self: LinearMap[R, M, N], matrix: Array
+    ) -> Point[Coordinates, LinearMap[R, M, N]]:
         """Create point from dense matrix."""
         return Point(self.rep.from_dense(matrix))
 
     def outer_product(
-        self: LM, v: Point[C, M], w: Point[D, N]
-    ) -> Point[TypeMap[C, Dual[D]], LM]:
+        self: LinearMap[R, M, N], v: Point[C, M], w: Point[C, N]
+    ) -> Point[C, LinearMap[R, M, N]]:
         """Outer product of points."""
         return Point(self.rep.outer_product(v.params, w.params))
-
-
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
-    """Linear map with square matrix representation. Inherits from LinearMap.
-
-    Args:
-        domain: The source/target manifold $V = W$
-        rep: The square matrix representation strategy
-
-    Properties:
-        - Square matrix shape $n \\times n$
-        - Inverse and determinant operations
-    """
-
-    def inverse(self: SM, f: Point[TypeMap[C, D], SM]) -> Point[TypeMap[D, C], SM]:
-        """Matrix inverse."""
-        return Point(self.rep.inverse(f.params, self.shape))
-
-    def logdet(self: SM, f: Point[TypeMap[C, D], SM]) -> Array:
-        """Log determinant."""
-        return self.rep.logdet(f.params, self.shape)
-
-
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class PositiveDefiniteMap[R: PositiveDefinite, M: Manifold](SquareMap[R, M]):
-    """Linear map with positive definite matrix representation. Inherits from SquareMap.
-
-    Args:
-        domain: The source/target manifold $V = W$
-        rep: The positive definite matrix representation strategy
-
-    Properties:
-        - Symmetric positive definite matrix shape $n \\times n$
-        - Cholesky decomposition for inverse and determinant
-    """
-
-    def cholesky(
-        self: PDM,
-        f: Point[TypeMap[C, D], PDM],
-    ) -> Point[TypeMap[C, D], PDM]:
-        """Cholesky decomposition."""
-        return Point(self.rep.cholesky(f.params, self.shape))
 
 
 ### Matrix Representations ###
@@ -279,6 +258,11 @@ class PositiveDefinite(Symmetric):
         - Unique Cholesky decomposition $A = LL^T$
         - Parameterized by upper triangular elements
     """
+
+    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+        """Matrix-vector multiplication via Cholesky factorization."""
+        chol = self.cholesky(params, shape)
+        return jnp.dot(chol, vector)
 
     def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
         """Inverse via Cholesky decomposition."""

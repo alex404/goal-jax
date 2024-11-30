@@ -30,6 +30,18 @@ class Dual[C: Coordinates](Coordinates):
     """
 
 
+def reduce_double_dual[C: Coordinates, M: Manifold](
+    p: Point[Dual[Dual[C]], M],
+) -> Point[C, M]:
+    return Point(p.params)
+
+
+def expand_double_dual[C: Coordinates, M: Manifold](
+    p: Point[C, M],
+) -> Point[Dual[Dual[C]], M]:
+    return Point(p.params)
+
+
 @dataclass(frozen=True)
 class Manifold(ABC):
     """A manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$. A manifold has a geometric structure described by:
@@ -47,6 +59,28 @@ class Manifold(ABC):
     def dimension(self) -> int:
         """The dimension of the manifold."""
         ...
+
+
+@dataclass(frozen=True)
+class Euclidean(Manifold):
+    """Euclidean space $\\mathbb{R}^n$ of dimension $n$.
+
+    Euclidean space consists of $n$-dimensional real vectors with the standard Euclidean distance metric
+
+    $$d(x,y) = \\sqrt{\\sum_{i=1}^n (x_i - y_i)^2}.$$
+
+    Euclidean space serves as the model space for more general manifolds, which locally resemble $\\mathbb{R}^n$ near each point.
+
+    Args:
+        dim: The dimension $n$ of the space
+    """
+
+    dim: int
+
+    @property
+    def dimension(self) -> int:
+        """Return the dimension of the space."""
+        return self.dim
 
 
 @jax.tree_util.register_dataclass

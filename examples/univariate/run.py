@@ -7,14 +7,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.distributions import Categorical, Gaussian, Poisson
-from goal.exponential_family import Natural
-from goal.linear import PositiveDefinite
-from goal.manifold import Point
+from goal.distributions import Categorical, FullCovariance, FullNormal, Normal, Poisson
+from goal.exponential_family import Mean, Natural
+from goal.linear import LinearMap, PositiveDefinite
+from goal.manifold import Euclidean, Point
 
 from .common import (
     CategoricalResults,
-    GaussianResults,
+    NormalResults,
     PoissonResults,
     UnivariateResults,
     analysis_path,
@@ -23,20 +23,19 @@ from .common import (
 
 def compute_gaussian_results(
     key: Array,
-    manifold: Gaussian,
-    mu: Array,
-    sigma: Array,
+    manifold: FullNormal,
+    mu: Point[Mean, Euclidean],
+    sigma: Point[Mean, FullCovariance],
     xs: Array,
     sample_size: int,
 ) -> Tuple[Array, Array, Array]:
-    """Run Gaussian computations with JAX.
+    """Run Normal computations with JAX.
 
     Returns:
         sample, true_densities, estimated_densities
     """
     # Create ground truth distribution
-    covariance = PositiveDefinite(sigma**2, 1)
-    p_mean = manifold.from_mean_and_covariance(mu, covariance)
+    p_mean = manifold.from_mean_and_covariance(mu, sigma)
     p_natural = manifold.to_natural(p_mean)
 
     # Sample and estimate
@@ -45,7 +44,7 @@ def compute_gaussian_results(
     p_natural_est = manifold.to_natural(p_mean_est)
 
     # Compute densities using vmap
-    def compute_density(p: Point[Natural, Gaussian], x: Array) -> Array:
+    def compute_density(p: Point[Natural, FullNormal], x: Array) -> Array:
         return manifold.density(p, x)
 
     true_dens = jax.vmap(compute_density, in_axes=(None, 0))(p_natural, xs)
@@ -141,25 +140,31 @@ def main():
     # Parameters
     sample_size = 100
 
-    # # Gaussian test
-    print("\nTesting Gaussian Distribution...")
+    # # Normal test
+    print("\nTesting Normal Distribution...")
 
-    gaussian = Gaussian(data_dim=1)
-    mu, sigma = 2.0, 1.5
-    xs = jnp.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
+    space = Euclidean(1)
+    covariance = PositiveDefinite()
+    covariance_map = LinearMap(space, space, covariance)
+    normal = Normal(covariance_map)
+    mu0 = 2.0
+    sigma0 = 1.5
+    mu: Point[Mean, Euclidean] = Point(jnp.array([mu0]))
+    sigma: Point[Mean, FullCovariance] = Point(jnp.array([sigma0]))
+    xs = jnp.linspace(mu0 - 4 * sigma0, mu0 + 4 * sigma0, 200)
 
     sample, true_dens, est_dens = compute_gaussian_results(
         keys[0],
-        gaussian,
-        jnp.atleast_1d(mu),
-        jnp.atleast_1d(sigma),
+        normal,
+        mu,
+        sigma,
         xs,
         sample_size,
     )
 
-    gaussian_results = GaussianResults(
-        mu=mu,
-        sigma=sigma,
+    gaussian_results = NormalResults(
+        mu=mu0,
+        sigma=sigma0,
         sample=sample.tolist(),
         true_densities=true_dens.tolist(),
         estimated_densities=est_dens.tolist(),

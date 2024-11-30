@@ -16,6 +16,8 @@ from jax.typing import ArrayLike
 
 from goal.manifold import Coordinates, Dual, Manifold, Point
 
+### Coordinate Systems ###
+
 
 # Coordinate systems for exponential families
 class Mean(Coordinates):
@@ -33,7 +35,6 @@ type Natural = Dual[Mean]
 $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
 """
 
-
 # Type variables for exponential family types
 EF = TypeVar("EF", bound="ExponentialFamily")
 """Type variable for types of `ExponentialFamily`."""
@@ -43,6 +44,8 @@ CFEF = TypeVar("CFEF", bound="ClosedForm")
 """Type variable for types of `ClosedForm`."""
 GEF = TypeVar("GEF", bound="Generative")
 """Type variable for types of `Generative`."""
+
+### Exponential Families ###
 
 
 @dataclass(frozen=True)

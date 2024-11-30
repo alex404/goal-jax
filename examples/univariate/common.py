@@ -8,7 +8,7 @@ plt.style.use(str(style_path))
 
 
 # Type declarations for saved results
-class GaussianResults(TypedDict):
+class NormalResults(TypedDict):
     mu: float
     sigma: float
     sample: list[float]
@@ -33,7 +33,7 @@ class PoissonResults(TypedDict):
 
 
 class UnivariateResults(TypedDict):
-    gaussian: GaussianResults
+    gaussian: NormalResults
     categorical: CategoricalResults
     poisson: PoissonResults
 
