@@ -1,11 +1,12 @@
 """Test script for univariate auistributions in the exponential family."""
 
 import json
-from typing import Tuple
+from typing import Any, Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
+from jax.typing import ArrayLike
 
 from goal.distributions import (
     Categorical,
@@ -24,6 +25,10 @@ from .common import (
     UnivariateResults,
     analysis_path,
 )
+
+
+def euclidean_point(x: ArrayLike) -> Point[Any, Euclidean]:
+    return Point(jnp.atleast_1d(x))
 
 
 def compute_gaussian_results(
@@ -151,8 +156,8 @@ def main():
     normal = full_normal_manifold()
     mu0 = 2.0
     sigma = 1.5
-    mu: Point[Mean, Euclidean] = Point(jnp.array([mu0]))
-    cov: Point[Mean, FullCovariance] = Point(jnp.array([sigma**2]))
+    mu: Point[Mean, Euclidean] = Point(jnp.atleast_1d(mu0))
+    cov: Point[Mean, FullCovariance] = Point(jnp.atleast_1d(sigma**2))
     xs = jnp.linspace(mu0 - 4 * sigma, mu0 + 4 * sigma, 200)
 
     sample, true_dens, est_dens = compute_gaussian_results(

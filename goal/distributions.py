@@ -95,8 +95,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
     """(Multivariate) Normal distributions.
 
     Parameters:
-        data_dim: Dimension of the data space.
-        covariance_man: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
+        cov_man: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
 
     The standard expression for the Normal density is
 
