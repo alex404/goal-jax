@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Self
 
 import jax
 import jax.numpy as jnp
@@ -34,16 +34,6 @@ type Natural = Dual[Mean]
 
 $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
 """
-
-# Type variables for exponential family types
-EF = TypeVar("EF", bound="ExponentialFamily")
-"""Type variable for types of `ExponentialFamily`."""
-DEF = TypeVar("DEF", bound="Differentiable")
-"""Type variable for types of `Differentiable`."""
-CFEF = TypeVar("CFEF", bound="ClosedForm")
-"""Type variable for types of `ClosedForm`."""
-GEF = TypeVar("GEF", bound="Generative")
-"""Type variable for types of `Generative`."""
 
 ### Exponential Families ###
 
@@ -77,7 +67,7 @@ class ExponentialFamily(Manifold, ABC):
     @abstractmethod
     def _compute_sufficient_statistic(self, x: Array) -> Array: ...
 
-    def sufficient_statistic(self: EF, x: Array) -> Point[Mean, EF]:
+    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
         """Convert observation to sufficient statistics.
 
         Maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in mean coordinates:
@@ -92,7 +82,7 @@ class ExponentialFamily(Manifold, ABC):
         """
         return Point(self._compute_sufficient_statistic(x))
 
-    def average_sufficient_statistic(self: EF, xs: Array) -> Point[Mean, EF]:
+    def average_sufficient_statistic(self, xs: Array) -> Point[Mean, Self]:
         """Average sufficient statistics of a batch of observations.
 
         Args:
@@ -110,13 +100,13 @@ class ExponentialFamily(Manifold, ABC):
         """Compute log of base measure $\\mu(x)$."""
         ...
 
-    def natural_point(self: EF, params: Array) -> Point[Natural, EF]:
+    def natural_point(self, params: Array) -> Point[Natural, Self]:
         """Construct a point in natural coordinates."""
-        return Point[Natural, EF](jnp.atleast_1d(params))
+        return Point[Natural, Self](jnp.atleast_1d(params))
 
-    def mean_point(self: EF, params: Array) -> Point[Mean, EF]:
+    def mean_point(self, params: Array) -> Point[Mean, Self]:
         """Construct a point in mean coordinates."""
-        return Point[Mean, EF](jnp.atleast_1d(params))
+        return Point[Mean, Self](jnp.atleast_1d(params))
 
 
 @dataclass(frozen=True)
@@ -141,16 +131,16 @@ class Differentiable(ExponentialFamily, ABC):
         """Internal method to compute $\\psi(\\theta)$."""
         ...
 
-    def log_partition_function(self: DEF, p: Point[Natural, DEF]) -> Array:
+    def log_partition_function(self, p: Point[Natural, Self]) -> Array:
         """Compute log partition function $\\psi(\\theta)$."""
         return self._compute_log_partition_function(p.params)
 
-    def to_mean(self: DEF, p: Point[Natural, DEF]) -> Point[Mean, DEF]:
+    def to_mean(self, p: Point[Natural, Self]) -> Point[Mean, Self]:
         """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
         mean_params = jax.grad(self._compute_log_partition_function)(p.params)  # type: ignore
         return Point(mean_params)
 
-    def log_density(self: DEF, p: Point[Natural, DEF], x: Array) -> Array:
+    def log_density(self, p: Point[Natural, Self], x: Array) -> Array:
         """Compute log density at x.
 
         $$
@@ -164,7 +154,7 @@ class Differentiable(ExponentialFamily, ABC):
             - self.log_partition_function(p)
         )
 
-    def density(self: DEF, p: Point[Natural, DEF], x: Array) -> Array:
+    def density(self, p: Point[Natural, Self], x: Array) -> Array:
         """Compute density at x.
 
         $$
@@ -192,11 +182,11 @@ class ClosedForm(Differentiable, ABC):
         """Internal method to compute $\\phi(\\eta)$."""
         ...
 
-    def negative_entropy(self: CFEF, p: Point[Mean, CFEF]) -> Array:
+    def negative_entropy(self, p: Point[Mean, Self]) -> Array:
         """Compute negative entropy $\\phi(\\eta)$."""
         return self._compute_negative_entropy(p.params)
 
-    def to_natural(self: CFEF, p: Point[Mean, CFEF]) -> Point[Natural, CFEF]:
+    def to_natural(self, p: Point[Mean, Self]) -> Point[Natural, Self]:
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
         natural_params = jax.grad(self._compute_negative_entropy)(p.params)  # type: ignore
         return Point(natural_params)
@@ -210,7 +200,7 @@ class Generative(ExponentialFamily, ABC):
     """
 
     @abstractmethod
-    def sample(self: GEF, key: ArrayLike, p: Point[Natural, GEF], n: int = 1) -> Array:
+    def sample(self, key: ArrayLike, p: Point[Natural, Self], n: int = 1) -> Array:
         """Generate random samples from the distribution.
 
         Args:
@@ -223,8 +213,8 @@ class Generative(ExponentialFamily, ABC):
         ...
 
     def stochastic_to_mean(
-        self: GEF, key: ArrayLike, p: Point[Natural, GEF], n: int
-    ) -> Point[Mean, GEF]:
+        self, key: ArrayLike, p: Point[Natural, Self], n: int
+    ) -> Point[Mean, Self]:
         """Estimate mean parameters via Monte Carlo sampling."""
         samples = self.sample(key, p, n)
         return self.average_sufficient_statistic(samples)

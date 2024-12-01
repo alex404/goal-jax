@@ -24,20 +24,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, Self
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from goal.manifold import Coordinates, Dual, Manifold, Point
-
-### Types ###
-
-
-C = TypeVar("C", bound=Coordinates)
-D = TypeVar("D", bound=Coordinates)
-
 
 ### Linear Maps ###
 
@@ -72,17 +65,15 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         """Shape of the linear maps."""
         return (self.codomain.dimension, self.domain.dimension)
 
-    def __call__(
-        self: LinearMap[R, M, N],
-        f: Point[C, LinearMap[R, M, N]],
+    def __call__[C: Coordinates](
+        self,
+        f: Point[C, Self],
         p: Point[Dual[C], M],
     ) -> Point[C, N]:
         """Apply the linear map to transform a point."""
         return Point(self.rep.matvec(f.params, p.params, self.shape))
 
-    def inverse(
-        self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
-    ) -> Point[Dual[C], LinearMap[R, M, N]]:
+    def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""
         if not isinstance(self.rep, Square):
             raise TypeError(
@@ -91,7 +82,7 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
             )
         return Point(self.rep.inverse(f.params, self.shape))
 
-    def logdet(self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]) -> Array:
+    def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Log determinant (requires square matrix)."""
         if not isinstance(self.rep, Square):
             raise TypeError(
@@ -100,25 +91,21 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
             )
         return self.rep.logdet(f.params, self.shape)
 
-    def transpose(
-        self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
-    ) -> Point[C, LinearMap[R, M, N]]:
+    def transpose[C: Coordinates](self, f: Point[C, Self]) -> Point[C, Self]:
         """Transpose of the linear map."""
         return Point(self.rep.transpose(f.params, self.shape))
 
-    def to_dense(self, f: Point[C, LinearMap[R, M, N]]) -> Array:
+    def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Convert to dense matrix representation."""
         return self.rep.to_dense(f.params, self.shape)
 
-    def from_dense(
-        self: LinearMap[R, M, N], matrix: Array
-    ) -> Point[Any, LinearMap[R, M, N]]:
+    def from_dense(self, matrix: Array) -> Point[Any, Self]:
         """Create point from dense matrix."""
         return Point(self.rep.from_dense(matrix))
 
-    def outer_product(
-        self: LinearMap[R, M, N], v: Point[C, M], w: Point[C, N]
-    ) -> Point[C, LinearMap[R, M, N]]:
+    def outer_product[C: Coordinates](
+        self, v: Point[C, M], w: Point[C, N]
+    ) -> Point[C, Self]:
         """Outer product of points."""
         return Point(self.rep.outer_product(v.params, w.params))
 

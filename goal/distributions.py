@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Self
 
 import jax
 import jax.numpy as jnp
@@ -25,10 +25,6 @@ from goal.linear import (
     Scale,
 )
 from goal.manifold import Coordinates, Euclidean, Point, reduce_double_dual
-
-C = TypeVar("C", bound=Coordinates)
-D = TypeVar("D", bound=Coordinates)
-PD = TypeVar("PD", bound=PositiveDefinite)
 
 type FullNormal = Normal[PositiveDefinite]
 type DiagonalNormal = Normal[Diagonal]
@@ -137,7 +133,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
     # Core class methods
 
-    def _compute_sufficient_statistic(self: Normal[R], x: Array) -> Array:
+    def _compute_sufficient_statistic(self, x: Array) -> Array:
         x = jnp.atleast_1d(x)
 
         # Create point in StandardNormal
@@ -184,9 +180,9 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         return -entropy
 
     def sample(
-        self: Normal[R],
+        self,
         key: ArrayLike,
-        p: Point[Natural, Normal[R]],
+        p: Point[Natural, Self],
         n: int = 1,
     ) -> Array:
         mean_point = self.to_mean(p)
@@ -205,8 +201,8 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
     # Additional methods
 
-    def _split_params(
-        self, p: Point[C, Normal[R]]
+    def _split_params[C: Coordinates](
+        self, p: Point[C, Self]
     ) -> tuple[Point[C, Euclidean], Point[C, Covariance[R]]]:
         """Split parameters into location and scale components.
 
@@ -221,7 +217,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
         return Point(loc_params), Point(cov_params)
 
-    def _join_params(
+    def _join_params[C: Coordinates](
         self,
         loc: Point[C, Euclidean],
         cov: Point[C, Covariance[R]],
@@ -233,7 +229,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         self,
         mean: Point[Mean, Euclidean],
         covariance: Point[Mean, Covariance[R]],
-    ) -> Point[Mean, Normal[R]]:
+    ) -> Point[Mean, Self]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
         # Create the second moment η₂ = μμᵀ + Σ
         outer = self.cov_man.outer_product(mean, mean)
@@ -242,7 +238,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         return Point(self._join_params(mean, second_moment))
 
     def to_mean_and_covariance(
-        self, p: Point[Mean, Normal[R]]
+        self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[R]]]:
         """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
         # Split into μ and η₂
@@ -255,19 +251,19 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         return mean, covariance
 
     def split_mean_params(
-        self, p: Point[Mean, Normal[R]]
+        self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[R]]]:
         """Split parameters into mean and second-moment components."""
         return self._split_params(p)
 
     def join_mean_params(
         self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance[R]]
-    ) -> Point[Mean, Normal[R]]:
+    ) -> Point[Mean, Self]:
         """Join mean and second-moment parameters."""
         return Point(self._join_params(mean, second_moment))
 
     def split_natural_params(
-        self, p: Point[Natural, Normal[R]]
+        self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[R]]]:
         """Split parameters into natural location and precision components."""
         # First do basic parameter split
@@ -291,7 +287,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         self,
         loc: Point[Natural, Euclidean],
         precision: Point[Natural, Covariance[R]],
-    ) -> Point[Natural, Normal[R]]:
+    ) -> Point[Natural, Self]:
         """Join natural location and precision parameters."""
         precision_params = precision.params
 
@@ -367,9 +363,9 @@ class Categorical(ClosedForm, Generative):
         return jnp.sum(probs * jnp.log(probs))
 
     def sample(
-        self: Categorical,
+        self,
         key: ArrayLike,
-        p: Point[Natural, Categorical],
+        p: Point[Natural, Self],
         n: int = 1,
     ) -> Array:
         mean_point = self.to_mean(p)
@@ -382,11 +378,11 @@ class Categorical(ClosedForm, Generative):
 
     # Additional methods
 
-    def from_probs(self, probs: Array) -> Point[Mean, Categorical]:
+    def from_probs(self, probs: Array) -> Point[Mean, Self]:
         """Construct the mean parameters from the complete probabilities, dropping the first element."""
         return Point(probs[1:])
 
-    def to_probs(self, p: Point[Mean, Categorical]) -> Array:
+    def to_probs(self, p: Point[Mean, Self]) -> Array:
         """Return the probabilities of all labels."""
         probs = p.params
         prob0 = 1 - jnp.sum(probs)
@@ -429,9 +425,7 @@ class Poisson(ClosedForm, Generative):
         rate = jnp.asarray(mean_params)
         return jnp.squeeze(rate * (jnp.log(rate) - 1))
 
-    def sample(
-        self: Poisson, key: ArrayLike, p: Point[Natural, Poisson], n: int = 1
-    ) -> Array:
+    def sample(self, key: ArrayLike, p: Point[Natural, Self], n: int = 1) -> Array:
         mean_point = self.to_mean(p)
         rate = mean_point.params
 
