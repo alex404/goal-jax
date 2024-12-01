@@ -6,7 +6,6 @@ This module defines the structure of an [`ExponentialFamily`][goal.exponential_f
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Self
 
 import jax
@@ -38,7 +37,6 @@ $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
 ### Exponential Families ###
 
 
-@dataclass(frozen=True)
 class ExponentialFamily(Manifold, ABC):
     """Base manifold class for exponential families.
 
@@ -109,7 +107,6 @@ class ExponentialFamily(Manifold, ABC):
         return Point[Mean, Self](jnp.atleast_1d(params))
 
 
-@dataclass(frozen=True)
 class Differentiable(ExponentialFamily, ABC):
     """Exponential family with an analytically tractable log-partition function, which thereby permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
 
@@ -164,7 +161,6 @@ class Differentiable(ExponentialFamily, ABC):
         return jnp.exp(self.log_density(p, x))
 
 
-@dataclass(frozen=True)
 class ClosedForm(Differentiable, ABC):
     """An exponential family comprising distributions for which the entropy can be evaluated in closed-form. The negative entropy is the convex conjugate of the log-partition function
 
@@ -192,7 +188,6 @@ class ClosedForm(Differentiable, ABC):
         return Point(natural_params)
 
 
-@dataclass(frozen=True)
 class Generative(ExponentialFamily, ABC):
     """An `ExponentialFamily` that supports random sampling.
 

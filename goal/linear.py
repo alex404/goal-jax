@@ -52,9 +52,9 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         rep: The matrix representation strategy
     """
 
-    domain: N
-    codomain: M
     rep: R
+    domain: M
+    codomain: N
 
     @property
     def dimension(self) -> int:
@@ -73,32 +73,6 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         """Apply the linear map to transform a point."""
         return Point(self.rep.matvec(f.params, p.params, self.shape))
 
-    def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
-        """Matrix inverse (requires square matrix)."""
-        if not isinstance(self.rep, Square):
-            raise TypeError(
-                f"{self.rep.__class__.__name__} matrices do not support inverse. "
-                "This operation requires a square matrix."
-            )
-        return Point(self.rep.inverse(f.params, self.shape))
-
-    def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
-        """Log determinant (requires square matrix)."""
-        if not isinstance(self.rep, Square):
-            raise TypeError(
-                f"{self.rep.__class__.__name__} matrices do not support logdet. "
-                "This operation requires a square matrix."
-            )
-        return self.rep.logdet(f.params, self.shape)
-
-    def transpose[C: Coordinates](self, f: Point[C, Self]) -> Point[C, Self]:
-        """Transpose of the linear map."""
-        return Point(self.rep.transpose(f.params, self.shape))
-
-    def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
-        """Convert to dense matrix representation."""
-        return self.rep.to_dense(f.params, self.shape)
-
     def from_dense(self, matrix: Array) -> Point[Any, Self]:
         """Create point from dense matrix."""
         return Point(self.rep.from_dense(matrix))
@@ -108,6 +82,30 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     ) -> Point[C, Self]:
         """Outer product of points."""
         return Point(self.rep.outer_product(v.params, w.params))
+
+    def transpose[C: Coordinates](self, f: Point[C, Self]) -> Point[C, Self]:
+        """Transpose of the linear map."""
+        return Point(self.rep.transpose(f.params, self.shape))
+
+    def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
+        """Convert to dense matrix representation."""
+        return self.rep.to_dense(f.params, self.shape)
+
+    def to_columns[C: Coordinates](self, f: Point[C, Self]) -> list[Point[C, M]]:
+        """Split linear map into list of column vectors as points in the codomain."""
+        cols = self.rep.to_cols(f.params, self.shape)
+        return [Point(col) for col in cols]
+
+
+class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
+    """Square linear map with domain and codomain the same manifold."""
+    def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
+        """Matrix inverse (requires square matrix)."""
+        return Point(self.rep.inverse(f.params, self.shape))
+
+    def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
+        """Log determinant (requires square matrix)."""
+        return self.rep.logdet(f.params, self.shape)
 
 
 ### Matrix Representations ###
@@ -132,6 +130,11 @@ class MatrixRep(ABC):
     @abstractmethod
     def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
         """Convert 1D parameters to dense matrix form."""
+        ...
+
+    @abstractmethod
+    def to_cols(self, params: Array, shape: tuple[int, int]) -> list[Array]:
+        """Convert parameter vector to list of column vectors."""
         ...
 
     @abstractmethod
@@ -163,6 +166,10 @@ class Rectangular(MatrixRep):
 
     def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
         return params.reshape(shape)
+
+    def to_cols(self, params: Array, shape: tuple[int, int]) -> list[Array]:
+        matrix = self.to_dense(params, shape)
+        return [matrix[:, j] for j in range(shape[1])]
 
     def from_dense(self, matrix: Array) -> Array:
         return matrix.reshape(-1)

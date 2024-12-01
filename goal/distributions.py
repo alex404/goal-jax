@@ -19,10 +19,9 @@ from goal.exponential_family import (
 from goal.linear import (
     Diagonal,
     Identity,
-    LinearMap,
-    MatrixRep,
     PositiveDefinite,
     Scale,
+    SquareMap,
 )
 from goal.manifold import Coordinates, Euclidean, Point, reduce_double_dual
 
@@ -31,7 +30,7 @@ type DiagonalNormal = Normal[Diagonal]
 type IsotropicNormal = Normal[Scale]
 type StandardNormal = Normal[Identity]
 
-type Covariance[R: MatrixRep] = LinearMap[R, Euclidean, Euclidean]
+type Covariance[R: PositiveDefinite] = SquareMap[R, Euclidean]
 type FullCovariance = Covariance[PositiveDefinite]
 type DiagonalCovariance = Covariance[Diagonal]
 type IsotropicCovariance = Covariance[Scale]
@@ -46,7 +45,7 @@ def full_normal_manifold(
         ndim: Dimension of the space
     """
     space = Euclidean(ndim)
-    return Normal(LinearMap(space, space, PositiveDefinite()))
+    return Normal(SquareMap(PositiveDefinite(), space, space))
 
 
 def diagonal_normal_manifold(
@@ -58,7 +57,7 @@ def diagonal_normal_manifold(
         ndim: Dimension of the space
     """
     space = Euclidean(ndim)
-    return Normal(LinearMap(space, space, Diagonal()))
+    return Normal(SquareMap(Diagonal(), space, space))
 
 
 def isotropic_normal_manifold(
@@ -70,7 +69,7 @@ def isotropic_normal_manifold(
         ndim: Dimension of the space
     """
     space = Euclidean(ndim)
-    return Normal(LinearMap(space, space, Scale()))
+    return Normal(SquareMap(Scale(), space, space))
 
 
 def standard_normal_manifold(
@@ -82,7 +81,7 @@ def standard_normal_manifold(
         ndim: Dimension of the space
     """
     space = Euclidean(ndim)
-    return Normal(LinearMap(space, space, Identity()))
+    return Normal(SquareMap(Identity(), space, space))
 
 
 @jax.tree_util.register_dataclass
