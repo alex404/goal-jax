@@ -42,7 +42,7 @@ def plot_gaussian_results(ax: Axes, results: NormalResults) -> None:
         x,
         stats.norm.pdf(x, loc=mu, scale=sigma),
         "r--",
-        label="Theory",
+        label="Scipy",
     )
 
     ax.set_title("Gaussian Density")

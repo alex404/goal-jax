@@ -1,4 +1,4 @@
-"""Test script for bivariate Gaussian distributions with different covariance structures."""
+"""Test script for bivariate Normal distributions with different covariance structures."""
 
 import json
 from typing import cast
@@ -65,7 +65,7 @@ def main():
     with open(analysis_path) as f:
         results = cast(BivariateResults, json.load(f))
 
-    # Plot and save Gaussian
+    # Plot and save Normal
     fig, ax = plt.subplots(2, 2, figsize=(10, 10))
     sample = np.array(results["sample"])
     xs = np.array(results["plot_xs"])

@@ -1,4 +1,4 @@
-"""Test script for bivariate Gaussian distributions with different covariance structures."""
+"""Test script for bivariate Normal distributions with different covariance structures."""
 
 import json
 
@@ -7,10 +7,16 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.stats import multivariate_normal
 
-from goal.distributions import Gaussian
-from goal.exponential_family import Natural
-from goal.linear import Diagonal, PositiveDefinite, Scale
-from goal.manifold import Point
+from goal.distributions import (
+    FullCovariance,
+    Normal,
+    diagonal_normal_manifold,
+    full_normal_manifold,
+    isotropic_normal_manifold,
+)
+from goal.exponential_family import Mean, Natural
+from goal.linear import PositiveDefinite
+from goal.manifold import Euclidean, Point
 
 from .common import BivariateResults, analysis_path
 
@@ -36,20 +42,20 @@ def create_test_grid(
     return xs, ys
 
 
-def sample_gaussian(
-    key: Array, man: Gaussian, p: Point[Natural, Gaussian], n: int
+def sample_gaussian[R: PositiveDefinite](
+    key: Array, man: Normal[R], p: Point[Natural, Normal[R]], n: int
 ) -> Array:
-    """Sample from a Gaussian distribution."""
+    """Sample from a Normal distribution."""
     return man.sample(key, p, n)
 
 
 sample_gaussian = jax.jit(sample_gaussian, static_argnames=["man", "n"])
 
 
-def compute_densities(
-    man: Gaussian, natural_point: Point[Natural, Gaussian], xs: Array, ys: Array
+def compute_densities[R: PositiveDefinite](
+    man: Normal[R], natural_point: Point[Natural, Normal[R]], xs: Array, ys: Array
 ) -> Array:
-    """Compute densities for a Gaussian distribution."""
+    """Compute densities for a Normal distribution."""
 
     points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
 
@@ -76,36 +82,21 @@ def compute_gaussian_results(
     covariance: Array,
     sample_size: int,
 ) -> BivariateResults:
-    """Run bivariate Gaussian computations with different covariance structures."""
+    """Run bivariate Normal computations with different covariance structures."""
     # Your existing computation code here, returning raw arrays
-    pd_man = Gaussian(data_dim=2, covariance_shape=PositiveDefinite)
+    pd_man = full_normal_manifold(2)
 
-    gt_cov = PositiveDefinite.from_matrix(covariance)
-    gt_mean_point = pd_man.from_mean_and_covariance(mean, gt_cov)
-    print("Mean point:", gt_mean_point.params)
+    gt_cov: Point[Mean, FullCovariance]
+    gt_cov = pd_man.cov_man.from_dense(covariance)
+    mu: Point[Mean, Euclidean] = Point(mean)
+    gt_mean_point = pd_man.from_mean_and_covariance(mu, gt_cov)
+    print("Mean point:", gt_mean_point)
 
     gt_natural_point = pd_man.to_natural(gt_mean_point)
-    print("Natural point:", gt_natural_point.params)
+    print("Natural point:", gt_natural_point)
 
-    # Debug the conversion back
-    print("\nConverting back:")
-    mean_point = pd_man.to_mean(gt_natural_point)
-    print("Mean point params:", mean_point.params)
-
-    # Look at intermediate steps in to_mean_and_covariance
-    mean, cov = pd_man.to_mean_and_covariance(mean_point)
-    print("Extracted mean:", mean)
-    print("Covariance params:", cov.params)
-    print("Covariance matrix:", cov.matrix)
-
-    dia_man = Gaussian(data_dim=2, covariance_shape=Diagonal)
-    scl_man = Gaussian(data_dim=2, covariance_shape=Scale)
-
-    mans = [pd_man, dia_man, scl_man]
-
-    gt_cov = PositiveDefinite.from_matrix(covariance)
-    gt_mean_point = pd_man.from_mean_and_covariance(mean, gt_cov)
-    gt_natural_point = pd_man.to_natural(gt_mean_point)
+    dia_man = diagonal_normal_manifold(2)
+    scl_man = isotropic_normal_manifold(2)
 
     xs, ys = create_test_grid(mean, covariance)
     gt_dens = compute_densities(pd_man, gt_natural_point, xs, ys)
@@ -115,20 +106,19 @@ def compute_gaussian_results(
 
     sample = sample_gaussian(key, pd_man, gt_natural_point, sample_size)
 
-    model_results: list[list[list[float]]] = []
+    def process_normal[R: PositiveDefinite](
+        manifold: Normal[R],
+        sample: Array,
+    ) -> Array:
+        """Process a Normal distribution of any covariance type."""
+        mean_point = manifold.average_sufficient_statistic(sample)
+        p_natural = manifold.to_natural(mean_point)
+        densities = compute_densities(manifold, p_natural, xs, ys)
+        return densities.reshape(xs.shape)
 
-    for man in mans:
-        mean_point = man.average_sufficient_statistic(sample)
-        natural_point = man.to_natural(mean_point)
-
-        densities = compute_densities(man, natural_point, xs, ys)
-        zs = densities.reshape(xs.shape)
-
-        model_results.append(
-            zs.tolist(),
-        )
-
-    [pd_dens, dia_dens, scl_dens] = model_results
+    pd_dens = process_normal(pd_man, sample).tolist()
+    dia_dens = process_normal(dia_man, sample).tolist()
+    scl_dens = process_normal(scl_man, sample).tolist()
 
     return BivariateResults(
         sample=sample.tolist(),
@@ -143,7 +133,7 @@ def compute_gaussian_results(
 
 
 def main():
-    """Run bivariate Gaussian tests."""
+    """Run bivariate Normal tests."""
     key = jax.random.PRNGKey(0)
 
     # Define ground truth parameters

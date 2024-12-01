@@ -7,9 +7,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.distributions import Categorical, FullCovariance, FullNormal, Normal, Poisson
+from goal.distributions import (
+    Categorical,
+    FullCovariance,
+    FullNormal,
+    Poisson,
+    full_normal_manifold,
+)
 from goal.exponential_family import Mean, Natural
-from goal.linear import LinearMap, PositiveDefinite
 from goal.manifold import Euclidean, Point
 
 from .common import (
@@ -143,28 +148,25 @@ def main():
     # # Normal test
     print("\nTesting Normal Distribution...")
 
-    space = Euclidean(1)
-    covariance = PositiveDefinite()
-    covariance_map = LinearMap(space, space, covariance)
-    normal = Normal(covariance_map)
+    normal = full_normal_manifold()
     mu0 = 2.0
-    sigma0 = 1.5
+    sigma = 1.5
     mu: Point[Mean, Euclidean] = Point(jnp.array([mu0]))
-    sigma: Point[Mean, FullCovariance] = Point(jnp.array([sigma0]))
-    xs = jnp.linspace(mu0 - 4 * sigma0, mu0 + 4 * sigma0, 200)
+    cov: Point[Mean, FullCovariance] = Point(jnp.array([sigma**2]))
+    xs = jnp.linspace(mu0 - 4 * sigma, mu0 + 4 * sigma, 200)
 
     sample, true_dens, est_dens = compute_gaussian_results(
         keys[0],
         normal,
         mu,
-        sigma,
+        cov,
         xs,
         sample_size,
     )
 
     gaussian_results = NormalResults(
         mu=mu0,
-        sigma=sigma0,
+        sigma=sigma,
         sample=sample.tolist(),
         true_densities=true_dens.tolist(),
         estimated_densities=est_dens.tolist(),

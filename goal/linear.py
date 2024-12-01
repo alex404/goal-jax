@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -100,17 +100,6 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
             )
         return self.rep.logdet(f.params, self.shape)
 
-    def cholesky(
-        self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
-    ) -> Point[C, LinearMap[R, M, N]]:
-        """Cholesky decomposition (requires positive definite matrix)."""
-        if not isinstance(self.rep, PositiveDefinite):
-            raise TypeError(
-                f"{self.rep.__class__.__name__} matrices do not support Cholesky decomposition. "
-                "This operation requires a positive definite matrix."
-            )
-        return Point(self.rep.cholesky(f.params, self.shape))
-
     def transpose(
         self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
     ) -> Point[C, LinearMap[R, M, N]]:
@@ -123,7 +112,7 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
 
     def from_dense(
         self: LinearMap[R, M, N], matrix: Array
-    ) -> Point[Coordinates, LinearMap[R, M, N]]:
+    ) -> Point[Any, LinearMap[R, M, N]]:
         """Create point from dense matrix."""
         return Point(self.rep.from_dense(matrix))
 
@@ -259,11 +248,6 @@ class PositiveDefinite(Symmetric):
         - Parameterized by upper triangular elements
     """
 
-    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
-        """Matrix-vector multiplication via Cholesky factorization."""
-        chol = self.cholesky(params, shape)
-        return jnp.dot(chol, vector)
-
     def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
         """Inverse via Cholesky decomposition."""
         chol = self.cholesky(params, shape)
@@ -283,6 +267,12 @@ class PositiveDefinite(Symmetric):
         """Compute lower triangular Cholesky factor L where A = LL^T."""
         matrix = self.to_dense(params, shape)
         return jnp.linalg.cholesky(matrix)  # type: ignore
+
+    def apply_cholesky(
+        self, params: Array, vector: Array, shape: tuple[int, int]
+    ) -> Array:
+        chol = self.cholesky(params, shape)
+        return (chol @ vector.T).T
 
 
 class Diagonal(PositiveDefinite):
@@ -324,6 +314,11 @@ class Diagonal(PositiveDefinite):
         """Create parameters from outer product, keeping only diagonal."""
         return v1 * v2
 
+    def apply_cholesky(
+        self, params: Array, vector: Array, shape: tuple[int, int]
+    ) -> Array:
+        return jnp.sqrt(params) * vector
+
 
 class Scale(Diagonal):
     """Scale transformation $A = \\alpha I$.
@@ -354,6 +349,11 @@ class Scale(Diagonal):
     def outer_product(self, v1: Array, v2: Array) -> Array:
         """Average outer product to single scale parameter."""
         return jnp.array([jnp.mean(v1 * v2)])
+
+    def apply_cholesky(
+        self, params: Array, vector: Array, shape: tuple[int, int]
+    ) -> Array:
+        return jnp.sqrt(params[0]) * vector
 
 
 class Identity(Scale):
@@ -387,3 +387,8 @@ class Identity(Scale):
     def outer_product(self, v1: Array, v2: Array) -> Array:
         """Identity ignores input vectors."""
         return jnp.array([])
+
+    def apply_cholesky(
+        self, params: Array, vector: Array, shape: tuple[int, int]
+    ) -> Array:
+        return vector

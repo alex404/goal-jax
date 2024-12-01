@@ -41,6 +41,54 @@ type DiagonalCovariance = Covariance[Diagonal]
 type IsotropicCovariance = Covariance[Scale]
 
 
+def full_normal_manifold(
+    ndim: int = 1,
+) -> FullNormal:
+    """Create an unconstrained Normal distribution.
+
+    Args:
+        ndim: Dimension of the space
+    """
+    space = Euclidean(ndim)
+    return Normal(LinearMap(space, space, PositiveDefinite()))
+
+
+def diagonal_normal_manifold(
+    ndim: int = 1,
+) -> DiagonalNormal:
+    """Create a diagonal-constrained Normal distribution.
+
+    Args:
+        ndim: Dimension of the space
+    """
+    space = Euclidean(ndim)
+    return Normal(LinearMap(space, space, Diagonal()))
+
+
+def isotropic_normal_manifold(
+    ndim: int = 1,
+) -> IsotropicNormal:
+    """Create an isotropic-constrained Normal distribution.
+
+    Args:
+        ndim: Dimension of the space
+    """
+    space = Euclidean(ndim)
+    return Normal(LinearMap(space, space, Scale()))
+
+
+def standard_normal_manifold(
+    ndim: int = 1,
+) -> StandardNormal:
+    """Create a (0-Dimensional) manifold of standard Normal distributions.
+
+    Args:
+        ndim: Dimension of the space
+    """
+    space = Euclidean(ndim)
+    return Normal(LinearMap(space, space, Identity()))
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Normal[R: PositiveDefinite](ClosedForm, Generative):
@@ -48,7 +96,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
     Parameters:
         data_dim: Dimension of the data space.
-        covariance_shape: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
+        covariance_man: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
 
     The standard expression for the Normal density is
 
@@ -75,18 +123,18 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
     # Attributes
 
-    covariance: Covariance[R]
+    cov_man: Covariance[R]
     """Covariance structure (e.g. `Scale`, `Diagonal`, `PositiveDefinite`)."""
 
     @property
     def data_dim(self) -> int:
         """Dimension of the data space."""
-        return self.covariance.shape[0]
+        return self.cov_man.shape[0]
 
     @property
     def dimension(self) -> int:
         """Total dimension = `data_dim` + `covariance_dim`."""
-        return self.data_dim + self.covariance.dimension
+        return self.data_dim + self.cov_man.dimension
 
     # Core class methods
 
@@ -97,7 +145,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         x_point: Point[Mean, Euclidean] = Point(x)
 
         # Compute outer product with appropriate structure
-        second_moment: Point[Mean, Covariance[R]] = self.covariance.outer_product(
+        second_moment: Point[Mean, Covariance[R]] = self.cov_man.outer_product(
             x_point, x_point
         )
 
@@ -113,11 +161,11 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
         precision = -2 * theta2
         covariance: Point[Mean, Covariance[R]] = reduce_double_dual(
-            self.covariance.inverse(precision)
+            self.cov_man.inverse(precision)
         )
-        mean = self.covariance(covariance, theta1)
+        mean = self.cov_man(covariance, theta1)
 
-        return 0.5 * jnp.dot(theta1.params, mean.params) - 0.5 * self.covariance.logdet(
+        return 0.5 * jnp.dot(theta1.params, mean.params) - 0.5 * self.cov_man.logdet(
             precision
         )
 
@@ -126,10 +174,10 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         mean, second_moment = self.split_mean_params(Point(mean_params))
 
         # Compute covariance without forming full matrices
-        outer_mean = self.covariance.outer_product(mean, mean)
+        outer_mean = self.cov_man.outer_product(mean, mean)
         covariance = second_moment - outer_mean
 
-        log_det = self.covariance.logdet(covariance)
+        log_det = self.cov_man.logdet(covariance)
         entropy = 0.5 * (self.data_dim + self.data_dim * jnp.log(2 * jnp.pi) + log_det)
 
         return -entropy
@@ -148,11 +196,11 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         shape = (n, self.data_dim)
         z = jax.random.normal(key, shape)
 
-        def transform(zi: Array) -> Array:
-            mzi: Point[Natural, Euclidean] = Point(zi)
-            return self.covariance(covariance, mzi).params
-
-        return jax.vmap(transform)(z) + mean.params
+        # Transform samples using Cholesky
+        samples = self.cov_man.rep.apply_cholesky(
+            covariance.params, z, self.cov_man.shape
+        )
+        return mean.params + samples
 
     # Additional methods
 
@@ -187,7 +235,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
     ) -> Point[Mean, Normal[R]]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
         # Create the second moment η₂ = μμᵀ + Σ
-        outer = self.covariance.outer_product(mean, mean)
+        outer = self.cov_man.outer_product(mean, mean)
         second_moment = outer + covariance
 
         return Point(self._join_params(mean, second_moment))
@@ -200,7 +248,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         mean, second_moment = self._split_params(p)
 
         # Compute Σ = η₂ - μμᵀ
-        outer = self.covariance.outer_product(mean, mean)
+        outer = self.cov_man.outer_product(mean, mean)
         covariance = second_moment - outer
 
         return mean, covariance
@@ -225,7 +273,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         loc, precision = self._split_params(p)
 
         # We need to rescale off-precision params
-        if not issubclass(type(self.covariance.rep), Diagonal):
+        if not isinstance(self.cov_man.rep, Diagonal):
             precision_params = precision.params
             i_diag = (
                 jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
@@ -246,7 +294,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         precision_params = precision.params
 
         # We need to rescale off-precision params
-        if not issubclass(type(self.covariance.rep), Diagonal):
+        if not isinstance(self.cov_man.rep, Diagonal):
             i_diag = (
                 jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
             )
@@ -256,36 +304,6 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
             precision_params = scaled_params
 
         return Point(self._join_params(loc, Point(precision_params)))
-
-    # def split_natural_params(
-    #     self, p: Point[Natural, Normal]
-    # ) -> tuple[Array, PositiveDefinite]:
-    #     loc, scale = self._split_params(p)
-    #
-    #     if not issubclass(self.covariance_shape, Diagonal):
-    #         scale_params = scale.params
-    #         i_diag = (
-    #             jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
-    #         )
-    #         scaled_params = scale_params / 2
-    #         scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
-    #         scale_params = scaled_params
-    #         scale = self.covariance_shape(scale_params, self.data_dim)
-    #
-    #     return loc, scale
-    #
-    # def join_natural_params(
-    #     self, loc: Array, scale: PositiveDefinite
-    # ) -> Point[Natural, Normal]:
-    #     scale_params = scale.params
-    #     if not issubclass(self.covariance_shape, Diagonal):
-    #         i_diag = (
-    #             jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
-    #         )
-    #         scaled_params = scale_params * 2
-    #         scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
-    #         scale_params = scaled_params
-    #     return Point(jnp.concatenate([loc, scale_params]))
 
 
 @jax.tree_util.register_dataclass
