@@ -207,39 +207,3 @@ class CategoricalMixtureHarmonium[O: Differentiable](
             rho_z_components.append(comp_term)
 
         return rho_0, Point(jnp.array(rho_z_components))
-
-
-# Here we would add specific implementations for mixture models etc.
-# For example:
-
-# @dataclass(frozen=True)
-# class CategoricalMixtureHarmonium[O: Differentiable](Conjugated[R, O, Categorical]):
-#     """A mixture model implemented as a harmonium with categorical latent variables."""
-#
-#     def conjugation_parameters(
-#         self,
-#         obs_bias: Point[Natural, O],
-#         int_mat: Point[Natural, LinearMap[R, L, O]]
-#     ) -> tuple[Array, Point[Natural, L]]:
-#         """Compute conjugation parameters for categorical mixture.
-#
-#         For a categorical mixture model:
-#         rho_0 = psi(theta_x)  # log partition of observable bias
-#         rho_z = map(lambda theta_xz: psi(theta_x + theta_xz) - rho_0, Theta_xz)
-#         """
-#         # Compute base term from observable bias
-#         rho_0 = self.obs_man.log_partition_function(obs_bias)
-#
-#         # Convert interaction matrix to list of parameter vectors
-#         int_cols = self.inter_man.to_columns(int_mat)
-#
-#         # Compute component-wise partition terms
-#         rho_z_components = []
-#         for comp_params in int_cols:
-#             adjusted_obs = Point(obs_bias.params + comp_params.params)
-#             comp_term = (
-#                 self.obs_man.log_partition_function(adjusted_obs) - rho_0
-#             )
-#             rho_z_components.append(comp_term)
-#
-#         return rho_0, Point(jnp.array(rho_z_components))

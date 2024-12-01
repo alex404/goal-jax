@@ -91,7 +91,7 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         """Convert to dense matrix representation."""
         return self.rep.to_dense(f.params, self.shape)
 
-    def to_columns[C: Coordinates](self, f: Point[C, Self]) -> list[Point[C, M]]:
+    def to_columns[C: Coordinates](self, f: Point[C, Self]) -> list[Point[C, N]]:
         """Split linear map into list of column vectors as points in the codomain."""
         cols = self.rep.to_cols(f.params, self.shape)
         return [Point(col) for col in cols]
@@ -99,6 +99,7 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
 
 class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
     """Square linear map with domain and codomain the same manifold."""
+
     def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""
         return Point(self.rep.inverse(f.params, self.shape))
