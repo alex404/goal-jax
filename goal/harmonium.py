@@ -78,7 +78,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         obs_bias: Point[C, O],
         lat_bias: Point[C, L],
         int_mat: Point[C, LinearMap[R, L, O]],
-    ) -> Point[C, Harmonium[R, L, O]]:
+    ) -> Point[C, Self]:
         """Join component parameters into a harmonium density."""
         return Point(
             jnp.concatenate([obs_bias.params, lat_bias.params, int_mat.params])
