@@ -119,7 +119,7 @@ def compute_poisson_results(
     """
     # Create ground truth distribution
 
-    p_mean = manifold.mean_point(rate)
+    p_mean = manifold.mean_point(jnp.atleast_1d(rate))
     p_natural = manifold.to_natural(p_mean)
 
     # Sample and estimate

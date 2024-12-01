@@ -69,10 +69,15 @@ class ExponentialFamily(Manifold, ABC):
     The base `ExponentialFamily` class includes methods that fundamentally define an exponential family, namely the base measure and sufficient statistic.
     """
 
+    @property
     @abstractmethod
-    def _compute_sufficient_statistic(self, x: ArrayLike) -> Array: ...
+    def data_dimension(self) -> int:
+        """Dimension of the data space."""
 
-    def sufficient_statistic(self: EF, x: ArrayLike) -> Point[Mean, EF]:
+    @abstractmethod
+    def _compute_sufficient_statistic(self, x: Array) -> Array: ...
+
+    def sufficient_statistic(self: EF, x: Array) -> Point[Mean, EF]:
         """Convert observation to sufficient statistics.
 
         Maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in mean coordinates:
@@ -80,18 +85,18 @@ class ExponentialFamily(Manifold, ABC):
         $$\\mathbf s: \\mathcal{X} \\mapsto \\text{H}$$
 
         Args:
-            x: ArrayLike containing a single observation
+            x: Array containing a single observation
 
         Returns:
             Mean coordinates of the sufficient statistics
         """
         return Point(self._compute_sufficient_statistic(x))
 
-    def average_sufficient_statistic(self: EF, xs: ArrayLike) -> Point[Mean, EF]:
+    def average_sufficient_statistic(self: EF, xs: Array) -> Point[Mean, EF]:
         """Average sufficient statistics of a batch of observations.
 
         Args:
-            xs: ArrayLike of shape (batch_size, data_dim) containing : batch of observations
+            xs: Array of shape (batch_size, data_dim) containing : batch of observations
 
         Returns:
             Mean coordinates of average sufficient statistics
@@ -101,15 +106,15 @@ class ExponentialFamily(Manifold, ABC):
         return Point(avg_params)
 
     @abstractmethod
-    def log_base_measure(self, x: ArrayLike) -> Array:
+    def log_base_measure(self, x: Array) -> Array:
         """Compute log of base measure $\\mu(x)$."""
         ...
 
-    def natural_point(self: EF, params: ArrayLike) -> Point[Natural, EF]:
+    def natural_point(self: EF, params: Array) -> Point[Natural, EF]:
         """Construct a point in natural coordinates."""
         return Point[Natural, EF](jnp.atleast_1d(params))
 
-    def mean_point(self: EF, params: ArrayLike) -> Point[Mean, EF]:
+    def mean_point(self: EF, params: Array) -> Point[Mean, EF]:
         """Construct a point in mean coordinates."""
         return Point[Mean, EF](jnp.atleast_1d(params))
 
@@ -145,7 +150,7 @@ class Differentiable(ExponentialFamily, ABC):
         mean_params = jax.grad(self._compute_log_partition_function)(p.params)  # type: ignore
         return Point(mean_params)
 
-    def log_density(self: DEF, p: Point[Natural, DEF], x: ArrayLike) -> Array:
+    def log_density(self: DEF, p: Point[Natural, DEF], x: Array) -> Array:
         """Compute log density at x.
 
         $$
@@ -159,7 +164,7 @@ class Differentiable(ExponentialFamily, ABC):
             - self.log_partition_function(p)
         )
 
-    def density(self: DEF, p: Point[Natural, DEF], x: ArrayLike) -> Array:
+    def density(self: DEF, p: Point[Natural, DEF], x: Array) -> Array:
         """Compute density at x.
 
         $$

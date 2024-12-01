@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeVar
 
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.typing import ArrayLike
 
 from goal.exponential_family import ExponentialFamily
 from goal.linear import LinearMap, MatrixRep
 from goal.manifold import Coordinates, Point
-
-OBS = TypeVar("OBS", bound=ExponentialFamily)
-LAT = TypeVar("LAT", bound=ExponentialFamily)
 
 
 @jax.tree_util.register_dataclass
@@ -59,6 +54,11 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         lat_dim = self.lat_man.dimension
         return obs_dim + lat_dim + (obs_dim * lat_dim)
 
+    @property
+    def data_dimension(self) -> int:
+        """Data dimension includes observable and latent variables."""
+        return self.obs_man.data_dimension + self.lat_man.data_dimension
+
     def split_params[C: Coordinates](
         self, p: Point[C, Harmonium[R, L, O]]
     ) -> tuple[Point[C, O], Point[C, L], Point[C, LinearMap[R, L, O]]]:
@@ -81,36 +81,38 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
             jnp.concatenate([obs_bias.params, lat_bias.params, int_mat.params])
         )
 
-    def _compute_sufficient_statistic(self, x: ArrayLike) -> Array:
+    def _compute_sufficient_statistic(self, x: Array) -> Array:
         """Compute sufficient statistics for joint observation.
 
         Args:
             x: Array of shape (..., obs_dim + lat_dim) containing concatenated
-               observable and latent variables
+               observable and latent states
 
         Returns:
             Array of sufficient statistics
         """
-        lat = x[..., obs_dim:]
+        obs_x = x[..., self.obs_man.data_dimension :]
+        lat_x = x[self.obs_man.data_dimension :]
 
-        obs_stats = self.observable._compute_sufficient_statistic(obs)
-        lat_stats = self.latent._compute_sufficient_statistic(lat)
-        interaction = Matrix.from_matrix(jnp.outer(obs_stats, lat_stats))
+        obs_bias = self.obs_man.sufficient_statistic(obs_x)
+        lat_bias = self.lat_man.sufficient_statistic(lat_x)
+        interaction = self.inter_man.outer_product(lat_bias, obs_bias)
 
-        return self._join_params(obs_stats, interaction, lat_stats)
+        return self.join_params(obs_bias, lat_bias, interaction).params
 
-    # def log_base_measure(self, x: ArrayLike) -> Array:
-    #     """Compute log base measure for joint observation.
-    #
-    #     Args:
-    #         x: Array of shape (..., obs_dim + lat_dim) containing concatenated
-    #            observable and latent variables
-    #
-    #     Returns:
-    #         Log base measure value
-    #     """
-    #     obs_dim = self.observable.dimension
-    #     obs = x[..., :obs_dim]
-    #     lat = x[..., obs_dim:]
-    #
-    #     return self.observable.log_base_measure(obs) + self.latent.log_base_measure(lat)
+    def log_base_measure(self, x: Array) -> Array:
+        """Compute log base measure for joint observation.
+
+        Args:
+            x: Array of shape (..., obs_dim + lat_dim) containing concatenated
+               observable and latent states
+
+        Returns:
+            Log base measure at x
+        """
+        obs_x = x[..., self.obs_man.data_dimension :]
+        lat_x = x[self.obs_man.data_dimension :]
+
+        return self.obs_man.log_base_measure(obs_x) + self.lat_man.log_base_measure(
+            lat_x
+        )
