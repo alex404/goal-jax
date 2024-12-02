@@ -187,10 +187,10 @@ class Rectangular(MatrixRep):
         matrix = self.to_dense(params, shape)
         return [matrix[:, j] for j in range(shape[1])]
 
-    @abstractmethod
     def from_cols(self, cols: list[Array], shape: tuple[int, int]) -> Array:
         """Construct parameter vector from list of column vectors."""
-        ...
+        matrix = jnp.column_stack(cols)
+        return self.from_dense(matrix)
 
     def from_dense(self, matrix: Array) -> Array:
         return matrix.reshape(-1)
