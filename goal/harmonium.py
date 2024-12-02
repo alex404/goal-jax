@@ -11,7 +11,13 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.distributions import Categorical
-from goal.exponential_family import Differentiable, ExponentialFamily, Natural
+from goal.exponential_family import (
+    ClosedForm,
+    Differentiable,
+    ExponentialFamily,
+    Mean,
+    Natural,
+)
 from goal.linear import LinearMap, MatrixRep, Rectangular
 from goal.manifold import Coordinates, Point
 
@@ -161,9 +167,55 @@ class DifferentiableConjugated[R: MatrixRep, O: ExponentialFamily, L: Differenti
         return self.lat_man.log_partition_function(adjusted_lat) + rho_0
 
 
+class ClosedFormConjugated[R: MatrixRep, O: ExponentialFamily, L: ClosedForm](
+    DifferentiableConjugated[R, O, L], ClosedForm, ABC
+):
+    """A conjugated harmonium with invertible likelihood parameterization."""
+
+    @abstractmethod
+    def to_natural_likelihood(
+        self, p: Point[Mean, Self]
+    ) -> tuple[Point[Natural, O], Point[Natural, LinearMap[R, L, O]]]:
+        """Map mean to natural parameters for observable and interaction components."""
+        ...
+
+    def to_natural(self, p: Point[Mean, Self]) -> Point[Natural, Self]:
+        """Convert from mean to natural parameters.
+
+        Uses `to_natural_likelihood` for observable and interaction components,
+        then computes latent natural parameters using conjugation structure:
+
+            $\\theta_Z = \\nabla \\phi_Z(\\eta_Z) - \\rho_Z
+
+        where $\\rho_Z$ are the conjugation parameters of the likelihood.
+        """
+        # Get natural likelihood parameters
+        nat_obs, nat_int = self.to_natural_likelihood(p)
+
+        # Get conjugation parameters from likelihood
+        _, rho_z = self.conjugation_parameters(nat_obs, nat_int)
+
+        # Split mean parameters
+        _, mean_lat, _ = self.split_params(p)
+
+        # Get latent natural parameters
+        nat_lat = self.lat_man.to_natural(mean_lat) - rho_z
+
+        # Join parameters
+        return self.join_params(nat_obs, nat_lat, nat_int)
+
+    def _compute_negative_entropy(self, mean_params: Array) -> Array:
+        """Compute negative entropy using $\\phi(\\eta) = \\eta \\cdot \\theta - \\psi(\\theta)$, $\\theta = \\nabla \\phi(\\eta)$."""
+        mean_point = self.mean_point(mean_params)
+        nat_point = self.to_natural(mean_point)
+
+        log_partition = self.log_partition_function(nat_point)
+        return jnp.dot(mean_params, nat_point.params) - log_partition
+
+
 @dataclass(frozen=True)
-class CategoricalMixtureHarmonium[O: Differentiable](
-    DifferentiableConjugated[Rectangular, O, Categorical]
+class CategoricalMixtureHarmonium[O: ClosedForm](
+    ClosedFormConjugated[Rectangular, O, Categorical]
 ):
     """A mixture model implemented as a harmonium with categorical latent variables.
 
@@ -207,3 +259,50 @@ class CategoricalMixtureHarmonium[O: Differentiable](
             rho_z_components.append(comp_term)
 
         return rho_0, Point(jnp.array(rho_z_components))
+
+    def to_natural_likelihood(
+        self, p: Point[Mean, Self]
+    ) -> tuple[
+        Point[Natural, O], Point[Natural, LinearMap[Rectangular, Categorical, O]]
+    ]:
+        """Map mean harmonium parameters to natural likelihood parameters.
+
+        For categorical mixtures, we:
+        1. Get categorical probabilities from mean latent parameters
+        2. Use these to weight the mean parameters to recover component means
+        3. Convert each component mean to natural parameters
+        4. Extract base and interaction terms
+        """
+        # Split mean parameters
+        mean_obs, mean_lat, mean_int = self.split_params(p)
+
+        # Get weights from categorical mean parameters
+        weights = self.lat_man.to_probs(mean_lat)
+
+        # Get component parameter vectors from interaction matrix
+        int_cols = self.inter_man.to_columns(mean_int)
+
+        # Reconstruct component means:
+        # First component is base mean
+        # Other components are base + interaction columns
+        comp_means = [mean_obs]  # First component
+        for col in int_cols:
+            comp_mean = mean_obs + col
+            comp_means.append(comp_mean)
+
+        # Scale by weights to get original means
+        orig_comp_means = [comp / w for comp, w in zip(comp_means, weights)]
+
+        # Convert to natural parameters
+        nat_comps = [self.obs_man.to_natural(comp) for comp in orig_comp_means]
+
+        # First component gives observable bias
+        nat_obs = nat_comps[0]
+
+        # Differences from first component give interaction terms
+        nat_int_cols = [comp - nat_obs for comp in nat_comps[1:]]
+
+        # Reconstruct interaction matrix
+        nat_int = self.inter_man.from_columns(nat_int_cols)
+
+        return nat_obs, nat_int

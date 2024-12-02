@@ -98,6 +98,14 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         cols = self.rep.to_cols(f.params, self.shape)
         return [Point(col) for col in cols]
 
+    def from_columns[C: Coordinates](
+        self: LinearMap[R, M, N], cols: list[Point[C, N]]
+    ) -> Point[C, LinearMap[R, M, N]]:
+        """Construct linear map from list of column vectors as points."""
+        col_arrays = [col.params for col in cols]
+        params = self.rep.from_cols(col_arrays, self.shape)
+        return Point(params)
+
 
 class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
     """Square linear map with domain and codomain the same manifold."""
@@ -141,6 +149,11 @@ class MatrixRep(ABC):
         ...
 
     @abstractmethod
+    def from_cols(self, cols: list[Array], shape: tuple[int, int]) -> Array:
+        """Construct parameter vector from list of column vectors."""
+        ...
+
+    @abstractmethod
     def from_dense(self, matrix: Array) -> Array:
         """Convert dense matrix to 1D parameters."""
         ...
@@ -173,6 +186,11 @@ class Rectangular(MatrixRep):
     def to_cols(self, params: Array, shape: tuple[int, int]) -> list[Array]:
         matrix = self.to_dense(params, shape)
         return [matrix[:, j] for j in range(shape[1])]
+
+    @abstractmethod
+    def from_cols(self, cols: list[Array], shape: tuple[int, int]) -> Array:
+        """Construct parameter vector from list of column vectors."""
+        ...
 
     def from_dense(self, matrix: Array) -> Array:
         return matrix.reshape(-1)
