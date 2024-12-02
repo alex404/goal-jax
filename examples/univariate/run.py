@@ -1,12 +1,11 @@
 """Test script for univariate auistributions in the exponential family."""
 
 import json
-from typing import Any, Tuple
+from typing import Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.typing import ArrayLike
 
 from goal.exponential_family import Mean, Natural
 from goal.exponential_family.distributions import (
@@ -25,10 +24,6 @@ from .common import (
     UnivariateResults,
     analysis_path,
 )
-
-
-def euclidean_point(x: ArrayLike) -> Point[Any, Euclidean]:
-    return Point(jnp.atleast_1d(x))
 
 
 def compute_gaussian_results(

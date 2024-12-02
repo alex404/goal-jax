@@ -11,7 +11,6 @@ from typing import Self
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.typing import ArrayLike
 
 from ..manifold import Coordinates, Dual, Manifold, Point
 
@@ -107,7 +106,34 @@ class ExponentialFamily(Manifold, ABC):
         return Point[Mean, Self](jnp.atleast_1d(params))
 
 
-class Differentiable(ExponentialFamily, ABC):
+class Generative(ExponentialFamily, ABC):
+    """An `ExponentialFamily` that supports random sampling.
+
+    Sampling is performed on distributions in natural coordinates. This enables estimation of mean parameters even when closed-form expressions for the log partition function are unavailable.
+    """
+
+    @abstractmethod
+    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
+        """Generate random samples from the distribution.
+
+        Args:
+            p: Parameters in natural coordinates
+            n: Number of samples to generate (default=1)
+
+        Returns:
+            Array of shape (n, *data_dims) containing samples
+        """
+        ...
+
+    def stochastic_to_mean(
+        self, key: Array, p: Point[Natural, Self], n: int
+    ) -> Point[Mean, Self]:
+        """Estimate mean parameters via Monte Carlo sampling."""
+        samples = self.sample(key, p, n)
+        return self.average_sufficient_statistic(samples)
+
+
+class Differentiable(Generative, ABC):
     """Exponential family with an analytically tractable log-partition function, which thereby permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
 
     The log partition function $\\psi(\\theta)$ is given by:
@@ -186,30 +212,3 @@ class ClosedForm(Differentiable, ABC):
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
         natural_params = jax.grad(self._compute_negative_entropy)(p.params)  # type: ignore
         return Point(natural_params)
-
-
-class Generative(ExponentialFamily, ABC):
-    """An `ExponentialFamily` that supports random sampling.
-
-    Sampling is performed on distributions in natural coordinates. This enables estimation of mean parameters even when closed-form expressions for the log partition function are unavailable.
-    """
-
-    @abstractmethod
-    def sample(self, key: ArrayLike, p: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate random samples from the distribution.
-
-        Args:
-            p: Parameters in natural coordinates
-            n: Number of samples to generate (default=1)
-
-        Returns:
-            Array of shape (n, *data_dims) containing samples
-        """
-        ...
-
-    def stochastic_to_mean(
-        self, key: ArrayLike, p: Point[Natural, Self], n: int
-    ) -> Point[Mean, Self]:
-        """Estimate mean parameters via Monte Carlo sampling."""
-        samples = self.sample(key, p, n)
-        return self.average_sufficient_statistic(samples)

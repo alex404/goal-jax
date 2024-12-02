@@ -14,6 +14,7 @@ from ..exponential_family import (
     ClosedForm,
     Differentiable,
     ExponentialFamily,
+    Generative,
     Mean,
     Natural,
 )
@@ -283,8 +284,7 @@ class ClosedFormConjugated[R: MatrixRep, O: ExponentialFamily, L: ClosedForm](
     def to_natural(self, p: Point[Mean, Self]) -> Point[Natural, Self]:
         """Convert from mean to natural parameters.
 
-        Uses `to_natural_likelihood` for observable and interaction components,
-        then computes latent natural parameters using conjugation structure:
+        Uses `to_natural_likelihood` for observable and interaction components, then computes latent natural parameters using conjugation structure:
 
             $\\theta_Z = \\nabla \\phi_Z(\\eta_Z) - \\rho_Z
 
@@ -312,3 +312,55 @@ class ClosedFormConjugated[R: MatrixRep, O: ExponentialFamily, L: ClosedForm](
 
         log_partition = self.log_partition_function(nat_point)
         return jnp.dot(mean_params, nat_point.params) - log_partition
+
+
+class ConjugatedGenerative[
+    R: MatrixRep,
+    O: ExponentialFamily,
+    L: ClosedForm,
+](Conjugated[R, O, L], Generative):
+    """A conjugated harmonium that supports sampling through its latent distribution.
+
+    The sampling process leverages the conjugate structure to:
+    1. Sample from the marginal latent distribution p(z)
+    2. Sample from the conditional likelihood p(x|z)
+    """
+
+    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
+        """Generate samples from the harmonium distribution.
+
+        Args:
+            key: PRNG key for sampling
+            p: Parameters in natural coordinates
+            n: Number of samples to generate
+
+        Returns:
+            Array of shape (n, data_dim) containing concatenated observable and latent states
+        """
+        # Split up the sampling key
+        key1, key2 = jax.random.split(key)
+
+        # Get conjugation parameters
+        obs_bias, lat_bias, int_mat = self.split_params(p)
+        _, rho_z = self.conjugation_parameters(obs_bias, int_mat)
+
+        # Sample from adjusted latent distribution p(z)
+        adjusted_lat = lat_bias + rho_z
+        z_samples = self.lat_man.sample(key1, adjusted_lat, n)
+
+        # For each z, get likelihood parameters p(x|z)
+        likelihood = self.likelihood_function(p)
+
+        # Vectorize sampling from conditional distributions
+        z_stats = jax.vmap(self.lat_man.sufficient_statistic)(z_samples)
+        x_params = jax.vmap(lambda z: self.like_man(likelihood, expand_dual(Point(z))))(
+            z_stats.params
+        )
+
+        # Sample from conditionals p(x|z) in parallel
+        x_samples = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
+            jax.random.split(key2, n), x_params, 1
+        ).reshape((n, -1))
+
+        # Concatenate samples along data dimension
+        return jnp.concatenate([x_samples, z_samples], axis=-1)

@@ -8,7 +8,6 @@ from typing import Self
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.typing import ArrayLike
 
 from goal.manifold import Coordinates, Euclidean, Point, reduce_dual
 
@@ -177,7 +176,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
     def sample(
         self,
-        key: ArrayLike,
+        key: Array,
         p: Point[Natural, Self],
         n: int = 1,
     ) -> Array:
@@ -360,7 +359,7 @@ class Categorical(ClosedForm, Generative):
 
     def sample(
         self,
-        key: ArrayLike,
+        key: Array,
         p: Point[Natural, Self],
         n: int = 1,
     ) -> Array:
@@ -421,7 +420,7 @@ class Poisson(ClosedForm, Generative):
         rate = jnp.asarray(mean_params)
         return jnp.squeeze(rate * (jnp.log(rate) - 1))
 
-    def sample(self, key: ArrayLike, p: Point[Natural, Self], n: int = 1) -> Array:
+    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
         mean_point = self.to_mean(p)
         rate = mean_point.params
 
