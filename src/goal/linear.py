@@ -107,8 +107,12 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         return Point(params)
 
 
+@dataclass(frozen=True)
 class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
     """Square linear map with domain and codomain the same manifold."""
+
+    def __init__(self, rep: R, domain: M):
+        super().__init__(rep, domain, domain)
 
     def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""

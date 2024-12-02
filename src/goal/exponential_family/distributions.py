@@ -45,8 +45,7 @@ def full_normal_manifold(
     Args:
         ndim: Dimension of the space
     """
-    space = Euclidean(ndim)
-    return Normal(SquareMap(PositiveDefinite(), space, space))
+    return Normal(SquareMap(PositiveDefinite(), Euclidean(ndim)))
 
 
 def diagonal_normal_manifold(
@@ -57,8 +56,7 @@ def diagonal_normal_manifold(
     Args:
         ndim: Dimension of the space
     """
-    space = Euclidean(ndim)
-    return Normal(SquareMap(Diagonal(), space, space))
+    return Normal(SquareMap(Diagonal(), Euclidean(ndim)))
 
 
 def isotropic_normal_manifold(
@@ -69,8 +67,7 @@ def isotropic_normal_manifold(
     Args:
         ndim: Dimension of the space
     """
-    space = Euclidean(ndim)
-    return Normal(SquareMap(Scale(), space, space))
+    return Normal(SquareMap(Scale(), Euclidean(ndim)))
 
 
 def standard_normal_manifold(
@@ -81,8 +78,7 @@ def standard_normal_manifold(
     Args:
         ndim: Dimension of the space
     """
-    space = Euclidean(ndim)
-    return Normal(SquareMap(Identity(), space, space))
+    return Normal(SquareMap(Identity(), Euclidean(ndim)))
 
 
 @jax.tree_util.register_dataclass

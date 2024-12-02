@@ -20,9 +20,7 @@ from .core import ClosedFormConjugated
 
 
 @dataclass(frozen=True)
-class CategoricalMixtureHarmonium[O: ClosedForm](
-    ClosedFormConjugated[Rectangular, O, Categorical]
-):
+class Mixture[O: ClosedForm](ClosedFormConjugated[Rectangular, O, Categorical]):
     """A mixture model implemented as a harmonium with categorical latent variables.
 
     The joint distribution takes the form:
