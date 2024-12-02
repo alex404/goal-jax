@@ -191,7 +191,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
         # Transform samples using Cholesky
         samples = self.cov_man.rep.apply_cholesky(
-            covariance.params, z, self.cov_man.shape
+            self.cov_man.shape, covariance.params, z
         )
         return mean.params + samples
 

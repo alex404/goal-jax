@@ -18,7 +18,7 @@ from ..exponential_family import (
     Natural,
 )
 from ..manifold import Coordinates, Point
-from ..transforms import LinearMap, MatrixRep
+from ..transforms import AffineMap, LinearMap, MatrixRep
 
 
 @jax.tree_util.register_dataclass
@@ -67,6 +67,16 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
     def data_dimension(self) -> int:
         """Data dimension includes observable and latent variables."""
         return self.obs_man.data_dimension + self.lat_man.data_dimension
+
+    @property
+    def like_man(self) -> AffineMap[R, L, O]:
+        """Manifold of conditional likelihood distributions p(x|z)."""
+        return AffineMap(self.inter_man.rep, self.lat_man, self.obs_man, self.obs_bias)
+
+    @property
+    def post_man(self) -> AffineMap[R, O, L]:
+        """Manifold of conditional posterior distributions p(z|x)."""
+        return AffineMap(self.inter_man.rep, self.obs_man, self.lat_man, self.lat_bias)
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
@@ -123,6 +133,34 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         return self.obs_man.log_base_measure(obs_x) + self.lat_man.log_base_measure(
             lat_x
         )
+
+    def likelihood(
+        self, p: Point[Natural, Self], lat_stats: Point[Mean, L]
+    ) -> Point[Natural, O]:
+        """Compute natural parameters of likelihood distribution $p(x|z)$.
+
+        Given a latent point $z$ with sufficient statistics $s(z)$, computes natural
+        parameters $\\theta_X$ of the conditional distribution:
+
+        $$p(x|z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        """
+        obs_bias, _, int_mat = self.split_params(p)
+        interaction = self.inter_man(int_mat, lat_stats)
+        return obs_bias + interaction
+
+    def posterior(
+        self, p: Point[Natural, Self], obs_stats: Point[Mean, O]
+    ) -> Point[Natural, L]:
+        """Compute natural parameters of posterior distribution $p(z|x)$.
+
+        Given an observation $x$ with sufficient statistics $s(x)$, computes natural
+        parameters $\\theta_Z$ of the conditional distribution:
+
+        $$p(z|x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        """
+        _, lat_bias, int_mat = self.split_params(p)
+        interaction = self.inter_man.transpose(int_mat)(obs_stats)
+        return lat_bias + interaction
 
 
 class Conjugated[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](

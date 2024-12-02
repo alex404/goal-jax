@@ -1,3 +1,5 @@
+# ruff: noqa: ARG004
+
 """Linear operators with structural specializations.
 
 This module provides a hierarchy of linear operators with increasingly specialized
@@ -37,43 +39,51 @@ class MatrixRep(ABC):
     All matrix parameters are stored as 1D arrays for compatibility with Point. Each subclass defines how to reshape and manipulate these parameters while maintaining their specific structure (full, symmetric, diagonal, etc.)
     """
 
+    @classmethod
     @abstractmethod
-    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+    def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         """Matrix-vector multiplication."""
         ...
 
+    @classmethod
     @abstractmethod
-    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
+    def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
         """Transform parameters to represent the transposed matrix."""
         ...
 
+    @classmethod
     @abstractmethod
-    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         """Convert 1D parameters to dense matrix form."""
         ...
 
+    @classmethod
     @abstractmethod
-    def to_cols(self, params: Array, shape: tuple[int, int]) -> list[Array]:
+    def to_cols(cls, shape: tuple[int, int], params: Array) -> list[Array]:
         """Convert parameter vector to list of column vectors."""
         ...
 
+    @classmethod
     @abstractmethod
-    def from_cols(self, cols: list[Array], shape: tuple[int, int]) -> Array:
-        """Construct parameter vector from list of column vectors."""
-        ...
-
-    @abstractmethod
-    def from_dense(self, matrix: Array) -> Array:
-        """Convert dense matrix to 1D parameters."""
-        ...
-
-    @abstractmethod
-    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+    def num_params(cls, shape: tuple[int, int]) -> int:
         """Shape of 1D parameter array needed for matrix dimensions."""
         ...
 
+    @classmethod
     @abstractmethod
-    def outer_product(self, v1: Array, v2: Array) -> Array:
+    def from_cols(cls, cols: list[Array]) -> Array:
+        """Construct parameter vector from list of column vectors."""
+        ...
+
+    @classmethod
+    @abstractmethod
+    def from_dense(cls, matrix: Array) -> Array:
+        """Convert dense matrix to 1D parameters."""
+        ...
+
+    @classmethod
+    @abstractmethod
+    def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Construct parameters from outer product $v_1 \\otimes v_2$."""
         ...
 
@@ -81,37 +91,45 @@ class MatrixRep(ABC):
 class Rectangular(MatrixRep):
     """Full matrix representation with no special structure."""
 
-    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
-        matrix = self.to_dense(params, shape)
+    @classmethod
+    def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
+        matrix = cls.to_dense(shape, params)
         return jnp.dot(matrix, vector)
 
-    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
-        matrix = self.to_dense(params, shape).T
+    @classmethod
+    def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
+        matrix = cls.to_dense(shape, params).T
         return matrix.reshape(-1)
 
-    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         return params.reshape(shape)
 
-    def to_cols(self, params: Array, shape: tuple[int, int]) -> list[Array]:
-        matrix = self.to_dense(params, shape)
+    @classmethod
+    def to_cols(cls, shape: tuple[int, int], params: Array) -> list[Array]:
+        matrix = cls.to_dense(shape, params)
         return [matrix[:, j] for j in range(shape[1])]
 
-    def from_cols(self, cols: list[Array], shape: tuple[int, int]) -> Array:
+    @classmethod
+    def from_cols(cls, cols: list[Array]) -> Array:
         """Construct parameter vector from list of column vectors."""
         matrix = jnp.column_stack(cols)
-        return self.from_dense(matrix)
+        return cls.from_dense(matrix)
 
-    def from_dense(self, matrix: Array) -> Array:
+    @classmethod
+    def from_dense(cls, matrix: Array) -> Array:
         return matrix.reshape(-1)
 
-    def num_params(self, matrix_shape: tuple[int, int]) -> int:
-        n, m = matrix_shape
+    @classmethod
+    def num_params(cls, shape: tuple[int, int]) -> int:
+        n, m = shape
         return n * m
 
-    def outer_product(self, v1: Array, v2: Array) -> Array:
+    @classmethod
+    def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Create parameters from outer product."""
         matrix = jnp.outer(v1, v2)
-        return self.from_dense(matrix)
+        return cls.from_dense(matrix)
 
 
 class Square(Rectangular):
@@ -122,13 +140,15 @@ class Square(Rectangular):
         - Parameters stored as full matrix in row-major order
     """
 
-    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
-        matrix = self.to_dense(params, shape)
+    @classmethod
+    def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
+        matrix = cls.to_dense(shape, params)
         inv = jnp.linalg.inv(matrix)  # type: ignore
-        return self.from_dense(inv)
+        return cls.from_dense(inv)
 
-    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
-        matrix = self.to_dense(params, shape)
+    @classmethod
+    def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
+        matrix = cls.to_dense(shape, params)
         return jnp.linalg.slogdet(matrix)[1]  # type: ignore
 
 
@@ -141,24 +161,28 @@ class Symmetric(Square):
         - Self-transpose, real eigenvalues
     """
 
-    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
         """Symmetric matrices are self-transpose."""
         return params
 
-    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         matrix = jnp.zeros((n, n))
         i_upper = jnp.triu_indices(n)
         matrix = matrix.at[i_upper].set(params)
         return matrix + jnp.triu(matrix, k=1).T
 
-    def from_dense(self, matrix: Array) -> Array:
+    @classmethod
+    def from_dense(cls, matrix: Array) -> Array:
         n = matrix.shape[0]
         i_upper = jnp.triu_indices(n)
         return matrix[i_upper]
 
-    def num_params(self, matrix_shape: tuple[int, int]) -> int:
-        n = matrix_shape[0]
+    @classmethod
+    def num_params(cls, shape: tuple[int, int]) -> int:
+        n = shape[0]
         return (n * (n + 1)) // 2
 
 
@@ -172,30 +196,34 @@ class PositiveDefinite(Symmetric):
         - Parameterized by upper triangular elements
     """
 
-    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         """Inverse via Cholesky decomposition."""
-        chol = self.cholesky(params, shape)
+        chol = cls.cholesky(shape, params)
         n = shape[0]
         eye = jnp.eye(n)
         # Solve L L^T x = I
         inv_chol = jax.scipy.linalg.solve_triangular(chol, eye, lower=True)
         inv = inv_chol.T @ inv_chol
-        return self.from_dense(inv)
+        return cls.from_dense(inv)
 
-    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         """Log determinant via Cholesky."""
-        chol = self.cholesky(params, shape)
+        chol = cls.cholesky(shape, params)
         return 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
 
-    def cholesky(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
         """Compute lower triangular Cholesky factor L where A = LL^T."""
-        matrix = self.to_dense(params, shape)
+        matrix = cls.to_dense(shape, params)
         return jnp.linalg.cholesky(matrix)  # type: ignore
 
+    @classmethod
     def apply_cholesky(
-        self, params: Array, vector: Array, shape: tuple[int, int]
+        cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
-        chol = self.cholesky(params, shape)
+        chol = cls.cholesky(shape, params)
         return (chol @ vector.T).T
 
 
@@ -208,38 +236,48 @@ class Diagonal(PositiveDefinite):
         - $O(n)$ storage and operations
     """
 
-    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return params * vector
 
-    def transpose(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
         return params
 
-    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         matrix = jnp.zeros((n, n))
         return matrix.at[jnp.diag_indices(n)].set(params)
 
-    def from_dense(self, matrix: Array) -> Array:
+    @classmethod
+    def from_dense(cls, matrix: Array) -> Array:
         return jnp.diag(matrix)
 
-    def num_params(self, matrix_shape: tuple[int, int]) -> int:
-        return matrix_shape[0]
+    @classmethod
+    def num_params(cls, shape: tuple[int, int]) -> int:
+        return shape[0]
 
-    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         return 1.0 / params
 
-    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         return jnp.sum(jnp.log(params))
 
-    def cholesky(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
         return jnp.sqrt(params)
 
-    def outer_product(self, v1: Array, v2: Array) -> Array:
+    @classmethod
+    def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Create parameters from outer product, keeping only diagonal."""
         return v1 * v2
 
+    @classmethod
     def apply_cholesky(
-        self, params: Array, vector: Array, shape: tuple[int, int]
+        cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
         return jnp.sqrt(params) * vector
 
@@ -253,29 +291,36 @@ class Scale(Diagonal):
         - Matrix operations reduce to scalar operations on $\\alpha$
     """
 
-    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return params[0] * vector
 
-    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return params[0] * jnp.eye(n)
 
-    def from_dense(self, matrix: Array) -> Array:
+    @classmethod
+    def from_dense(cls, matrix: Array) -> Array:
         return jnp.array([jnp.mean(jnp.diag(matrix))])
 
-    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+    @classmethod
+    def num_params(cls, shape: tuple[int, int]) -> int:
         return 1
 
-    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return n * jnp.log(params[0])
 
-    def outer_product(self, v1: Array, v2: Array) -> Array:
+    @classmethod
+    def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Average outer product to single scale parameter."""
         return jnp.array([jnp.mean(v1 * v2)])
 
+    @classmethod
     def apply_cholesky(
-        self, params: Array, vector: Array, shape: tuple[int, int]
+        cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
         return jnp.sqrt(params[0]) * vector
 
@@ -289,30 +334,38 @@ class Identity(Scale):
         - Acts as multiplicative identity in composition
     """
 
-    def matvec(self, params: Array, vector: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return vector
 
-    def to_dense(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return jnp.eye(n)
 
-    def from_dense(self, matrix: Array) -> Array:
+    @classmethod
+    def from_dense(cls, matrix: Array) -> Array:
         return jnp.array([])
 
-    def num_params(self, matrix_shape: tuple[int, int]) -> int:
+    @classmethod
+    def num_params(cls, shape: tuple[int, int]) -> int:
         return 0
 
-    def inverse(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         return params
 
-    def logdet(self, params: Array, shape: tuple[int, int]) -> Array:
+    @classmethod
+    def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         return jnp.array(0.0)
 
-    def outer_product(self, v1: Array, v2: Array) -> Array:
+    @classmethod
+    def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Identity ignores input vectors."""
         return jnp.array([])
 
+    @classmethod
     def apply_cholesky(
-        self, params: Array, vector: Array, shape: tuple[int, int]
+        cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
         return vector

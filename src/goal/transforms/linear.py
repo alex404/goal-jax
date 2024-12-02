@@ -30,7 +30,6 @@ class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     rep: R
     domain: M
     codomain: N
-    bias: Array
 
     @property
     def dimension(self) -> int:
@@ -64,8 +63,8 @@ class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     ) -> Point[C, N]:
         """Apply the affine transformation."""
         bias, linear = self.split_params(f)
-        transformed = self.rep.matvec(linear.params, p.params, self.shape)
-        return Point(transformed + bias.params + self.bias)
+        transformed = self.rep.matvec(self.shape, linear.params, p.params)
+        return Point(transformed + bias)
 
 
 @jax.tree_util.register_dataclass
@@ -104,7 +103,7 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         p: Point[Dual[C], M],
     ) -> Point[C, N]:
         """Apply the linear map to transform a point."""
-        return Point(self.rep.matvec(f.params, p.params, self.shape))
+        return Point(self.rep.matvec(self.shape, f.params, p.params))
 
     def from_dense(self, matrix: Array) -> Point[Any, Self]:
         """Create point from dense matrix."""
@@ -120,15 +119,15 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
     ) -> Point[C, LinearMap[R, N, M]]:
         """Transpose of the linear map."""
-        return Point(self.rep.transpose(f.params, self.shape))
+        return Point(self.rep.transpose(self.shape, f.params))
 
     def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Convert to dense matrix representation."""
-        return self.rep.to_dense(f.params, self.shape)
+        return self.rep.to_dense(self.shape, f.params)
 
     def to_columns[C: Coordinates](self, f: Point[C, Self]) -> list[Point[C, N]]:
         """Split linear map into list of column vectors as points in the codomain."""
-        cols = self.rep.to_cols(f.params, self.shape)
+        cols = self.rep.to_cols(self.shape, f.params)
         return [Point(col) for col in cols]
 
     def from_columns[C: Coordinates](
@@ -136,7 +135,7 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     ) -> Point[C, LinearMap[R, M, N]]:
         """Construct linear map from list of column vectors as points."""
         col_arrays = [col.params for col in cols]
-        params = self.rep.from_cols(col_arrays, self.shape)
+        params = self.rep.from_cols(col_arrays)
         return Point(params)
 
 
@@ -155,8 +154,8 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
     def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""
-        return Point(self.rep.inverse(f.params, self.shape))
+        return Point(self.rep.inverse(self.shape, f.params))
 
     def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Log determinant (requires square matrix)."""
-        return self.rep.logdet(f.params, self.shape)
+        return self.rep.logdet(self.shape, f.params)
