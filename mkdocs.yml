@@ -15,7 +15,9 @@ nav:
     - Exponential Families:
       - Top-Level: exponential_family/core.md
       - Distributions: exponential_family/distributions.md
-    - Harmoniums: harmonium.md
+    - Harmoniums:
+      - Top-Level: harmonium/core.md
+      - Models: harmonium/models.md
 
 
 plugins:
