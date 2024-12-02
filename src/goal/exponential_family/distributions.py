@@ -12,8 +12,7 @@ from jax import Array
 from goal.manifold import Coordinates, Euclidean, Point, reduce_dual
 
 from ..exponential_family import (
-    ClosedForm,
-    Generative,
+    Backward,
     Mean,
     Natural,
 )
@@ -82,7 +81,7 @@ def standard_normal_manifold(
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Normal[R: PositiveDefinite](ClosedForm, Generative):
+class Normal[R: PositiveDefinite](Backward):
     """(Multivariate) Normal distributions.
 
     Parameters:
@@ -302,7 +301,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Categorical(ClosedForm, Generative):
+class Categorical(Backward):
     """Categorical distribution over $n$ states, of dimension $d = n-1$.
 
     Parameters:
@@ -386,7 +385,7 @@ class Categorical(ClosedForm, Generative):
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Poisson(ClosedForm, Generative):
+class Poisson(Backward):
     """
     The Poisson distribution over counts.
 

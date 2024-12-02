@@ -1,7 +1,7 @@
 from .core import (
-    ClosedForm,
-    Differentiable,
+    Backward,
     ExponentialFamily,
+    Forward,
     Generative,
     Mean,
     Natural,
@@ -11,7 +11,7 @@ __all__ = [
     "Mean",
     "Natural",
     "ExponentialFamily",
-    "Differentiable",
-    "ClosedForm",
+    "Forward",
+    "Backward",
     "Generative",
 ]

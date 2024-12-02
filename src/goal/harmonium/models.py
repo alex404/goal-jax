@@ -9,20 +9,20 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..exponential_family import (
-    ClosedForm,
+    Backward,
     Mean,
     Natural,
 )
 from ..exponential_family.distributions import Categorical
 from ..manifold import Point
 from ..transforms import LinearMap, Rectangular
-from .core import ClosedFormConjugated, DifferentiableLatentHarmonium
+from .core import BackwardConjugated, ForwardLatent
 
 
 @dataclass(frozen=True)
-class Mixture[O: ClosedForm](
-    DifferentiableLatentHarmonium[Rectangular, O, Categorical],
-    ClosedFormConjugated[Rectangular, O, Categorical],
+class Mixture[O: Backward](
+    ForwardLatent[Rectangular, O, Categorical],
+    BackwardConjugated[Rectangular, O, Categorical],
 ):
     """A mixture model implemented as a harmonium with categorical latent variables.
 

@@ -11,9 +11,9 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..exponential_family import (
-    ClosedForm,
-    Differentiable,
+    Backward,
     ExponentialFamily,
+    Forward,
     Generative,
     Mean,
     Natural,
@@ -178,7 +178,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         return self.post_man(self.posterior_function(p), mx)
 
 
-class DifferentiableLatentHarmonium[R: MatrixRep, O: ExponentialFamily, L: ClosedForm](
+class ForwardLatent[R: MatrixRep, O: ExponentialFamily, L: Backward](
     Harmonium[R, O, L]
 ):
     """A harmonium with differentiable latent exponential family."""
@@ -256,8 +256,8 @@ class GenerativeConjugated[
     """A conjugated harmonium that supports sampling through its latent distribution.
 
     The sampling process leverages the conjugate structure to:
-    1. Sample from the marginal latent distribution p(z)
-    2. Sample from the conditional likelihood p(x|z)
+    1. Sample from the marginal latent distribution $p(z)$
+    2. Sample from the conditional likelihood $p(x \\mid z)$
     """
 
     def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
@@ -290,8 +290,8 @@ class GenerativeConjugated[
         return jnp.concatenate([x_sample, z_sample], axis=-1)
 
 
-class DifferentiableConjugated[R: MatrixRep, O: Generative, L: Differentiable](
-    Differentiable, GenerativeConjugated[R, O, L], ABC
+class ForwardConjugated[R: MatrixRep, O: Generative, L: Forward](
+    Forward, GenerativeConjugated[R, O, L], ABC
 ):
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
         """Compute the log partition function using conjugation parameters.
@@ -317,8 +317,8 @@ class DifferentiableConjugated[R: MatrixRep, O: Generative, L: Differentiable](
         return self.lat_man.log_partition_function(adjusted_lat) + rho_0
 
 
-class ClosedFormConjugated[R: MatrixRep, O: Generative, L: ClosedForm](
-    DifferentiableConjugated[R, O, L], ClosedForm, ABC
+class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
+    ForwardConjugated[R, O, L], Backward, ABC
 ):
     """A conjugated harmonium with invertible likelihood parameterization."""
 

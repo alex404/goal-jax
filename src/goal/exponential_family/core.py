@@ -133,7 +133,7 @@ class Generative(ExponentialFamily, ABC):
         return self.average_sufficient_statistic(samples)
 
 
-class Differentiable(Generative, ABC):
+class Forward(Generative, ABC):
     """Exponential family with an analytically tractable log-partition function, which thereby permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
 
     The log partition function $\\psi(\\theta)$ is given by:
@@ -187,7 +187,7 @@ class Differentiable(Generative, ABC):
         return jnp.exp(self.log_density(p, x))
 
 
-class ClosedForm(Differentiable, ABC):
+class Backward(Forward, ABC):
     """An exponential family comprising distributions for which the entropy can be evaluated in closed-form. The negative entropy is the convex conjugate of the log-partition function
 
     $$
