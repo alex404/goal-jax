@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from goal.manifold import Coordinates, Euclidean, Point, reduce_double_dual
+from goal.manifold import Coordinates, Euclidean, Point, reduce_dual
 
 from ..exponential_family import (
     ClosedForm,
@@ -151,7 +151,7 @@ class Normal[R: PositiveDefinite](ClosedForm, Generative):
         theta1, theta2 = self.split_natural_params(Point(natural_params))
 
         precision = -2 * theta2
-        covariance: Point[Mean, Covariance[R]] = reduce_double_dual(
+        covariance: Point[Mean, Covariance[R]] = reduce_dual(
             self.cov_man.inverse(precision)
         )
         mean = self.cov_man(covariance, theta1)

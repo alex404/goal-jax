@@ -17,7 +17,7 @@ from ..exponential_family import (
     Mean,
     Natural,
 )
-from ..manifold import Coordinates, Point, expand_double_dual
+from ..manifold import Coordinates, Point, expand_dual
 from ..transforms import AffineMap, LinearMap, MatrixRep
 
 
@@ -162,7 +162,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
         $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mz = expand_double_dual(self.lat_man.sufficient_statistic(z))
+        mz = expand_dual(self.lat_man.sufficient_statistic(z))
         return self.like_man(self.likelihood_function(p), mz)
 
     def posterior_at(self, p: Point[Natural, Self], x: Array) -> Point[Natural, L]:
@@ -173,8 +173,59 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
         $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mx = expand_double_dual(self.obs_man.sufficient_statistic(x))
+        mx = expand_dual(self.obs_man.sufficient_statistic(x))
         return self.post_man(self.posterior_function(p), mx)
+
+
+class DifferentiableLatentHarmonium[R: MatrixRep, O: ExponentialFamily, L: ClosedForm](
+    Harmonium[R, O, L]
+):
+    """A harmonium with differentiable latent exponential family."""
+
+    def infer_missing_expectations(
+        self,
+        p: Point[Natural, Self],
+        x: Array,
+    ) -> Point[Mean, Self]:
+        """Compute joint expectations for a single observation.
+
+        For an observation x and current parameters $\\theta = $(\\theta_X, \\theta_Z, \\theta_{XZ})$, we
+
+        1. Compute sufficient statistics $\\mathbf s_X(x)$,
+        2. Get natural parameters of $p(z \\mid x)$ given by $\\theta_Z + \\mathbf s_X(x) · \\Theta_{XZ}$,
+        3. Convert to mean parameters $\\mathbb E[\\mathbf s_Z(z) \\mid x]$, and
+        4. Form joint expectations $(\\mathbf s_X(x), \\mathbb E[\\mathbf s_Z(z) \\mid x], \\mathbf s_X(x) \\otimes \\mathbb E[\\mathbf s_Z(z) \\mid x])$.
+
+        Args:
+            x: Single observation of shape (obs_dim,)
+            p: Current harmonium parameters in natural coordinates
+
+        Returns:
+            Joint expectations in mean coordinates for this observation
+        """
+        # Get sufficient statistics of observation
+        mx: Point[Mean, O] = self.obs_man.sufficient_statistic(x)
+
+        # Get posterior parameters for this observation
+        post_func = self.posterior_function(p)
+        post_nat: Point[Natural, L] = self.post_man(post_func, expand_dual(mx))
+
+        # Convert to mean parameters (expected sufficient statistics)
+        mz: Point[Mean, L] = self.lat_man.to_mean(post_nat)
+
+        # Form interaction term via outer product
+        mxz: Point[Mean, LinearMap[R, L, O]] = self.inter_man.outer_product(mz, mx)
+
+        # Join parameters into harmonium point
+        return self.join_params(mx, mz, mxz)
+
+    def expectation_step(
+        self,
+        p: Point[Natural, Self],
+        xs: Array,
+    ) -> Point[Mean, Self]:
+        """Compute average joint expectations over a batch of observations."""
+        return jax.vmap(self.infer_missing_expectations, in_axes=(None, 0))(p, xs)
 
 
 class Conjugated[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](

@@ -30,15 +30,17 @@ class Dual[C: Coordinates](Coordinates):
     """
 
 
-def reduce_double_dual[C: Coordinates, M: Manifold](
+def reduce_dual[C: Coordinates, M: Manifold](
     p: Point[Dual[Dual[C]], M],
 ) -> Point[C, M]:
+    """Takes a point in the dual of the dual space and returns a point in the original space."""
     return Point(p.params)
 
 
-def expand_double_dual[C: Coordinates, M: Manifold](
+def expand_dual[C: Coordinates, M: Manifold](
     p: Point[C, M],
 ) -> Point[Dual[Dual[C]], M]:
+    """Takes a point in the original space and returns a point in the dual of the dual space."""
     return Point(p.params)
 
 

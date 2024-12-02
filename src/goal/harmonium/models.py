@@ -16,11 +16,14 @@ from ..exponential_family import (
 from ..exponential_family.distributions import Categorical
 from ..manifold import Point
 from ..transforms import LinearMap, Rectangular
-from .core import ClosedFormConjugated
+from .core import ClosedFormConjugated, DifferentiableLatentHarmonium
 
 
 @dataclass(frozen=True)
-class Mixture[O: ClosedForm](ClosedFormConjugated[Rectangular, O, Categorical]):
+class Mixture[O: ClosedForm](
+    DifferentiableLatentHarmonium[Rectangular, O, Categorical],
+    ClosedFormConjugated[Rectangular, O, Categorical],
+):
     """A mixture model implemented as a harmonium with categorical latent variables.
 
     The joint distribution takes the form:
