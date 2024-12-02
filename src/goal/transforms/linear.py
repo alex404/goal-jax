@@ -18,13 +18,12 @@ from .matrix import MatrixRep, Square
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
-    """Affine transformation $f(x) = Ax + b$.
+    """Affine transformation $f(x) = A \\cdot x + b$.
 
     Args:
         rep: Matrix representation strategy
         domain: Source manifold
         codomain: Target manifold
-        bias: Translation vector
     """
 
     rep: R

@@ -17,7 +17,7 @@ from ..exponential_family import (
     Mean,
     Natural,
 )
-from ..manifold import Coordinates, Point
+from ..manifold import Coordinates, Point, expand_double_dual
 from ..transforms import AffineMap, LinearMap, MatrixRep
 
 
@@ -70,13 +70,13 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
     @property
     def like_man(self) -> AffineMap[R, L, O]:
-        """Manifold of conditional likelihood distributions p(x|z)."""
-        return AffineMap(self.inter_man.rep, self.lat_man, self.obs_man, self.obs_bias)
+        """Manifold of conditional likelihood distributions $p(x \\mid z)$."""
+        return AffineMap(self.inter_man.rep, self.lat_man, self.obs_man)
 
     @property
     def post_man(self) -> AffineMap[R, O, L]:
-        """Manifold of conditional posterior distributions p(z|x)."""
-        return AffineMap(self.inter_man.rep, self.obs_man, self.lat_man, self.lat_bias)
+        """Manifold of conditional posterior distributions $p(z \\mid x)$."""
+        return AffineMap(self.inter_man.rep, self.obs_man, self.lat_man)
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
@@ -134,33 +134,47 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
             lat_x
         )
 
-    def likelihood(
-        self, p: Point[Natural, Self], lat_stats: Point[Mean, L]
-    ) -> Point[Natural, O]:
-        """Compute natural parameters of likelihood distribution $p(x|z)$.
+    def likelihood_function(
+        self, p: Point[Natural, Self]
+    ) -> Point[Natural, AffineMap[R, L, O]]:
+        """Natural parameters of the likelihood distribution as an affine function.
 
-        Given a latent point $z$ with sufficient statistics $s(z)$, computes natural
-        parameters $\\theta_X$ of the conditional distribution:
-
-        $$p(x|z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
         """
         obs_bias, _, int_mat = self.split_params(p)
-        interaction = self.inter_man(int_mat, lat_stats)
-        return obs_bias + interaction
+        return self.like_man.join_params(obs_bias, int_mat)
 
-    def posterior(
-        self, p: Point[Natural, Self], obs_stats: Point[Mean, O]
-    ) -> Point[Natural, L]:
-        """Compute natural parameters of posterior distribution $p(z|x)$.
+    def posterior_function(
+        self, p: Point[Natural, Self]
+    ) -> Point[Natural, AffineMap[R, O, L]]:
+        """Natural parameters of the posterior distribution as an affine function.
+
+        The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}^T$.
+        """
+        _, lat_bias, int_mat = self.split_params(p)
+        int_mat_t = self.inter_man.transpose(int_mat)
+        return self.post_man.join_params(lat_bias, int_mat_t)
+
+    def likelihood_at(self, p: Point[Natural, Self], z: Array) -> Point[Natural, O]:
+        """Compute natural parameters of likelihood distribution $p(x \\mid z)$ at a given $z$.
+
+        Given a latent state $z$ with sufficient statistics $s(z)$, computes natural parameters $\\theta_X$ of the conditional distribution:
+
+        $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        """
+        mz = expand_double_dual(self.lat_man.sufficient_statistic(z))
+        return self.like_man(self.likelihood_function(p), mz)
+
+    def posterior_at(self, p: Point[Natural, Self], x: Array) -> Point[Natural, L]:
+        """Compute natural parameters of posterior distribution $p(z \\mid x)$.
 
         Given an observation $x$ with sufficient statistics $s(x)$, computes natural
         parameters $\\theta_Z$ of the conditional distribution:
 
-        $$p(z|x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        _, lat_bias, int_mat = self.split_params(p)
-        interaction = self.inter_man.transpose(int_mat)(obs_stats)
-        return lat_bias + interaction
+        mx = expand_double_dual(self.obs_man.sufficient_statistic(x))
+        return self.post_man(self.posterior_function(p), mx)
 
 
 class Conjugated[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
