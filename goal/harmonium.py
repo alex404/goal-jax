@@ -43,18 +43,19 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
     - $\\mathbf s_X(x)$ and $\\mathbf s_Z(z)$ are sufficient statistics of the observable and latent exponential families, respectively.
 
     Args:
-        inter_man: Representation of the interaction matrix
         obs_man: The observable exponential family
         lat_man: The latent exponential family
+        inter_man: Representation of the interaction matrix
     """
-
-    inter_man: LinearMap[R, L, O]
 
     obs_man: O
     """The observable exponential family"""
 
     lat_man: L
     """The latent exponential family"""
+
+    inter_man: LinearMap[R, L, O]
+    """The manifold of interaction matrices"""
 
     @property
     def dimension(self) -> int:
