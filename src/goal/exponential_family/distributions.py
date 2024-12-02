@@ -18,7 +18,7 @@ from ..exponential_family import (
     Mean,
     Natural,
 )
-from ..linear import (
+from ..transforms import (
     Diagonal,
     Identity,
     PositiveDefinite,

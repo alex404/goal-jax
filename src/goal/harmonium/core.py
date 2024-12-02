@@ -17,8 +17,8 @@ from ..exponential_family import (
     Mean,
     Natural,
 )
-from ..linear import LinearMap, MatrixRep
 from ..manifold import Coordinates, Point
+from ..transforms import LinearMap, MatrixRep
 
 
 @jax.tree_util.register_dataclass

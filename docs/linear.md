@@ -1,3 +1,0 @@
-# Linear Operators
-
-::: goal.linear

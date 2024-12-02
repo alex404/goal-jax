@@ -11,7 +11,9 @@ nav:
   - Home: index.md
   - API:
     - Manifolds: manifold.md
-    - Linear Maps: linear.md
+    - Transforms:
+      - Matrix Representations: transforms/matrix.md
+      - Linear Maps: transforms/linear.md
     - Exponential Families:
       - Top-Level: exponential_family/core.md
       - Distributions: exponential_family/distributions.md

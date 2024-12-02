@@ -14,8 +14,8 @@ from goal.exponential_family.distributions import (
     full_normal_manifold,
     isotropic_normal_manifold,
 )
-from goal.linear import PositiveDefinite
 from goal.manifold import Euclidean, Point
+from goal.transforms import PositiveDefinite
 
 from .common import BivariateResults, analysis_path
 

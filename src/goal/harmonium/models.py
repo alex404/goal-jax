@@ -14,8 +14,8 @@ from ..exponential_family import (
     Natural,
 )
 from ..exponential_family.distributions import Categorical
-from ..linear import LinearMap, Rectangular
 from ..manifold import Point
+from ..transforms import LinearMap, Rectangular
 from .core import ClosedFormConjugated
 
 
