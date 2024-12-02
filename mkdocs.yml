@@ -11,9 +11,10 @@ nav:
   - Home: index.md
   - API:
     - Manifolds: manifold.md
-    - Linear Operators: linear.md
-    - Exponential Families: exponential_family.md
-    - EF Distributions: distributions.md
+    - Linear Maps: linear.md
+    - Exponential Families:
+      - Top-Level: exponential_family/core.md
+      - Distributions: exponential_family/distributions.md
     - Harmoniums: harmonium.md
 
 
@@ -23,7 +24,7 @@ plugins:
       default_handler: python
       handlers:
         python:
-          paths: [.]
+          paths: [src]
           options:
             show_source: false
             show_attribute_docstrings: true
@@ -45,8 +46,6 @@ plugins:
             enable_cross_reference: true
             show_symbol_type_heading: true
             show_symbol_type_toc: true
-            # Proper inheritance rendering
-            show_submodules: true
 
 markdown_extensions:
   - toc:
@@ -76,4 +75,4 @@ extra_javascript:
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
 watch:
-  - goal
+  - src/goal

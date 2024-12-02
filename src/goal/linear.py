@@ -30,7 +30,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.manifold import Coordinates, Dual, Manifold, Point
+from .manifold import Coordinates, Dual, Manifold, Point
 
 ### Linear Maps ###
 

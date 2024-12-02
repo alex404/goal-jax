@@ -7,13 +7,13 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.stats import multivariate_normal
 
-from goal.distributions import (
+from goal.exponential_family import Mean, Natural
+from goal.exponential_family.distributions import (
     Normal,
     diagonal_normal_manifold,
     full_normal_manifold,
     isotropic_normal_manifold,
 )
-from goal.exponential_family import Mean, Natural
 from goal.linear import PositiveDefinite
 from goal.manifold import Euclidean, Point
 

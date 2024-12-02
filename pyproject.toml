@@ -2,11 +2,23 @@
 name = "goal"
 version="0.0.1"
 
+[build-system]
+# These are standard for modern Python projects:
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+description = "Geometric Optimization and Learning Library"
+requires-python = ">=3.9"
+# Add your dependencies:
+dependencies = [
+    "jax",
+]
+
 [tool.setuptools.packages.find]
+where = ["src"]
 include =["goal*"]
 
 [tool.pyright]
-include = ["goal"]
+include = ["src/goal"]
 typeCheckingMode = "strict"
 # reportMissingTypeStubs = "warning"
 # reportUnknownVariableType = "none"
@@ -15,6 +27,7 @@ reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
 
 [tool.ruff]
+src = ["src"]
 output-format="concise"
 exclude = ["node_modules", "__pycache__"]
 lint.select = [

@@ -10,16 +10,16 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.distributions import Categorical
-from goal.exponential_family import (
+from .exponential_family import (
     ClosedForm,
     Differentiable,
     ExponentialFamily,
     Mean,
     Natural,
 )
-from goal.linear import LinearMap, MatrixRep, Rectangular
-from goal.manifold import Coordinates, Point
+from .exponential_family.distributions import Categorical
+from .linear import LinearMap, MatrixRep, Rectangular
+from .manifold import Coordinates, Point
 
 
 @jax.tree_util.register_dataclass
@@ -95,8 +95,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         """Compute sufficient statistics for joint observation.
 
         Args:
-            x: Array of shape (..., obs_dim + lat_dim) containing concatenated
-               observable and latent states
+            x: Array of shape (..., obs_dim + lat_dim) containing concatenated observable and latent states
 
         Returns:
             Array of sufficient statistics
@@ -114,8 +113,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         """Compute log base measure for joint observation.
 
         Args:
-            x: Array of shape (..., obs_dim + lat_dim) containing concatenated
-               observable and latent states
+            x: Array of shape (..., obs_dim + lat_dim) containing concatenated observable and latent states
 
         Returns:
             Log base measure at x

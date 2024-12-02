@@ -8,14 +8,14 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from goal.distributions import (
+from goal.exponential_family import Mean, Natural
+from goal.exponential_family.distributions import (
     Categorical,
     FullCovariance,
     FullNormal,
     Poisson,
     full_normal_manifold,
 )
-from goal.exponential_family import Mean, Natural
 from goal.manifold import Euclidean, Point
 
 from .common import (

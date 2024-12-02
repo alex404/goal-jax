@@ -8,3 +8,7 @@ A JAX implementation of information geometric algorithms and exponential familie
 
 * Efficient implementations of common exponential families
 * Optimization algorithms
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

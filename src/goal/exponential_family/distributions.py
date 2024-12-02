@@ -10,20 +10,21 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from goal.exponential_family import (
+from goal.manifold import Coordinates, Euclidean, Point, reduce_double_dual
+
+from ..exponential_family import (
     ClosedForm,
     Generative,
     Mean,
     Natural,
 )
-from goal.linear import (
+from ..linear import (
     Diagonal,
     Identity,
     PositiveDefinite,
     Scale,
     SquareMap,
 )
-from goal.manifold import Coordinates, Euclidean, Point, reduce_double_dual
 
 type FullNormal = Normal[PositiveDefinite]
 type DiagonalNormal = Normal[Diagonal]
