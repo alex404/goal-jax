@@ -1,11 +1,11 @@
 from .core import (
-    ClosedFormConjugated,
+    BackwardConjugated,
     Conjugated,
-    DifferentiableConjugated,
+    ForwardConjugated,
 )
 
 __all__ = [
     "Conjugated",
-    "DifferentiableConjugated",
-    "ClosedFormConjugated",
+    "ForwardConjugated",
+    "BackwardConjugated",
 ]

@@ -244,8 +244,8 @@ class Conjugated[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
     def prior(self, p: Point[Natural, Self]) -> Point[Natural, L]:
         """Natural parameters of the prior distribution $p(z)$."""
         obs_bias, lat_bias, int_mat = self.split_params(p)
-        _, rho_z = self.conjugation_parameters(obs_bias, int_mat)
-        return lat_bias + rho_z
+        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        return lat_bias + rho
 
 
 class GenerativeConjugated[
@@ -298,7 +298,7 @@ class ForwardConjugated[R: MatrixRep, O: Generative, L: Forward](
 
         The log partition function can be written as:
 
-        $$\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho_Z) + \\rho_0$$
+        $$\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\chi$$
 
         where $\\psi_Z$ is the log partition function of the latent exponential family.
         """
@@ -308,13 +308,49 @@ class ForwardConjugated[R: MatrixRep, O: Generative, L: Forward](
         )
 
         # Get conjugation parameters
-        rho_0, rho_z = self.conjugation_parameters(obs_bias, int_mat)
+        chi, rho = self.conjugation_parameters(obs_bias, int_mat)
 
         # Compute adjusted latent parameters
-        adjusted_lat = lat_bias + rho_z
+        adjusted_lat = lat_bias + rho
 
         # Use latent family's partition function
-        return self.lat_man.log_partition_function(adjusted_lat) + rho_0
+        return self.lat_man.log_partition_function(adjusted_lat) + chi
+
+    def log_observable_density(self, p: Point[Natural, Self], x: Array) -> Array:
+        """Compute log density of the observable distribution $p(x)$.
+
+        For a conjugated harmonium, the observable density can be computed as:
+
+        $$
+        \\log p(x) = \\theta_X \\cdot s_X(x) + \\psi_Z(\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}) - \\psi_Z(\\theta_Z + \\rho) - \\chi + \\log \\mu_X(x)
+        $$
+
+        where:
+
+        - $(\\chi, \\rho)$ are the conjugation parameters,
+        - $\\psi_Z$ is the latent log-partition function, and
+        - $\\mu_X$ is the observable base measure.
+
+        Args:
+            p: Parameters in natural coordinates
+            x: Observable data point
+
+        Returns:
+            Log density at x
+        """
+        obs_bias, lat_bias, int_mat = self.split_params(p)
+        chi, rho = self.conjugation_parameters(obs_bias, int_mat)
+        obs_stats = self.obs_man.sufficient_statistic(x)
+
+        log_density = jnp.dot(obs_bias.params, obs_stats.params)
+        log_density += self.lat_man.log_partition_function(self.posterior_at(p, x))
+        log_density -= self.lat_man.log_partition_function(lat_bias + rho) + chi
+
+        return log_density + self.obs_man.log_base_measure(x)
+
+    def observable_density(self, p: Point[Natural, Self], x: Array) -> Array:
+        """Compute density of the observable distribution $p(x)$."""
+        return jnp.exp(self.log_observable_density(p, x))
 
 
 class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
@@ -334,21 +370,21 @@ class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
 
         Uses `to_natural_likelihood` for observable and interaction components, then computes latent natural parameters using conjugation structure:
 
-            $\\theta_Z = \\nabla \\phi_Z(\\eta_Z) - \\rho_Z
+        $\\theta_Z = \\nabla \\phi_Z(\\eta_Z) - \\rho$
 
-        where $\\rho_Z$ are the conjugation parameters of the likelihood.
+        where $\\rho$ are the conjugation parameters of the likelihood.
         """
         # Get natural likelihood parameters
         nat_obs, nat_int = self.to_natural_likelihood(p)
 
         # Get conjugation parameters from likelihood
-        _, rho_z = self.conjugation_parameters(nat_obs, nat_int)
+        _, rho = self.conjugation_parameters(nat_obs, nat_int)
 
         # Split mean parameters
         _, mean_lat, _ = self.split_params(p)
 
         # Get latent natural parameters
-        nat_lat = self.lat_man.to_natural(mean_lat) - rho_z
+        nat_lat = self.lat_man.to_natural(mean_lat) - rho
 
         # Join parameters
         return self.join_params(nat_obs, nat_lat, nat_int)
