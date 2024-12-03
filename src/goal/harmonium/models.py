@@ -40,6 +40,10 @@ class Mixture[O: Backward](
     where $\\theta_k$ and $\\theta_{k}$ are the k-th components of $\\theta_z$ and $\\Theta_{xz}$ respectively.
     """
 
+    def __init__(self, obs_man: O, n_categories: int):
+        cat_man = Categorical(n_categories)
+        super().__init__(obs_man, cat_man, LinearMap(Rectangular(), cat_man, obs_man))
+
     def conjugation_parameters(
         self,
         obs_bias: Point[Natural, O],
@@ -94,18 +98,13 @@ class Mixture[O: Backward](
         weights: Point[Mean, Categorical],
     ) -> Point[Mean, Self]:
         """Create a mixture model in mean coordinates from components and weights."""
-        # Get probability vector for all components
         probs = self.lat_man.to_probs(weights)
 
-        # Weight all components
         weighted_comps: list[Point[Mean, O]] = [
             p * comp for p, comp in zip(probs, components)
         ]
 
-        # Base term is sum of weighted components
         obs_mean: Point[Mean, O] = reduce(add, weighted_comps)
-
-        # Interaction terms from weighted components (excluding first)
         int_mat = self.inter_man.from_columns([comp for comp in weighted_comps[1:]])
 
         return self.join_params(obs_mean, weights, int_mat)
@@ -114,21 +113,15 @@ class Mixture[O: Backward](
         self, p: Point[Mean, Self]
     ) -> tuple[list[Point[Mean, O]], Point[Mean, Categorical]]:
         """Split a mixture model in mean coordinates into components and weights."""
-        # Split parameters
         obs_mean, cat_mean, int_mat = self.split_params(p)
 
-        # Get probability vector
         probs = self.lat_man.to_probs(cat_mean)
-
-        # Get interaction columns
         int_cols = self.inter_man.to_columns(int_mat)
 
-        # First component is base mean divided by first probability
         components: list[Point[Mean, O]] = [
             (obs_mean - reduce(add, int_cols)) / probs[0]
         ]
 
-        # Other components from interaction matrix
         for i, col in enumerate(int_cols):
             comp_mean = col / probs[i + 1].item()
             components.append(comp_mean)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any, Self
 
 import jax
 from jax import Array
@@ -62,6 +63,28 @@ class Manifold(ABC):
         """The dimension of the manifold."""
         ...
 
+    def normal_initialize(
+        self,
+        key: Array,
+        mu: float = 0.0,
+        sigma: float = 1.0,
+    ) -> Point[Any, Self]:
+        """Initialize a point with normally distributed parameters."""
+        params = jax.random.normal(key, shape=(self.dimension,)) * sigma + mu
+        return Point(params)
+
+    def uniform_initialize(
+        self,
+        key: Array,
+        low: float = -1.0,
+        high: float = 1.0,
+    ) -> Point[Coordinates, Self]:
+        """Initialize a point with uniformly distributed parameters."""
+        params = jax.random.uniform(
+            key, shape=(self.dimension,), minval=low, maxval=high
+        )
+        return Point(params)
+
 
 @dataclass(frozen=True)
 class Euclidean(Manifold):
@@ -83,6 +106,11 @@ class Euclidean(Manifold):
     def dimension(self) -> int:
         """Return the dimension of the space."""
         return self.dim
+
+
+def euclidean_point(params: Array) -> Point[Any, Euclidean]:
+    """Create a point in Euclidean space."""
+    return Point(params)
 
 
 @jax.tree_util.register_dataclass
