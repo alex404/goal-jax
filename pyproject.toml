@@ -11,6 +11,9 @@ requires-python = ">=3.9"
 # Add your dependencies:
 dependencies = [
     "jax",
+    "matplotlib",
+    "scipy",
+    "scikit-learn",
 ]
 
 [tool.setuptools.packages.find]

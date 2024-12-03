@@ -178,7 +178,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         return self.post_man(self.posterior_function(p), mx)
 
 
-class ForwardLatent[R: MatrixRep, O: ExponentialFamily, L: Backward](
+class BackwardLatent[R: MatrixRep, O: ExponentialFamily, L: Backward](
     Harmonium[R, O, L]
 ):
     """A harmonium with differentiable latent exponential family."""
@@ -193,7 +193,7 @@ class ForwardLatent[R: MatrixRep, O: ExponentialFamily, L: Backward](
         For an observation x and current parameters $\\theta = $(\\theta_X, \\theta_Z, \\theta_{XZ})$, we
 
         1. Compute sufficient statistics $\\mathbf s_X(x)$,
-        2. Get natural parameters of $p(z \\mid x)$ given by $\\theta_Z + \\mathbf s_X(x) · \\Theta_{XZ}$,
+        2. Get natural parameters of $p(z \\mid x)$ given by $\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$,
         3. Convert to mean parameters $\\mathbb E[\\mathbf s_Z(z) \\mid x]$, and
         4. Form joint expectations $(\\mathbf s_X(x), \\mathbb E[\\mathbf s_Z(z) \\mid x], \\mathbf s_X(x) \\otimes \\mathbb E[\\mathbf s_Z(z) \\mid x])$.
 
@@ -246,6 +246,25 @@ class Conjugated[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         obs_bias, lat_bias, int_mat = self.split_params(p)
         _, rho = self.conjugation_parameters(obs_bias, int_mat)
         return lat_bias + rho
+
+    def split_conjugated(
+        self, p: Point[Natural, Self]
+    ) -> tuple[Point[Natural, AffineMap[R, L, O]], Point[Natural, L]]:
+        """Split conjugated harmonium into likelihood and prior."""
+        obs_bias, lat_bias, int_mat = self.split_params(p)
+        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        return self.like_man.join_params(obs_bias, int_mat), lat_bias + rho
+
+    def join_conjugated(
+        self,
+        like_params: Point[Natural, AffineMap[R, L, O]],
+        prior_params: Point[Natural, L],
+    ) -> Point[Natural, Self]:
+        """Join likelihood and prior parameters into a conjugated harmonium."""
+        obs_bias, int_mat = self.like_man.split_params(like_params)
+        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        lat_bias = prior_params - rho
+        return self.join_params(obs_bias, lat_bias, int_mat)
 
 
 class GenerativeConjugated[
@@ -354,7 +373,7 @@ class ForwardConjugated[R: MatrixRep, O: Generative, L: Forward](
 
 
 class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
-    ForwardConjugated[R, O, L], Backward, ABC
+    ForwardConjugated[R, O, L], BackwardLatent[R, O, L], Backward, ABC
 ):
     """A conjugated harmonium with invertible likelihood parameterization."""
 
@@ -396,3 +415,13 @@ class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
 
         log_partition = self.log_partition_function(nat_point)
         return jnp.dot(mean_params, nat_point.params) - log_partition
+
+    def expectation_maximization(
+        self, p: Point[Natural, Self], xs: Array
+    ) -> Point[Natural, Self]:
+        """Perform a single iteration of the EM algorithm."""
+        # E-step: Compute expectations
+        q = self.expectation_step(p, xs)
+
+        # M-step: Maximize expected log-likelihood
+        return self.to_natural(q)

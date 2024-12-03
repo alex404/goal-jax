@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import reduce
+from operator import add
 from typing import Self
 
 import jax.numpy as jnp
@@ -16,12 +18,11 @@ from ..exponential_family import (
 from ..exponential_family.distributions import Categorical
 from ..manifold import Point
 from ..transforms import LinearMap, Rectangular
-from .core import BackwardConjugated, ForwardLatent
+from .core import BackwardConjugated
 
 
 @dataclass(frozen=True)
 class Mixture[O: Backward](
-    ForwardLatent[Rectangular, O, Categorical],
     BackwardConjugated[Rectangular, O, Categorical],
 ):
     """A mixture model implemented as a harmonium with categorical latent variables.
@@ -75,41 +76,94 @@ class Mixture[O: Backward](
         """Map mean harmonium parameters to natural likelihood parameters.
 
         For categorical mixtures, we:
-        1. Get categorical probabilities from mean latent parameters
-        2. Use these to weight the mean parameters to recover component means
-        3. Convert each component mean to natural parameters
-        4. Extract base and interaction terms
+        1. Recover weights and component mean parameters
+        2. Convert each component mean parameter to natural parameters
+        3. Extract base and interaction terms
         """
-        # Split mean parameters
-        mean_obs, mean_lat, mean_int = self.split_params(p)
+        comp_means, _ = self.split_mean_mixture(p)
+        nat_comps = [self.obs_man.to_natural(comp) for comp in comp_means]
+        obs_bias = nat_comps[0]
+        int_cols = [comp - obs_bias for comp in nat_comps[1:]]
+        int_mat = self.inter_man.from_columns(int_cols)
 
-        # Get weights from categorical mean parameters
-        weights = self.lat_man.to_probs(mean_lat)
+        return obs_bias, int_mat
 
-        # Get component parameter vectors from interaction matrix
-        int_cols = self.inter_man.to_columns(mean_int)
+    def join_mean_mixture(
+        self,
+        components: list[Point[Mean, O]],
+        weights: Point[Mean, Categorical],
+    ) -> Point[Mean, Self]:
+        """Create a mixture model in mean coordinates from components and weights."""
+        # Get probability vector for all components
+        probs = self.lat_man.to_probs(weights)
 
-        # Reconstruct component means:
-        # First component is base mean
-        # Other components are base + interaction columns
-        comp_means = [mean_obs]  # First component
+        # Weight all components
+        weighted_comps: list[Point[Mean, O]] = [
+            p * comp for p, comp in zip(probs, components)
+        ]
+
+        # Base term is sum of weighted components
+        obs_mean: Point[Mean, O] = reduce(add, weighted_comps)
+
+        # Interaction terms from weighted components (excluding first)
+        int_mat = self.inter_man.from_columns([comp for comp in weighted_comps[1:]])
+
+        return self.join_params(obs_mean, weights, int_mat)
+
+    def split_mean_mixture(
+        self, p: Point[Mean, Self]
+    ) -> tuple[list[Point[Mean, O]], Point[Mean, Categorical]]:
+        """Split a mixture model in mean coordinates into components and weights."""
+        # Split parameters
+        obs_mean, cat_mean, int_mat = self.split_params(p)
+
+        # Get probability vector
+        probs = self.lat_man.to_probs(cat_mean)
+
+        # Get interaction columns
+        int_cols = self.inter_man.to_columns(int_mat)
+
+        # First component is base mean divided by first probability
+        components: list[Point[Mean, O]] = [
+            (obs_mean - reduce(add, int_cols)) / probs[0]
+        ]
+
+        # Other components from interaction matrix
+        for i, col in enumerate(int_cols):
+            comp_mean = col / probs[i + 1].item()
+            components.append(comp_mean)
+
+        return components, cat_mean
+
+    def join_natural_mixture(
+        self,
+        components: list[Point[Natural, O]],
+        prior: Point[Natural, Categorical],
+    ) -> Point[Natural, Self]:
+        """Create a mixture model in natural coordinates from components and prior."""
+
+        obs_bias = components[0]
+        int_cols = [comp - obs_bias for comp in components[1:]]
+        int_mat = self.inter_man.from_columns(int_cols)
+        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        lat_bias = prior - rho
+
+        return self.join_params(obs_bias, lat_bias, int_mat)
+
+    def split_natural_mixture(
+        self, p: Point[Natural, Self]
+    ) -> tuple[list[Point[Natural, O]], Point[Natural, Categorical]]:
+        """Split a mixture model in natural coordinates into components and prior."""
+
+        obs_bias, lat_bias, int_mat = self.split_params(p)
+        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        int_cols = self.inter_man.to_columns(int_mat)
+        components = [obs_bias]  # First component
+
         for col in int_cols:
-            comp_mean = mean_obs + col
-            comp_means.append(comp_mean)
+            comp = obs_bias + col
+            components.append(comp)
 
-        # Scale by weights to get original means
-        orig_comp_means = [comp / w for comp, w in zip(comp_means, weights)]
+        prior = lat_bias + rho
 
-        # Convert to natural parameters
-        nat_comps = [self.obs_man.to_natural(comp) for comp in orig_comp_means]
-
-        # First component gives observable bias
-        nat_obs = nat_comps[0]
-
-        # Differences from first component give interaction terms
-        nat_int_cols = [comp - nat_obs for comp in nat_comps[1:]]
-
-        # Reconstruct interaction matrix
-        nat_int = self.inter_man.from_columns(nat_int_cols)
-
-        return nat_obs, nat_int
+        return components, prior
