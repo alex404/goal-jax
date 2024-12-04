@@ -212,3 +212,17 @@ class Backward(Forward, ABC):
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
         natural_params = jax.grad(self._compute_negative_entropy)(p.params)  # type: ignore
         return Point(natural_params)
+
+    def relative_entropy(self, p: Point[Natural, Self], q: Point[Mean, Self]) -> Array:
+        """Compute the entropy of $p$ relative to $q$.
+
+        $D(p \\| q) = \\int p(x) \\log \\frac{p(x)}{q(x)} dx = \\theta \\cdot \\eta - \\psi(\\theta) - \\phi(\\eta)$, where
+
+        - $p(x;\\theta)$ has natural parameters $\\theta$,
+        - $q(x;\\eta)$ has mean parameters $\\eta$.
+        """
+        return (
+            self.log_partition_function(p)
+            + self.negative_entropy(q)
+            - jnp.dot(p.params, q.params)
+        )

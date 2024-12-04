@@ -45,9 +45,6 @@ def sample_gaussian[R: PositiveDefinite](
     return man.sample(key, p, n)
 
 
-sample_gaussian = jax.jit(sample_gaussian, static_argnames=["man", "n"])
-
-
 def compute_densities[R: PositiveDefinite](
     man: Normal[R], natural_point: Point[Natural, Normal[R]], xs: Array, ys: Array
 ) -> Array:
@@ -56,15 +53,9 @@ def compute_densities[R: PositiveDefinite](
     return zs.reshape(xs.shape)
 
 
-compute_densities = jax.jit(compute_densities, static_argnames=["man"])
-
-
 def scipy_densities(mean: Array, cov: Array, xs: Array, ys: Array) -> Array:
     points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
     return jax.vmap(multivariate_normal.pdf, in_axes=(0, None, None))(points, mean, cov)
-
-
-scipy_densities = jax.jit(scipy_densities)
 
 
 def compute_gaussian_results(
@@ -119,6 +110,13 @@ def compute_gaussian_results(
         diagonal_densities=dia_dens,
         scale_densities=scl_dens,
     )
+
+
+### Main ###
+
+
+jax.config.update("jax_platform_name", "cpu")
+jax.config.update("jax_disable_jit", False)
 
 
 def main():

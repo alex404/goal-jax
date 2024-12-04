@@ -58,11 +58,6 @@ def compute_gaussian_results(
     return sample, true_dens, est_dens
 
 
-compute_gaussian_results = jax.jit(
-    compute_gaussian_results, static_argnames=["manifold", "sample_size"]
-)
-
-
 def compute_categorical_results(
     key: Array,
     manifold: Categorical,
@@ -93,11 +88,6 @@ def compute_categorical_results(
     est_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural_est, categories)
 
     return sample, true_probs, est_probs
-
-
-compute_categorical_results = jax.jit(
-    compute_categorical_results, static_argnames=["manifold", "sample_size"]
-)
 
 
 def compute_poisson_results(
@@ -131,9 +121,11 @@ def compute_poisson_results(
     return sample, true_pmf, estimated_pmf
 
 
-compute_poisson_results = jax.jit(
-    compute_poisson_results, static_argnames=["manifold", "sample_size"]
-)
+### Main ###
+
+
+jax.config.update("jax_platform_name", "cpu")
+jax.config.update("jax_disable_jit", False)
 
 
 def main():

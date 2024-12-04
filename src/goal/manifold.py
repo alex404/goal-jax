@@ -140,5 +140,8 @@ class Point[C: Coordinates, M: Manifold]:
     def __rmul__(self, scalar: float) -> Point[C, M]:
         return self.__mul__(scalar)
 
-    def __truediv__(self, scalar: float) -> Point[C, M]:
-        return Point(self.params / scalar)
+    # def __truediv__(self, scalar: float) -> Point[C, M]:
+    #     return Point(self.params / scalar)
+
+    def __truediv__(self, other: float | Array) -> Point[C, M]:
+        return Point(self.params / other)

@@ -436,6 +436,7 @@ class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
         log_partition = self.log_partition_function(nat_point)
         return jnp.dot(mean_params, nat_point.params) - log_partition
 
+    # @partial(jax.jit, static_argnums=(0,))
     def expectation_maximization(
         self, p: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:

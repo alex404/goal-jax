@@ -123,7 +123,7 @@ class Mixture[O: Backward](
         ]
 
         for i, col in enumerate(int_cols):
-            comp_mean = col / probs[i + 1].item()
+            comp_mean = col / probs[i + 1]
             components.append(comp_mean)
 
         return components, cat_mean
