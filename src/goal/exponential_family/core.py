@@ -58,7 +58,7 @@ class ExponentialFamily(Manifold, ABC):
 
     @property
     @abstractmethod
-    def data_dimension(self) -> int:
+    def data_dim(self) -> int:
         """Dimension of the data space."""
 
     @abstractmethod

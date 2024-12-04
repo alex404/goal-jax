@@ -116,14 +116,14 @@ class Normal[R: PositiveDefinite](Backward):
     """Covariance structure (e.g. `Scale`, `Diagonal`, `PositiveDefinite`)."""
 
     @property
-    def data_dimension(self) -> int:
+    def data_dim(self) -> int:
         """Dimension of the data space."""
         return self.cov_man.shape[0]
 
     @property
-    def dimension(self) -> int:
+    def dim(self) -> int:
         """Total dimension = `data_dim` + `covariance_dim`."""
-        return self.data_dimension + self.cov_man.dimension
+        return self.data_dim + self.cov_man.dim
 
     # Core class methods
 
@@ -142,7 +142,7 @@ class Normal[R: PositiveDefinite](Backward):
         return self._join_params(x_point, second_moment)
 
     def log_base_measure(self, x: Array) -> Array:
-        return -0.5 * self.data_dimension * jnp.log(2 * jnp.pi)
+        return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
         natural_params = jnp.asarray(natural_params)
@@ -167,9 +167,7 @@ class Normal[R: PositiveDefinite](Backward):
         covariance = second_moment - outer_mean
 
         log_det = self.cov_man.logdet(covariance)
-        entropy = 0.5 * (
-            self.data_dimension + self.data_dimension * jnp.log(2 * jnp.pi) + log_det
-        )
+        entropy = 0.5 * (self.data_dim + self.data_dim * jnp.log(2 * jnp.pi) + log_det)
 
         return -entropy
 
@@ -184,7 +182,7 @@ class Normal[R: PositiveDefinite](Backward):
 
         # Draw standard normal samples
         key = jnp.asarray(key)
-        shape = (n, self.data_dimension)
+        shape = (n, self.data_dim)
         z = jax.random.normal(key, shape)
 
         # Transform samples using Cholesky
@@ -206,8 +204,8 @@ class Normal[R: PositiveDefinite](Backward):
         Returns:
             Tuple of (location vector, covariance matrix)
         """
-        loc_params = p.params[: self.data_dimension]
-        cov_params = p.params[self.data_dimension :]
+        loc_params = p.params[: self.data_dim]
+        cov_params = p.params[self.data_dim :]
 
         return Point(loc_params), Point(cov_params)
 
@@ -267,8 +265,7 @@ class Normal[R: PositiveDefinite](Backward):
         if not isinstance(self.cov_man.rep, Diagonal):
             precision_params = precision.params
             i_diag = (
-                jnp.triu_indices(self.data_dimension)[0]
-                == jnp.triu_indices(self.data_dimension)[1]
+                jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
             )
 
             scaled_params = precision_params / 2  # First undo the -1/2
@@ -288,8 +285,7 @@ class Normal[R: PositiveDefinite](Backward):
         # We need to rescale off-precision params
         if not isinstance(self.cov_man.rep, Diagonal):
             i_diag = (
-                jnp.triu_indices(self.data_dimension)[0]
-                == jnp.triu_indices(self.data_dimension)[1]
+                jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
             )
 
             scaled_params = precision_params * 2  # First multiply by -1/2
@@ -330,20 +326,19 @@ class Categorical(Backward):
     n_categories: int
 
     @property
-    def dimension(self) -> int:
+    def dim(self) -> int:
         """Dimension $d$ is (`n_categories` - 1) due to the sum-to-one constraint."""
         return self.n_categories - 1
 
     @property
-    def data_dimension(self) -> int:
+    def data_dim(self) -> int:
         """Dimension of the data space."""
         return 1
 
     # Core class methods
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:
-        one_hot = jax.nn.one_hot(x, self.n_categories)
-        return one_hot[1:]
+        return jax.nn.one_hot(x - 1, self.n_categories - 1).reshape(-1)
 
     def log_base_measure(self, x: Array) -> Array:
         return jnp.array(0.0)
@@ -368,7 +363,7 @@ class Categorical(Backward):
         key = jnp.asarray(key)
         # Use Gumbel-Max trick: argmax(log(p) + Gumbel(0,1)) ~ Categorical(p)
         g = jax.random.gumbel(key, shape=(n, self.n_categories))
-        return jnp.argmax(jnp.log(probs) + g, axis=-1)
+        return jnp.argmax(jnp.log(probs) + g, axis=-1)[..., None]
 
     # Additional methods
 
@@ -397,12 +392,12 @@ class Poisson(Backward):
     """
 
     @property
-    def dimension(self) -> int:
+    def dim(self) -> int:
         """Single rate parameter."""
         return 1
 
     @property
-    def data_dimension(self) -> int:
+    def data_dim(self) -> int:
         return 1
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:
@@ -425,4 +420,4 @@ class Poisson(Backward):
 
         key = jnp.asarray(key)
         # JAX's Poisson sampler expects rate parameter
-        return jax.random.poisson(key, rate, shape=(n,))
+        return jax.random.poisson(key, rate, shape=(n,))[..., None]

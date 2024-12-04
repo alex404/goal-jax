@@ -58,16 +58,16 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
     """The manifold of interaction matrices"""
 
     @property
-    def dimension(self) -> int:
+    def dim(self) -> int:
         """Total dimension includes biases + interaction parameters."""
-        obs_dim = self.obs_man.dimension
-        lat_dim = self.lat_man.dimension
+        obs_dim = self.obs_man.dim
+        lat_dim = self.lat_man.dim
         return obs_dim + lat_dim + (obs_dim * lat_dim)
 
     @property
-    def data_dimension(self) -> int:
+    def data_dim(self) -> int:
         """Data dimension includes observable and latent variables."""
-        return self.obs_man.data_dimension + self.lat_man.data_dimension
+        return self.obs_man.data_dim + self.lat_man.data_dim
 
     @property
     def like_man(self) -> AffineMap[R, L, O]:
@@ -83,8 +83,8 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         self, p: Point[C, Self]
     ) -> tuple[Point[C, O], Point[C, L], Point[C, LinearMap[R, L, O]]]:
         """Split harmonium parameters into observable bias, interaction, and latent bias."""
-        obs_dim = self.obs_man.dimension
-        lat_dim = self.lat_man.dimension
+        obs_dim = self.obs_man.dim
+        lat_dim = self.lat_man.dim
         obs_params = p.params[:obs_dim]
         lat_params = p.params[obs_dim : obs_dim + lat_dim]
         int_params = p.params[obs_dim + lat_dim :]
@@ -110,8 +110,8 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         Returns:
             Array of sufficient statistics
         """
-        obs_x = x[..., self.obs_man.data_dimension :]
-        lat_x = x[self.obs_man.data_dimension :]
+        obs_x = x[..., self.obs_man.data_dim :]
+        lat_x = x[self.obs_man.data_dim :]
 
         obs_bias = self.obs_man.sufficient_statistic(obs_x)
         lat_bias = self.lat_man.sufficient_statistic(lat_x)
@@ -128,8 +128,8 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         Returns:
             Log base measure at x
         """
-        obs_x = x[..., self.obs_man.data_dimension :]
-        lat_x = x[self.obs_man.data_dimension :]
+        obs_x = x[..., self.obs_man.data_dim :]
+        lat_x = x[self.obs_man.data_dim :]
 
         return self.obs_man.log_base_measure(obs_x) + self.lat_man.log_base_measure(
             lat_x
@@ -221,12 +221,26 @@ class BackwardLatent[R: MatrixRep, O: ExponentialFamily, L: Backward](
         return self.join_params(mx, mz, mxz)
 
     def expectation_step(
-        self,
+        self: Self,
         p: Point[Natural, Self],
         xs: Array,
     ) -> Point[Mean, Self]:
-        """Compute average joint expectations over a batch of observations."""
-        return jax.vmap(self.infer_missing_expectations, in_axes=(None, 0))(p, xs)
+        """Compute average joint expectations over a batch of observations.
+
+        Args:
+            p: Current harmonium parameters in natural coordinates
+            xs: Batch of observations of shape (batch_size, obs_dim)
+
+        Returns:
+            Average joint expectations in mean coordinates
+        """
+        # Apply vmap to get batch of expectations
+        batch_expectations = jax.vmap(
+            self.infer_missing_expectations, in_axes=(None, 0)
+        )(p, xs)
+
+        # Take mean of the underlying parameter arrays and wrap in a Point
+        return Point(jnp.mean(batch_expectations.params, axis=0))
 
 
 class Conjugated[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
@@ -307,6 +321,12 @@ class GenerativeConjugated[
 
         # Concatenate samples along data dimension
         return jnp.concatenate([x_sample, z_sample], axis=-1)
+
+    def observable_sample(
+        self, key: Array, p: Point[Natural, Self], n: int = 1
+    ) -> Array:
+        xzs = self.sample(key, p, n)
+        return xzs[:, : self.obs_man.data_dim]
 
 
 class ForwardConjugated[R: MatrixRep, O: Generative, L: Forward](

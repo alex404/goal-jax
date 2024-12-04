@@ -21,6 +21,19 @@ from goal.transforms import PositiveDefinite
 
 from .common import MixtureResults, analysis_path
 
+### Constructors ###
+
+
+def create_test_grid(
+    bounds: tuple[float, float, float, float], n_points: int = 50
+) -> tuple[Array, Array]:
+    """Create a grid for density evaluation."""
+    x_min, x_max, y_min, y_max = bounds
+    x = jnp.linspace(x_min, x_max, n_points)
+    y = jnp.linspace(y_min, y_max, n_points)
+    xs, ys = jnp.meshgrid(x, y)
+    return xs, ys
+
 
 def create_ground_truth_parameters(
     mix_man: Mixture[FullNormal],
@@ -62,36 +75,13 @@ def create_ground_truth_parameters(
     return mix_man.to_natural(mean_mix)
 
 
-def create_test_grid(
-    bounds: tuple[float, float, float, float], n_points: int = 50
-) -> tuple[Array, Array]:
-    """Create a grid for density evaluation."""
-    x_min, x_max, y_min, y_max = bounds
-    x = jnp.linspace(x_min, x_max, n_points)
-    y = jnp.linspace(y_min, y_max, n_points)
-    xs, ys = jnp.meshgrid(x, y)
-    return xs, ys
-
-
-def initialize_mixture[R: PositiveDefinite](
+def initialize_mixture_parameters[R: PositiveDefinite](
     key: Array,
     mix_man: Mixture[Normal[R]],
     n_components: int,
     mean_scale: float = 1.0,
     cov_scale: float = 0.1,
 ) -> Point[Natural, Mixture[Normal[R]]]:
-    """Initialize mixture model with reasonable parameters.
-
-    Args:
-        key: PRNG key
-        mix_man: Mixture model manifold
-        n_components: Number of components
-        mean_scale: Scale for initializing means
-        cov_scale: Scale for initializing covariances
-
-    Returns:
-        Initial mixture parameters in natural coordinates
-    """
     # Split keys for independent initialization
     keys = jax.random.split(key, 3)
 
@@ -104,12 +94,11 @@ def initialize_mixture[R: PositiveDefinite](
 
         # Initialize mean - spread out within data scale
         mean: Point[Mean, Euclidean] = Point(
-            mean_scale
-            * jax.random.normal(keys_i[0], shape=(mix_man.obs_man.data_dimension,))
+            mean_scale * jax.random.normal(keys_i[0], shape=(mix_man.obs_man.data_dim,))
         )
 
         # Initialize covariance - start near identity
-        base_cov = jnp.eye(mix_man.obs_man.data_dimension)
+        base_cov = jnp.eye(mix_man.obs_man.data_dim)
         noise = cov_scale * jax.random.normal(keys_i[1], shape=base_cov.shape)
         cov = base_cov + noise @ noise.T  # Ensure positive definite
 
@@ -128,46 +117,23 @@ def initialize_mixture[R: PositiveDefinite](
     return mix_man.join_natural_mixture(components, prior)
 
 
+### Fitting ###
+
+
 def fit_mixture[R: PositiveDefinite](
     key: Array,
     mix_man: Mixture[Normal[R]],
     sample: Array,
     n_steps: int,
 ) -> tuple[list[float], Point[Natural, Mixture[Normal[R]]]]:
-    # Initialize parameters using sklearn GMM for good starting point
-    # n_components = mix_man.lat_man.dimension + 1  # Categorical dimension + 1
-    # sk_gmm = GaussianMixture(n_components=n_components, covariance_type="full")
-    # sk_gmm.fit(sample)
-    #
-    # # Convert sklearn parameters to our format
-    # sk_means = sk_gmm.means_
-    # sk_covs = sk_gmm.covariances_
-    # components = []
-    # for mean, cov in zip(sk_means, sk_covs):
-    #     cov_mat = mix_man.obs_man.cov_man.from_dense(cov)
-    #     mean_point = Point(mean)
-    #     mean_params = mix_man.obs_man.from_mean_and_covariance(mean_point, cov_mat)
-    #     nat_params = mix_man.obs_man.to_natural(mean_params)
-    #     components.append(nat_params)
-
-    # Create initial likelihood parameters
-    base_params = components[0]
-    interaction_cols = [comp - base_params for comp in components[1:]]
-    interaction_mat = mix_man.obs_man.inter_man.from_columns(interaction_cols)
-    like_params = mix_man.like_man.join_params(base_params, interaction_mat)
-
-    # Create initial prior parameters (log weights)
-    prior_params = mix_man.lat_man.to_natural(Point(gmm.weights_))
-
-    # Create initial model parameters
-    params = mix_man.join_conjugated(like_params, prior_params)
+    params = initialize_mixture_parameters(key, mix_man, 3)
 
     # Run EM iterations
-    log_lls = []
+    log_lls: list[float] = []
     for _ in range(n_steps):
         # Compute current log likelihood
         log_ll = jnp.mean(
-            jax.vmap(lambda x: mix_man.log_observable_density(params, x))(sample)
+            jax.vmap(mix_man.log_observable_density, in_axes=(None, 0))(params, sample)
         )
         log_lls.append(float(log_ll))
 
@@ -177,13 +143,15 @@ def fit_mixture[R: PositiveDefinite](
     return log_lls, params
 
 
+### Analysis ###
+
+
 def compute_mixture_results(
     key: Array,
     sample_size: int,
     n_steps: int,
     bounds: tuple[float, float, float, float],
 ) -> MixtureResults:
-    """Run mixture model analysis and return results."""
     # Create manifolds
     pd_man = full_normal_manifold(2)
     dia_man = diagonal_normal_manifold(2)
@@ -194,11 +162,11 @@ def compute_mixture_results(
     iso_mix_man = Mixture(iso_man, 3)
 
     # Generate ground truth model
-    pd_mix = create_ground_truth_parameters(pd_mix_man)
+    gt_params = create_ground_truth_parameters(pd_mix_man)
 
     # Generate samples
     key_sample, key_train = jax.random.split(key)
-    sample = pd_mix_man.sample(key_sample, pd_mix, sample_size)
+    sample = pd_mix_man.observable_sample(key_sample, gt_params, sample_size)
 
     # Create evaluation grid
     xs, ys = create_test_grid(bounds)
@@ -208,23 +176,27 @@ def compute_mixture_results(
     keys_train = jax.random.split(key_train, 3)
 
     # Train all models
-    pd_lls, pd_model = fit_mixture(keys_train[0], pd_man, sample, n_steps)
-    diag_lls, diag_model = fit_mixture(keys_train[1], diag_man, sample, n_steps)
-    scale_lls, scale_model = fit_mixture(keys_train[2], scale_man, sample, n_steps)
+    pd_lls, pd_params = fit_mixture(keys_train[0], pd_mix_man, sample, n_steps)
+    diag_lls, dia_params = fit_mixture(keys_train[1], dia_mix_man, sample, n_steps)
+    iso_lls, iso_params = fit_mixture(keys_train[2], iso_mix_man, sample, n_steps)
 
-    # Compute densities on grid
-    compute_grid_density = lambda model, points: jnp.array(
-        [model.observable_density(points[i]) for i in range(len(points))]
-    ).reshape(xs.shape)
+    def compute_grid_density[R: PositiveDefinite](
+        model: Mixture[Normal[R]], params: Point[Natural, Mixture[Normal[R]]]
+    ) -> Array:
+        return jax.vmap(model.observable_density, in_axes=(None, 0))(
+            params, grid_points
+        ).reshape(xs.shape)
 
-    gt_dens = compute_grid_density(gt_model, grid_points)
-    pd_dens = compute_grid_density(pd_model, grid_points)
-    diag_dens = compute_grid_density(diag_model, grid_points)
-    scale_dens = compute_grid_density(scale_model, grid_points)
+    gt_dens = compute_grid_density(pd_mix_man, gt_params)
+    pd_dens = compute_grid_density(pd_mix_man, pd_params)
+    diag_dens = compute_grid_density(dia_mix_man, dia_params)
+    iso_dens = compute_grid_density(iso_mix_man, iso_params)
 
     # Compute ground truth log likelihood
     gt_ll = jnp.mean(
-        jax.vmap(lambda x: pd_man.log_observable_density(gt_model, x))(sample)
+        jax.vmap(pd_mix_man.log_observable_density, in_axes=(None, 0))(
+            gt_params, sample
+        )
     )
 
     return MixtureResults(
@@ -234,12 +206,15 @@ def compute_mixture_results(
         ground_truth_densities=gt_dens.tolist(),
         positive_definite_densities=pd_dens.tolist(),
         diagonal_densities=diag_dens.tolist(),
-        scale_densities=scale_dens.tolist(),
+        isotropic_densities=iso_dens.tolist(),
         ground_truth_ll=float(gt_ll),
         positive_definite_lls=pd_lls,
         diagonal_lls=diag_lls,
-        scale_lls=scale_lls,
+        isotropic_lls=iso_lls,
     )
+
+
+### Main ###
 
 
 def main():

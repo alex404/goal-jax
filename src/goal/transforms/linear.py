@@ -31,20 +31,20 @@ class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     codomain: N
 
     @property
-    def dimension(self) -> int:
+    def dim(self) -> int:
         """Total dimension includes linear map + bias parameters."""
-        return self.rep.num_params(self.shape) + self.codomain.dimension
+        return self.rep.num_params(self.shape) + self.codomain.dim
 
     @property
     def shape(self) -> tuple[int, int]:
         """Shape of the linear component."""
-        return (self.codomain.dimension, self.domain.dimension)
+        return (self.codomain.dim, self.domain.dim)
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
     ) -> tuple[Point[C, N], Point[C, LinearMap[R, M, N]]]:
         """Split parameters into bias and linear components."""
-        bias_dim = self.codomain.dimension
+        bias_dim = self.codomain.dim
         return Point(p.params[:bias_dim]), Point(p.params[bias_dim:])
 
     def join_params[C: Coordinates](
@@ -63,7 +63,7 @@ class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         """Apply the affine transformation."""
         bias, linear = self.split_params(f)
         transformed = self.rep.matvec(self.shape, linear.params, p.params)
-        return Point(transformed + bias)
+        return Point(transformed + bias.params)
 
 
 @jax.tree_util.register_dataclass
@@ -88,13 +88,13 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     codomain: N
 
     @property
-    def dimension(self) -> int:
+    def dim(self) -> int:
         return self.rep.num_params(self.shape)
 
     @property
     def shape(self) -> tuple[int, int]:
         """Shape of the linear maps."""
-        return (self.codomain.dimension, self.domain.dimension)
+        return (self.codomain.dim, self.domain.dim)
 
     def __call__[C: Coordinates](
         self,

@@ -59,7 +59,7 @@ class Manifold(ABC):
 
     @property
     @abstractmethod
-    def dimension(self) -> int:
+    def dim(self) -> int:
         """The dimension of the manifold."""
         ...
 
@@ -70,7 +70,7 @@ class Manifold(ABC):
         sigma: float = 1.0,
     ) -> Point[Any, Self]:
         """Initialize a point with normally distributed parameters."""
-        params = jax.random.normal(key, shape=(self.dimension,)) * sigma + mu
+        params = jax.random.normal(key, shape=(self.dim,)) * sigma + mu
         return Point(params)
 
     def uniform_initialize(
@@ -80,9 +80,7 @@ class Manifold(ABC):
         high: float = 1.0,
     ) -> Point[Coordinates, Self]:
         """Initialize a point with uniformly distributed parameters."""
-        params = jax.random.uniform(
-            key, shape=(self.dimension,), minval=low, maxval=high
-        )
+        params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
         return Point(params)
 
 
@@ -97,15 +95,15 @@ class Euclidean(Manifold):
     Euclidean space serves as the model space for more general manifolds, which locally resemble $\\mathbb{R}^n$ near each point.
 
     Args:
-        dim: The dimension $n$ of the space
+        _dim: The dimension $n$ of the space
     """
 
-    dim: int
+    _dim: int
 
     @property
-    def dimension(self) -> int:
+    def dim(self) -> int:
         """Return the dimension of the space."""
-        return self.dim
+        return self._dim
 
 
 def euclidean_point(params: Array) -> Point[Any, Euclidean]:
@@ -141,3 +139,6 @@ class Point[C: Coordinates, M: Manifold]:
 
     def __rmul__(self, scalar: float) -> Point[C, M]:
         return self.__mul__(scalar)
+
+    def __truediv__(self, scalar: float) -> Point[C, M]:
+        return Point(self.params / scalar)

@@ -1,14 +1,7 @@
 [project]
 name = "goal"
 version="0.0.1"
-
-[build-system]
-# These are standard for modern Python projects:
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-description = "Geometric Optimization and Learning Library"
-requires-python = ">=3.9"
-# Add your dependencies:
+description = "(G)eometric (O)ptimiz(A)tion (L)ibraries"
 dependencies = [
     "jax",
     "matplotlib",
@@ -16,6 +9,13 @@ dependencies = [
     "scikit-learn",
 ]
 
+
+[build-system]
+# These are standard for modern Python projects:
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+requires-python = ">=3.9"
+# Add your dependencies:
 [tool.setuptools.packages.find]
 where = ["src"]
 include =["goal*"]
