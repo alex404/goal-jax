@@ -252,7 +252,33 @@ class Normal[R: PositiveDefinite](Backward):
     def split_natural_params(
         self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[R]]]:
-        """Split parameters into natural location and precision (inverse covariance) components."""
+        """Join natural location and precision (inverse covariance) parameters. There's a lot of rescaling that has to happen to ensure that the minimal representation of the natural parameters behaves correctly when used either as a vector in a dot product, or as a matrix.
+
+
+        For a multivariate normal distribution, the natural parameters $(\\theta_1,\\theta_2)$ are related to the standard parameters $(\\mu,\\Sigma)$ by, $\\theta_1 = \\Sigma^{-1}\\mu$ and $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$.
+
+        Different matrix representations require different scaling to maintain these relationships:
+
+        1. Diagonal case:
+            - No rescaling needed as parameters directly represent diagonal elements
+            - $\\theta_2$ diagonal elements already represent $-\\frac{1}{2}\\Sigma^{-1}$
+
+        2. Full (PositiveDefinite) case:
+            - Off-diagonal elements appear twice in the matrix but once in parameters
+            - For $i \\neq j$, element $\\theta_{2,ij}$ is stored as double its matrix value to account for missing parameters in the dot product
+            - When converting to precision $\\Sigma^{-1}$, vector elements corresponding to off-diagonal elements are halved
+
+        3. Scale case:
+            - Dot product between second order parameter requires scaling by $\\frac{1}{d}$, stored either in the sufficient statistic or the natural parameters
+            - We store it in the sufficient statistic, which requires we divide the natural parameters by $d$ when converting to precision
+
+        Args:
+            p: Point in natural coordinates containing concatenated $\\theta_1$ and $\\theta_2$ parameters
+
+        Returns:
+            - $\\theta_1$: Natural location parameters $(\\Sigma^{-1}\\mu)$
+            - $\\theta_2$: Precision parameters $(\\Sigma^{-1})$
+        """
         # First do basic parameter split
         loc, theta2 = self._split_params(p)
 
@@ -267,15 +293,25 @@ class Normal[R: PositiveDefinite](Backward):
             scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
             theta2: Point[Natural, Covariance[R]] = Point(scaled_params)
 
-        return loc, -2 * theta2
+        scl = -2
+
+        if isinstance(self.cov_man.rep, Scale):
+            scl = self.data_dim / scl
+
+        return loc, scl * theta2
 
     def join_natural_params(
         self,
         loc: Point[Natural, Euclidean],
         precision: Point[Natural, Covariance[R]],
     ) -> Point[Natural, Self]:
-        """Join natural location and precision (inverse covariance) parameters."""
-        theta2 = -0.5 * precision.params
+        """Join natural location and precision (inverse covariance) parameters. Inverts the scaling in `split_natural_params`."""
+        scl = -0.5
+
+        if isinstance(self.cov_man.rep, Scale):
+            scl = self.data_dim * scl
+
+        theta2 = scl * precision.params
 
         # We need to rescale off-precision params
         if not isinstance(self.cov_man.rep, Diagonal):
