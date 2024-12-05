@@ -115,7 +115,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
         obs_bias = self.obs_man.sufficient_statistic(obs_x)
         lat_bias = self.lat_man.sufficient_statistic(lat_x)
-        interaction = self.inter_man.outer_product(lat_bias, obs_bias)
+        interaction = self.inter_man.outer_product(obs_bias, lat_bias)
 
         return self.join_params(obs_bias, lat_bias, interaction).params
 
@@ -208,14 +208,14 @@ class BackwardLatent[R: MatrixRep, O: ExponentialFamily, L: Backward](
         mx: Point[Mean, O] = self.obs_man.sufficient_statistic(x)
 
         # Get posterior parameters for this observation
-        post_func = self.posterior_function(p)
-        post_nat: Point[Natural, L] = self.post_man(post_func, expand_dual(mx))
+        post_map = self.posterior_function(p)
+        post_nat: Point[Natural, L] = self.post_man(post_map, expand_dual(mx))
 
         # Convert to mean parameters (expected sufficient statistics)
         mz: Point[Mean, L] = self.lat_man.to_mean(post_nat)
 
         # Form interaction term via outer product
-        mxz: Point[Mean, LinearMap[R, L, O]] = self.inter_man.outer_product(mz, mx)
+        mxz: Point[Mean, LinearMap[R, L, O]] = self.inter_man.outer_product(mx, mz)
 
         # Join parameters into harmonium point
         return self.join_params(mx, mz, mxz)
@@ -387,6 +387,14 @@ class ForwardConjugated[R: MatrixRep, O: Generative, L: Forward](
 
         return log_density + self.obs_man.log_base_measure(x)
 
+    def average_log_observable_density(
+        self, p: Point[Natural, Self], xs: Array
+    ) -> Array:
+        """Compute average log density over a batch of observations."""
+        return jnp.mean(
+            jax.vmap(self.log_observable_density, in_axes=(None, 0))(p, xs), axis=0
+        )
+
     def observable_density(self, p: Point[Natural, Self], x: Array) -> Array:
         """Compute density of the observable distribution $p(x)$."""
         return jnp.exp(self.log_observable_density(p, x))
@@ -436,13 +444,10 @@ class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
         log_partition = self.log_partition_function(nat_point)
         return jnp.dot(mean_params, nat_point.params) - log_partition
 
-    # @partial(jax.jit, static_argnums=(0,))
     def expectation_maximization(
         self, p: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm."""
         # E-step: Compute expectations
         q = self.expectation_step(p, xs)
-
-        # M-step: Maximize expected log-likelihood
         return self.to_natural(q)

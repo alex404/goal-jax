@@ -109,10 +109,10 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         return Point(self.rep.from_dense(matrix))
 
     def outer_product[C: Coordinates](
-        self, v: Point[C, M], w: Point[C, N]
+        self, w: Point[C, N], v: Point[C, M]
     ) -> Point[C, Self]:
         """Outer product of points."""
-        return Point(self.rep.outer_product(v.params, w.params))
+        return Point(self.rep.outer_product(w.params, v.params))
 
     def transpose[C: Coordinates](
         self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
