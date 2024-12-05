@@ -381,7 +381,7 @@ class ForwardConjugated[R: MatrixRep, O: Generative, L: Forward](
         chi, rho = self.conjugation_parameters(obs_bias, int_mat)
         obs_stats = self.obs_man.sufficient_statistic(x)
 
-        log_density = jnp.dot(obs_bias.params, obs_stats.params)
+        log_density = self.obs_man.dot(obs_bias, obs_stats)
         log_density += self.lat_man.log_partition_function(self.posterior_at(p, x))
         log_density -= self.lat_man.log_partition_function(lat_bias + rho) + chi
 
@@ -442,7 +442,7 @@ class BackwardConjugated[R: MatrixRep, O: Generative, L: Backward](
         nat_point = self.to_natural(mean_point)
 
         log_partition = self.log_partition_function(nat_point)
-        return jnp.dot(mean_params, nat_point.params) - log_partition
+        return self.dot(nat_point, mean_point) - log_partition
 
     def expectation_maximization(
         self, p: Point[Natural, Self], xs: Array

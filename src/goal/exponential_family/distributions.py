@@ -152,9 +152,7 @@ class Normal[R: PositiveDefinite](Backward):
         )
         mean = self.cov_man(covariance, loc)
 
-        return 0.5 * jnp.dot(loc.params, mean.params) - 0.5 * self.cov_man.logdet(
-            precision
-        )
+        return 0.5 * (jnp.dot(loc.params, mean.params) - self.cov_man.logdet(precision))
 
     def _compute_negative_entropy(self, mean_params: Array) -> Array:
         mean, second_moment = self.split_mean_params(Point(mean_params))

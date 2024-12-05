@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Self
 
 import jax
+import jax.numpy as jnp
 from jax import Array
 
 
@@ -62,6 +63,9 @@ class Manifold(ABC):
     def dim(self) -> int:
         """The dimension of the manifold."""
         ...
+
+    def dot[C: Coordinates](self, p: Point[Dual[C], Self], q: Point[C, Self]) -> Array:
+        return jnp.dot(p.params, q.params)
 
     def normal_initialize(
         self,
