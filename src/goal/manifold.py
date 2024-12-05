@@ -125,7 +125,7 @@ class Point[C: Coordinates, M: Manifold]:
 
 
 @dataclass(frozen=True)
-class ProductManifold[M: Manifold, N: Manifold](Manifold):
+class Product[M: Manifold, N: Manifold](Manifold):
     """A product manifold combining two component manifolds.
 
     The product structure allows operations to be performed on each component separately

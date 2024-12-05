@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Point, ProductManifold
+from ..manifold import Coordinates, Dual, Manifold, Point, Product
 
 ### Coordinate Systems ###
 
@@ -245,7 +245,7 @@ class Backward(Forward, ABC):
 
 
 class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
-    ProductManifold[L, S], ExponentialFamily
+    Product[L, S], ExponentialFamily
 ):
     """A product exponential family with location and shape parameters.
 
