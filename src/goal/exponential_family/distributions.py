@@ -145,21 +145,18 @@ class Normal[R: PositiveDefinite](Backward):
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
-        natural_params = jnp.asarray(natural_params)
-        theta1, theta2 = self.split_natural_params(Point(natural_params))
+        loc, precision = self.split_natural_params(Point(natural_params))
 
-        precision = -2 * theta2
         covariance: Point[Mean, Covariance[R]] = reduce_dual(
             self.cov_man.inverse(precision)
         )
-        mean = self.cov_man(covariance, theta1)
+        mean = self.cov_man(covariance, loc)
 
-        return 0.5 * jnp.dot(theta1.params, mean.params) - 0.5 * self.cov_man.logdet(
+        return 0.5 * jnp.dot(loc.params, mean.params) - 0.5 * self.cov_man.logdet(
             precision
         )
 
     def _compute_negative_entropy(self, mean_params: Array) -> Array:
-        mean_params = jnp.asarray(mean_params)
         mean, second_moment = self.split_mean_params(Point(mean_params))
 
         # Compute covariance without forming full matrices
@@ -257,30 +254,30 @@ class Normal[R: PositiveDefinite](Backward):
     def split_natural_params(
         self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[R]]]:
-        """Split parameters into natural location and precision components."""
+        """Split parameters into natural location and precision (inverse covariance) components."""
         # First do basic parameter split
-        loc, precision = self._split_params(p)
+        loc, theta2 = self._split_params(p)
 
         # We need to rescale off-precision params
         if not isinstance(self.cov_man.rep, Diagonal):
-            precision_params = precision.params
+            precision_params = theta2.params
             i_diag = (
                 jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
             )
 
-            scaled_params = precision_params / 2  # First undo the -1/2
+            scaled_params = precision_params / 2
             scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
-            precision: Point[Natural, Covariance[R]] = Point(scaled_params)
+            theta2: Point[Natural, Covariance[R]] = Point(scaled_params)
 
-        return loc, precision
+        return loc, -2 * theta2
 
     def join_natural_params(
         self,
         loc: Point[Natural, Euclidean],
         precision: Point[Natural, Covariance[R]],
     ) -> Point[Natural, Self]:
-        """Join natural location and precision parameters."""
-        precision_params = precision.params
+        """Join natural location and precision (inverse covariance) parameters."""
+        theta2 = -0.5 * precision.params
 
         # We need to rescale off-precision params
         if not isinstance(self.cov_man.rep, Diagonal):
@@ -288,11 +285,11 @@ class Normal[R: PositiveDefinite](Backward):
                 jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
             )
 
-            scaled_params = precision_params * 2  # First multiply by -1/2
+            scaled_params = theta2 * 2  # First multiply by -1/2
             scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
-            precision_params = scaled_params
+            theta2 = scaled_params
 
-        return Point(self._join_params(loc, Point(precision_params)))
+        return Point(self._join_params(loc, Point(theta2)))
 
 
 @jax.tree_util.register_dataclass
