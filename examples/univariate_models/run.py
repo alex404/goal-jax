@@ -154,7 +154,7 @@ def main():
     gaussian_results = NormalResults(
         mu=mu0,
         sigma=sigma,
-        sample=sample.tolist(),
+        sample=sample.ravel().tolist(),
         true_densities=true_dens.tolist(),
         estimated_densities=est_dens.tolist(),
         eval_points=xs.tolist(),
@@ -171,7 +171,7 @@ def main():
 
     categorical_results = CategoricalResults(
         probs=probs.tolist(),
-        sample=sample.tolist(),
+        sample=sample.ravel().tolist(),
         true_probs=true_probs.tolist(),
         estimated_probs=est_probs.tolist(),
     )
@@ -190,7 +190,7 @@ def main():
 
     poisson_results = PoissonResults(
         rate=rate,
-        sample=sample.tolist(),
+        sample=sample.ravel().tolist(),
         true_pmf=true_pmf.tolist(),
         estimated_pmf=est_pmf.tolist(),
         eval_points=ks.tolist(),

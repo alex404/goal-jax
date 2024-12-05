@@ -25,9 +25,6 @@ class MixtureResults(TypedDict):
     training_lls: dict[
         str, list[float]
     ]  # Log likelihoods during training for each model
-    relative_entropies: dict[
-        str, list[float]
-    ]  # Final relative entropy from ground truth for each model
 
 
 results_dir = Path(__file__).parent / "results"

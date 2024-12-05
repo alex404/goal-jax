@@ -66,7 +66,7 @@ def plot_categorical_results(
     width = 0.25
 
     # Convert everything to numpy for plotting
-    np_sample: NDArray[np.float64] = np.array(sample).flatten()
+    np_sample: NDArray[np.float64] = np.array(sample)
     np_true_probs: NDArray[np.float64] = np.array(true_probs)
     np_est_probs: NDArray[np.float64] = np.array(est_probs)
     np_probs: NDArray[np.float64] = np.array(probs)

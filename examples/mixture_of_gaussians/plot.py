@@ -57,9 +57,7 @@ def plot_density_comparison(
 
 def plot_training_histories(
     ax_ll: Axes,
-    ax_re: Axes,
     training_lls: dict[str, list[float]],
-    relative_entropies: dict[str, list[float]],
 ) -> None:
     """Plot training histories for log likelihood and relative entropy.
 
@@ -67,13 +65,11 @@ def plot_training_histories(
         ax_ll: Axes for log likelihood plot
         ax_re: Axes for relative entropy plot
         training_lls: Log likelihood histories for each model
-        relative_entropies: Relative entropy histories for each model
     """
     # Plot histories for each model
     for model_name, lls in training_lls.items():
         steps = np.arange(len(lls))
         ax_ll.plot(steps, lls, label=model_name)
-        ax_re.plot(steps, relative_entropies[model_name], label=model_name)
 
     # Configure log likelihood plot
     ax_ll.set_xlabel("EM Step")
@@ -81,13 +77,6 @@ def plot_training_histories(
     ax_ll.set_title("Training History")
     ax_ll.legend()
     ax_ll.grid(True)
-
-    # Configure relative entropy plot
-    ax_re.set_xlabel("EM Step")
-    ax_re.set_ylabel("Relative Entropy")
-    ax_re.set_title("Relative Entropy from Ground Truth")
-    ax_re.legend()
-    ax_re.grid(True)
 
 
 def create_mixture_plots(results: MixtureResults) -> Figure:
@@ -110,8 +99,7 @@ def create_mixture_plots(results: MixtureResults) -> Figure:
     ax_iso = fig.add_subplot(gs[1, 0])
 
     # Create training history axes
-    ax_ll = fig.add_subplot(gs[1, 1])
-    ax_re = fig.add_subplot(gs[1, 2])
+    ax_ll = fig.add_subplot(gs[1, 1:])
 
     # Convert data for plotting
     sample = np.array(results["sample"])
@@ -145,9 +133,7 @@ def create_mixture_plots(results: MixtureResults) -> Figure:
     )
 
     # Plot training histories
-    plot_training_histories(
-        ax_ll, ax_re, results["training_lls"], results["relative_entropies"]
-    )
+    plot_training_histories(ax_ll, results["training_lls"])
 
     fig.tight_layout()
     return fig

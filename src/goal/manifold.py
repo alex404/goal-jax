@@ -149,3 +149,39 @@ class Point[C: Coordinates, M: Manifold]:
 
     def __truediv__(self, other: float | Array) -> Point[C, M]:
         return Point(self.params / other)
+
+
+@dataclass(frozen=True)
+class ProductManifold[M: Manifold, N: Manifold](Manifold):
+    """A product manifold combining two component manifolds.
+
+    The product structure allows operations to be performed on each component separately
+    while maintaining the joint structure of the manifold.
+    """
+
+    first: M
+    """First component manifold"""
+
+    second: N
+    """Second component manifold"""
+
+    @property
+    def dim(self) -> int:
+        """Total dimension is sum of component dimensions."""
+        return self.first.dim + self.second.dim
+
+    def split_params[C: Coordinates](
+        self, p: Point[C, Self]
+    ) -> tuple[Point[C, M], Point[C, N]]:
+        """Split parameters into first and second components."""
+        first_params = p.params[: self.first.dim]
+        second_params = p.params[self.first.dim :]
+        return Point(first_params), Point(second_params)
+
+    def join_params[C: Coordinates](
+        self,
+        first: Point[C, M],
+        second: Point[C, N],
+    ) -> Point[C, Self]:
+        """Join component parameters into a single point."""
+        return Point(jnp.concatenate([first.params, second.params]))

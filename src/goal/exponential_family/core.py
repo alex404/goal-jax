@@ -238,7 +238,5 @@ class Backward(Forward, ABC):
         - $q(x;\\eta)$ has mean parameters $\\eta$.
         """
         return (
-            self.log_partition_function(p)
-            + self.negative_entropy(q)
-            - jnp.dot(p.params, q.params)
+            self.log_partition_function(p) + self.negative_entropy(q) - self.dot(p, q)
         )

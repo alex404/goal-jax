@@ -163,42 +163,15 @@ def goal_to_sklearn_mixture(
     return sklearn_mixture
 
 
-def compute_relative_entropy[R: PositiveDefinite](
-    pd_mix_man: Mixture[FullNormal],
-    gt_params: Point[Natural, Mixture[FullNormal]],
-    mix_man: Mixture[Normal[R]],
-    params: Point[Natural, Mixture[Normal[R]]],
-) -> Array:
-    # Compute relative entropy by converting to PD if needed
-    mix_mean = mix_man.to_mean(params)
-
-    # if mix_man is pd_mix_man:
-    #     return pd_mix_man.relative_entropy(gt_params, mix_mean)
-
-    components, weights = mix_man.split_mean_mixture(mix_mean)
-    pd_components = []
-    for comp in components:
-        mean, cov = mix_man.obs_man.to_mean_and_covariance(comp)
-        cov_mat = pd_mix_man.obs_man.cov_man.from_dense(
-            mix_man.obs_man.cov_man.to_dense(cov)
-        )
-        pd_comp = pd_mix_man.obs_man.from_mean_and_covariance(mean, cov_mat)
-        pd_components.append(pd_comp)
-    pd_mean = pd_mix_man.join_mean_mixture(pd_components, weights)
-    return pd_mix_man.relative_entropy(gt_params, pd_mean)
-
-
 ### Fitting ###
 
 
 def fit_mixture[R: PositiveDefinite](
     key: Array,
-    gt_mix_man: Mixture[FullNormal],
-    gt_params: Point[Natural, Mixture[FullNormal]],
     mix_man: Mixture[Normal[R]],
     n_steps: int,
     sample: Array,
-) -> tuple[Array, Array, Point[Natural, Mixture[Normal[R]]]]:
+) -> tuple[Array, Point[Natural, Mixture[Normal[R]]]]:
     params = initialize_mixture_parameters(key, mix_man, 3)
 
     def em_step(
@@ -206,16 +179,14 @@ def fit_mixture[R: PositiveDefinite](
     ) -> tuple[Point[Natural, Mixture[Normal[R]]], Array]:
         params = carry
         ll = mix_man.average_log_observable_density(params, sample)
-        re = compute_relative_entropy(gt_mix_man, gt_params, mix_man, params)
         next_params = mix_man.expectation_maximization(params, sample)
-        return next_params, jnp.asarray([ll, re])
+        return next_params, ll
 
-    final_params, llres = jax.lax.scan(em_step, params, None, length=n_steps)
-    lls, res = jnp.split(llres, 2, axis=1)
-    return lls, res, final_params
+    final_params, lls = jax.lax.scan(em_step, params, None, length=n_steps)
+    return lls.ravel(), final_params
 
 
-fit_mixture = jax.jit(fit_mixture, static_argnames=["gt_mix_man", "mix_man", "n_steps"])
+fit_mixture = jax.jit(fit_mixture, static_argnames=["mix_man", "n_steps"])
 
 ### Analysis ###
 
@@ -251,25 +222,14 @@ def compute_mixture_results(
     keys_train = jax.random.split(key_train, 3)
 
     # Train all models
-    pd_lls, pd_res, pd_params = fit_mixture(
-        keys_train[0], pd_mix_man, gt_params, pd_mix_man, n_steps, sample
-    )
-    dia_lls, dia_res, dia_params = fit_mixture(
-        keys_train[1], pd_mix_man, gt_params, dia_mix_man, n_steps, sample
-    )
-    iso_lls, iso_res, iso_params = fit_mixture(
-        keys_train[2], pd_mix_man, gt_params, iso_mix_man, n_steps, sample
-    )
+    pd_lls, pd_params = fit_mixture(keys_train[0], pd_mix_man, n_steps, sample)
+    dia_lls, dia_params = fit_mixture(keys_train[1], dia_mix_man, n_steps, sample)
+    iso_lls, iso_params = fit_mixture(keys_train[2], iso_mix_man, n_steps, sample)
 
     lls = {
         "positive_definite": pd_lls.tolist(),
         "diagonal": dia_lls.tolist(),
         "isotropic": iso_lls.tolist(),
-    }
-    res = {
-        "positive_definite": pd_res.tolist(),
-        "diagonal": dia_res.tolist(),
-        "isotropic": iso_res.tolist(),
     }
 
     def compute_grid_density[R: PositiveDefinite](
@@ -312,7 +272,6 @@ def compute_mixture_results(
         isotropic_densities=iso_dens.tolist(),
         ground_truth_ll=float(gt_ll),
         training_lls=lls,
-        relative_entropies=res,
     )
 
 
