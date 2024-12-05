@@ -18,7 +18,7 @@ from ..exponential_family import (
 from ..exponential_family.distributions import Categorical
 from ..manifold import Point
 from ..transforms import LinearMap, Rectangular
-from .core import BackwardConjugated
+from .harmonium import BackwardConjugated
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Self
 
-import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -15,7 +14,6 @@ from .matrix import MatrixRep, Square
 ### Maps ###
 
 
-@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     """Affine transformation $f(x) = A \\cdot x + b$.
@@ -66,7 +64,6 @@ class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         return Point(transformed + bias.params)
 
 
-@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     """Linear map between manifolds using a specific matrix representation.

@@ -88,33 +88,6 @@ class Manifold(ABC):
         return Point(params)
 
 
-@dataclass(frozen=True)
-class Euclidean(Manifold):
-    """Euclidean space $\\mathbb{R}^n$ of dimension $n$.
-
-    Euclidean space consists of $n$-dimensional real vectors with the standard Euclidean distance metric
-
-    $$d(x,y) = \\sqrt{\\sum_{i=1}^n (x_i - y_i)^2}.$$
-
-    Euclidean space serves as the model space for more general manifolds, which locally resemble $\\mathbb{R}^n$ near each point.
-
-    Args:
-        _dim: The dimension $n$ of the space
-    """
-
-    _dim: int
-
-    @property
-    def dim(self) -> int:
-        """Return the dimension of the space."""
-        return self._dim
-
-
-def euclidean_point(params: Array) -> Point[Any, Euclidean]:
-    """Create a point in Euclidean space."""
-    return Point(params)
-
-
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Point[C: Coordinates, M: Manifold]:

@@ -12,15 +12,13 @@ from sklearn.mixture import GaussianMixture
 from goal.exponential_family import Mean, Natural
 from goal.exponential_family.distributions import (
     Categorical,
+    Euclidean,
     FullNormal,
     Normal,
-    diagonal_normal_manifold,
-    full_normal_manifold,
-    isotropic_normal_manifold,
 )
 from goal.harmonium.models import Mixture
-from goal.manifold import Euclidean, Point, euclidean_point
-from goal.transforms import PositiveDefinite
+from goal.manifold import Point
+from goal.transforms import Diagonal, PositiveDefinite, Scale
 
 from .common import MixtureResults, analysis_path
 
@@ -65,8 +63,8 @@ def create_ground_truth_parameters(
     # Create component parameters
     components: list[Point[Mean, Normal[PositiveDefinite]]] = []
     for mean, cov in zip(means, covs):
-        cov_mat = normal_man.cov_man.from_dense(cov)
-        mean_point = euclidean_point(mean)
+        cov_mat = normal_man.second.from_dense(cov)
+        mean_point: Point[Mean, Euclidean] = Point(mean)
         mean_params = normal_man.from_mean_and_covariance(mean_point, cov_mat)
         components.append(mean_params)
 
@@ -106,7 +104,7 @@ def initialize_mixture_parameters[R: PositiveDefinite](
         cov = base_cov + noise @ noise.T  # Ensure positive definite
 
         # Convert to natural parameters
-        cov_mat = mix_man.obs_man.cov_man.from_dense(cov)
+        cov_mat = mix_man.obs_man.second.from_dense(cov)
         mean_params = mix_man.obs_man.from_mean_and_covariance(mean, cov_mat)
         comp = mix_man.obs_man.to_natural(mean_params)
         components.append(comp)
@@ -136,7 +134,7 @@ def goal_to_sklearn_mixture(
     for comp in components:
         mean, cov = mix_man.obs_man.to_mean_and_covariance(comp)
         means.append(mean.params)
-        covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
+        covariances.append(mix_man.obs_man.second.to_dense(cov))
 
     # Get mixing weights
     mixing_weights = mix_man.lat_man.to_probs(weights)
@@ -198,9 +196,9 @@ def compute_mixture_results(
     bounds: tuple[float, float, float, float],
 ) -> MixtureResults:
     # Create manifolds
-    pd_man = full_normal_manifold(2)
-    dia_man = diagonal_normal_manifold(2)
-    iso_man = isotropic_normal_manifold(2)
+    pd_man = Normal(2, PositiveDefinite)
+    dia_man = Normal(2, Diagonal)
+    iso_man = Normal(2, Scale)
 
     pd_mix_man = Mixture(pd_man, 3)
     dia_mix_man = Mixture(dia_man, 3)

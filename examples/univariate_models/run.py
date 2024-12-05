@@ -10,12 +10,13 @@ from jax import Array
 from goal.exponential_family import Mean, Natural
 from goal.exponential_family.distributions import (
     Categorical,
+    Euclidean,
     FullCovariance,
     FullNormal,
+    Normal,
     Poisson,
-    full_normal_manifold,
 )
-from goal.manifold import Euclidean, Point
+from goal.manifold import Point
 
 from .common import (
     CategoricalResults,
@@ -135,7 +136,7 @@ def main():
     # # Normal test
     print("\nTesting Normal Distribution...")
 
-    normal = full_normal_manifold()
+    normal = Normal()
     mu0 = 2.0
     sigma = 1.5
     mu: Point[Mean, Euclidean] = Point(jnp.atleast_1d(mu0))

@@ -1,18 +1,19 @@
 """Core definitions for exponential families and their parameterizations.
 
-This module defines the structure of an [`ExponentialFamily`][goal.exponential_family.core.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.exponential_family.core.Forward.log_partition_function] and the [`negative_entropy`][goal.exponential_family.Backward.negative_entropy].
+This module defines the structure of an [`ExponentialFamily`][goal.exponential_family.exponential_family.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.exponential_family.exponential_family.Forward.log_partition_function] and the [`negative_entropy`][goal.exponential_family.Backward.negative_entropy].
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Self
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Point
+from ..manifold import Coordinates, Dual, Manifold, Point, ProductManifold
 
 ### Coordinate Systems ###
 
@@ -36,6 +37,7 @@ $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
 ### Exponential Families ###
 
 
+@dataclass(frozen=True)
 class ExponentialFamily(Manifold, ABC):
     """Base manifold class for exponential families.
 
@@ -240,3 +242,32 @@ class Backward(Forward, ABC):
         return (
             self.log_partition_function(p) + self.negative_entropy(q) - self.dot(p, q)
         )
+
+
+class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
+    ProductManifold[L, S], ExponentialFamily
+):
+    """A product exponential family with location and shape parameters.
+
+    This structure captures distributions like the Normal distribution that decompose into a location parameter (e.g. mean) and a shape parameter (e.g. covariance).
+
+    - The components must have matching data dimensions.
+    - The sufficient statistic is the concatenation of component sufficient statistics.
+    - The base measure is inherited from the location component since both componentsshoudl share the same base measure.
+    """
+
+    @property
+    def data_dim(self) -> int:
+        """Data dimension must match between location and shape manifolds."""
+        # assert self.first.data_dim == self.second.data_dim
+        return self.first.data_dim
+
+    def _compute_sufficient_statistic(self, x: Array) -> Array:
+        """Concatenate sufficient statistics from location and shape components."""
+        loc_stats = self.first._compute_sufficient_statistic(x)
+        shape_stats = self.second._compute_sufficient_statistic(x)
+        return self.join_params(Point(loc_stats), Point(shape_stats)).params
+
+    def log_base_measure(self, x: Array) -> Array:
+        """Base measure from location component, as both components share the same measure."""
+        return self.first.log_base_measure(x)

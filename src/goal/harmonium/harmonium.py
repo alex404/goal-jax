@@ -22,7 +22,6 @@ from ..manifold import Coordinates, Point, expand_dual
 from ..transforms import AffineMap, LinearMap, MatrixRep
 
 
-@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
     ExponentialFamily

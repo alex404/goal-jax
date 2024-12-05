@@ -1,4 +1,4 @@
-from .core import (
+from .harmonium import (
     BackwardConjugated,
     Conjugated,
     ForwardConjugated,

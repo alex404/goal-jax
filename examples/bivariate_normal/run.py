@@ -9,13 +9,11 @@ from jax.scipy.stats import multivariate_normal
 
 from goal.exponential_family import Mean, Natural
 from goal.exponential_family.distributions import (
+    Euclidean,
     Normal,
-    diagonal_normal_manifold,
-    full_normal_manifold,
-    isotropic_normal_manifold,
 )
-from goal.manifold import Euclidean, Point
-from goal.transforms import PositiveDefinite
+from goal.manifold import Point
+from goal.transforms import Diagonal, PositiveDefinite, Scale
 
 from .common import BivariateResults, analysis_path
 
@@ -66,12 +64,12 @@ def compute_gaussian_results(
     sp_dens = sp_dens.reshape(xs.shape).tolist()
 
     # Manifolds
-    pd_man = full_normal_manifold(2)
-    dia_man = diagonal_normal_manifold(2)
-    iso_man = isotropic_normal_manifold(2)
+    pd_man = Normal(2, PositiveDefinite)
+    dia_man = Normal(2, Diagonal)
+    iso_man = Normal(2, Scale)
 
     # Ground truth
-    gt_cov = pd_man.cov_man.from_dense(covariance)
+    gt_cov = pd_man.second.from_dense(covariance)
     mu: Point[Mean, Euclidean] = Point(mean)
     gt_mean_point = pd_man.from_mean_and_covariance(mu, gt_cov)
 

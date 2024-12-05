@@ -15,10 +15,10 @@ nav:
       - Matrix Representations: transforms/matrix.md
       - Linear Maps: transforms/linear.md
     - Exponential Families:
-      - Top-Level: exponential_family/core.md
+      - Top-Level: exponential_family/exponential_family.md
       - Distributions: exponential_family/distributions.md
     - Harmoniums:
-      - Top-Level: harmonium/core.md
+      - Top-Level: harmonium/harmonium.md
       - Models: harmonium/models.md
 
 
