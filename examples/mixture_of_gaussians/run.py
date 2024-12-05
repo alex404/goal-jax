@@ -1,6 +1,7 @@
 """Test script for mixture models with different covariance structures."""
 
 import json
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -167,12 +168,12 @@ def compute_relative_entropy[R: PositiveDefinite](
     gt_params: Point[Natural, Mixture[FullNormal]],
     mix_man: Mixture[Normal[R]],
     params: Point[Natural, Mixture[Normal[R]]],
-) -> float:
+) -> Array:
     # Compute relative entropy by converting to PD if needed
     mix_mean = mix_man.to_mean(params)
 
-    if mix_man is pd_mix_man:
-        return float(pd_mix_man.relative_entropy(gt_params, Point(mix_mean.params)))
+    # if mix_man is pd_mix_man:
+    #     return pd_mix_man.relative_entropy(gt_params, mix_mean)
 
     components, weights = mix_man.split_mean_mixture(mix_mean)
     pd_components = []
@@ -184,7 +185,7 @@ def compute_relative_entropy[R: PositiveDefinite](
         pd_comp = pd_mix_man.obs_man.from_mean_and_covariance(mean, cov_mat)
         pd_components.append(pd_comp)
     pd_mean = pd_mix_man.join_mean_mixture(pd_components, weights)
-    return float(pd_mix_man.relative_entropy(gt_params, pd_mean))
+    return pd_mix_man.relative_entropy(gt_params, pd_mean)
 
 
 ### Fitting ###
@@ -192,33 +193,29 @@ def compute_relative_entropy[R: PositiveDefinite](
 
 def fit_mixture[R: PositiveDefinite](
     key: Array,
-    pd_mix_man: Mixture[FullNormal],
+    gt_mix_man: Mixture[FullNormal],
     gt_params: Point[Natural, Mixture[FullNormal]],
     mix_man: Mixture[Normal[R]],
     n_steps: int,
     sample: Array,
-) -> tuple[list[float], list[float], Point[Natural, Mixture[Normal[R]]]]:
+) -> tuple[Array, Array, Point[Natural, Mixture[Normal[R]]]]:
     params = initialize_mixture_parameters(key, mix_man, 3)
 
-    # Run EM iterations
-    lls: list[float] = []
-    res: list[float] = []
-    for _ in range(n_steps):
-        # Compute current log likelihood
-        ll = jnp.mean(
-            jax.vmap(mix_man.log_observable_density, in_axes=(None, 0))(params, sample)
-        )
-        re = compute_relative_entropy(pd_mix_man, gt_params, mix_man, params)
-        # Update parameters
-        params = mix_man.expectation_maximization(params, sample)
-        lls.append(float(ll))
-        res.append(re)
+    def em_step(
+        carry: Point[Natural, Mixture[Normal[R]]], _: Any
+    ) -> tuple[Point[Natural, Mixture[Normal[R]]], Array]:
+        params = carry
+        ll = mix_man.average_log_observable_density(params, sample)
+        re = compute_relative_entropy(gt_mix_man, gt_params, mix_man, params)
+        next_params = mix_man.expectation_maximization(params, sample)
+        return next_params, jnp.asarray([ll, re])
 
-        # Update parameters
-        params = mix_man.expectation_maximization(params, sample)
+    final_params, llres = jax.lax.scan(em_step, params, None, length=n_steps)
+    lls, res = jnp.split(llres, 2, axis=1)
+    return lls, res, final_params
 
-    return lls, res, params
 
+fit_mixture = jax.jit(fit_mixture, static_argnames=["gt_mix_man", "mix_man", "n_steps"])
 
 ### Analysis ###
 
@@ -264,8 +261,16 @@ def compute_mixture_results(
         keys_train[2], pd_mix_man, gt_params, iso_mix_man, n_steps, sample
     )
 
-    lls = {"positive_definite": pd_lls, "diagonal": dia_lls, "isotropic": iso_lls}
-    res = {"positive_definite": pd_res, "diagonal": dia_res, "isotropic": iso_res}
+    lls = {
+        "positive_definite": pd_lls.tolist(),
+        "diagonal": dia_lls.tolist(),
+        "isotropic": iso_lls.tolist(),
+    }
+    res = {
+        "positive_definite": pd_res.tolist(),
+        "diagonal": dia_res.tolist(),
+        "isotropic": iso_res.tolist(),
+    }
 
     def compute_grid_density[R: PositiveDefinite](
         model: Mixture[Normal[R]], params: Point[Natural, Mixture[Normal[R]]]
@@ -276,7 +281,7 @@ def compute_mixture_results(
 
     gt_dens = compute_grid_density(pd_mix_man, gt_params)
     pd_dens = compute_grid_density(pd_mix_man, pd_params)
-    diag_dens = compute_grid_density(dia_mix_man, dia_params)
+    dia_dens = compute_grid_density(dia_mix_man, dia_params)
     iso_dens = compute_grid_density(iso_mix_man, iso_params)
 
     # Compute ground truth log likelihood
@@ -303,7 +308,7 @@ def compute_mixture_results(
         scipy_densities=sklearn_dens.tolist(),
         ground_truth_densities=gt_dens.tolist(),
         positive_definite_densities=pd_dens.tolist(),
-        diagonal_densities=diag_dens.tolist(),
+        diagonal_densities=dia_dens.tolist(),
         isotropic_densities=iso_dens.tolist(),
         ground_truth_ll=float(gt_ll),
         training_lls=lls,
@@ -329,7 +334,7 @@ def main():
     results = compute_mixture_results(
         key,
         sample_size=500,
-        n_steps=10,
+        n_steps=100,
         bounds=bounds,
     )
 
