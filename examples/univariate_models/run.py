@@ -28,7 +28,7 @@ from .common import (
 
 def compute_gaussian_results(
     key: Array,
-    manifold: FullNormal,
+    man: FullNormal,
     mu: Point[Mean, Euclidean],
     sigma: Point[Mean, FullCovariance],
     xs: Array,
@@ -40,27 +40,23 @@ def compute_gaussian_results(
         sample, true_densities, estimated_densities
     """
     # Create ground truth distribution
-    p_mean = manifold.from_mean_and_covariance(mu, sigma)
-    p_natural = manifold.to_natural(p_mean)
+    p_mean = man.from_mean_and_covariance(mu, sigma)
+    p_natural = man.to_natural(p_mean)
 
     # Sample and estimate
-    sample = manifold.sample(key, p_natural, sample_size)
-    p_mean_est = manifold.average_sufficient_statistic(sample)
-    p_natural_est = manifold.to_natural(p_mean_est)
+    sample = man.sample(key, p_natural, sample_size)
+    p_mean_est = man.average_sufficient_statistic(sample)
+    p_natural_est = man.to_natural(p_mean_est)
 
-    # Compute densities using vmap
-    def compute_density(p: Point[Natural, FullNormal], x: Array) -> Array:
-        return manifold.density(p, x)
-
-    true_dens = jax.vmap(compute_density, in_axes=(None, 0))(p_natural, xs)
-    est_dens = jax.vmap(compute_density, in_axes=(None, 0))(p_natural_est, xs)
+    true_dens = jax.vmap(man.density, in_axes=(None, 0))(p_natural, xs)
+    est_dens = jax.vmap(man.density, in_axes=(None, 0))(p_natural_est, xs)
 
     return sample, true_dens, est_dens
 
 
 def compute_categorical_results(
     key: Array,
-    manifold: Categorical,
+    man: Categorical,
     probs: Array,
     sample_size: int,
 ) -> Tuple[Array, Array, Array]:
@@ -70,19 +66,19 @@ def compute_categorical_results(
         sample, true_probs, estimated_probs
     """
     # Create ground truth distribution
-    p_mean = manifold.from_probs(probs)
-    p_natural = manifold.to_natural(p_mean)
+    p_mean = man.from_probs(probs)
+    p_natural = man.to_natural(p_mean)
 
     # Sample and estimate
-    sample = manifold.sample(key, p_natural, sample_size)
-    p_mean_est = manifold.average_sufficient_statistic(sample)
-    p_natural_est = manifold.to_natural(p_mean_est)
+    sample = man.sample(key, p_natural, sample_size)
+    p_mean_est = man.average_sufficient_statistic(sample)
+    p_natural_est = man.to_natural(p_mean_est)
 
     # Compute densities using vmap
     categories = jnp.arange(probs.shape[0])
 
     def compute_prob(p: Point[Natural, Categorical], k: Array) -> Array:
-        return manifold.density(p, k)
+        return man.density(p, k)
 
     true_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural, categories)
     est_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural_est, categories)
@@ -125,7 +121,6 @@ def compute_poisson_results(
 
 
 jax.config.update("jax_platform_name", "cpu")
-jax.config.update("jax_disable_jit", False)
 
 
 def main():

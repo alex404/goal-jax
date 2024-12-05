@@ -39,12 +39,6 @@ def create_test_grid(
     return xs, ys
 
 
-def sample_gaussian[R: PositiveDefinite](
-    key: Array, man: Normal[R], p: Point[Natural, Normal[R]], n: int
-) -> Array:
-    return man.sample(key, p, n)
-
-
 def compute_densities[R: PositiveDefinite](
     man: Normal[R], natural_point: Point[Natural, Normal[R]], xs: Array, ys: Array
 ) -> Array:
@@ -74,7 +68,7 @@ def compute_gaussian_results(
     # Manifolds
     pd_man = full_normal_manifold(2)
     dia_man = diagonal_normal_manifold(2)
-    scl_man = isotropic_normal_manifold(2)
+    iso_man = isotropic_normal_manifold(2)
 
     # Ground truth
     gt_cov = pd_man.cov_man.from_dense(covariance)
@@ -84,7 +78,7 @@ def compute_gaussian_results(
     gt_natural_point = pd_man.to_natural(gt_mean_point)
     gt_dens = compute_densities(pd_man, gt_natural_point, xs, ys)
     gt_dens = gt_dens.reshape(xs.shape).tolist()
-    sample = sample_gaussian(key, pd_man, gt_natural_point, sample_size)
+    sample = pd_man.sample(key, gt_natural_point, sample_size)
 
     # Models
     def process_normal[R: PositiveDefinite](
@@ -98,7 +92,7 @@ def compute_gaussian_results(
 
     pd_dens = process_normal(pd_man, sample).tolist()
     dia_dens = process_normal(dia_man, sample).tolist()
-    scl_dens = process_normal(scl_man, sample).tolist()
+    scl_dens = process_normal(iso_man, sample).tolist()
 
     return BivariateResults(
         sample=sample.tolist(),
@@ -116,7 +110,6 @@ def compute_gaussian_results(
 
 
 jax.config.update("jax_platform_name", "cpu")
-jax.config.update("jax_disable_jit", False)
 
 
 def main():
