@@ -79,6 +79,9 @@ class ExponentialFamily(Manifold, ABC):
         """
         return Point(self._compute_sufficient_statistic(x))
 
+    def _average_sufficient_statistic(self, xs: Array) -> Array:
+        return jnp.mean(jax.vmap(self._compute_sufficient_statistic)(xs), axis=0)
+
     def average_sufficient_statistic(self, xs: Array) -> Point[Mean, Self]:
         """Average sufficient statistics of a batch of observations.
 
@@ -88,9 +91,7 @@ class ExponentialFamily(Manifold, ABC):
         Returns:
             Mean coordinates of average sufficient statistics
         """
-        batch_stats = jax.vmap(self._compute_sufficient_statistic)(xs)
-        avg_params = jnp.mean(batch_stats, axis=0)
-        return Point(avg_params)
+        return Point(self._average_sufficient_statistic(xs))
 
     @abstractmethod
     def log_base_measure(self, x: Array) -> Array:
@@ -163,6 +164,14 @@ class Forward(Generative, ABC):
         mean_params = jax.grad(self._compute_log_partition_function)(p.params)  # type: ignore
         return Point(mean_params)
 
+    def _log_density(self, params: Array, x: Array) -> Array:
+        suff_stats = self._compute_sufficient_statistic(x)
+        return (
+            jnp.dot(params, suff_stats)
+            + self.log_base_measure(x)
+            - self._compute_log_partition_function(params)
+        )
+
     def log_density(self, p: Point[Natural, Self], x: Array) -> Array:
         """Compute log density at x.
 
@@ -170,12 +179,19 @@ class Forward(Generative, ABC):
         \\log p(x;\\theta) = \\theta \\cdot \\mathbf s(x) + \\log \\mu(x) - \\psi(\\theta)
         $$
         """
-        suff_stats = self.sufficient_statistic(x)
-        return (
-            jnp.dot(p.params, suff_stats.params)
-            + self.log_base_measure(x)
-            - self.log_partition_function(p)
-        )
+        return self._log_density(p.params, x)
+
+    def average_log_density(self, p: Point[Natural, Self], xs: Array) -> Array:
+        """Compute average log density over a batch of observations.
+
+        Args:
+            p: Parameters in natural coordinates
+            xs: Array of shape (batch_size, data_dim) containing batch of observations
+
+        Returns:
+            Array of shape (batch_size,) containing average log densities
+        """
+        return jnp.mean(jax.vmap(self._log_density, in_axes=(None, 0))(p.params, xs))
 
     def density(self, p: Point[Natural, Self], x: Array) -> Array:
         """Compute density at x.
