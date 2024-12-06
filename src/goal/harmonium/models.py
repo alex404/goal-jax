@@ -17,7 +17,7 @@ from ..exponential_family import (
 )
 from ..exponential_family.distributions import Categorical
 from ..manifold import Point
-from ..transforms import IdentitySubspace, LinearMap, Rectangular
+from ..transforms import AffineMap, IdentitySubspace, LinearMap, Rectangular
 from .harmonium import BackwardConjugated
 
 
@@ -52,8 +52,9 @@ class Mixture[Observable: Backward](
 
     def conjugation_parameters(
         self,
-        obs_bias: Point[Natural, Observable],
-        int_mat: Point[Natural, LinearMap[Rectangular, Categorical, Observable]],
+        lkl_params: Point[
+            Natural, AffineMap[Rectangular, Categorical, Observable, Observable]
+        ],
     ) -> tuple[Array, Point[Natural, Categorical]]:
         """Compute conjugation parameters for categorical mixture.
 
@@ -63,6 +64,7 @@ class Mixture[Observable: Backward](
         - $\\rho_z = \\{\\psi(\\theta_x + \\theta_{xz,k}) - \\rho_0\\}_k$
         """
         # Compute base term from observable bias
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
         rho_0 = self.obs_man.log_partition_function(obs_bias)
 
         # Get component parameter vectors as columns of interaction matrix
@@ -80,10 +82,7 @@ class Mixture[Observable: Backward](
 
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
-    ) -> tuple[
-        Point[Natural, Observable],
-        Point[Natural, LinearMap[Rectangular, Categorical, Observable]],
-    ]:
+    ) -> Point[Natural, AffineMap[Rectangular, Categorical, Observable, Observable]]:
         """Map mean harmonium parameters to natural likelihood parameters.
 
         For categorical mixtures, we:
@@ -97,7 +96,7 @@ class Mixture[Observable: Backward](
         int_cols = [comp - obs_bias for comp in nat_comps[1:]]
         int_mat = self.int_man.from_columns(int_cols)
 
-        return obs_bias, int_mat
+        return self.lkl_man.join_params(obs_bias, int_mat)
 
     def join_mean_mixture(
         self,
@@ -145,18 +144,17 @@ class Mixture[Observable: Backward](
         obs_bias = components[0]
         int_cols = [comp - obs_bias for comp in components[1:]]
         int_mat = self.int_man.from_columns(int_cols)
-        _, rho = self.conjugation_parameters(obs_bias, int_mat)
-        lat_bias = prior - rho
+        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
 
-        return self.join_params(obs_bias, lat_bias, int_mat)
+        return self.join_conjugated(lkl_params, prior)
 
     def split_natural_mixture(
         self, p: Point[Natural, Self]
     ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
         """Split a mixture model in natural coordinates into components and prior."""
 
-        obs_bias, lat_bias, int_mat = self.split_params(p)
-        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        lkl_params, prr_params = self.split_conjugated(p)
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
         int_cols = self.int_man.to_columns(int_mat)
         components = [obs_bias]  # First component
 
@@ -164,6 +162,4 @@ class Mixture[Observable: Backward](
             comp = obs_bias + col
             components.append(comp)
 
-        prior = lat_bias + rho
-
-        return components, prior
+        return components, prr_params

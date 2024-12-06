@@ -264,8 +264,9 @@ class Conjugated[
     @abstractmethod
     def conjugation_parameters(
         self,
-        obs_bias: Point[Natural, Observable],
-        int_mat: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]],
+        lkl_params: Point[
+            Natural, AffineMap[Rep, SubLatent, Observable, SubObservable]
+        ],
     ) -> tuple[Array, Point[Natural, Latent]]:
         """Compute conjugation parameters for the harmonium."""
         ...
@@ -273,7 +274,8 @@ class Conjugated[
     def prior(self, p: Point[Natural, Self]) -> Point[Natural, Latent]:
         """Natural parameters of the prior distribution $p(z)$."""
         obs_bias, lat_bias, int_mat = self.split_params(p)
-        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        lkl = self.lkl_man.join_params(obs_bias, int_mat)
+        _, rho = self.conjugation_parameters(lkl)
         return lat_bias + rho
 
     def split_conjugated(
@@ -284,7 +286,8 @@ class Conjugated[
     ]:
         """Split conjugated harmonium into likelihood and prior."""
         obs_bias, lat_bias, int_mat = self.split_params(p)
-        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        lkl = self.lkl_man.join_params(obs_bias, int_mat)
+        _, rho = self.conjugation_parameters(lkl)
         return self.lkl_man.join_params(obs_bias, int_mat), lat_bias + rho
 
     def join_conjugated(
@@ -296,7 +299,7 @@ class Conjugated[
     ) -> Point[Natural, Self]:
         """Join likelihood and prior parameters into a conjugated harmonium."""
         obs_bias, int_mat = self.lkl_man.split_params(like_params)
-        _, rho = self.conjugation_parameters(obs_bias, int_mat)
+        _, rho = self.conjugation_parameters(like_params)
         lat_bias = prior_params - rho
         return self.join_params(obs_bias, lat_bias, int_mat)
 
@@ -375,9 +378,10 @@ class ForwardConjugated[
         obs_bias, lat_bias, int_mat = self.split_params(
             self.natural_point(natural_params)
         )
+        lkl = self.lkl_man.join_params(obs_bias, int_mat)
 
         # Get conjugation parameters
-        chi, rho = self.conjugation_parameters(obs_bias, int_mat)
+        chi, rho = self.conjugation_parameters(lkl)
 
         # Compute adjusted latent parameters
         adjusted_lat = lat_bias + rho
@@ -408,7 +412,8 @@ class ForwardConjugated[
             Log density at x
         """
         obs_bias, lat_bias, int_mat = self.split_params(p)
-        chi, rho = self.conjugation_parameters(obs_bias, int_mat)
+        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
+        chi, rho = self.conjugation_parameters(lkl_params)
         obs_stats = self.obs_man.sufficient_statistic(x)
 
         log_density = self.obs_man.dot(obs_bias, obs_stats)
@@ -447,10 +452,7 @@ class BackwardConjugated[
     @abstractmethod
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
-    ) -> tuple[
-        Point[Natural, Observable],
-        Point[Natural, LinearMap[Rep, SubLatent, SubObservable]],
-    ]:
+    ) -> Point[Natural, AffineMap[Rep, SubLatent, Observable, SubObservable]]:
         """Map mean to natural parameters for observable and interaction components."""
         ...
 
@@ -463,20 +465,10 @@ class BackwardConjugated[
 
         where $\\rho$ are the conjugation parameters of the likelihood.
         """
-        # Get natural likelihood parameters
-        nat_obs, nat_int = self.to_natural_likelihood(p)
-
-        # Get conjugation parameters from likelihood
-        _, rho = self.conjugation_parameters(nat_obs, nat_int)
-
-        # Split mean parameters
+        lkl_params = self.to_natural_likelihood(p)
         _, mean_lat, _ = self.split_params(p)
-
-        # Get latent natural parameters
-        nat_lat = self.lat_man.to_natural(mean_lat) - rho
-
-        # Join parameters
-        return self.join_params(nat_obs, nat_lat, nat_int)
+        nat_lat = self.lat_man.to_natural(mean_lat)
+        return self.join_conjugated(lkl_params, nat_lat)
 
     def _compute_negative_entropy(self, mean_params: Array) -> Array:
         """Compute negative entropy using $\\phi(\\eta) = \\eta \\cdot \\theta - \\psi(\\theta)$, $\\theta = \\nabla \\phi(\\eta)$."""
