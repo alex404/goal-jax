@@ -146,6 +146,16 @@ class Normal[Rep: PositiveDefinite](
         """Dimension of the data space."""
         return self.fst_man.data_dim
 
+    @property
+    def loc_man(self) -> Euclidean:
+        """Location manifold."""
+        return self.fst_man
+
+    @property
+    def cov_man(self) -> Covariance[Rep]:
+        """Covariance manifold."""
+        return self.snd_man
+
     # Core class methods
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:

@@ -125,7 +125,7 @@ class Point[C: Coordinates, M: Manifold]:
 
 
 @dataclass(frozen=True)
-class Product[First: Manifold, Second: Manifold](Manifold):
+class Pair[First: Manifold, Second: Manifold](Manifold):
     """A product manifold combining two component manifolds.
 
     The product structure allows operations to be performed on each component separately
@@ -158,3 +158,48 @@ class Product[First: Manifold, Second: Manifold](Manifold):
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
         return Point(jnp.concatenate([first.params, second.params]))
+
+
+@dataclass(frozen=True)
+class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold):
+    """A product manifold combining three component manifolds.
+
+    The product structure allows operations to be performed on each component separately
+    while maintaining the joint structure of the manifold.
+    """
+
+    fst_man: First
+    """First component manifold"""
+
+    snd_man: Second
+    """Second component manifold"""
+
+    trd_man: Third
+    """Third component manifold"""
+
+    @property
+    def dim(self) -> int:
+        """Total dimension is sum of component dimensions."""
+        return self.fst_man.dim + self.snd_man.dim + self.trd_man.dim
+
+    def split_params[C: Coordinates](
+        self, p: Point[C, Self]
+    ) -> tuple[Point[C, First], Point[C, Second], Point[C, Third]]:
+        """Split parameters into first, second, and third components."""
+        first_dim = self.fst_man.dim
+        second_dim = self.snd_man.dim
+
+        first_params = p.params[:first_dim]
+        second_params = p.params[first_dim : first_dim + second_dim]
+        third_params = p.params[first_dim + second_dim :]
+
+        return Point(first_params), Point(second_params), Point(third_params)
+
+    def join_params[C: Coordinates](
+        self,
+        first: Point[C, First],
+        second: Point[C, Second],
+        third: Point[C, Third],
+    ) -> Point[C, Self]:
+        """Join component parameters into a single point."""
+        return Point(jnp.concatenate([first.params, second.params, third.params]))

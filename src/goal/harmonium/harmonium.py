@@ -18,7 +18,7 @@ from ..exponential_family import (
     Mean,
     Natural,
 )
-from ..manifold import Coordinates, Point, expand_dual
+from ..manifold import Point, Triple, expand_dual
 from ..transforms import AffineMap, LinearMap, MatrixRep
 
 
@@ -27,7 +27,7 @@ class Harmonium[
     Rep: MatrixRep,
     Observable: ExponentialFamily,
     Latent: ExponentialFamily,
-](ExponentialFamily):
+](Triple[Observable, Latent, LinearMap[Rep, Latent, Observable]], ExponentialFamily):
     """An exponential family harmonium is a product of two exponential families.
 
     The joint distribution of a harmonium takes the form
@@ -49,15 +49,6 @@ class Harmonium[
         int_man: Representation of the interaction matrix
     """
 
-    obs_man: Observable
-    """The observable exponential family"""
-
-    lat_man: Latent
-    """The latent exponential family"""
-
-    int_man: LinearMap[Rep, Latent, Observable]
-    """The manifold of interaction matrices"""
-
     @property
     def dim(self) -> int:
         """Total dimension includes biases + interaction parameters."""
@@ -71,6 +62,21 @@ class Harmonium[
         return self.obs_man.data_dim + self.lat_man.data_dim
 
     @property
+    def obs_man(self) -> Observable:
+        """Manifold of observable biases."""
+        return self.fst_man
+
+    @property
+    def lat_man(self) -> Latent:
+        """Manifold of latent biases."""
+        return self.snd_man
+
+    @property
+    def int_man(self) -> LinearMap[Rep, Latent, Observable]:
+        """Manifold of interaction matrices."""
+        return self.trd_man
+
+    @property
     def like_man(self) -> AffineMap[Rep, Latent, Observable]:
         """Manifold of conditional likelihood distributions $p(x \\mid z)$."""
         return AffineMap(self.int_man.rep, self.lat_man, self.obs_man)
@@ -79,32 +85,6 @@ class Harmonium[
     def post_man(self) -> AffineMap[Rep, Observable, Latent]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
         return AffineMap(self.int_man.rep, self.obs_man, self.lat_man)
-
-    def split_params[C: Coordinates](
-        self, p: Point[C, Self]
-    ) -> tuple[
-        Point[C, Observable],
-        Point[C, Latent],
-        Point[C, LinearMap[Rep, Latent, Observable]],
-    ]:
-        """Split harmonium parameters into observable bias, interaction, and latent bias."""
-        obs_dim = self.obs_man.dim
-        lat_dim = self.lat_man.dim
-        obs_params = p.params[:obs_dim]
-        lat_params = p.params[obs_dim : obs_dim + lat_dim]
-        int_params = p.params[obs_dim + lat_dim :]
-        return Point(obs_params), Point(lat_params), Point(int_params)
-
-    def join_params[C: Coordinates](
-        self,
-        obs_bias: Point[C, Observable],
-        lat_bias: Point[C, Latent],
-        int_mat: Point[C, LinearMap[Rep, Latent, Observable]],
-    ) -> Point[C, Self]:
-        """Join component parameters into a harmonium density."""
-        return Point(
-            jnp.concatenate([obs_bias.params, lat_bias.params, int_mat.params])
-        )
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:
         """Compute sufficient statistics for joint observation.

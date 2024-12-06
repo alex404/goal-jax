@@ -8,7 +8,7 @@ from typing import Any, Self
 
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Point, Product
+from ..manifold import Coordinates, Dual, Manifold, Pair, Point
 from .matrix import MatrixRep, Square
 
 ### Linear Maps ###
@@ -151,23 +151,23 @@ class IdentitySubspace[M: Manifold](LinearSubspace[M, M]):
 
 
 @dataclass(frozen=True)
-class ProductSubspace[First: Manifold, Second: Manifold](
-    LinearSubspace[Product[First, Second], First]
+class PairSubspace[First: Manifold, Second: Manifold](
+    LinearSubspace[Pair[First, Second], First]
 ):
     """Subspace relationship for a product manifold $M \\times N$."""
 
     def __init__(self, fst_man: First, snd_man: Second):
-        super().__init__(Product(fst_man, snd_man), fst_man)
+        super().__init__(Pair(fst_man, snd_man), fst_man)
 
     def project[C: Coordinates](
-        self, p: Point[C, Product[First, Second]]
+        self, p: Point[C, Pair[First, Second]]
     ) -> Point[C, First]:
         first, _ = self.sup_man.split_params(p)
         return first
 
     def translate[C: Coordinates](
-        self, p: Point[C, Product[First, Second]], q: Point[C, First]
-    ) -> Point[C, Product[First, Second]]:
+        self, p: Point[C, Pair[First, Second]], q: Point[C, First]
+    ) -> Point[C, Pair[First, Second]]:
         first, second = self.sup_man.split_params(p)
         return self.sup_man.join_params(first + q, second)
 
@@ -181,7 +181,7 @@ class AffineSubMap[
     Domain: Manifold,
     Codomain: Manifold,
     Subcodomain: Manifold,
-](Product[Codomain, LinearMap[Rep, Domain, Subcodomain]]):
+](Pair[Codomain, LinearMap[Rep, Domain, Subcodomain]]):
     """Affine transformation targeting a subspace of the codomain."""
 
     subspace: LinearSubspace[Codomain, Subcodomain]

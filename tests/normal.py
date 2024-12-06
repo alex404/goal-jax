@@ -22,7 +22,7 @@ def sample_data() -> Array:
     cov = jnp.array([[2.0, 1.0], [1.0, 1.0]])
 
     pd_man = Normal(2)
-    gt_cov = pd_man.snd_man.from_dense(cov)
+    gt_cov = pd_man.cov_man.from_dense(cov)
     mu: Point[Mean, Euclidean] = Point(mean)
     gt_mean_point = pd_man.from_mean_and_covariance(mu, gt_cov)
     gt_natural_point = pd_man.to_natural(gt_mean_point)
@@ -45,9 +45,9 @@ def validate_normal_coordinates[R: PositiveDefinite](
     """
     # Test mean parameterization
     mean, second_moment = man.split_mean_params(mean_params)
-    outer_mean = man.snd_man.outer_product(mean, mean)
+    outer_mean = man.cov_man.outer_product(mean, mean)
     covariance = second_moment - outer_mean
-    log_det = man.snd_man.logdet(covariance)
+    log_det = man.cov_man.logdet(covariance)
 
     entropy = 0.5 * (man.data_dim + man.data_dim * jnp.log(2 * jnp.pi) + log_det)
     assert jnp.allclose(man.negative_entropy(mean_params), -entropy, rtol=rtol)
@@ -55,16 +55,16 @@ def validate_normal_coordinates[R: PositiveDefinite](
     # Test natural parameterization
     natural_params = man.to_natural(mean_params)
     loc, precision = man.split_natural_params(natural_params)
-    if man.snd_man.rep is Scale():
+    if man.cov_man.rep is Scale():
         precision = precision / 2
 
-    recovered_covariance = reduce_dual(man.snd_man.inverse(precision))
-    recovered_mean = man.snd_man(recovered_covariance, loc)
+    recovered_covariance = reduce_dual(man.cov_man.inverse(precision))
+    recovered_mean = man.cov_man(recovered_covariance, loc)
 
     # Test log partition consistency
     log_partition = 0.5 * jnp.dot(
         loc.params, recovered_mean.params
-    ) - 0.5 * man.snd_man.logdet(precision)
+    ) - 0.5 * man.cov_man.logdet(precision)
     assert jnp.allclose(
         man.log_partition_function(natural_params), log_partition, rtol=rtol
     )
@@ -85,9 +85,9 @@ def test_normal_representations(sample_data: Array) -> None:
     iso_mean_params = iso_man.average_sufficient_statistic(sample_data)
     mean, iso_covariance = iso_man.to_mean_and_covariance(iso_mean_params)
 
-    dense_covariance = iso_man.snd_man.to_dense(iso_covariance)
-    pd_covariance = pd_man.snd_man.from_dense(dense_covariance)
-    dia_covariance = dia_man.snd_man.from_dense(dense_covariance)
+    dense_covariance = iso_man.cov_man.to_dense(iso_covariance)
+    pd_covariance = pd_man.cov_man.from_dense(dense_covariance)
+    dia_covariance = dia_man.cov_man.from_dense(dense_covariance)
 
     pd_mean_params = pd_man.from_mean_and_covariance(mean, pd_covariance)
     dia_mean_params = dia_man.from_mean_and_covariance(mean, dia_covariance)

@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Point, Product
+from ..manifold import Coordinates, Dual, Manifold, Pair, Point
 
 ### Coordinate Systems ###
 
@@ -245,7 +245,7 @@ class Backward(Forward, ABC):
 
 
 class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
-    Product[L, S], ExponentialFamily
+    Pair[L, S], ExponentialFamily
 ):
     """A product exponential family with location and shape parameters.
 
@@ -259,15 +259,15 @@ class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
     @property
     def data_dim(self) -> int:
         """Data dimension must match between location and shape manifolds."""
-        assert self.first.data_dim == self.second.data_dim
-        return self.first.data_dim
+        assert self.fst_man.data_dim == self.snd_man.data_dim
+        return self.fst_man.data_dim
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:
         """Concatenate sufficient statistics from location and shape components."""
-        loc_stats = self.first._compute_sufficient_statistic(x)
-        shape_stats = self.second._compute_sufficient_statistic(x)
+        loc_stats = self.fst_man._compute_sufficient_statistic(x)
+        shape_stats = self.snd_man._compute_sufficient_statistic(x)
         return self.join_params(Point(loc_stats), Point(shape_stats)).params
 
     def log_base_measure(self, x: Array) -> Array:
         """Base measure from location component, as both components should share the same measure."""
-        return self.first.log_base_measure(x)
+        return self.fst_man.log_base_measure(x)

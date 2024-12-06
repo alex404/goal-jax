@@ -14,15 +14,18 @@ dependencies = [
 # These are standard for modern Python projects:
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 # Add your dependencies:
 [tool.setuptools.packages.find]
 where = ["src"]
 include =["goal*"]
 
 [tool.pyright]
-include = ["src/goal"]
+include = ["src/goal", "examples", "tests"]
+extraPaths = ["src"]
 typeCheckingMode = "strict"
+venvPath = "."
+venv = ".uvenv"
 # reportMissingTypeStubs = "warning"
 # reportUnknownVariableType = "none"
 reportUnknownParameterType = "none"
@@ -56,7 +59,7 @@ lint.ignore = [
     "ARG002",# Ignore unused-argument in method > problematic eg when required by parent class / interface
     "ARG003",# Unused parameters
     "TRY003",# Allow to write exception messages in place instead of subclassing
-    "RUF001",# Allow confusable characters (eg σ)
+    # "RUF001",# Allow confusable characters (eg σ)
     "F722",  # spurious errors because of jaxtyping
 ]
 
