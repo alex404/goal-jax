@@ -8,7 +8,7 @@ from typing import Any, Self
 
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Pair, Point
+from ..manifold import Coordinates, Dual, Manifold, Pair, Point, Triple
 from .matrix import MatrixRep, Square
 
 ### Linear Maps ###
@@ -112,12 +112,12 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
 
 @dataclass(frozen=True)
-class LinearSubspace[Super: Manifold, Sub: Manifold](ABC):
-    """Defines how a sub-manifold $\\mathcal N$ embeds into a super-manifold $\\mathcal M$.
+class Subspace[Super: Manifold, Sub: Manifold](ABC):
+    """Defines how a super-manifold $\\mathcal M$ can be projected onto a sub-manifold $\\mathcal N$.
 
-    A linear subspace relationship between manifolds allows us to:
-    1. Project a point in the super manifold N to its M-manifold components
-    2. Translate a point in N by a point in M
+    A subspace relationship between manifolds allows us to:
+    1. Project a point in the super manifold $\\mathcal M$ to its $\\mathcal N$-manifold components
+    2. Partially translate a point in $\\mathcal M$ by a point in $\\mathcal N$
     """
 
     sup_man: Super
@@ -137,7 +137,7 @@ class LinearSubspace[Super: Manifold, Sub: Manifold](ABC):
 
 
 @dataclass(frozen=True)
-class IdentitySubspace[M: Manifold](LinearSubspace[M, M]):
+class IdentitySubspace[M: Manifold](Subspace[M, M]):
     """Identity subspace relationship for a manifold M."""
 
     def __init__(self, man: M):
@@ -152,7 +152,7 @@ class IdentitySubspace[M: Manifold](LinearSubspace[M, M]):
 
 @dataclass(frozen=True)
 class PairSubspace[First: Manifold, Second: Manifold](
-    LinearSubspace[Pair[First, Second], First]
+    Subspace[Pair[First, Second], First]
 ):
     """Subspace relationship for a product manifold $M \\times N$."""
 
@@ -172,19 +172,54 @@ class PairSubspace[First: Manifold, Second: Manifold](
         return self.sup_man.join_params(first + q, second)
 
 
+@dataclass(frozen=True)
+class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
+    Subspace[Triple[First, Second, Third], First]
+):
+    """Subspace relationship for a product manifold $M \\times N$."""
+
+    def __init__(self, fst_man: First, snd_man: Second, trd_man: Third):
+        super().__init__(Triple(fst_man, snd_man, trd_man), fst_man)
+
+    def project[C: Coordinates](
+        self, p: Point[C, Triple[First, Second, Third]]
+    ) -> Point[C, First]:
+        first, _, _ = self.sup_man.split_params(p)
+        return first
+
+    def translate[C: Coordinates](
+        self, p: Point[C, Triple[First, Second, Third]], q: Point[C, First]
+    ) -> Point[C, Triple[First, Second, Third]]:
+        first, second, third = self.sup_man.split_params(p)
+        return self.sup_man.join_params(first + q, second, third)
+
+
 ### Affine Maps ###
 
 
 @dataclass(frozen=True)
-class AffineSubMap[
+class AffineMap[
     Rep: MatrixRep,
     Domain: Manifold,
     Codomain: Manifold,
-    Subcodomain: Manifold,
-](Pair[Codomain, LinearMap[Rep, Domain, Subcodomain]]):
-    """Affine transformation targeting a subspace of the codomain."""
+    SubCodomain: Manifold,
+](Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]]):
+    """Affine transformation targeting a subspace of the codomain.
 
-    subspace: LinearSubspace[Codomain, Subcodomain]
+    Args:
+        rep: Matrix representation strategy
+        domain: Source manifold
+        cod_sub: Target manifold and subspace
+
+    """
+
+    cod_sub: Subspace[Codomain, SubCodomain]
+
+    def __init__(
+        self, rep: Rep, domain: Domain, cod_sub: Subspace[Codomain, SubCodomain]
+    ):
+        super().__init__(cod_sub.sup_man, LinearMap(rep, domain, cod_sub.sub_man))
+        object.__setattr__(self, "cod_sub", cod_sub)
 
     def __call__[C: Coordinates](
         self,
@@ -194,23 +229,5 @@ class AffineSubMap[
         """Apply the affine transformation."""
         bias: Point[C, Codomain]
         bias, linear = self.split_params(f)
-        subshift: Point[C, Subcodomain] = self.snd_man(linear, p)
-        return self.subspace.translate(bias, subshift)
-
-
-@dataclass(frozen=True)
-class AffineMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](
-    AffineSubMap[Rep, Domain, Codomain, Codomain]
-):
-    """Affine transformation $f(x) = A \\cdot x + b$.
-
-    Args:
-        rep: Matrix representation strategy
-        domain: Source manifold
-        codomain: Target manifold
-    """
-
-    def __init__(self, rep: Rep, domain: Domain, codomain: Codomain):
-        super().__init__(
-            codomain, LinearMap(rep, domain, codomain), IdentitySubspace(codomain)
-        )
+        subshift: Point[C, SubCodomain] = self.snd_man(linear, p)
+        return self.cod_sub.translate(bias, subshift)

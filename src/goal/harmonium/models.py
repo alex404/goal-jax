@@ -17,13 +17,13 @@ from ..exponential_family import (
 )
 from ..exponential_family.distributions import Categorical
 from ..manifold import Point
-from ..transforms import LinearMap, Rectangular
+from ..transforms import IdentitySubspace, LinearMap, Rectangular
 from .harmonium import BackwardConjugated
 
 
 @dataclass(frozen=True)
-class Mixture[O: Backward](
-    BackwardConjugated[Rectangular, O, Categorical],
+class Mixture[Observable: Backward](
+    BackwardConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
 ):
     """A mixture model implemented as a harmonium with categorical latent variables.
 
@@ -40,14 +40,20 @@ class Mixture[O: Backward](
     where $\\theta_k$ and $\\theta_{k}$ are the k-th components of $\\theta_z$ and $\\Theta_{xz}$ respectively.
     """
 
-    def __init__(self, obs_man: O, n_categories: int):
+    def __init__(self, obs_man: Observable, n_categories: int):
         cat_man = Categorical(n_categories)
-        super().__init__(obs_man, cat_man, LinearMap(Rectangular(), cat_man, obs_man))
+        super().__init__(
+            obs_man,
+            cat_man,
+            LinearMap(Rectangular(), cat_man, obs_man),
+            IdentitySubspace(obs_man),
+            IdentitySubspace(cat_man),
+        )
 
     def conjugation_parameters(
         self,
-        obs_bias: Point[Natural, O],
-        int_mat: Point[Natural, LinearMap[Rectangular, Categorical, O]],
+        obs_bias: Point[Natural, Observable],
+        int_mat: Point[Natural, LinearMap[Rectangular, Categorical, Observable]],
     ) -> tuple[Array, Point[Natural, Categorical]]:
         """Compute conjugation parameters for categorical mixture.
 
@@ -75,7 +81,8 @@ class Mixture[O: Backward](
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
     ) -> tuple[
-        Point[Natural, O], Point[Natural, LinearMap[Rectangular, Categorical, O]]
+        Point[Natural, Observable],
+        Point[Natural, LinearMap[Rectangular, Categorical, Observable]],
     ]:
         """Map mean harmonium parameters to natural likelihood parameters.
 
@@ -94,31 +101,31 @@ class Mixture[O: Backward](
 
     def join_mean_mixture(
         self,
-        components: list[Point[Mean, O]],
+        components: list[Point[Mean, Observable]],
         weights: Point[Mean, Categorical],
     ) -> Point[Mean, Self]:
         """Create a mixture model in mean coordinates from components and weights."""
         probs = self.lat_man.to_probs(weights)
 
-        weighted_comps: list[Point[Mean, O]] = [
+        weighted_comps: list[Point[Mean, Observable]] = [
             p * comp for p, comp in zip(probs, components)
         ]
 
-        obs_mean: Point[Mean, O] = reduce(add, weighted_comps)
+        obs_mean: Point[Mean, Observable] = reduce(add, weighted_comps)
         int_mat = self.int_man.from_columns([comp for comp in weighted_comps[1:]])
 
         return self.join_params(obs_mean, weights, int_mat)
 
     def split_mean_mixture(
         self, p: Point[Mean, Self]
-    ) -> tuple[list[Point[Mean, O]], Point[Mean, Categorical]]:
+    ) -> tuple[list[Point[Mean, Observable]], Point[Mean, Categorical]]:
         """Split a mixture model in mean coordinates into components and weights."""
         obs_mean, cat_mean, int_mat = self.split_params(p)
 
         probs = self.lat_man.to_probs(cat_mean)
         int_cols = self.int_man.to_columns(int_mat)
 
-        components: list[Point[Mean, O]] = [
+        components: list[Point[Mean, Observable]] = [
             (obs_mean - reduce(add, int_cols)) / probs[0]
         ]
 
@@ -130,7 +137,7 @@ class Mixture[O: Backward](
 
     def join_natural_mixture(
         self,
-        components: list[Point[Natural, O]],
+        components: list[Point[Natural, Observable]],
         prior: Point[Natural, Categorical],
     ) -> Point[Natural, Self]:
         """Create a mixture model in natural coordinates from components and prior."""
@@ -145,7 +152,7 @@ class Mixture[O: Backward](
 
     def split_natural_mixture(
         self, p: Point[Natural, Self]
-    ) -> tuple[list[Point[Natural, O]], Point[Natural, Categorical]]:
+    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
         """Split a mixture model in natural coordinates into components and prior."""
 
         obs_bias, lat_bias, int_mat = self.split_params(p)

@@ -1,4 +1,12 @@
-from .linear import AffineMap, LinearMap, SquareMap
+from .linear import (
+    AffineMap,
+    IdentitySubspace,
+    LinearMap,
+    PairSubspace,
+    SquareMap,
+    Subspace,
+    TripleSubspace,
+)
 from .matrix import (
     Diagonal,
     Identity,
@@ -24,4 +32,8 @@ __all__ = [
     "Diagonal",
     "Scale",
     "Identity",
+    "Subspace",
+    "IdentitySubspace",
+    "PairSubspace",
+    "TripleSubspace",
 ]
