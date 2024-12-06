@@ -125,36 +125,36 @@ class Point[C: Coordinates, M: Manifold]:
 
 
 @dataclass(frozen=True)
-class Product[M: Manifold, N: Manifold](Manifold):
+class Product[First: Manifold, Second: Manifold](Manifold):
     """A product manifold combining two component manifolds.
 
     The product structure allows operations to be performed on each component separately
     while maintaining the joint structure of the manifold.
     """
 
-    first: M
+    fst_man: First
     """First component manifold"""
 
-    second: N
+    snd_man: Second
     """Second component manifold"""
 
     @property
     def dim(self) -> int:
         """Total dimension is sum of component dimensions."""
-        return self.first.dim + self.second.dim
+        return self.fst_man.dim + self.snd_man.dim
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
-    ) -> tuple[Point[C, M], Point[C, N]]:
+    ) -> tuple[Point[C, First], Point[C, Second]]:
         """Split parameters into first and second components."""
-        first_params = p.params[: self.first.dim]
-        second_params = p.params[self.first.dim :]
+        first_params = p.params[: self.fst_man.dim]
+        second_params = p.params[self.fst_man.dim :]
         return Point(first_params), Point(second_params)
 
     def join_params[C: Coordinates](
         self,
-        first: Point[C, M],
-        second: Point[C, N],
+        first: Point[C, First],
+        second: Point[C, Second],
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
         return Point(jnp.concatenate([first.params, second.params]))

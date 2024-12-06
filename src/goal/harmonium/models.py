@@ -60,7 +60,7 @@ class Mixture[O: Backward](
         rho_0 = self.obs_man.log_partition_function(obs_bias)
 
         # Get component parameter vectors as columns of interaction matrix
-        int_cols = self.inter_man.to_columns(int_mat)
+        int_cols = self.int_man.to_columns(int_mat)
 
         # Compute adjusted partition function for each component
         rho_z_components = []
@@ -88,7 +88,7 @@ class Mixture[O: Backward](
         nat_comps = [self.obs_man.to_natural(comp) for comp in comp_means]
         obs_bias = nat_comps[0]
         int_cols = [comp - obs_bias for comp in nat_comps[1:]]
-        int_mat = self.inter_man.from_columns(int_cols)
+        int_mat = self.int_man.from_columns(int_cols)
 
         return obs_bias, int_mat
 
@@ -105,7 +105,7 @@ class Mixture[O: Backward](
         ]
 
         obs_mean: Point[Mean, O] = reduce(add, weighted_comps)
-        int_mat = self.inter_man.from_columns([comp for comp in weighted_comps[1:]])
+        int_mat = self.int_man.from_columns([comp for comp in weighted_comps[1:]])
 
         return self.join_params(obs_mean, weights, int_mat)
 
@@ -116,7 +116,7 @@ class Mixture[O: Backward](
         obs_mean, cat_mean, int_mat = self.split_params(p)
 
         probs = self.lat_man.to_probs(cat_mean)
-        int_cols = self.inter_man.to_columns(int_mat)
+        int_cols = self.int_man.to_columns(int_mat)
 
         components: list[Point[Mean, O]] = [
             (obs_mean - reduce(add, int_cols)) / probs[0]
@@ -137,7 +137,7 @@ class Mixture[O: Backward](
 
         obs_bias = components[0]
         int_cols = [comp - obs_bias for comp in components[1:]]
-        int_mat = self.inter_man.from_columns(int_cols)
+        int_mat = self.int_man.from_columns(int_cols)
         _, rho = self.conjugation_parameters(obs_bias, int_mat)
         lat_bias = prior - rho
 
@@ -150,7 +150,7 @@ class Mixture[O: Backward](
 
         obs_bias, lat_bias, int_mat = self.split_params(p)
         _, rho = self.conjugation_parameters(obs_bias, int_mat)
-        int_cols = self.inter_man.to_columns(int_mat)
+        int_cols = self.int_man.to_columns(int_mat)
         components = [obs_bias]  # First component
 
         for col in int_cols:

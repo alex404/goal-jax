@@ -71,14 +71,14 @@ class Euclidean(ExponentialFamily):
 
 
 @dataclass(frozen=True)
-class Covariance[R: PositiveDefinite](SquareMap[R, Euclidean], ExponentialFamily):
+class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):
     """Shape component of a Normal distribution.
 
     This represents a zero-centered normal distribution with flexible covariance.
     The sufficient statistic is the outer product of the data with itself.
     """
 
-    def __init__(self, data_dim: int, rep: type[R]):
+    def __init__(self, data_dim: int, rep: type[Rep]):
         super().__init__(rep(), Euclidean(data_dim))
 
     @property
@@ -97,7 +97,9 @@ class Covariance[R: PositiveDefinite](SquareMap[R, Euclidean], ExponentialFamily
 
 
 @dataclass(frozen=True)
-class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backward):
+class Normal[Rep: PositiveDefinite](
+    LocationShape[Euclidean, Covariance[Rep]], Backward
+):
     """(Multivariate) Normal distributions.
 
     Parameters:
@@ -105,8 +107,8 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
         rep: Covariance structure (e.g. `PositiveDefinite`, `Diagonal`, `Scale`).
 
     Attributes:
-        first: Euclidean class. Determines the dimension.
-        second: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
+        fst_man: Euclidean class. Determines the dimension.
+        snd_man: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
 
     The standard expression for the Normal density is
 
@@ -133,7 +135,7 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
 
     # Attributes
 
-    def __init__(self, data_dim: int = 1, rep: type[R] = PositiveDefinite):
+    def __init__(self, data_dim: int = 1, rep: type[Rep] = PositiveDefinite):
         super().__init__(
             Euclidean(data_dim),
             Covariance(data_dim, rep),
@@ -142,7 +144,7 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
     @property
     def data_dim(self) -> int:
         """Dimension of the data space."""
-        return self.first.data_dim
+        return self.fst_man.data_dim
 
     # Core class methods
 
@@ -153,12 +155,12 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
         x_point: Point[Mean, Euclidean] = Point(x)
 
         # Compute outer product with appropriate structure
-        second_moment: Point[Mean, Covariance[R]] = self.second.outer_product(
+        second_moment: Point[Mean, Covariance[Rep]] = self.snd_man.outer_product(
             x_point, x_point
         )
 
         # Concatenate components into parameter vector
-        return self._join_params(x_point, second_moment)
+        return self.join_params(x_point, second_moment).params
 
     def log_base_measure(self, x: Array) -> Array:
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
@@ -166,21 +168,21 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
         loc, precision = self.split_natural_params(Point(natural_params))
 
-        covariance: Point[Mean, Covariance[R]] = reduce_dual(
-            self.second.inverse(precision)
+        covariance: Point[Mean, Covariance[Rep]] = reduce_dual(
+            self.snd_man.inverse(precision)
         )
-        mean = self.second(covariance, loc)
+        mean = self.snd_man(covariance, loc)
 
-        return 0.5 * (jnp.dot(loc.params, mean.params) - self.second.logdet(precision))
+        return 0.5 * (jnp.dot(loc.params, mean.params) - self.snd_man.logdet(precision))
 
     def _compute_negative_entropy(self, mean_params: Array) -> Array:
         mean, second_moment = self.split_mean_params(Point(mean_params))
 
         # Compute covariance without forming full matrices
-        outer_mean = self.second.outer_product(mean, mean)
+        outer_mean = self.snd_man.outer_product(mean, mean)
         covariance = second_moment - outer_mean
 
-        log_det = self.second.logdet(covariance)
+        log_det = self.snd_man.logdet(covariance)
         entropy = 0.5 * (self.data_dim + self.data_dim * jnp.log(2 * jnp.pi) + log_det)
 
         return -entropy
@@ -200,8 +202,8 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
         z = jax.random.normal(key, shape)
 
         # Transform samples using Cholesky
-        samples = self.second.rep.apply_cholesky(
-            self.second.shape, covariance.params, z
+        samples = self.snd_man.rep.apply_cholesky(
+            self.snd_man.shape, covariance.params, z
         )
         return mean.params + samples
 
@@ -209,7 +211,7 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
-    ) -> tuple[Point[C, Euclidean], Point[C, Covariance[R]]]:
+    ) -> tuple[Point[C, Euclidean], Point[C, Covariance[Rep]]]:
         """Split parameters into location and scale components.
 
         Args:
@@ -223,54 +225,46 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
 
         return Point(loc_params), Point(cov_params)
 
-    def _join_params[C: Coordinates](
-        self,
-        loc: Point[C, Euclidean],
-        cov: Point[C, Covariance[R]],
-    ) -> Array:
-        """Join location and scale parameters into a single array."""
-        return jnp.concatenate([loc.params, cov.params])
-
     def from_mean_and_covariance(
         self,
         mean: Point[Mean, Euclidean],
-        covariance: Point[Mean, Covariance[R]],
+        covariance: Point[Mean, Covariance[Rep]],
     ) -> Point[Mean, Self]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
         # Create the second moment η₂ = μμᵀ + Σ
-        outer = self.second.outer_product(mean, mean)
+        outer = self.snd_man.outer_product(mean, mean)
         second_moment = outer + covariance
 
-        return Point(self._join_params(mean, second_moment))
+        return self.join_params(mean, second_moment)
 
     def to_mean_and_covariance(
         self, p: Point[Mean, Self]
-    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[R]]]:
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
         """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
         # Split into μ and η₂
         mean, second_moment = self.split_params(p)
 
         # Compute Σ = η₂ - μμᵀ
-        outer = self.second.outer_product(mean, mean)
+        outer = self.snd_man.outer_product(mean, mean)
         covariance = second_moment - outer
 
         return mean, covariance
 
     def split_mean_params(
         self, p: Point[Mean, Self]
-    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[R]]]:
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
         """Split parameters into mean and second-moment components."""
         return self.split_params(p)
 
     def join_mean_params(
-        self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance[R]]
+        self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance[Rep]]
     ) -> Point[Mean, Self]:
         """Join mean and second-moment parameters."""
-        return Point(self._join_params(mean, second_moment))
+        return self.join_params(mean, second_moment)
 
     def split_natural_params(
         self, p: Point[Natural, Self]
-    ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[R]]]:
+    ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[Rep]]]:
         """Join natural location and precision (inverse covariance) parameters. There's a lot of rescaling that has to happen to ensure that the minimal representation of the natural parameters behaves correctly when used either as a vector in a dot product, or as a matrix.
 
 
@@ -302,7 +296,7 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
         loc, theta2 = self.split_params(p)
 
         # We need to rescale off-precision params
-        if not isinstance(self.second.rep, Diagonal):
+        if not isinstance(self.snd_man.rep, Diagonal):
             precision_params = theta2.params
             i_diag = (
                 jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
@@ -310,11 +304,11 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
 
             scaled_params = precision_params / 2
             scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
-            theta2: Point[Natural, Covariance[R]] = Point(scaled_params)
+            theta2: Point[Natural, Covariance[Rep]] = Point(scaled_params)
 
         scl = -2
 
-        if isinstance(self.second.rep, Scale):
+        if isinstance(self.snd_man.rep, Scale):
             scl = self.data_dim / scl
 
         return loc, scl * theta2
@@ -322,18 +316,18 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
     def join_natural_params(
         self,
         loc: Point[Natural, Euclidean],
-        precision: Point[Natural, Covariance[R]],
+        precision: Point[Natural, Covariance[Rep]],
     ) -> Point[Natural, Self]:
         """Join natural location and precision (inverse covariance) parameters. Inverts the scaling in `split_natural_params`."""
         scl = -0.5
 
-        if isinstance(self.second.rep, Scale):
+        if isinstance(self.snd_man.rep, Scale):
             scl = self.data_dim * scl
 
         theta2 = scl * precision.params
 
         # We need to rescale off-precision params
-        if not isinstance(self.second.rep, Diagonal):
+        if not isinstance(self.snd_man.rep, Diagonal):
             i_diag = (
                 jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
             )
@@ -342,4 +336,4 @@ class Normal[R: PositiveDefinite](LocationShape[Euclidean, Covariance[R]], Backw
             scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
             theta2 = scaled_params
 
-        return Point(self._join_params(loc, Point(theta2)))
+        return self.join_params(loc, Point(theta2))

@@ -23,9 +23,11 @@ from ..transforms import AffineMap, LinearMap, MatrixRep
 
 
 @dataclass(frozen=True)
-class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
-    ExponentialFamily
-):
+class Harmonium[
+    Rep: MatrixRep,
+    Observable: ExponentialFamily,
+    Latent: ExponentialFamily,
+](ExponentialFamily):
     """An exponential family harmonium is a product of two exponential families.
 
     The joint distribution of a harmonium takes the form
@@ -44,16 +46,16 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
     Args:
         obs_man: The observable exponential family
         lat_man: The latent exponential family
-        inter_man: Representation of the interaction matrix
+        int_man: Representation of the interaction matrix
     """
 
-    obs_man: O
+    obs_man: Observable
     """The observable exponential family"""
 
-    lat_man: L
+    lat_man: Latent
     """The latent exponential family"""
 
-    inter_man: LinearMap[R, L, O]
+    int_man: LinearMap[Rep, Latent, Observable]
     """The manifold of interaction matrices"""
 
     @property
@@ -69,18 +71,22 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         return self.obs_man.data_dim + self.lat_man.data_dim
 
     @property
-    def like_man(self) -> AffineMap[R, L, O]:
+    def like_man(self) -> AffineMap[Rep, Latent, Observable]:
         """Manifold of conditional likelihood distributions $p(x \\mid z)$."""
-        return AffineMap(self.inter_man.rep, self.lat_man, self.obs_man)
+        return AffineMap(self.int_man.rep, self.lat_man, self.obs_man)
 
     @property
-    def post_man(self) -> AffineMap[R, O, L]:
+    def post_man(self) -> AffineMap[Rep, Observable, Latent]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.inter_man.rep, self.obs_man, self.lat_man)
+        return AffineMap(self.int_man.rep, self.obs_man, self.lat_man)
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
-    ) -> tuple[Point[C, O], Point[C, L], Point[C, LinearMap[R, L, O]]]:
+    ) -> tuple[
+        Point[C, Observable],
+        Point[C, Latent],
+        Point[C, LinearMap[Rep, Latent, Observable]],
+    ]:
         """Split harmonium parameters into observable bias, interaction, and latent bias."""
         obs_dim = self.obs_man.dim
         lat_dim = self.lat_man.dim
@@ -91,9 +97,9 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
     def join_params[C: Coordinates](
         self,
-        obs_bias: Point[C, O],
-        lat_bias: Point[C, L],
-        int_mat: Point[C, LinearMap[R, L, O]],
+        obs_bias: Point[C, Observable],
+        lat_bias: Point[C, Latent],
+        int_mat: Point[C, LinearMap[Rep, Latent, Observable]],
     ) -> Point[C, Self]:
         """Join component parameters into a harmonium density."""
         return Point(
@@ -114,7 +120,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
         obs_bias = self.obs_man.sufficient_statistic(obs_x)
         lat_bias = self.lat_man.sufficient_statistic(lat_x)
-        interaction = self.inter_man.outer_product(obs_bias, lat_bias)
+        interaction = self.int_man.outer_product(obs_bias, lat_bias)
 
         return self.join_params(obs_bias, lat_bias, interaction).params
 
@@ -136,7 +142,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
     def likelihood_function(
         self, p: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[R, L, O]]:
+    ) -> Point[Natural, AffineMap[Rep, Latent, Observable]]:
         """Natural parameters of the likelihood distribution as an affine function.
 
         The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
@@ -146,16 +152,18 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
 
     def posterior_function(
         self, p: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[R, O, L]]:
+    ) -> Point[Natural, AffineMap[Rep, Observable, Latent]]:
         """Natural parameters of the posterior distribution as an affine function.
 
         The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}^T$.
         """
         _, lat_bias, int_mat = self.split_params(p)
-        int_mat_t = self.inter_man.transpose(int_mat)
+        int_mat_t = self.int_man.transpose(int_mat)
         return self.post_man.join_params(lat_bias, int_mat_t)
 
-    def likelihood_at(self, p: Point[Natural, Self], z: Array) -> Point[Natural, O]:
+    def likelihood_at(
+        self, p: Point[Natural, Self], z: Array
+    ) -> Point[Natural, Observable]:
         """Compute natural parameters of likelihood distribution $p(x \\mid z)$ at a given $z$.
 
         Given a latent state $z$ with sufficient statistics $s(z)$, computes natural parameters $\\theta_X$ of the conditional distribution:
@@ -165,7 +173,7 @@ class Harmonium[R: MatrixRep, O: ExponentialFamily, L: ExponentialFamily](
         mz = expand_dual(self.lat_man.sufficient_statistic(z))
         return self.like_man(self.likelihood_function(p), mz)
 
-    def posterior_at(self, p: Point[Natural, Self], x: Array) -> Point[Natural, L]:
+    def posterior_at(self, p: Point[Natural, Self], x: Array) -> Point[Natural, Latent]:
         """Compute natural parameters of posterior distribution $p(z \\mid x)$.
 
         Given an observation $x$ with sufficient statistics $s(x)$, computes natural
@@ -214,7 +222,7 @@ class BackwardLatent[R: MatrixRep, O: ExponentialFamily, L: Backward](
         mz: Point[Mean, L] = self.lat_man.to_mean(post_nat)
 
         # Form interaction term via outer product
-        mxz: Point[Mean, LinearMap[R, L, O]] = self.inter_man.outer_product(mx, mz)
+        mxz: Point[Mean, LinearMap[R, L, O]] = self.int_man.outer_product(mx, mz)
 
         # Join parameters into harmonium point
         return self.join_params(mx, mz, mxz)

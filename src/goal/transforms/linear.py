@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Self
 
@@ -14,7 +15,7 @@ from .matrix import MatrixRep, Square
 
 
 @dataclass(frozen=True)
-class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
+class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
     """Linear map between manifolds using a specific matrix representation.
 
     A linear map $L: V \\to W$ between vector spaces satisfies:
@@ -24,14 +25,14 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     The map is stored in a specific representation (full, symmetric, etc) defined by R.
 
     Args:
-        domain: The source/domain manifold $V$
-        codomain: The target/codomain manifold $W$
         rep: The matrix representation strategy
+        dom_man: The source/domain manifold $V$
+        cod_man: The target/codomain manifold $W$
     """
 
-    rep: R
-    domain: M
-    codomain: N
+    rep: Rep
+    dom_man: Domain
+    cod_man: Codomain
 
     @property
     def dim(self) -> int:
@@ -40,13 +41,13 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
     @property
     def shape(self) -> tuple[int, int]:
         """Shape of the linear maps."""
-        return (self.codomain.dim, self.domain.dim)
+        return (self.cod_man.dim, self.dom_man.dim)
 
     def __call__[C: Coordinates](
         self,
         f: Point[C, Self],
-        p: Point[Dual[C], M],
-    ) -> Point[C, N]:
+        p: Point[Dual[C], Domain],
+    ) -> Point[C, Codomain]:
         """Apply the linear map to transform a point."""
         return Point(self.rep.matvec(self.shape, f.params, p.params))
 
@@ -55,14 +56,15 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         return Point(self.rep.from_dense(matrix))
 
     def outer_product[C: Coordinates](
-        self, w: Point[C, N], v: Point[C, M]
+        self, w: Point[C, Codomain], v: Point[C, Domain]
     ) -> Point[C, Self]:
         """Outer product of points."""
         return Point(self.rep.outer_product(w.params, v.params))
 
     def transpose[C: Coordinates](
-        self: LinearMap[R, M, N], f: Point[C, LinearMap[R, M, N]]
-    ) -> Point[C, LinearMap[R, N, M]]:
+        self: LinearMap[Rep, Domain, Codomain],
+        f: Point[C, LinearMap[Rep, Domain, Codomain]],
+    ) -> Point[C, LinearMap[Rep, Codomain, Domain]]:
         """Transpose of the linear map."""
         return Point(self.rep.transpose(self.shape, f.params))
 
@@ -70,14 +72,14 @@ class LinearMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
         """Convert to dense matrix representation."""
         return self.rep.to_dense(self.shape, f.params)
 
-    def to_columns[C: Coordinates](self, f: Point[C, Self]) -> list[Point[C, N]]:
+    def to_columns[C: Coordinates](self, f: Point[C, Self]) -> list[Point[C, Codomain]]:
         """Split linear map into list of column vectors as points in the codomain."""
         cols = self.rep.to_cols(self.shape, f.params)
         return [Point(col) for col in cols]
 
     def from_columns[C: Coordinates](
-        self: LinearMap[R, M, N], cols: list[Point[C, N]]
-    ) -> Point[C, LinearMap[R, M, N]]:
+        self: LinearMap[Rep, Domain, Codomain], cols: list[Point[C, Codomain]]
+    ) -> Point[C, LinearMap[Rep, Domain, Codomain]]:
         """Construct linear map from list of column vectors as points."""
         col_arrays = [col.params for col in cols]
         params = self.rep.from_cols(col_arrays)
@@ -106,11 +108,100 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
         return self.rep.logdet(self.shape, f.params)
 
 
+### Linear Subspaces ###
+
+
+@dataclass(frozen=True)
+class LinearSubspace[Super: Manifold, Sub: Manifold](ABC):
+    """Defines how a sub-manifold $\\mathcal N$ embeds into a super-manifold $\\mathcal M$.
+
+    A linear subspace relationship between manifolds allows us to:
+    1. Project a point in the super manifold N to its M-manifold components
+    2. Translate a point in N by a point in M
+    """
+
+    sup_man: Super
+    sub_man: Sub
+
+    @abstractmethod
+    def project[C: Coordinates](self, p: Point[C, Super]) -> Point[C, Sub]:
+        """Project point to subspace components."""
+        ...
+
+    @abstractmethod
+    def translate[C: Coordinates](
+        self, p: Point[C, Super], q: Point[C, Sub]
+    ) -> Point[C, Super]:
+        """Translate point by subspace components."""
+        ...
+
+
+@dataclass(frozen=True)
+class IdentitySubspace[M: Manifold](LinearSubspace[M, M]):
+    """Identity subspace relationship for a manifold M."""
+
+    def __init__(self, man: M):
+        super().__init__(man, man)
+
+    def project[C: Coordinates](self, p: Point[C, M]) -> Point[C, M]:
+        return p
+
+    def translate[C: Coordinates](self, p: Point[C, M], q: Point[C, M]) -> Point[C, M]:
+        return p + q
+
+
+@dataclass(frozen=True)
+class ProductSubspace[First: Manifold, Second: Manifold](
+    LinearSubspace[Product[First, Second], First]
+):
+    """Subspace relationship for a product manifold $M \\times N$."""
+
+    def __init__(self, fst_man: First, snd_man: Second):
+        super().__init__(Product(fst_man, snd_man), fst_man)
+
+    def project[C: Coordinates](
+        self, p: Point[C, Product[First, Second]]
+    ) -> Point[C, First]:
+        first, _ = self.sup_man.split_params(p)
+        return first
+
+    def translate[C: Coordinates](
+        self, p: Point[C, Product[First, Second]], q: Point[C, First]
+    ) -> Point[C, Product[First, Second]]:
+        first, second = self.sup_man.split_params(p)
+        return self.sup_man.join_params(first + q, second)
+
+
 ### Affine Maps ###
 
 
 @dataclass(frozen=True)
-class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Product[N, LinearMap[R, M, N]]):
+class AffineSubMap[
+    Rep: MatrixRep,
+    Domain: Manifold,
+    Codomain: Manifold,
+    Subcodomain: Manifold,
+](Product[Codomain, LinearMap[Rep, Domain, Subcodomain]]):
+    """Affine transformation targeting a subspace of the codomain."""
+
+    subspace: LinearSubspace[Codomain, Subcodomain]
+
+    def __call__[C: Coordinates](
+        self,
+        f: Point[C, Self],
+        p: Point[Dual[C], Domain],
+    ) -> Point[C, Codomain]:
+        """Apply the affine transformation."""
+        bias: Point[C, Codomain]
+        bias, linear = self.split_params(f)
+        subshift: Point[C, Subcodomain] = self.snd_man(linear, p)
+        return self.subspace.translate(bias, subshift)
+
+
+@dataclass(frozen=True)
+class AffineMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](
+    AffineSubMap[Rep, Domain, Codomain, Codomain]
+):
     """Affine transformation $f(x) = A \\cdot x + b$.
 
     Args:
@@ -119,36 +210,7 @@ class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Product[N, LinearMap[R, 
         codomain: Target manifold
     """
 
-    def __init__(self, rep: R, domain: M, codomain: N):
-        super().__init__(codomain, LinearMap(rep, domain, codomain))
-
-    def __call__[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        p: Point[Dual[C], M],
-    ) -> Point[C, N]:
-        """Apply the affine transformation."""
-        bias, linear = self.split_params(f)
-        transformed = self.second(linear, p)
-        return transformed + bias
-
-
-@dataclass(frozen=True)
-class AffineSubMap[R: MatrixRep, M: Manifold, N: Manifold, O: Manifold](
-    Product[Product[N, O], LinearMap[R, M, N]]
-):
-    """Affine transformation targeting the first component of a product manifold."""
-
-    def __init__(self, rep: R, domain: M, codomain: Product[N, O]):
-        super().__init__(codomain, LinearMap(rep, domain, codomain.first))
-
-    def __call__[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        p: Point[Dual[C], M],
-    ) -> Point[C, Product[N, O]]:
-        """Apply the affine transformation."""
-        bias, linear = self.split_params(f)
-        transformed = self.second(linear, p)
-        nbias, obias = self.first.split_params(bias)
-        return self.first.join_params(nbias + transformed, obias)
+    def __init__(self, rep: Rep, domain: Domain, codomain: Codomain):
+        super().__init__(
+            codomain, LinearMap(rep, domain, codomain), IdentitySubspace(codomain)
+        )
