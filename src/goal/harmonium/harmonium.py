@@ -44,9 +44,9 @@ class Harmonium[
     - $\\mathbf s_X(x)$ and $\\mathbf s_Z(z)$ are sufficient statistics of the observable and latent exponential families, respectively.
 
     Args:
-        obs_man: The observable exponential family
-        lat_man: The latent exponential family
-        int_man: Representation of the interaction matrix
+        fst_man: The observable exponential family
+        snd_man: The latent exponential family
+        trd_man: Representation of the interaction matrix
     """
 
     @property
