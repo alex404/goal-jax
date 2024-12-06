@@ -5,63 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Self
 
-import jax.numpy as jnp
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Point
+from ..manifold import Coordinates, Dual, Manifold, Point, Product
 from .matrix import MatrixRep, Square
 
-### Maps ###
-
-
-@dataclass(frozen=True)
-class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Manifold):
-    """Affine transformation $f(x) = A \\cdot x + b$.
-
-    Args:
-        rep: Matrix representation strategy
-        domain: Source manifold
-        codomain: Target manifold
-    """
-
-    rep: R
-    domain: M
-    codomain: N
-
-    @property
-    def dim(self) -> int:
-        """Total dimension includes linear map + bias parameters."""
-        return self.rep.num_params(self.shape) + self.codomain.dim
-
-    @property
-    def shape(self) -> tuple[int, int]:
-        """Shape of the linear component."""
-        return (self.codomain.dim, self.domain.dim)
-
-    def split_params[C: Coordinates](
-        self, p: Point[C, Self]
-    ) -> tuple[Point[C, N], Point[C, LinearMap[R, M, N]]]:
-        """Split parameters into bias and linear components."""
-        bias_dim = self.codomain.dim
-        return Point(p.params[:bias_dim]), Point(p.params[bias_dim:])
-
-    def join_params[C: Coordinates](
-        self,
-        bias: Point[C, N],
-        linear: Point[C, LinearMap[R, M, N]],
-    ) -> Point[C, Self]:
-        """Join bias and linear parameters."""
-        return Point(jnp.concatenate([bias.params, linear.params]))
-
-    def __call__[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        p: Point[Dual[C], M],
-    ) -> Point[C, N]:
-        """Apply the affine transformation."""
-        bias, linear = self.split_params(f)
-        transformed = self.rep.matvec(self.shape, linear.params, p.params)
-        return Point(transformed + bias.params)
+### Linear Maps ###
 
 
 @dataclass(frozen=True)
@@ -155,3 +104,51 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
     def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Log determinant (requires square matrix)."""
         return self.rep.logdet(self.shape, f.params)
+
+
+### Affine Maps ###
+
+
+@dataclass(frozen=True)
+class AffineMap[R: MatrixRep, M: Manifold, N: Manifold](Product[N, LinearMap[R, M, N]]):
+    """Affine transformation $f(x) = A \\cdot x + b$.
+
+    Args:
+        rep: Matrix representation strategy
+        domain: Source manifold
+        codomain: Target manifold
+    """
+
+    def __init__(self, rep: R, domain: M, codomain: N):
+        super().__init__(codomain, LinearMap(rep, domain, codomain))
+
+    def __call__[C: Coordinates](
+        self,
+        f: Point[C, Self],
+        p: Point[Dual[C], M],
+    ) -> Point[C, N]:
+        """Apply the affine transformation."""
+        bias, linear = self.split_params(f)
+        transformed = self.second(linear, p)
+        return transformed + bias
+
+
+@dataclass(frozen=True)
+class AffineSubMap[R: MatrixRep, M: Manifold, N: Manifold, O: Manifold](
+    Product[Product[N, O], LinearMap[R, M, N]]
+):
+    """Affine transformation targeting the first component of a product manifold."""
+
+    def __init__(self, rep: R, domain: M, codomain: Product[N, O]):
+        super().__init__(codomain, LinearMap(rep, domain, codomain.first))
+
+    def __call__[C: Coordinates](
+        self,
+        f: Point[C, Self],
+        p: Point[Dual[C], M],
+    ) -> Point[C, Product[N, O]]:
+        """Apply the affine transformation."""
+        bias, linear = self.split_params(f)
+        transformed = self.second(linear, p)
+        nbias, obias = self.first.split_params(bias)
+        return self.first.join_params(nbias + transformed, obias)

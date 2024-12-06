@@ -259,7 +259,7 @@ class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
     @property
     def data_dim(self) -> int:
         """Data dimension must match between location and shape manifolds."""
-        # assert self.first.data_dim == self.second.data_dim
+        assert self.first.data_dim == self.second.data_dim
         return self.first.data_dim
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:
@@ -269,5 +269,5 @@ class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
         return self.join_params(Point(loc_stats), Point(shape_stats)).params
 
     def log_base_measure(self, x: Array) -> Array:
-        """Base measure from location component, as both components share the same measure."""
+        """Base measure from location component, as both components should share the same measure."""
         return self.first.log_base_measure(x)
