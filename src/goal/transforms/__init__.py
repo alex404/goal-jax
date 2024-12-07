@@ -6,6 +6,8 @@ from .linear import (
     SquareMap,
     Subspace,
     TripleSubspace,
+    change_of_basis,
+    dual_composition,
 )
 from .matrix import (
     Diagonal,
@@ -36,4 +38,6 @@ __all__ = [
     "IdentitySubspace",
     "PairSubspace",
     "TripleSubspace",
+    "dual_composition",
+    "change_of_basis",
 ]

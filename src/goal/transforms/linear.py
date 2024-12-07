@@ -51,6 +51,10 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         """Apply the linear map to transform a point."""
         return Point(self.rep.matvec(self.shape, f.params, p.params))
 
+    def transpose_manifold(self) -> LinearMap[Rep, Codomain, Domain]:
+        """Transpose the linear map."""
+        return LinearMap(self.rep, self.cod_man, self.dom_man)
+
     def from_dense(self, matrix: Array) -> Point[Any, Self]:
         """Create point from dense matrix."""
         return Point(self.rep.from_dense(matrix))
@@ -67,6 +71,16 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
     ) -> Point[C, LinearMap[Rep, Codomain, Domain]]:
         """Transpose of the linear map."""
         return Point(self.rep.transpose(self.shape, f.params))
+
+    def transpose_apply[C: Coordinates](
+        self: LinearMap[Rep, Domain, Codomain],
+        f: Point[C, LinearMap[Rep, Domain, Codomain]],
+        p: Point[Dual[C], Codomain],
+    ) -> Point[C, Domain]:
+        """Apply the transpose of the linear map."""
+        trn_man = self.transpose_manifold()
+        f_trn = self.transpose(f)
+        return trn_man(f_trn, p)
 
     def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Convert to dense matrix representation."""

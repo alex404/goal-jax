@@ -10,15 +10,22 @@ from typing import Self
 import jax.numpy as jnp
 from jax import Array
 
-from ..exponential_family import (
+from ...exponential_family import (
     Backward,
     Mean,
     Natural,
 )
-from ..exponential_family.distributions import Categorical
-from ..manifold import Point
-from ..transforms import AffineMap, IdentitySubspace, LinearMap, Rectangular
-from .harmonium import BackwardConjugated
+from ...exponential_family.distributions import (
+    Categorical,
+)
+from ...manifold import Point
+from ...transforms import (
+    AffineMap,
+    IdentitySubspace,
+    LinearMap,
+    Rectangular,
+)
+from ..harmonium import BackwardConjugated
 
 
 @dataclass(frozen=True)
@@ -29,7 +36,7 @@ class Mixture[Observable: Backward](
 
     The joint distribution takes the form:
 
-    $$p(x,z) \\propto e^{\\theta_x \\cdot s_x(x)} e^{\\theta_z \\cdot s_z} e^{s_x(x) \\cdot \\Theta_{xz} \\cdot s_z}$$
+    $p(x,z) \\propto e^{\\theta_x \\cdot s_x(x) + \\theta_z \\cdot s_z + s_x(x) \\cdot \\Theta_{xz} \\cdot s_z}$
 
     where $s_z$ is the one-hot encoding of the categorical variable z.
 

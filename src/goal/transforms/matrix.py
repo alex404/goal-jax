@@ -30,6 +30,54 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+### Helper Functions ###
+
+
+def _matmat(
+    rep: MatrixRep,
+    shape: tuple[int, int],
+    params: Array,
+    right_rep: MatrixRep,
+    right_shape: tuple[int, int],
+    right_params: Array,
+) -> tuple[MatrixRep, tuple[int, int], Array]:
+    out_shape = (shape[0], right_shape[1])
+    out_rep: MatrixRep
+    out_params: Array
+    match rep:
+        case Identity():
+            out_rep = right_rep
+            out_params = right_params
+        case Scale():
+            out_rep = right_rep
+            out_params = params * right_params[0]
+        case Diagonal():
+            match right_rep:
+                case Diagonal():
+                    out_rep = Diagonal()
+                    out_params = params * right_params
+                case _:
+                    right_dense = right_rep.to_dense(right_shape, right_params)
+                    out_dense = params[None, :] * right_dense
+                    out_rep = Rectangular() if right_rep is Rectangular() else Square()
+                    out_params = out_rep.from_dense(out_dense)
+        case _:
+            match right_rep:
+                case Identity() | Scale() | Diagonal():
+                    return _matmat(
+                        right_rep, right_shape, right_params, rep, shape, params
+                    )
+                case _:
+                    left_dense = rep.to_dense(shape, params)
+                    right_dense = right_rep.to_dense(right_shape, right_params)
+                    out_rep = (
+                        Square() if out_shape[0] == out_shape[1] else Rectangular()
+                    )
+                    out_dense = left_dense @ right_dense
+                    out_params = out_rep.from_dense(out_dense)
+    return out_rep, out_shape, out_params
+
+
 ### Matrix Representations ###
 
 
@@ -44,6 +92,28 @@ class MatrixRep(ABC):
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         """Matrix-vector multiplication."""
         ...
+
+    @classmethod
+    def matmat(
+        cls,
+        shape: tuple[int, int],
+        params: Array,
+        right_rep: MatrixRep,
+        right_shape: tuple[int, int],
+        right_params: Array,
+    ) -> tuple[MatrixRep, tuple[int, int], Array]:
+        """Multiply matrices, returning optimal representation type and parameters.
+
+        Args:
+            shape: (m,n) shape of output matrix
+            left_params: Parameters of left matrix
+            right_rep: Matrix representation class of right matrix
+            right_params: Parameters of right matrix
+
+        Returns:
+            Tuple of optimal matrix representation type and parameters
+        """
+        return _matmat(cls(), shape, params, right_rep, right_shape, right_params)
 
     @classmethod
     @abstractmethod
