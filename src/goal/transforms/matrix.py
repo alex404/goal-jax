@@ -106,7 +106,7 @@ class MatrixRep(ABC):
 
         Args:
             shape: (m,n) shape of output matrix
-            left_params: Parameters of left matrix
+            params: Parameters of left matrix
             right_rep: Matrix representation class of right matrix
             right_params: Parameters of right matrix
 

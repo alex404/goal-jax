@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Any, Generic, Self, TypeVar
 
 from jax import Array
 
@@ -13,9 +13,13 @@ from .matrix import MatrixRep, Square
 
 ### Linear Maps ###
 
+Rep = TypeVar("Rep", bound="MatrixRep", covariant=True)
+Domain = TypeVar("Domain", bound="Manifold", contravariant=True)
+Codomain = TypeVar("Codomain", bound="Manifold", covariant=True)
+
 
 @dataclass(frozen=True)
-class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
+class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
     """Linear map between manifolds using a specific matrix representation.
 
     A linear map $L: V \\to W$ between vector spaces satisfies:
@@ -124,9 +128,12 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
 ### Linear Subspaces ###
 
+Super = TypeVar("Super", bound="Manifold", contravariant=True)
+Sub = TypeVar("Sub", bound="Manifold", contravariant=True)
+
 
 @dataclass(frozen=True)
-class Subspace[Super: Manifold, Sub: Manifold](ABC):
+class Subspace(Generic[Super, Sub], ABC):
     """Defines how a super-manifold $\\mathcal M$ can be projected onto a sub-manifold $\\mathcal N$.
 
     A subspace relationship between manifolds allows us to:

@@ -4,6 +4,7 @@ from .exponential_family import (
     Forward,
     Generative,
     LocationShape,
+    LocationSubspace,
     Mean,
     Natural,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "Mean",
     "Natural",
     "ExponentialFamily",
+    "LocationSubspace",
     "LocationShape",
     "Forward",
     "Backward",

@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Self
+from typing import Generic, Self, TypeVar
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold import Coordinates, Dual, Manifold, Pair, Point
+from ..transforms import Subspace
 
 ### Coordinate Systems ###
 
@@ -244,9 +245,11 @@ class Backward(Forward, ABC):
         )
 
 
-class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
-    Pair[L, S], ExponentialFamily
-):
+Location = TypeVar("Location", bound=ExponentialFamily, covariant=True)
+Shape = TypeVar("Shape", bound=ExponentialFamily, covariant=True)
+
+
+class LocationShape(Generic[Location, Shape], Pair[Location, Shape], ExponentialFamily):
     """A product exponential family with location and shape parameters.
 
     This structure captures distributions like the Normal distribution that decompose into a location parameter (e.g. mean) and a shape parameter (e.g. covariance).
@@ -271,3 +274,25 @@ class LocationShape[L: ExponentialFamily, S: ExponentialFamily](
     def log_base_measure(self, x: Array) -> Array:
         """Base measure from location component, as both components should share the same measure."""
         return self.fst_man.log_base_measure(x)
+
+
+@dataclass(frozen=True)
+class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
+    Subspace[LocationShape[Location, Shape], Location]
+):
+    """Subspace relationship for a product manifold $M \\times N$."""
+
+    def __init__(self, loc_man: Location, shp_man: Shape):
+        super().__init__(LocationShape(loc_man, shp_man), loc_man)
+
+    def project[C: Coordinates](
+        self, p: Point[C, LocationShape[Location, Shape]]
+    ) -> Point[C, Location]:
+        first, _ = self.sup_man.split_params(p)
+        return first
+
+    def translate[C: Coordinates](
+        self, p: Point[C, LocationShape[Location, Shape]], q: Point[C, Location]
+    ) -> Point[C, LocationShape[Location, Shape]]:
+        first, second = self.sup_man.split_params(p)
+        return self.sup_man.join_params(first + q, second)

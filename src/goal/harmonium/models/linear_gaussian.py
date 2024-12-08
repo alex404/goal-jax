@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Self
 
+import jax.numpy as jnp
 from jax import Array
 
 from ...exponential_family import (
-    Backward,
+    LocationSubspace,
+    Mean,
     Natural,
 )
 from ...exponential_family.distributions import (
@@ -29,20 +32,24 @@ from ..harmonium import BackwardConjugated
 ### Helper Functions ###
 
 
-def dual_composition[
+### Private Functions ###
+
+
+# TODO: Refactor helper functions with proper co/contravariance
+def _dual_composition[
     Coords: Coordinates,
-    LinearRep: MatrixRep,
-    CovarianceRep: PositiveDefinite,
+    OuterRep: MatrixRep,
+    InnerRep: MatrixRep,
 ](
-    h: LinearMap[LinearRep, Euclidean, Euclidean],
-    h_params: Point[Coords, LinearMap[LinearRep, Euclidean, Euclidean]],
-    g: Covariance[CovarianceRep],
-    g_params: Point[Dual[Coords], Covariance[CovarianceRep]],
-    f: LinearMap[LinearRep, Euclidean, Euclidean],
-    f_params: Point[Coords, LinearMap[LinearRep, Euclidean, Euclidean]],
+    h: LinearMap[OuterRep, Euclidean, Euclidean],
+    h_params: Point[Coords, LinearMap[OuterRep, Euclidean, Euclidean]],
+    g: LinearMap[InnerRep, Euclidean, Euclidean],
+    g_params: Point[Dual[Coords], LinearMap[InnerRep, Euclidean, Euclidean]],
+    f: LinearMap[OuterRep, Euclidean, Euclidean],
+    f_params: Point[Coords, LinearMap[OuterRep, Euclidean, Euclidean]],
 ) -> tuple[
-    Covariance[PositiveDefinite],
-    Point[Coords, Covariance[PositiveDefinite]],
+    LinearMap[PositiveDefinite, Euclidean, Euclidean],
+    Point[Coords, LinearMap[PositiveDefinite, Euclidean, Euclidean]],
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
 
@@ -54,15 +61,16 @@ def dual_composition[
     )
 
     # Then multiply h @ (g @ f)
-    _, _, params_hgf = h.rep.matmat(
+    rep_hgf, shape_hgf, params_hgf = h.rep.matmat(
         h.shape, h_params.params, rep_gf, shape_gf, params_gf
     )
+    out_man = Covariance(f.dom_man.dim, PositiveDefinite)
+    # params_hgf is is going to be square, but we know it can be positive definite
+    out_mat = out_man.from_dense(rep_hgf.to_dense(shape_hgf, params_hgf))
+    return out_man, out_mat
 
-    result_map = Covariance(f.dom_man.dim, PositiveDefinite)
-    return result_map, Point(params_hgf)
 
-
-def change_of_basis[
+def _change_of_basis[
     Coords: Coordinates,
     LinearRep: MatrixRep,
     CovRep: PositiveDefinite,
@@ -71,14 +79,17 @@ def change_of_basis[
     f_params: Point[Coords, LinearMap[LinearRep, Euclidean, Euclidean]],
     g: Covariance[CovRep],
     g_params: Point[Dual[Coords], Covariance[CovRep]],
-) -> Point[Coords, Covariance[PositiveDefinite]]:
+) -> tuple[
+    Covariance[PositiveDefinite],
+    Point[Coords, Covariance[PositiveDefinite]],
+]:
     """Linear change of basis transformation.
 
     Computes f.T @ g @ f where g is in dual coordinates.
     """
     f_trans = f.transpose_manifold()
     f_trans_params = f.transpose(f_params)
-    _, fgf = dual_composition(
+    fgf_man, fgf = _dual_composition(
         f_trans,
         f_trans_params,
         g,
@@ -86,14 +97,23 @@ def change_of_basis[
         f,
         f_params,
     )
-    return fgf
+    cov_man = Covariance(fgf_man.shape[0], PositiveDefinite)
+    return cov_man, Point(fgf.params)
 
 
 @dataclass(frozen=True)
-class LinearGaussianModel[Rep: PositiveDefinite, Observable: Backward](
-    BackwardConjugated[Rectangular, Normal[Rep], Euclidean, FullNormal, Euclidean],
+class LinearGaussianModel[
+    ObsRep: PositiveDefinite,
+](
+    BackwardConjugated[Rectangular, Normal[ObsRep], Euclidean, FullNormal, Euclidean],
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
+
+
+    Args:
+        obs_dim: Dimension of observable Gaussian
+        obs_rep: Representation of observable covariance
+        lat_dim: Dimension of latent Gaussian
 
     The joint distribution takes the form:
 
@@ -121,21 +141,32 @@ class LinearGaussianModel[Rep: PositiveDefinite, Observable: Backward](
     - $\\rho^m$ and $P^{\\sigma}$ are conjugation parameters for natural location and shape parameters
     """
 
+    def __init__(self, obs_dim: int, obs_rep: type[ObsRep], lat_dim: int):
+        """Initialize a linear Gaussian model."""
+        obs_man = Normal(obs_dim, obs_rep)
+        lat_man = Normal(lat_dim)
+        super().__init__(
+            obs_man,
+            lat_man,
+            LinearMap(Rectangular(), lat_man.loc_man, obs_man.loc_man),
+            LocationSubspace(obs_man.loc_man, obs_man.cov_man),
+            LocationSubspace(lat_man.loc_man, lat_man.cov_man),
+        )
+
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rectangular, Euclidean, Normal[Rep], Euclidean]
+            Natural, AffineMap[Rectangular, Euclidean, Normal[ObsRep], Euclidean]
         ],
     ) -> tuple[Array, Point[Natural, FullNormal]]:
         """Compute conjugation parameters for a linear model.
 
         Args:
-            aff: Linear model parameters in natural coordinates
+            lkl_params: Linear model parameters in natural coordinates
 
         Returns:
-            Tuple of:
-            - chi: Log normalization parameter
-            - rho: Natural parameters of conjugate prior
+            chi: Log normalization parameter
+            rho: Natural parameters of conjugate prior
         """
         obs_cov_man = self.obs_man.cov_man
         # Split affine map into parts
@@ -158,10 +189,56 @@ class LinearGaussianModel[Rep: PositiveDefinite, Observable: Backward](
 
         # Compute rho parameters
         rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
-        rho_shape = change_of_basis(self.int_man, int_mat, obs_cov_man, obs_sigma)
+        _, rho_shape = _change_of_basis(self.int_man, int_mat, obs_cov_man, obs_sigma)
         rho_shape *= 0.5
 
         # Join parameters into moment parameters
         rho = self.lat_man.join_params(rho_mean, rho_shape)
 
         return chi, rho
+
+    def to_natural_likelihood(
+        self, p: Point[Mean, Self]
+    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Normal[ObsRep], Euclidean]]:
+        obs_cov_man = self.obs_man.cov_man
+        lat_cov_man = self.lat_man.cov_man
+        (obs_means, lat_means, int_means) = self.split_params(p)
+        obs_mean, obs_cov = self.obs_man.to_mean_and_covariance(obs_means)
+        lat_mean, lat_cov = self.lat_man.to_mean_and_covariance(lat_means)
+        int_cov = int_means - self.int_man.outer_product(lat_mean, obs_mean)
+        lat_prs = lat_cov_man.inverse(lat_cov)
+        cob_man, cob = _change_of_basis(self.int_man, int_cov, lat_cov_man, lat_prs)
+        obs_prs = obs_cov_man.inverse(
+            obs_cov - obs_cov_man.from_dense(cob_man.to_dense(cob))
+        )
+        _, int_params = _dual_composition(
+            obs_cov_man,
+            obs_prs,
+            self.int_man,
+            expand_dual(int_cov),
+            lat_cov_man,
+            lat_prs,
+        )
+        obs_loc = obs_cov_man(obs_prs, expand_dual(obs_mean)) - self.int_man(
+            int_params, expand_dual(lat_mean)
+        )
+        obs_params = self.obs_man.join_natural_params(obs_loc, obs_prs)
+        return self.lkl_man.join_params(obs_params, int_params)
+
+    def to_normal[C: Coordinates](self, p: Point[C, Self]) -> Point[C, FullNormal]:
+        obs_params, lat_params, int_params = self.split_params(p)
+        obs_loc, obs_shape = self.obs_man.split_params(obs_params)
+        lat_loc, lat_shape = self.lat_man.split_params(lat_params)
+        joint_loc: Point[C, Euclidean] = Point(
+            jnp.concatenate([obs_loc.params, lat_loc.params])
+        )
+        obs_shape_array = self.obs_man.cov_man.to_dense(obs_shape)
+        lat_shape_array = self.lat_man.cov_man.to_dense(lat_shape)
+        int_array = self.int_man.to_dense(int_params)
+        joint_shape_array = jnp.block(
+            [[obs_shape_array, int_array], [int_array.T, lat_shape_array]]
+        )
+        nor_man = Normal(self.data_dim)
+        return nor_man.join_params(
+            joint_loc, nor_man.cov_man.from_dense(joint_shape_array)
+        )
