@@ -205,9 +205,11 @@ class LinearGaussianModel[
         (obs_means, lat_means, int_means) = self.split_params(p)
         obs_mean, obs_cov = self.obs_man.to_mean_and_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.to_mean_and_covariance(lat_means)
-        int_cov = int_means - self.int_man.outer_product(lat_mean, obs_mean)
+        int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
         lat_prs = lat_cov_man.inverse(lat_cov)
-        cob_man, cob = _change_of_basis(self.int_man, int_cov, lat_cov_man, lat_prs)
+        int_man_tps = self.int_man.transpose_manifold()
+        int_cov_tps = self.int_man.transpose(int_cov)
+        cob_man, cob = _change_of_basis(int_man_tps, int_cov_tps, lat_cov_man, lat_prs)
         obs_prs = obs_cov_man.inverse(
             obs_cov - obs_cov_man.from_dense(cob_man.to_dense(cob))
         )
