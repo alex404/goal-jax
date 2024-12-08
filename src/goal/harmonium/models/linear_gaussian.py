@@ -48,7 +48,7 @@ def _dual_composition[
     f: LinearMap[OuterRep, Euclidean, Euclidean],
     f_params: Point[Coords, LinearMap[OuterRep, Euclidean, Euclidean]],
 ) -> tuple[
-    LinearMap[PositiveDefinite, Euclidean, Euclidean],
+    LinearMap[MatrixRep, Euclidean, Euclidean],
     Point[Coords, LinearMap[PositiveDefinite, Euclidean, Euclidean]],
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
@@ -64,10 +64,9 @@ def _dual_composition[
     rep_hgf, shape_hgf, params_hgf = h.rep.matmat(
         h.shape, h_params.params, rep_gf, shape_gf, params_gf
     )
-    out_man = Covariance(f.dom_man.dim, PositiveDefinite)
+    out_man = LinearMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
     # params_hgf is is going to be square, but we know it can be positive definite
-    out_mat = out_man.from_dense(rep_hgf.to_dense(shape_hgf, params_hgf))
-    return out_man, out_mat
+    return out_man, Point(params_hgf)
 
 
 def _change_of_basis[
@@ -89,7 +88,7 @@ def _change_of_basis[
     """
     f_trans = f.transpose_manifold()
     f_trans_params = f.transpose(f_params)
-    fgf_man, fgf = _dual_composition(
+    fgf_man, fgf_params = _dual_composition(
         f_trans,
         f_trans_params,
         g,
@@ -98,7 +97,8 @@ def _change_of_basis[
         f_params,
     )
     cov_man = Covariance(fgf_man.shape[0], PositiveDefinite)
-    return cov_man, Point(fgf.params)
+    out_mat = cov_man.from_dense(fgf_man.to_dense(fgf_params))
+    return cov_man, out_mat
 
 
 @dataclass(frozen=True)
