@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..exponential_family import (
+from .exponential_family import (
     Backward,
     ExponentialFamily,
     Forward,
@@ -18,8 +18,9 @@ from ..exponential_family import (
     Mean,
     Natural,
 )
-from ..manifold import Point, Triple, expand_dual
-from ..transforms import AffineMap, LinearMap, MatrixRep, Subspace
+from .linear import AffineMap, LinearMap
+from .manifold import Point, Subspace, Triple, expand_dual
+from .rep.matrix import MatrixRep
 
 
 @dataclass(frozen=True)

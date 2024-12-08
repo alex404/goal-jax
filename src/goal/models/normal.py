@@ -9,21 +9,20 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.manifold import Coordinates, Point, reduce_dual
-
-from ...exponential_family import (
+from ..geometry import (
     Backward,
+    Coordinates,
+    Diagonal,
     ExponentialFamily,
+    Identity,
     LocationShape,
     Mean,
     Natural,
-)
-from ...transforms import (
-    Diagonal,
-    Identity,
+    Point,
     PositiveDefinite,
     Scale,
     SquareMap,
+    reduce_dual,
 )
 
 type FullNormal = Normal[PositiveDefinite]

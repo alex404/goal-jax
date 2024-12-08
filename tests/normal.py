@@ -5,13 +5,11 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.exponential_family import Mean
-from goal.exponential_family.distributions import (
+from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale, reduce_dual
+from goal.models import (
     Euclidean,
     Normal,
 )
-from goal.manifold import Point, reduce_dual
-from goal.transforms import Diagonal, PositiveDefinite, Scale
 
 
 @pytest.fixture

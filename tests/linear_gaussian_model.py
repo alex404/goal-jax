@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from goal.exponential_family.distributions import Normal
-from goal.harmonium.models import LinearGaussianModel
-from goal.transforms import Diagonal, PositiveDefinite, Scale
+from goal.geometry import Diagonal, PositiveDefinite, Scale
+from goal.models import LinearGaussianModel, Normal
 
 
 def test_normal_conversion():

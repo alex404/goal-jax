@@ -1,6 +1,6 @@
 """Core definitions for exponential families and their parameterizations.
 
-This module defines the structure of an [`ExponentialFamily`][goal.exponential_family.exponential_family.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.exponential_family.exponential_family.Forward.log_partition_function] and the [`negative_entropy`][goal.exponential_family.Backward.negative_entropy].
+This module defines the structure of an [`ExponentialFamily`][goal.geometry.exponential_family.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.geometry.exponential_family.Forward.log_partition_function] and the [`negative_entropy`][goal.geometry.Backward.negative_entropy].
 """
 
 from __future__ import annotations
@@ -13,8 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Pair, Point
-from ..transforms import Subspace
+from .manifold import Coordinates, Dual, Manifold, Pair, Point, Subspace
 
 ### Coordinate Systems ###
 

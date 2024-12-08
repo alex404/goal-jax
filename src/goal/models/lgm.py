@@ -8,26 +8,27 @@ from typing import Self
 import jax.numpy as jnp
 from jax import Array
 
-from ...exponential_family import (
+from ..geometry import (
+    AffineMap,
+    BackwardConjugated,
+    Coordinates,
+    Dual,
+    LinearMap,
     LocationSubspace,
+    MatrixRep,
     Mean,
     Natural,
+    Point,
+    PositiveDefinite,
+    Rectangular,
+    expand_dual,
 )
-from ...exponential_family.distributions import (
+from .normal import (
     Covariance,
     Euclidean,
     FullNormal,
     Normal,
 )
-from ...manifold import Coordinates, Dual, Point, expand_dual
-from ...transforms import (
-    AffineMap,
-    LinearMap,
-    MatrixRep,
-    PositiveDefinite,
-    Rectangular,
-)
-from ..harmonium import BackwardConjugated
 
 ### Helper Functions ###
 

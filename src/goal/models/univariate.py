@@ -9,13 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.manifold import Point
-
-from ...exponential_family import (
-    Backward,
-    Mean,
-    Natural,
-)
+from ..geometry import Backward, Mean, Natural, Point
 
 
 @dataclass(frozen=True)

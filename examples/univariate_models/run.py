@@ -7,8 +7,8 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.exponential_family import Mean, Natural
-from goal.exponential_family.distributions import (
+from goal.geometry import Mean, Natural, Point
+from goal.models import (
     Categorical,
     Euclidean,
     FullCovariance,
@@ -16,7 +16,6 @@ from goal.exponential_family.distributions import (
     Normal,
     Poisson,
 )
-from goal.manifold import Point
 
 from .common import (
     CategoricalResults,

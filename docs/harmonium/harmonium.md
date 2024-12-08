@@ -1,3 +1,0 @@
-# Harmoniums
-
-::: goal.harmonium.harmonium

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Generic, Self, TypeVar
 
 from jax import Array
 
-from ..manifold import Coordinates, Dual, Manifold, Pair, Point, Triple
-from .matrix import MatrixRep, Square
+from .manifold import Coordinates, Dual, Manifold, Pair, Point, Subspace
+from .rep.matrix import MatrixRep, Square
 
 ### Linear Maps ###
 
@@ -124,95 +123,6 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
     def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Log determinant (requires square matrix)."""
         return self.rep.logdet(self.shape, f.params)
-
-
-### Linear Subspaces ###
-
-Super = TypeVar("Super", bound="Manifold", contravariant=True)
-Sub = TypeVar("Sub", bound="Manifold", contravariant=True)
-
-
-@dataclass(frozen=True)
-class Subspace(Generic[Super, Sub], ABC):
-    """Defines how a super-manifold $\\mathcal M$ can be projected onto a sub-manifold $\\mathcal N$.
-
-    A subspace relationship between manifolds allows us to:
-    1. Project a point in the super manifold $\\mathcal M$ to its $\\mathcal N$-manifold components
-    2. Partially translate a point in $\\mathcal M$ by a point in $\\mathcal N$
-    """
-
-    sup_man: Super
-    sub_man: Sub
-
-    @abstractmethod
-    def project[C: Coordinates](self, p: Point[C, Super]) -> Point[C, Sub]:
-        """Project point to subspace components."""
-        ...
-
-    @abstractmethod
-    def translate[C: Coordinates](
-        self, p: Point[C, Super], q: Point[C, Sub]
-    ) -> Point[C, Super]:
-        """Translate point by subspace components."""
-        ...
-
-
-@dataclass(frozen=True)
-class IdentitySubspace[M: Manifold](Subspace[M, M]):
-    """Identity subspace relationship for a manifold M."""
-
-    def __init__(self, man: M):
-        super().__init__(man, man)
-
-    def project[C: Coordinates](self, p: Point[C, M]) -> Point[C, M]:
-        return p
-
-    def translate[C: Coordinates](self, p: Point[C, M], q: Point[C, M]) -> Point[C, M]:
-        return p + q
-
-
-@dataclass(frozen=True)
-class PairSubspace[First: Manifold, Second: Manifold](
-    Subspace[Pair[First, Second], First]
-):
-    """Subspace relationship for a product manifold $M \\times N$."""
-
-    def __init__(self, fst_man: First, snd_man: Second):
-        super().__init__(Pair(fst_man, snd_man), fst_man)
-
-    def project[C: Coordinates](
-        self, p: Point[C, Pair[First, Second]]
-    ) -> Point[C, First]:
-        first, _ = self.sup_man.split_params(p)
-        return first
-
-    def translate[C: Coordinates](
-        self, p: Point[C, Pair[First, Second]], q: Point[C, First]
-    ) -> Point[C, Pair[First, Second]]:
-        first, second = self.sup_man.split_params(p)
-        return self.sup_man.join_params(first + q, second)
-
-
-@dataclass(frozen=True)
-class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
-    Subspace[Triple[First, Second, Third], First]
-):
-    """Subspace relationship for a product manifold $M \\times N$."""
-
-    def __init__(self, fst_man: First, snd_man: Second, trd_man: Third):
-        super().__init__(Triple(fst_man, snd_man, trd_man), fst_man)
-
-    def project[C: Coordinates](
-        self, p: Point[C, Triple[First, Second, Third]]
-    ) -> Point[C, First]:
-        first, _, _ = self.sup_man.split_params(p)
-        return first
-
-    def translate[C: Coordinates](
-        self, p: Point[C, Triple[First, Second, Third]], q: Point[C, First]
-    ) -> Point[C, Triple[First, Second, Third]]:
-        first, second, third = self.sup_man.split_params(p)
-        return self.sup_man.join_params(first + q, second, third)
 
 
 ### Affine Maps ###

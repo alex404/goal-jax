@@ -10,22 +10,20 @@ from typing import Self
 import jax.numpy as jnp
 from jax import Array
 
-from ...exponential_family import (
-    Backward,
-    Mean,
-    Natural,
-)
-from ...exponential_family.distributions import (
-    Categorical,
-)
-from ...manifold import Point
-from ...transforms import (
+from ..geometry import (
     AffineMap,
+    Backward,
+    BackwardConjugated,
     IdentitySubspace,
     LinearMap,
+    Mean,
+    Natural,
+    Point,
     Rectangular,
 )
-from ..harmonium import BackwardConjugated
+from .univariate import (
+    Categorical,
+)
 
 
 @dataclass(frozen=True)

@@ -9,16 +9,14 @@ import numpy as np
 from jax import Array
 from sklearn.mixture import GaussianMixture
 
-from goal.exponential_family import Mean, Natural
-from goal.exponential_family.distributions import (
+from goal.geometry import Diagonal, Mean, Natural, Point, PositiveDefinite, Scale
+from goal.models import (
     Categorical,
     Euclidean,
     FullNormal,
+    Mixture,
     Normal,
 )
-from goal.harmonium.models import Mixture
-from goal.manifold import Point
-from goal.transforms import Diagonal, PositiveDefinite, Scale
 
 from .common import MixtureResults, analysis_path
 

@@ -10,17 +10,17 @@ theme:
 nav:
   - Home: index.md
   - API:
-    - Manifolds: manifold.md
-    - Transforms:
-      - Matrix Representations: transforms/matrix.md
-      - Linear Maps: transforms/linear.md
-    - Exponential Families:
-      - Top-Level: exponential_family/exponential_family.md
-      - Distributions: exponential_family/distributions.md
-    - Harmoniums:
-      - Top-Level: harmonium/harmonium.md
-      - Models: harmonium/models.md
-
+    - Geometry:
+      - Manifolds: geometry/manifold.md
+      - Matrix Representations: geometry/rep/matrix.md
+      - Linear Maps: geometry/linear.md
+      - Exponential Families: geometry/exponential_family.md
+      - Harmoniums: geometry/harmonium.md
+    - Models: 
+      - Univariate: models/univariate.md
+      - Normal: models/normal.md
+      - Mixture: models/mixture.md
+      - Linear Gaussian Model: models/lgm.md
 
 plugins:
   - search
