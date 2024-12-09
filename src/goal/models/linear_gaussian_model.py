@@ -36,7 +36,6 @@ from .normal import (
 ### Private Functions ###
 
 
-# TODO: Refactor helper functions with proper co/contravariance
 def _dual_composition[
     Coords: Coordinates,
     OuterRep: MatrixRep,
@@ -104,9 +103,9 @@ def _change_of_basis[
 
 @dataclass(frozen=True)
 class LinearGaussianModel[
-    ObsRep: PositiveDefinite,
+    Rep: PositiveDefinite,
 ](
-    BackwardConjugated[Rectangular, Normal[ObsRep], Euclidean, FullNormal, Euclidean],
+    BackwardConjugated[Rectangular, Normal[Rep], Euclidean, FullNormal, Euclidean],
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
 
@@ -142,7 +141,7 @@ class LinearGaussianModel[
     - $\\rho^m$ and $P^{\\sigma}$ are conjugation parameters for natural location and shape parameters
     """
 
-    def __init__(self, obs_dim: int, obs_rep: type[ObsRep], lat_dim: int):
+    def __init__(self, obs_dim: int, obs_rep: type[Rep], lat_dim: int):
         """Initialize a linear Gaussian model."""
         obs_man = Normal(obs_dim, obs_rep)
         lat_man = Normal(lat_dim)
@@ -157,7 +156,7 @@ class LinearGaussianModel[
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rectangular, Euclidean, Normal[ObsRep], Euclidean]
+            Natural, AffineMap[Rectangular, Euclidean, Normal[Rep], Euclidean]
         ],
     ) -> tuple[Array, Point[Natural, FullNormal]]:
         """Compute conjugation parameters for a linear model.
@@ -169,38 +168,52 @@ class LinearGaussianModel[
             chi: Log normalization parameter
             rho: Natural parameters of conjugate prior
         """
+        # Get parameters
         obs_cov_man = self.obs_man.cov_man
-        # Split affine map into parts
         obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
-
-        # Get Gaussian parameters
-        obs_loc, obs_prec = self.obs_man.split_params(obs_bias)
-
-        # Compute inverse and log determinant
-        obs_sigma = obs_cov_man.inverse(obs_prec)
-        log_det = obs_cov_man.logdet(obs_sigma)
+        obs_loc, obs_prec = self.obs_man.split_natural_params(obs_bias)
 
         # Intermediate computations
+        obs_sigma = obs_cov_man.inverse(obs_prec)
+        log_det = obs_cov_man.logdet(obs_sigma)
         obs_mean = obs_cov_man(obs_sigma, expand_dual(obs_loc))
-        chi = (
-            self.obs_man.loc_man.dot(obs_mean, obs_cov_man(obs_prec, obs_mean))
-            + log_det
-        )
-        chi *= 0.5
 
-        # Compute rho parameters
+        # Conjugation parameters
+        chi = 0.5 * self.obs_man.loc_man.dot(obs_mean, obs_cov_man(obs_prec, obs_mean))
+        chi += 0.5 * log_det
         rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
         _, rho_shape = _change_of_basis(self.int_man, int_mat, obs_cov_man, obs_sigma)
-        rho_shape *= 0.5
+        rho_shape *= -1
 
         # Join parameters into moment parameters
-        rho = self.lat_man.join_params(rho_mean, rho_shape)
+        rho = self.lat_man.join_natural_params(rho_mean, rho_shape)
 
         return chi, rho
 
+    # linearModelConjugationParameters ::
+    #     forall n f x s.
+    #     (KnownCovariance f n, GeneralizedGaussian Natural x s) =>
+    #     Natural # LinearModel f n x ->
+    #     (Double, Natural # MomentParameters x s)
+    # {-# INLINE linearModelConjugationParameters #-}
+    # linearModelConjugationParameters aff =
+    #     let (thts, tht3) = split aff
+    #         tht2 :: Natural # CovarianceMatrix f n
+    #         (tht1, tht2) = splitGaussian thts
+    #         (prec, lndt, _) = inverseLogDeterminant . negate $ 2 .> tht2
+    #         itht2 = -2 .> prec
+    #         tht21 = itht2 >.> tht1
+    #         chi = -0.25 * (tht1 <.> tht21) - 0.5 * lndt
+    #         rho1 = -0.5 .> (transpose tht3 >.> tht21)
+    #         rho2 :: Natural # Linear (CovarianceRep s) x x
+    #         rho2 = fromTensor $ -0.25 .> changeOfBasis tht3 itht2
+    #         rho = joinGaussian rho1 rho2
+    #      in (chi, rho)
+    #
+
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Normal[ObsRep], Euclidean]]:
+    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Normal[Rep], Euclidean]]:
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
         (obs_means, lat_means, int_means) = self.split_params(p)
@@ -245,3 +258,35 @@ class LinearGaussianModel[
         return nor_man.join_params(
             joint_loc, nor_man.cov_man.from_dense(joint_shape_array)
         )
+
+    def from_normal[C: Coordinates](self, p: Point[C, FullNormal]) -> Point[C, Self]:
+        # Extract joint location and shape parameters
+        nor_loc, nor_shape = Normal(self.data_dim).split_params(p)
+        joint_array = self.lat_man.cov_man.to_dense(nor_shape)
+
+        # Split location vector into observable and latent parts
+        obs_loc_array = nor_loc.params[: self.obs_man.loc_man.data_dim]
+        lat_loc_array = nor_loc.params[self.obs_man.loc_man.data_dim :]
+        obs_loc: Point[C, Euclidean] = Point(obs_loc_array)
+        lat_loc: Point[C, Euclidean] = Point(lat_loc_array)
+
+        # Split joint shape array into observable, interaction, and latent parts
+        obs_shape_array = joint_array[
+            : self.obs_man.loc_man.data_dim, : self.obs_man.loc_man.data_dim
+        ]
+        lat_shape_array = joint_array[
+            self.obs_man.loc_man.data_dim :, self.obs_man.loc_man.data_dim :
+        ]
+        int_array = joint_array[
+            : self.obs_man.loc_man.data_dim, self.obs_man.loc_man.data_dim :
+        ]
+
+        # Convert arrays back to appropriate manifold points
+        obs_shape = self.obs_man.cov_man.from_dense(obs_shape_array)
+        lat_shape = self.lat_man.cov_man.from_dense(lat_shape_array)
+        int_params = self.int_man.from_dense(int_array)
+
+        # Join parameters and return
+        obs_params = self.obs_man.join_params(obs_loc, obs_shape)
+        lat_params = self.lat_man.join_params(lat_loc, lat_shape)
+        return self.join_params(obs_params, lat_params, int_params)

@@ -106,7 +106,7 @@ class Harmonium[
         Returns:
             Array of sufficient statistics
         """
-        obs_x = x[..., self.obs_man.data_dim :]
+        obs_x = x[: self.obs_man.data_dim]
         lat_x = x[self.obs_man.data_dim :]
 
         obs_bias = self.obs_man.sufficient_statistic(obs_x)

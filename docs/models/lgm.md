@@ -1,3 +1,3 @@
 # Exponential Family Models
 
-::: goal.models.lgm
+::: goal.models.linear_gaussian_model

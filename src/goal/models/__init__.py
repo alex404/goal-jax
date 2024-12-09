@@ -28,7 +28,7 @@ Example:
    >>> point = model.random_point()  # Sample a random point on manifold
 """
 
-from .lgm import (
+from .linear_gaussian_model import (
     LinearGaussianModel,
 )
 from .mixture import (
