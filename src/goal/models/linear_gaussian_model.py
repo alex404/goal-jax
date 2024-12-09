@@ -224,52 +224,54 @@ class LinearGaussianModel[
         obs_params = self.obs_man.join_natural_params(obs_loc, obs_prs)
         return self.lkl_man.join_params(obs_params, int_params)
 
-    def to_normal[C: Coordinates](self, p: Point[C, Self]) -> Point[C, FullNormal]:
-        obs_params, lat_params, int_params = self.split_params(p)
-        obs_loc, obs_shape = self.obs_man.split_params(obs_params)
-        lat_loc, lat_shape = self.lat_man.split_params(lat_params)
-        joint_loc: Point[C, Euclidean] = Point(
-            jnp.concatenate([obs_loc.params, lat_loc.params])
+    def to_normal(self, p: Point[Mean, Self]) -> Point[Mean, FullNormal]:
+        """Convert a linear model to a normal model."""
+        obs_means, lat_means, int_means = self.split_params(p)
+        obs_mean, obs_cov = self.obs_man.to_mean_and_covariance(obs_means)
+        lat_mean, lat_cov = self.lat_man.to_mean_and_covariance(lat_means)
+        nor_mean: Point[Mean, Euclidean] = Point(
+            jnp.concatenate([obs_mean.params, lat_mean.params])
         )
-        obs_shape_array = self.obs_man.cov_man.to_dense(obs_shape)
-        lat_shape_array = self.lat_man.cov_man.to_dense(lat_shape)
-        int_array = self.int_man.to_dense(int_params)
+        obs_shape_array = self.obs_man.cov_man.to_dense(obs_cov)
+        lat_shape_array = self.lat_man.cov_man.to_dense(lat_cov)
+        int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
+        int_array = self.int_man.to_dense(int_cov)
         joint_shape_array = jnp.block(
             [[obs_shape_array, int_array], [int_array.T, lat_shape_array]]
         )
         nor_man = Normal(self.data_dim)
-        return nor_man.join_params(
-            joint_loc, nor_man.cov_man.from_dense(joint_shape_array)
+        return nor_man.from_mean_and_covariance(
+            nor_mean, nor_man.cov_man.from_dense(joint_shape_array)
         )
 
-    def from_normal[C: Coordinates](self, p: Point[C, FullNormal]) -> Point[C, Self]:
-        # Extract joint location and shape parameters
-        nor_loc, nor_shape = Normal(self.data_dim).split_params(p)
-        joint_array = self.lat_man.cov_man.to_dense(nor_shape)
-
-        # Split location vector into observable and latent parts
-        obs_loc_array = nor_loc.params[: self.obs_man.loc_man.data_dim]
-        lat_loc_array = nor_loc.params[self.obs_man.loc_man.data_dim :]
-        obs_loc: Point[C, Euclidean] = Point(obs_loc_array)
-        lat_loc: Point[C, Euclidean] = Point(lat_loc_array)
-
-        # Split joint shape array into observable, interaction, and latent parts
-        obs_shape_array = joint_array[
-            : self.obs_man.loc_man.data_dim, : self.obs_man.loc_man.data_dim
-        ]
-        lat_shape_array = joint_array[
-            self.obs_man.loc_man.data_dim :, self.obs_man.loc_man.data_dim :
-        ]
-        int_array = joint_array[
-            : self.obs_man.loc_man.data_dim, self.obs_man.loc_man.data_dim :
-        ]
-
-        # Convert arrays back to appropriate manifold points
-        obs_shape = self.obs_man.cov_man.from_dense(obs_shape_array)
-        lat_shape = self.lat_man.cov_man.from_dense(lat_shape_array)
-        int_params = self.int_man.from_dense(int_array)
-
-        # Join parameters and return
-        obs_params = self.obs_man.join_params(obs_loc, obs_shape)
-        lat_params = self.lat_man.join_params(lat_loc, lat_shape)
-        return self.join_params(obs_params, lat_params, int_params)
+    # def from_normal[C: Coordinates](self, p: Point[C, FullNormal]) -> Point[C, Self]:
+    #     # Extract joint location and shape parameters
+    #     nor_loc, nor_shape = Normal(self.data_dim).split_params(p)
+    #     joint_array = self.lat_man.cov_man.to_dense(nor_shape)
+    #
+    #     # Split location vector into observable and latent parts
+    #     obs_loc_array = nor_loc.params[: self.obs_man.loc_man.data_dim]
+    #     lat_loc_array = nor_loc.params[self.obs_man.loc_man.data_dim :]
+    #     obs_loc: Point[C, Euclidean] = Point(obs_loc_array)
+    #     lat_loc: Point[C, Euclidean] = Point(lat_loc_array)
+    #
+    #     # Split joint shape array into observable, interaction, and latent parts
+    #     obs_shape_array = joint_array[
+    #         : self.obs_man.loc_man.data_dim, : self.obs_man.loc_man.data_dim
+    #     ]
+    #     lat_shape_array = joint_array[
+    #         self.obs_man.loc_man.data_dim :, self.obs_man.loc_man.data_dim :
+    #     ]
+    #     int_array = joint_array[
+    #         : self.obs_man.loc_man.data_dim, self.obs_man.loc_man.data_dim :
+    #     ]
+    #
+    #     # Convert arrays back to appropriate manifold points
+    #     obs_shape = self.obs_man.cov_man.from_dense(obs_shape_array)
+    #     lat_shape = self.lat_man.cov_man.from_dense(lat_shape_array)
+    #     int_params = self.int_man.from_dense(int_array)
+    #
+    #     # Join parameters and return
+    #     obs_params = self.obs_man.join_params(obs_loc, obs_shape)
+    #     lat_params = self.lat_man.join_params(lat_loc, lat_shape)
+    #     return self.join_params(obs_params, lat_params, int_params)

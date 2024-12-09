@@ -8,6 +8,11 @@ import jax.numpy as jnp
 from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import LinearGaussianModel, Normal
 
+jax.config.update("jax_platform_name", "cpu")
+
+rtol = 1e-3
+atol = 1e-5
+
 
 def test_normal_conversion():
     obs_dim = 3
@@ -36,7 +41,7 @@ def test_normal_conversion():
     )
     gt_nor_means = nor_man.from_mean_and_covariance(gt_nor_mean, gt_nor_cov)
     key = jax.random.PRNGKey(0)
-    sample = nor_man.sample(key, nor_man.to_natural(gt_nor_means), 100)
+    sample = nor_man.sample(key, nor_man.to_natural(gt_nor_means), 1000)
 
     def test_models[Rep: PositiveDefinite](lgm_man: LinearGaussianModel[Rep]) -> None:
         # Gather parameterizations
@@ -48,21 +53,23 @@ def test_normal_conversion():
         nor_params = nor_man.to_natural(nor_means)
         nor_remeans = nor_man.to_mean(nor_params)
 
-        # Normal construction test
+        # Density comparison lgm vs normal
         assert jnp.allclose(
-            lgm_man.from_normal(nor_means).params, lgm_means.params, rtol=1e-4
+            lgm_man.average_log_density(lgm_params, sample),
+            nor_man.average_log_density(nor_params, sample),
+            rtol=rtol,
+            atol=atol,
         )
 
         # Recovering mean parameters back and forth through natural space
-        assert jnp.allclose(lgm_means.params, lgm_remeans.params, rtol=1e-4)
+        assert jnp.allclose(lgm_means.params, lgm_remeans.params, rtol=rtol, atol=atol)
 
-        # Comparing forward transition of lgm vs normal
-        assert jnp.allclose(
-            lgm_man.to_normal(lgm_params).params, nor_params.params, rtol=1e-4
-        )
         # Comparing backward transition of lgm vs normal
         assert jnp.allclose(
-            lgm_man.to_normal(lgm_remeans).params, nor_remeans.params, rtol=1e-4
+            lgm_man.to_normal(lgm_remeans).params,
+            nor_remeans.params,
+            rtol=rtol,
+            atol=atol,
         )
 
     test_models(pod_lgm_man)

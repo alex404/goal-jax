@@ -11,6 +11,8 @@ from goal.models import (
     Normal,
 )
 
+jax.config.update("jax_platform_name", "cpu")
+
 
 @pytest.fixture
 def sample_data() -> Array:
