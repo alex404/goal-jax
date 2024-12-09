@@ -50,7 +50,7 @@ def _matmat(
             out_params = right_params
         case Scale():
             out_rep = right_rep
-            out_params = params * right_params[0]
+            out_params = params[0] * right_params
         case Diagonal():
             match right_rep:
                 case Diagonal():
@@ -58,14 +58,16 @@ def _matmat(
                     out_params = params * right_params
                 case _:
                     right_dense = right_rep.to_dense(right_shape, right_params)
-                    out_dense = params[None, :] * right_dense
+                    out_dense = params[:, None] * right_dense
                     out_rep = Rectangular() if right_rep is Rectangular() else Square()
                     out_params = out_rep.from_dense(out_dense)
         case _:
             match right_rep:
                 case Identity() | Scale() | Diagonal():
+                    right_params_t = right_rep.transpose(right_shape, right_params)
+                    right_shape_t = (right_shape[1], right_shape[0])
                     return _matmat(
-                        right_rep, right_shape, right_params, rep, shape, params
+                        right_rep, right_shape_t, right_params_t, rep, shape, params
                     )
                 case _:
                     left_dense = rep.to_dense(shape, params)

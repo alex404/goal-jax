@@ -39,6 +39,7 @@ def test_normal_conversion():
     sample = nor_man.sample(key, nor_man.to_natural(gt_nor_means), 100)
 
     def test_models[Rep: PositiveDefinite](lgm_man: LinearGaussianModel[Rep]) -> None:
+        # Gather parameterizations
         lgm_means = lgm_man.average_sufficient_statistic(sample)
         lgm_params = lgm_man.to_natural(lgm_means)
         lgm_remeans = lgm_man.to_mean(lgm_params)
@@ -46,6 +47,11 @@ def test_normal_conversion():
         nor_means = lgm_man.to_normal(lgm_means)
         nor_params = nor_man.to_natural(nor_means)
         nor_remeans = nor_man.to_mean(nor_params)
+
+        # Normal construction test
+        assert jnp.allclose(
+            lgm_man.from_normal(nor_means).params, lgm_means.params, rtol=1e-4
+        )
 
         # Recovering mean parameters back and forth through natural space
         assert jnp.allclose(lgm_means.params, lgm_remeans.params, rtol=1e-4)

@@ -65,7 +65,6 @@ def _dual_composition[
         h.shape, h_params.params, rep_gf, shape_gf, params_gf
     )
     out_man = LinearMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
-    # params_hgf is is going to be square, but we know it can be positive definite
     return out_man, Point(params_hgf)
 
 
@@ -190,43 +189,24 @@ class LinearGaussianModel[
 
         return chi, rho
 
-    # linearModelConjugationParameters ::
-    #     forall n f x s.
-    #     (KnownCovariance f n, GeneralizedGaussian Natural x s) =>
-    #     Natural # LinearModel f n x ->
-    #     (Double, Natural # MomentParameters x s)
-    # {-# INLINE linearModelConjugationParameters #-}
-    # linearModelConjugationParameters aff =
-    #     let (thts, tht3) = split aff
-    #         tht2 :: Natural # CovarianceMatrix f n
-    #         (tht1, tht2) = splitGaussian thts
-    #         (prec, lndt, _) = inverseLogDeterminant . negate $ 2 .> tht2
-    #         itht2 = -2 .> prec
-    #         tht21 = itht2 >.> tht1
-    #         chi = -0.25 * (tht1 <.> tht21) - 0.5 * lndt
-    #         rho1 = -0.5 .> (transpose tht3 >.> tht21)
-    #         rho2 :: Natural # Linear (CovarianceRep s) x x
-    #         rho2 = fromTensor $ -0.25 .> changeOfBasis tht3 itht2
-    #         rho = joinGaussian rho1 rho2
-    #      in (chi, rho)
-    #
-
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
     ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Normal[Rep], Euclidean]]:
+        # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
         (obs_means, lat_means, int_means) = self.split_params(p)
         obs_mean, obs_cov = self.obs_man.to_mean_and_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.to_mean_and_covariance(lat_means)
         int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
+
+        # Construct precisions
         lat_prs = lat_cov_man.inverse(lat_cov)
-        int_man_tps = self.int_man.transpose_manifold()
-        int_cov_tps = self.int_man.transpose(int_cov)
-        cob_man, cob = _change_of_basis(int_man_tps, int_cov_tps, lat_cov_man, lat_prs)
-        obs_prs = obs_cov_man.inverse(
-            obs_cov - obs_cov_man.from_dense(cob_man.to_dense(cob))
-        )
+        int_man_t = self.int_man.transpose_manifold()
+        int_cov_t = self.int_man.transpose(int_cov)
+        cob_man, cob = _change_of_basis(int_man_t, int_cov_t, lat_cov_man, lat_prs)
+        shaped_cob = obs_cov_man.from_dense(cob_man.to_dense(cob))
+        obs_prs = obs_cov_man.inverse(obs_cov - shaped_cob)
         _, int_params = _dual_composition(
             obs_cov_man,
             obs_prs,
@@ -235,9 +215,12 @@ class LinearGaussianModel[
             lat_cov_man,
             lat_prs,
         )
-        obs_loc = obs_cov_man(obs_prs, expand_dual(obs_mean)) - self.int_man(
-            int_params, expand_dual(lat_mean)
-        )
+        # Construct observable location params
+        obs_loc0 = obs_cov_man(obs_prs, expand_dual(obs_mean))
+        obs_loc1 = self.int_man(int_params, expand_dual(lat_mean))
+        obs_loc = obs_loc0 - obs_loc1
+
+        # Return natural parameters
         obs_params = self.obs_man.join_natural_params(obs_loc, obs_prs)
         return self.lkl_man.join_params(obs_params, int_params)
 
