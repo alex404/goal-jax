@@ -55,8 +55,8 @@ def validate_normal_coordinates[R: PositiveDefinite](
     # Test natural parameterization
     natural_params = man.to_natural(mean_params)
     loc, precision = man.split_natural_params(natural_params)
-    if man.cov_man.rep is Scale():
-        precision = precision / 2
+    # if man.cov_man.rep is Scale():
+    #     precision = precision / 2
 
     recovered_covariance = reduce_dual(man.cov_man.inverse(precision))
     recovered_mean = man.cov_man(recovered_covariance, loc)

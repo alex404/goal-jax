@@ -317,8 +317,8 @@ class Normal[Rep: PositiveDefinite](
 
         scl = -2
 
-        if isinstance(self.snd_man.rep, Scale):
-            scl = self.data_dim / scl
+        # if isinstance(self.snd_man.rep, Scale):
+        #     scl = self.data_dim / scl
 
         return loc, scl * theta2
 
@@ -330,8 +330,8 @@ class Normal[Rep: PositiveDefinite](
         """Join natural location and precision (inverse covariance) parameters. Inverts the scaling in `split_natural_params`."""
         scl = -0.5
 
-        if isinstance(self.snd_man.rep, Scale):
-            scl = self.data_dim * scl
+        # if isinstance(self.snd_man.rep, Scale):
+        #     scl = self.data_dim * scl
 
         theta2 = scl * precision.params
 
