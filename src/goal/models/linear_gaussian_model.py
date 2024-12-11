@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Self
 
 import jax.numpy as jnp
@@ -242,9 +242,11 @@ class LinearGaussianModel[
 
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
-        dict = asdict(self)
-        dict["rep"] = PositiveDefinite
-        new_man: LinearGaussianModel[PositiveDefinite] = LinearGaussianModel(**dict)
+        new_man: LinearGaussianModel[PositiveDefinite] = LinearGaussianModel(
+            obs_dim=self.obs_man.data_dim,
+            obs_rep=PositiveDefinite,
+            lat_dim=self.lat_man.data_dim,
+        )
         p_embedded = self.transform_observable_rep(new_man, p)
         obs_params, lat_params, int_params = new_man.split_params(p_embedded)
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(obs_params)
@@ -254,7 +256,7 @@ class LinearGaussianModel[
         )
         obs_prs_array = new_man.obs_man.cov_man.to_dense(obs_prs)
         lat_prs_array = new_man.lat_man.cov_man.to_dense(lat_prs)
-        int_array = self.int_man.to_dense(int_params)
+        int_array = -self.int_man.to_dense(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
