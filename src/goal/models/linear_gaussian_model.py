@@ -196,8 +196,8 @@ class LinearGaussianModel[
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
         (obs_means, lat_means, int_means) = self.split_params(p)
-        obs_mean, obs_cov = self.obs_man.to_mean_and_covariance(obs_means)
-        lat_mean, lat_cov = self.lat_man.to_mean_and_covariance(lat_means)
+        obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
+        lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
 
         # Construct precisions
@@ -227,8 +227,8 @@ class LinearGaussianModel[
     def to_normal(self, p: Point[Mean, Self]) -> Point[Mean, FullNormal]:
         """Convert a linear model to a normal model."""
         obs_means, lat_means, int_means = self.split_params(p)
-        obs_mean, obs_cov = self.obs_man.to_mean_and_covariance(obs_means)
-        lat_mean, lat_cov = self.lat_man.to_mean_and_covariance(lat_means)
+        obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
+        lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         nor_mean: Point[Mean, Euclidean] = Point(
             jnp.concatenate([obs_mean.params, lat_mean.params])
         )

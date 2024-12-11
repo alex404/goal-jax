@@ -388,13 +388,7 @@ class Scale(Diagonal):
     @classmethod
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Average outer product to single scale parameter."""
-        return jnp.array([jnp.sum(v1 * v2)])
-
-    @classmethod
-    def apply_cholesky(
-        cls, shape: tuple[int, int], params: Array, vector: Array
-    ) -> Array:
-        return jnp.sqrt(params[0]) * vector
+        return jnp.array([jnp.mean(v1 * v2)])
 
 
 class Identity(Scale):

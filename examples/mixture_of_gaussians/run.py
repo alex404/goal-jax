@@ -63,7 +63,7 @@ def create_ground_truth_parameters(
     for mean, cov in zip(means, covs):
         cov_mat = normal_man.cov_man.from_dense(cov)
         mean_point: Point[Mean, Euclidean] = Point(mean)
-        mean_params = normal_man.from_mean_and_covariance(mean_point, cov_mat)
+        mean_params = normal_man.join_mean_covariance(mean_point, cov_mat)
         components.append(mean_params)
 
     weights: Point[Mean, Categorical] = Point(jnp.array([0.35, 0.25]))
@@ -103,7 +103,7 @@ def initialize_mixture_parameters[R: PositiveDefinite](
 
         # Convert to natural parameters
         cov_mat = mix_man.obs_man.cov_man.from_dense(cov)
-        mean_params = mix_man.obs_man.from_mean_and_covariance(mean, cov_mat)
+        mean_params = mix_man.obs_man.join_mean_covariance(mean, cov_mat)
         comp = mix_man.obs_man.to_natural(mean_params)
         components.append(comp)
 
@@ -130,7 +130,7 @@ def goal_to_sklearn_mixture(
     means = []
     covariances: list[Array] = []
     for comp in components:
-        mean, cov = mix_man.obs_man.to_mean_and_covariance(comp)
+        mean, cov = mix_man.obs_man.split_mean_covariance(comp)
         means.append(mean.params)
         covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
 

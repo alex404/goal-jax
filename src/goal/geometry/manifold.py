@@ -64,7 +64,7 @@ class Manifold(ABC):
         """The dimension of the manifold."""
         ...
 
-    def dot[C: Coordinates](self, p: Point[Dual[C], Self], q: Point[C, Self]) -> Array:
+    def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.params, q.params)
 
     def normal_initialize(

@@ -175,26 +175,22 @@ class Normal[Rep: PositiveDefinite](
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
-        loc, precision = self.split_natural_params(Point(natural_params))
+        loc, precision = self.split_location_precision(Point(natural_params))
 
-        covariance: Point[Mean, Covariance[Rep]] = reduce_dual(
-            self.snd_man.inverse(precision)
-        )
+        covariance = reduce_dual(self.snd_man.inverse(precision))
         mean = self.snd_man(covariance, loc)
 
         return 0.5 * (jnp.dot(loc.params, mean.params) - self.snd_man.logdet(precision))
 
     def _compute_negative_entropy(self, mean_params: Array) -> Array:
-        mean, second_moment = self.split_mean_params(Point(mean_params))
+        mean, second_moment = self.split_mean_second_moment(Point(mean_params))
 
         # Compute covariance without forming full matrices
         outer_mean = self.snd_man.outer_product(mean, mean)
         covariance = second_moment - outer_mean
-
         log_det = self.snd_man.logdet(covariance)
-        entropy = 0.5 * (self.data_dim + self.data_dim * jnp.log(2 * jnp.pi) + log_det)
 
-        return -entropy
+        return -0.5 * (self.data_dim * (1 + jnp.log(2 * jnp.pi)) + log_det)
 
     def sample(
         self,
@@ -203,7 +199,7 @@ class Normal[Rep: PositiveDefinite](
         n: int = 1,
     ) -> Array:
         mean_point = self.to_mean(p)
-        mean, covariance = self.to_mean_and_covariance(mean_point)
+        mean, covariance = self.split_mean_covariance(mean_point)
 
         # Draw standard normal samples
         key = jnp.asarray(key)
@@ -234,7 +230,7 @@ class Normal[Rep: PositiveDefinite](
 
         return Point(loc_params), Point(cov_params)
 
-    def from_mean_and_covariance(
+    def join_mean_covariance(
         self,
         mean: Point[Mean, Euclidean],
         covariance: Point[Mean, Covariance[Rep]],
@@ -246,7 +242,7 @@ class Normal[Rep: PositiveDefinite](
 
         return self.join_params(mean, second_moment)
 
-    def to_mean_and_covariance(
+    def split_mean_covariance(
         self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
         """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
@@ -259,19 +255,19 @@ class Normal[Rep: PositiveDefinite](
 
         return mean, covariance
 
-    def split_mean_params(
+    def split_mean_second_moment(
         self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
         """Split parameters into mean and second-moment components."""
         return self.split_params(p)
 
-    def join_mean_params(
+    def join_mean_second_moment(
         self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance[Rep]]
     ) -> Point[Mean, Self]:
         """Join mean and second-moment parameters."""
         return self.join_params(mean, second_moment)
 
-    def split_natural_params(
+    def split_location_precision(
         self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[Rep]]]:
         """Join natural location and precision (inverse covariance) parameters. There's a lot of rescaling that has to happen to ensure that the minimal representation of the natural parameters behaves correctly when used either as a vector in a dot product, or as a matrix.
@@ -317,12 +313,12 @@ class Normal[Rep: PositiveDefinite](
 
         scl = -2
 
-        # if isinstance(self.snd_man.rep, Scale):
-        #     scl = self.data_dim / scl
+        if isinstance(self.snd_man.rep, Scale):
+            scl = self.data_dim / scl
 
         return loc, scl * theta2
 
-    def join_natural_params(
+    def join_location_precision(
         self,
         loc: Point[Natural, Euclidean],
         precision: Point[Natural, Covariance[Rep]],
@@ -330,8 +326,8 @@ class Normal[Rep: PositiveDefinite](
         """Join natural location and precision (inverse covariance) parameters. Inverts the scaling in `split_natural_params`."""
         scl = -0.5
 
-        # if isinstance(self.snd_man.rep, Scale):
-        #     scl = self.data_dim * scl
+        if isinstance(self.snd_man.rep, Scale):
+            scl = self.data_dim * scl
 
         theta2 = scl * precision.params
 

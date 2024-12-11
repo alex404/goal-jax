@@ -40,7 +40,7 @@ def compute_gaussian_results(
         sample, true_densities, estimated_densities
     """
     # Create ground truth distribution
-    p_mean = man.from_mean_and_covariance(mu, sigma)
+    p_mean = man.join_mean_covariance(mu, sigma)
     p_natural = man.to_natural(p_mean)
 
     # Sample and estimate

@@ -417,7 +417,7 @@ class ForwardConjugated[
         chi, rho = self.conjugation_parameters(lkl_params)
         obs_stats = self.obs_man.sufficient_statistic(x)
 
-        log_density = self.obs_man.dot(obs_bias, obs_stats)
+        log_density = self.obs_man.dot(obs_stats, obs_bias)
         log_density += self.lat_man.log_partition_function(self.posterior_at(p, x))
         log_density -= self.lat_man.log_partition_function(lat_bias + rho) + chi
 
@@ -477,7 +477,7 @@ class BackwardConjugated[
         nat_point = self.to_natural(mean_point)
 
         log_partition = self.log_partition_function(nat_point)
-        return self.dot(nat_point, mean_point) - log_partition
+        return self.dot(mean_point, nat_point) - log_partition
 
     def expectation_maximization(
         self, p: Point[Natural, Self], xs: Array

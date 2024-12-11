@@ -69,7 +69,7 @@ def compute_gaussian_results(
     # Ground truth
     gt_cov = pd_man.cov_man.from_dense(covariance)
     mu: Point[Mean, Euclidean] = Point(mean)
-    gt_mean_point = pd_man.from_mean_and_covariance(mu, gt_cov)
+    gt_mean_point = pd_man.join_mean_covariance(mu, gt_cov)
 
     gt_natural_point = pd_man.to_natural(gt_mean_point)
     gt_dens = compute_densities(pd_man, gt_natural_point, xs, ys)
