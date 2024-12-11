@@ -65,3 +65,7 @@ lint.ignore = [
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"

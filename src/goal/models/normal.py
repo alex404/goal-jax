@@ -342,3 +342,26 @@ class Normal[Rep: PositiveDefinite](
             theta2 = scaled_params
 
         return self.join_params(loc, Point(theta2))
+
+    def transform_rep[TargetRep: PositiveDefinite](
+        self, target_man: Normal[TargetRep], p: Point[Natural, Self]
+    ) -> Point[Natural, Normal[TargetRep]]:
+        """Transform natural parameters to target representation.
+
+        This function converts parameters between different matrix representations
+        (Scale, Diagonal, PositiveDefinite). When going from a simpler to more complex
+        representation (e.g. Scale to PositiveDefinite), this acts as an embedding.
+        When going from complex to simpler (e.g. PositiveDefinite to Scale), this
+        acts as a projection.
+
+        Args:
+            target_man: Target normal distribution
+            p: Parameters in natural coordinates to transform
+
+        Returns:
+            Parameters in target representation
+        """
+        loc, precision = self.split_location_precision(p)
+        dense_prec = self.cov_man.to_dense(precision)
+        target_prec = target_man.cov_man.from_dense(dense_prec)
+        return target_man.join_location_precision(loc, target_prec)
