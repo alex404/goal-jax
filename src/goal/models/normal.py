@@ -314,7 +314,7 @@ class Normal[Rep: PositiveDefinite](
         scl = -2
 
         if isinstance(self.snd_man.rep, Scale):
-            scl = self.data_dim / scl
+            scl = scl / self.data_dim
 
         return loc, scl * theta2
 
