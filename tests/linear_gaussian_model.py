@@ -124,9 +124,22 @@ def test_single_model(
     means = lgm_man.average_sufficient_statistic(sample_data)
     logger.info(f"Mean parameters: {means.params}")
 
-    # Convert to natural parameters
+    # Natural -> Mean recovery
     params = lgm_man.to_natural(means)
+    remeans = lgm_man.to_mean(params)
+    reparams = lgm_man.to_natural(remeans)
+    logger.info(f"Mean parameters: {means.params}")
+    logger.info(f"Remean parameters: {remeans.params}")
     logger.info(f"Natural parameters: {params.params}")
+    logger.info(f"ReNatural parameters: {reparams.params}")
+
+    assert jnp.allclose(
+        remeans.params, means.params, rtol=relative_tol, atol=absolute_tol
+    )
+
+    assert jnp.allclose(
+        reparams.params, params.params, rtol=relative_tol, atol=absolute_tol
+    )
 
     # Test parameter recovery
     recovered_mean_params = lgm_man.to_mean(params)
@@ -139,8 +152,6 @@ def test_single_model(
 
     # Convert to normal model
     nor_params = lgm_man.to_normal(params)
-    # nor_means = nor_man.average_sufficient_statistic(sample_data)
-    # nor_params = nor_man.to_natural(nor_means)
     logger.info(f"Normal natural parameters: {nor_params.params}")
 
     # Compare log-partition functions
@@ -244,21 +255,6 @@ def test_model_consistency(
 
     assert jnp.allclose(iso_ne, dia_ne, rtol=relative_tol, atol=absolute_tol)
     assert jnp.allclose(dia_ne, pod_ne, rtol=relative_tol, atol=absolute_tol)
-
-    # Mean -> Natural recovery
-    iso_recovered = iso_model.to_natural(iso_means)
-    dia_recovered = dia_model.to_natural(dia_means)
-    pod_recovered = pod_model.to_natural(pod_means)
-
-    assert jnp.allclose(
-        iso_recovered.params, iso_natural.params, rtol=relative_tol, atol=absolute_tol
-    )
-    assert jnp.allclose(
-        dia_recovered.params, dia_natural.params, rtol=relative_tol, atol=absolute_tol
-    )
-    assert jnp.allclose(
-        pod_recovered.params, pod_natural.params, rtol=relative_tol, atol=absolute_tol
-    )
 
 
 if __name__ == "__main__":

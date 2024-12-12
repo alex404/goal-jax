@@ -165,14 +165,14 @@ def test_model_consistency(
     logger.info("\nComparing log densities:")
     iso_ll = iso_model.average_log_density(iso_natural, sample_data)
     dia_ll = dia_model.average_log_density(dia_natural, sample_data)
-    pd_ll = pod_model.average_log_density(pod_natural, sample_data)
+    pod_ll = pod_model.average_log_density(pod_natural, sample_data)
 
     logger.info(f"Isotropic: {iso_ll}")
     logger.info(f"Diagonal: {dia_ll}")
-    logger.info(f"PositiveDefinite: {pd_ll}")
+    logger.info(f"PositiveDefinite: {pod_ll}")
 
     assert jnp.allclose(iso_ll, dia_ll, rtol=relative_tol, atol=absolute_tol)
-    assert jnp.allclose(dia_ll, pd_ll, rtol=relative_tol, atol=absolute_tol)
+    assert jnp.allclose(dia_ll, pod_ll, rtol=relative_tol, atol=absolute_tol)
 
     # Test coordinate conversion
     logger.info("\nTesting coordinate conversion:")
@@ -180,24 +180,40 @@ def test_model_consistency(
     # Natural -> Mean
     iso_means = iso_model.to_mean(iso_natural)
     dia_means = dia_model.to_mean(dia_natural)
-    pd_means = pod_model.to_mean(pod_natural)
+    pod_means = pod_model.to_mean(pod_natural)
+
+    logger.info(f"Isotropic natural parameters: {iso_natural.params}")
+    logger.info(f"Diagonal natural parameters: {dia_natural.params}")
+    logger.info(f"PositiveDefinite natural parameters: {pod_natural.params}")
+    logger.info(
+        f"Isotropic precisions: {iso_model.cov_man.to_dense(iso_model.split_location_precision(iso_natural)[1])}"
+    )
+    logger.info(
+        f"Diagonal precisions: {dia_model.cov_man.to_dense(dia_model.split_location_precision(dia_natural)[1])}"
+    )
+    logger.info(
+        f"Positive Definite precisions: {pod_model.cov_man.to_dense(pod_model.split_location_precision(pod_natural)[1])}"
+    )
+    logger.info(f"Isotropic mean parameters: {iso_means.params}")
+    logger.info(f"Diagonal mean parameters: {dia_means.params}")
+    logger.info(f"PositiveDefinite mean parameters: {pod_means.params}")
 
     # Compare negative entropy
     iso_ne = iso_model.negative_entropy(iso_means)
     dia_ne = dia_model.negative_entropy(dia_means)
-    pd_ne = pod_model.negative_entropy(pd_means)
+    pod_ne = pod_model.negative_entropy(pod_means)
 
     logger.info(f"Isotropic negative entropy: {iso_ne}")
     logger.info(f"Diagonal negative entropy: {dia_ne}")
-    logger.info(f"PositiveDefinite negative entropy: {pd_ne}")
+    logger.info(f"PositiveDefinite negative entropy: {pod_ne}")
 
     assert jnp.allclose(iso_ne, dia_ne, rtol=relative_tol, atol=absolute_tol)
-    assert jnp.allclose(dia_ne, pd_ne, rtol=relative_tol, atol=absolute_tol)
+    assert jnp.allclose(dia_ne, pod_ne, rtol=relative_tol, atol=absolute_tol)
 
     # Mean -> Natural recovery
     iso_recovered = iso_model.to_natural(iso_means)
     dia_recovered = dia_model.to_natural(dia_means)
-    pd_recovered = pod_model.to_natural(pd_means)
+    pod_recovered = pod_model.to_natural(pod_means)
 
     assert jnp.allclose(
         iso_recovered.params, iso_natural.params, rtol=relative_tol, atol=absolute_tol
@@ -206,7 +222,7 @@ def test_model_consistency(
         dia_recovered.params, dia_natural.params, rtol=relative_tol, atol=absolute_tol
     )
     assert jnp.allclose(
-        pd_recovered.params, pod_natural.params, rtol=relative_tol, atol=absolute_tol
+        pod_recovered.params, pod_natural.params, rtol=relative_tol, atol=absolute_tol
     )
 
 
