@@ -67,13 +67,13 @@ class Manifold(ABC):
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.params, q.params)
 
-    def normal_initialize(
+    def shape_initialize(
         self,
         key: Array,
         mu: float = 0.0,
         sigma: float = 1.0,
     ) -> Point[Any, Self]:
-        """Initialize a point with normally distributed parameters."""
+        """Initialize a point with mean and shape parameters --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
         params = jax.random.normal(key, shape=(self.dim,)) * sigma + mu
         return Point(params)
 
@@ -83,7 +83,7 @@ class Manifold(ABC):
         low: float = -1.0,
         high: float = 1.0,
     ) -> Point[Coordinates, Self]:
-        """Initialize a point with uniformly distributed parameters."""
+        """Initialize a point from a uniformly distributed, bounded rectangle in parameter space."""
         params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
         return Point(params)
 

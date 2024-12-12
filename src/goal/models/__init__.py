@@ -28,8 +28,11 @@ Example:
    >>> point = model.random_point()  # Sample a random point on manifold
 """
 
-from .linear_gaussian_model import (
+from .lgm import (
+    FactorAnalysis,
     LinearGaussianModel,
+    LinearModel,
+    PrincipalComponentAnalysis,
 )
 from .mixture import (
     Mixture,
@@ -49,6 +52,9 @@ from .univariate import Categorical, Poisson
 
 __all__ = [
     "LinearGaussianModel",
+    "LinearModel",
+    "FactorAnalysis",
+    "PrincipalComponentAnalysis",
     "Mixture",
     "Poisson",
     "Categorical",

@@ -12,6 +12,7 @@ from ..geometry import (
     AffineMap,
     BackwardConjugated,
     Coordinates,
+    Diagonal,
     Dual,
     LinearMap,
     LocationSubspace,
@@ -21,6 +22,7 @@ from ..geometry import (
     Point,
     PositiveDefinite,
     Rectangular,
+    Scale,
     expand_dual,
 )
 from .normal import (
@@ -98,6 +100,11 @@ def _change_of_basis[
     cov_man = Covariance(fgf_man.shape[0], PositiveDefinite)
     out_mat = cov_man.from_dense(fgf_man.to_dense(fgf_params))
     return cov_man, out_mat
+
+
+type LinearModel = LinearGaussianModel[PositiveDefinite]
+type FactorAnalysis = LinearGaussianModel[Diagonal]
+type PrincipalComponentAnalysis = LinearGaussianModel[Scale]
 
 
 @dataclass(frozen=True)
