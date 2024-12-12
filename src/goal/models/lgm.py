@@ -231,6 +231,17 @@ class LinearGaussianModel[
         obs_params = self.obs_man.join_location_precision(obs_loc, obs_prs)
         return self.lkl_man.join_params(obs_params, int_params)
 
+    def lgm_expectation_maximization(
+        self, p: Point[Natural, Self], xs: Array
+    ) -> Point[Natural, Self]:
+        """Perform a single iteration of the EM algorithm. Without further constraints the latent Normal of an LGM is not identifiable, and so we hold it fixed at standard normal."""
+        # E-step: Compute expectations
+        q = self.expectation_step(p, xs)
+        p1 = self.to_natural(q)
+        obs_params, _, int_parms = self.split_params(p1)
+        z = self.lat_man.standard_normal()
+        return self.join_params(obs_params, self.lat_man.to_natural(z), int_parms)
+
     def transform_observable_rep[TargetRep: PositiveDefinite](
         self,
         target_man: LinearGaussianModel[TargetRep],

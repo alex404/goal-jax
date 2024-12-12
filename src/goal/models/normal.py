@@ -365,3 +365,10 @@ class Normal[Rep: PositiveDefinite](
         dense_prec = self.cov_man.to_dense(precision)
         target_prec = target_man.cov_man.from_dense(dense_prec)
         return target_man.join_location_precision(loc, target_prec)
+
+    def standard_normal(self) -> Point[Mean, Self]:
+        """Return the standard normal distribution."""
+        return self.join_mean_covariance(
+            Point(jnp.zeros(self.data_dim)),
+            self.cov_man.from_dense(jnp.eye(self.data_dim)),
+        )
