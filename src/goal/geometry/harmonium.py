@@ -186,8 +186,8 @@ class Harmonium[
         keys = jax.random.split(key, 3)
         obs_bias = self.obs_man.shape_initialize(keys[0], mu, shp)
         lat_bias = self.lat_man.shape_initialize(keys[1], mu, shp)
-        int_mat = jax.random.normal(keys[2], shape=(self.int_man.dim,)) * shp + mu
-        return self.join_params(obs_bias, lat_bias, Point(int_mat))
+        int_mat = self.int_man.shape_initialize(keys[2], mu, shp)
+        return self.join_params(obs_bias, lat_bias, int_mat)
 
 
 class BackwardLatent[

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, Self, TypeVar
+from typing import Any, Generic, Self, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -66,6 +66,26 @@ class Manifold(ABC):
 
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.params, q.params)
+
+    def shape_initialize(
+        self,
+        key: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Any, Self]:
+        """Initialize a point with mean and shape parameters --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
+        params = jax.random.normal(key, shape=(self.dim,)) * shp + mu
+        return Point(params)
+
+    def uniform_initialize(
+        self,
+        key: Array,
+        low: float = -1.0,
+        high: float = 1.0,
+    ) -> Point[Any, Self]:
+        """Initialize a point from a uniformly distributed, bounded rectangle in parameter space."""
+        params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
+        return Point(params)
 
 
 C = TypeVar("C", bound=Coordinates, covariant=True)

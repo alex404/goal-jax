@@ -95,13 +95,13 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
     def shape_initialize(
-        self, key: Array, mu: float = 0.0, sigma: float = 0.1
+        self, key: Array, mu: float = 0.0, shp: float = 0.1
     ) -> Point[Natural, Self]:
         """Initialize covariance matrix with random diagonal structure.
 
-        Uses exp(N(mu, sigma)) to generate positive diagonal elements.
+        Uses exp(N(mu, shp)) to generate positive diagonal elements.
         """
-        diag = jnp.exp(jax.random.normal(key, (self.data_dim,)) * sigma + mu)
+        diag = jnp.exp(jax.random.normal(key, (self.data_dim,)) * shp + mu)
         return self.from_dense(jnp.diag(diag))
 
 

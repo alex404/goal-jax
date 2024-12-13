@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Self
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -294,6 +295,18 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
     def __init__(self, obs_dim: int, lat_dim: int):
         super().__init__(obs_dim, Diagonal, lat_dim)
 
+    def shape_initialize(
+        self,
+        key: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Natural, Self]:
+        keys = jax.random.split(key, 2)
+        obs_bias = self.obs_man.shape_initialize(keys[0], mu, shp)
+        lat_bias = self.lat_man.standard_normal()
+        int_mat = self.int_man.shape_initialize(keys[2], mu, shp)
+        return self.join_params(obs_bias, lat_bias, int_mat)
+
 
 @dataclass(frozen=True)
 class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
@@ -301,3 +314,15 @@ class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
 
     def __init__(self, obs_dim: int, lat_dim: int):
         super().__init__(obs_dim, Scale, lat_dim)
+
+    def shape_initialize(
+        self,
+        key: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Natural, Self]:
+        keys = jax.random.split(key, 2)
+        obs_bias = self.obs_man.shape_initialize(keys[0], mu, shp)
+        lat_bias = self.lat_man.standard_normal()
+        int_mat = self.int_man.shape_initialize(keys[2], mu, shp)
+        return self.join_params(obs_bias, lat_bias, int_mat)
