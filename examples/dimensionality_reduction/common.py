@@ -12,8 +12,9 @@ class LGMResults(TypedDict):
     plot_bounds: tuple[float, float, float, float]  # Bounds for plotting
     training_lls: dict[str, list[float]]  # Log likelihoods during training
     grid_points: dict[str, list[list[float]]]  # Points where densities are evaluated
-    observable_densities: dict[str, list[float]]  # Model densities in data space
-    latent_densities: dict[str, list[float]]  # Model densities in latent space
+    ground_truth_densities: list[float]  # Ground truth densities
+    initial_densities: dict[str, list[float]]  # Model densities in data space
+    learned_densities: dict[str, list[float]]  # Model densities in data space
 
 
 # Set up paths similar to mixture example

@@ -99,13 +99,9 @@ class Manifold(ABC):
         return Point(params)
 
 
-C = TypeVar("C", bound=Coordinates, covariant=True)
-M = TypeVar("M", bound=Manifold, covariant=True)
-
-
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Point(Generic[C, M]):
+class Point[C: Coordinates, M: Manifold]:
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
     Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:

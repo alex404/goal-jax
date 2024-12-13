@@ -8,18 +8,16 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    Diagonal,
     LinearMap,
     Natural,
     Point,
-    PositiveDefinite,
     Rectangular,
-    Scale,
 )
 from goal.models import (
     Euclidean,
     FactorAnalysis,
     LinearGaussianModel,
+    PrincipalComponentAnalysis,
 )
 
 from .common import LGMResults, analysis_path
@@ -38,11 +36,11 @@ def ground_truth(
     """
     fan_man = FactorAnalysis(2, 1)
 
-    om = fan_man.obs_man
-    obs_mean = om.loc_man.mean_point(jnp.asarray([-0.5, 1.5]))
-    obs_cov = om.cov_man.mean_point(jnp.asarray([2, 0.5]))
-    obs_means = om.join_mean_covariance(obs_mean, obs_cov)
-    obs_params = om.to_natural(obs_means)
+    with fan_man.obs_man as om:
+        obs_mean = om.loc_man.mean_point(jnp.asarray([-0.5, 1.5]))
+        obs_cov = om.cov_man.mean_point(jnp.asarray([2, 0.5]))
+        obs_means = om.join_mean_covariance(obs_mean, obs_cov)
+        obs_params = om.to_natural(obs_means)
 
     prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
 
@@ -70,27 +68,25 @@ def get_plot_bounds(
     return (x_min, x_max, y_min, y_max)
 
 
-def fit_model[Rep: PositiveDefinite](
+def fit_model[Model: LinearGaussianModel[Any]](
     key: Array,
-    model: LinearGaussianModel[Rep],
+    model: Model,
     n_steps: int,
     sample: Array,
-) -> tuple[Array, Point[Natural, LinearGaussianModel[Rep]]]:
+) -> tuple[Array, Point[Natural, Model], Point[Natural, Model]]:
     """Fit model using EM algorithm."""
-    params = model.shape_initialize(key)
-    x0 = model.sample(jax.random.PRNGKey(0), params)
-    print(x0)
+    params0 = model.shape_initialize(key)
 
     def em_step(
-        carry: Point[Natural, LinearGaussianModel[Rep]], _: Any
-    ) -> tuple[Point[Natural, LinearGaussianModel[Rep]], Array]:
+        carry: Point[Natural, Model], _: Any
+    ) -> tuple[Point[Natural, Model], Array]:
         params = carry
         ll = model.average_log_observable_density(params, sample)
-        next_params = model.lgm_expectation_maximization(params, sample)
+        next_params = model.expectation_maximization(params, sample)
         return next_params, ll
 
-    final_params, lls = jax.lax.scan(em_step, params, None, length=n_steps)
-    return lls.ravel(), final_params
+    params1, lls = jax.lax.scan(em_step, params0, None, length=n_steps)
+    return lls.ravel(), params0, params1
 
 
 fit_model = jax.jit(fit_model, static_argnames=["model", "n_steps"])
@@ -119,40 +115,39 @@ def compute_lgm_results(
     """Run complete LGM analysis."""
     # Generate synthetic data
     key_data, key_train = jax.random.split(key)
-    _, _, sample = ground_truth(key_data, sample_size)
+    gt_model, gt_params, sample = ground_truth(key_data, sample_size)
 
     # Create models
-    fa_model = LinearGaussianModel(2, Diagonal, 1)
-    pca_model = LinearGaussianModel(2, Scale, 1)
+    fa_model = FactorAnalysis(2, 1)
+    pca_model = PrincipalComponentAnalysis(2, 1)
 
     # Split training key
     key_fa, key_pca = jax.random.split(key_train)
 
     # Train both models
-    fa_lls, fa_params = fit_model(key_fa, fa_model, n_steps, sample)
-    pca_lls, pca_params = fit_model(key_pca, pca_model, n_steps, sample)
+    fa_lls, fa_params0, fa_params1 = fit_model(key_fa, fa_model, n_steps, sample)
+    pca_lls, pca_params0, pca_params1 = fit_model(key_pca, pca_model, n_steps, sample)
 
-    print(*zip(fa_lls.tolist(), pca_lls.tolist()))
     # Create evaluation grids
     plot_bounds = get_plot_bounds(sample)
     obs_grid, lat_grid = create_evaluation_grids(plot_bounds)
 
     # Compute densities
-    fa_obs_densities = jax.vmap(fa_model.observable_density, in_axes=(None, 0))(
-        fa_params, obs_grid
+    gt_obs_densities = jax.vmap(gt_model.observable_density, in_axes=(None, 0))(
+        gt_params, obs_grid
     )
-    pca_obs_densities = jax.vmap(pca_model.observable_density, in_axes=(None, 0))(
-        pca_params, obs_grid
+    fa_obs_densities0 = jax.vmap(fa_model.observable_density, in_axes=(None, 0))(
+        fa_params0, obs_grid
+    )
+    pca_obs_densities0 = jax.vmap(pca_model.observable_density, in_axes=(None, 0))(
+        pca_params0, obs_grid
     )
 
-    # Compute latent densities using prior
-    fa_prior = fa_model.prior(fa_params)
-    pca_prior = pca_model.prior(pca_params)
-    fa_lat_densities = jax.vmap(fa_model.lat_man.density, in_axes=(None, 0))(
-        fa_prior, lat_grid[:, None]
+    fa_obs_densities1 = jax.vmap(fa_model.observable_density, in_axes=(None, 0))(
+        fa_params1, obs_grid
     )
-    pca_lat_densities = jax.vmap(pca_model.lat_man.density, in_axes=(None, 0))(
-        pca_prior, lat_grid[:, None]
+    pca_obs_densities1 = jax.vmap(pca_model.observable_density, in_axes=(None, 0))(
+        pca_params1, obs_grid
     )
 
     # Structure results
@@ -167,13 +162,14 @@ def compute_lgm_results(
             "observable": obs_grid.tolist(),
             "latent": lat_grid.tolist(),
         },
-        observable_densities={
-            "factor_analysis": fa_obs_densities.tolist(),
-            "pca": pca_obs_densities.tolist(),
+        ground_truth_densities=gt_obs_densities.tolist(),
+        initial_densities={
+            "factor_analysis": fa_obs_densities0.tolist(),
+            "pca": pca_obs_densities0.tolist(),
         },
-        latent_densities={
-            "factor_analysis": fa_lat_densities.tolist(),
-            "pca": pca_lat_densities.tolist(),
+        learned_densities={
+            "factor_analysis": fa_obs_densities1.tolist(),
+            "pca": pca_obs_densities1.tolist(),
         },
     )
 
@@ -191,7 +187,7 @@ def main() -> None:
     results = compute_lgm_results(
         key,
         sample_size=500,
-        n_steps=100,
+        n_steps=50,
     )
 
     # Save results
