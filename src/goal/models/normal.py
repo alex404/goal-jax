@@ -355,6 +355,14 @@ class Normal[Rep: PositiveDefinite](
 
         return self.join_params(loc, Point(theta2))
 
+    def shape_initialize(
+        self, key: Array, mu: float = 0.0, shp: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize means with normal and covariance matrix with random diagonal structure."""
+        mean = self.loc_man.shape_initialize(key, mu, shp)
+        cov = self.cov_man.shape_initialize(key, mu=mu, shp=shp)
+        return self.join_location_precision(mean, cov)
+
     def transform_rep[TargetRep: PositiveDefinite](
         self, target_man: Normal[TargetRep], p: Point[Natural, Self]
     ) -> Point[Natural, Normal[TargetRep]]:

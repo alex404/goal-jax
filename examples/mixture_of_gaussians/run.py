@@ -43,28 +43,25 @@ def create_ground_truth_parameters(
         likelihood_params: Parameters of likelihood distribution p(x|z)
         prior_params: Parameters of categorical prior p(z)
     """
-    normal_man = mix_man.obs_man
-    # Two well-separated components and one overlapping component
     means = [
-        jnp.array([1.0, 1.0]),  # First component
-        jnp.array([-2.0, -1.0]),  # Second component
-        jnp.array([0.0, 0.5]),  # Third component (overlapping)
+        jnp.array([1.0, 1.0]),
+        jnp.array([-2.0, -1.0]),
+        jnp.array([0.0, 0.5]),
     ]
-
-    # Different covariance structures
     covs = [
-        jnp.array([[1.0, 0.5], [0.5, 1.0]]),  # Standard covariance
-        jnp.array([[2.0, -0.8], [-0.8, 0.5]]),  # More elongated
-        jnp.array([[0.5, 0.0], [0.0, 0.5]]),  # Isotropic
+        jnp.array([[1.0, 0.5], [0.5, 1.0]]),
+        jnp.array([[2.0, -0.8], [-0.8, 0.5]]),
+        jnp.array([[0.5, 0.0], [0.0, 0.5]]),
     ]
 
     # Create component parameters
     components: list[Point[Mean, Normal[PositiveDefinite]]] = []
     for mean, cov in zip(means, covs):
-        cov_mat = normal_man.cov_man.from_dense(cov)
-        mean_point: Point[Mean, Euclidean] = Point(mean)
-        mean_params = normal_man.join_mean_covariance(mean_point, cov_mat)
-        components.append(mean_params)
+        with mix_man.obs_man as nm:
+            cov_mat = nm.cov_man.from_dense(cov)
+            mean_point: Point[Mean, Euclidean] = Point(mean)
+            mean_params = nm.join_mean_covariance(mean_point, cov_mat)
+            components.append(mean_params)
 
     weights: Point[Mean, Categorical] = Point(jnp.array([0.35, 0.25]))
 
@@ -120,13 +117,57 @@ def goal_to_sklearn_mixture(
 ### Fitting ###
 
 
+def initialize_mixture_parameters[R: PositiveDefinite](
+    key: Array,
+    mix_man: Mixture[Normal[R]],
+    n_components: int,
+    mean_scale: float = 1.0,
+    cov_scale: float = 0.1,
+) -> Point[Natural, Mixture[Normal[R]]]:
+    # Split keys for independent initialization
+    keys = jax.random.split(key, 3)
+
+    # Initialize component means and covariances
+    components = []
+    for i in range(n_components):
+        # Get fresh key for each component
+        key_i = jax.random.fold_in(keys[0], i)
+        keys_i = jax.random.split(key_i, 2)
+
+        # Initialize mean - spread out within data scale
+        mean: Point[Mean, Euclidean] = Point(
+            mean_scale * jax.random.normal(keys_i[0], shape=(mix_man.obs_man.data_dim,))
+        )
+
+        # Initialize covariance - start near identity
+        base_cov = jnp.eye(mix_man.obs_man.data_dim)
+        noise = cov_scale * jax.random.normal(keys_i[1], shape=base_cov.shape)
+        cov = base_cov + noise @ noise.T  # Ensure positive definite
+
+        # Convert to natural parameters
+        cov_mat = mix_man.obs_man.cov_man.from_dense(cov)
+        mean_params = mix_man.obs_man.join_mean_covariance(mean, cov_mat)
+        comp = mix_man.obs_man.to_natural(mean_params)
+        components.append(comp)
+
+    # Initialize weights close to uniform
+    prior: Point[Natural, Categorical] = mix_man.lat_man.shape_initialize(
+        keys[1], shp=0.1
+    )
+
+    # Join into mixture parameters
+    return mix_man.join_natural_mixture(components, prior)
+
+
 def fit_mixture[R: PositiveDefinite](
     key: Array,
     mix_man: Mixture[Normal[R]],
     n_steps: int,
     sample: Array,
-) -> tuple[Array, Point[Natural, Mixture[Normal[R]]]]:
-    params = mix_man.shape_initialize(key)
+) -> tuple[
+    Array, Point[Natural, Mixture[Normal[R]]], Point[Natural, Mixture[Normal[R]]]
+]:
+    init_params = mix_man.shape_initialize(key)
 
     def em_step(
         carry: Point[Natural, Mixture[Normal[R]]], _: Any
@@ -136,8 +177,8 @@ def fit_mixture[R: PositiveDefinite](
         next_params = mix_man.expectation_maximization(params, sample)
         return next_params, ll
 
-    final_params, lls = jax.lax.scan(em_step, params, None, length=n_steps)
-    return lls.ravel(), final_params
+    final_params, lls = jax.lax.scan(em_step, init_params, None, length=n_steps)
+    return lls.ravel(), init_params, final_params
 
 
 fit_mixture = jax.jit(fit_mixture, static_argnames=["mix_man", "n_steps"])
@@ -176,9 +217,15 @@ def compute_mixture_results(
     keys_train = jax.random.split(key_train, 3)
 
     # Train all models
-    pd_lls, pd_params = fit_mixture(keys_train[0], pd_mix_man, n_steps, sample)
-    dia_lls, dia_params = fit_mixture(keys_train[1], dia_mix_man, n_steps, sample)
-    iso_lls, iso_params = fit_mixture(keys_train[2], iso_mix_man, n_steps, sample)
+    pd_lls, pod_params0, pod_params1 = fit_mixture(
+        keys_train[0], pd_mix_man, n_steps, sample
+    )
+    dia_lls, dia_params0, dia_params1 = fit_mixture(
+        keys_train[1], dia_mix_man, n_steps, sample
+    )
+    iso_lls, iso_params0, iso_params1 = fit_mixture(
+        keys_train[2], iso_mix_man, n_steps, sample
+    )
 
     lls = {
         "positive_definite": pd_lls.tolist(),
@@ -194,9 +241,12 @@ def compute_mixture_results(
         ).reshape(xs.shape)
 
     gt_dens = compute_grid_density(pd_mix_man, gt_params)
-    pd_dens = compute_grid_density(pd_mix_man, pd_params)
-    dia_dens = compute_grid_density(dia_mix_man, dia_params)
-    iso_dens = compute_grid_density(iso_mix_man, iso_params)
+    pod_dens0 = compute_grid_density(pd_mix_man, pod_params0)
+    dia_dens0 = compute_grid_density(dia_mix_man, dia_params0)
+    iso_dens0 = compute_grid_density(iso_mix_man, iso_params0)
+    pod_dens1 = compute_grid_density(pd_mix_man, pod_params1)
+    dia_dens1 = compute_grid_density(dia_mix_man, dia_params1)
+    iso_dens1 = compute_grid_density(iso_mix_man, iso_params1)
 
     # Compute ground truth log likelihood
     gt_ll = jnp.mean(
@@ -221,9 +271,12 @@ def compute_mixture_results(
         plot_ys=ys.tolist(),
         scipy_densities=sklearn_dens.tolist(),
         ground_truth_densities=gt_dens.tolist(),
-        positive_definite_densities=pd_dens.tolist(),
-        diagonal_densities=dia_dens.tolist(),
-        isotropic_densities=iso_dens.tolist(),
+        init_positive_definite_densities=pod_dens0.tolist(),
+        init_diagonal_densities=dia_dens0.tolist(),
+        init_isotropic_densities=iso_dens0.tolist(),
+        positive_definite_densities=pod_dens1.tolist(),
+        diagonal_densities=dia_dens1.tolist(),
+        isotropic_densities=iso_dens1.tolist(),
         ground_truth_ll=float(gt_ll),
         training_lls=lls,
     )
@@ -247,7 +300,7 @@ def main():
     results = compute_mixture_results(
         key,
         sample_size=500,
-        n_steps=100,
+        n_steps=50,
         bounds=bounds,
     )
 

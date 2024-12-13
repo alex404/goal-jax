@@ -36,10 +36,10 @@ def create_test_grid(
 
 
 def compute_densities[R: PositiveDefinite](
-    man: Normal[R], natural_point: Point[Natural, Normal[R]], xs: Array, ys: Array
+    model: Normal[R], natural_point: Point[Natural, Normal[R]], xs: Array, ys: Array
 ) -> Array:
     points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
-    zs = jax.vmap(man.density, in_axes=(None, 0))(natural_point, points)
+    zs = jax.vmap(model.density, in_axes=(None, 0))(natural_point, points)
     return zs.reshape(xs.shape)
 
 
@@ -61,34 +61,34 @@ def compute_gaussian_results(
     sp_dens = scipy_densities(mean, covariance, xs, ys)
     sp_dens = sp_dens.reshape(xs.shape).tolist()
 
-    # Manifolds
-    pd_man = Normal(2, PositiveDefinite)
-    dia_man = Normal(2, Diagonal)
-    iso_man = Normal(2, Scale)
+    # Models
+    pod_model = Normal(2, PositiveDefinite)
+    dia_model = Normal(2, Diagonal)
+    iso_model = Normal(2, Scale)
 
     # Ground truth
-    gt_cov = pd_man.cov_man.from_dense(covariance)
+    gt_cov = pod_model.cov_man.from_dense(covariance)
     mu: Point[Mean, Euclidean] = Point(mean)
-    gt_mean_point = pd_man.join_mean_covariance(mu, gt_cov)
+    gt_mean_point = pod_model.join_mean_covariance(mu, gt_cov)
 
-    gt_natural_point = pd_man.to_natural(gt_mean_point)
-    gt_dens = compute_densities(pd_man, gt_natural_point, xs, ys)
+    gt_natural_point = pod_model.to_natural(gt_mean_point)
+    gt_dens = compute_densities(pod_model, gt_natural_point, xs, ys)
     gt_dens = gt_dens.reshape(xs.shape).tolist()
-    sample = pd_man.sample(key, gt_natural_point, sample_size)
+    sample = pod_model.sample(key, gt_natural_point, sample_size)
 
     # Models
     def process_normal[R: PositiveDefinite](
-        man: Normal[R],
+        model: Normal[R],
         sample: Array,
     ) -> Array:
-        mean_point = man.average_sufficient_statistic(sample)
-        p_natural = man.to_natural(mean_point)
-        densities = compute_densities(man, p_natural, xs, ys)
+        mean_point = model.average_sufficient_statistic(sample)
+        p_natural = model.to_natural(mean_point)
+        densities = compute_densities(model, p_natural, xs, ys)
         return densities.reshape(xs.shape)
 
-    pd_dens = process_normal(pd_man, sample).tolist()
-    dia_dens = process_normal(dia_man, sample).tolist()
-    scl_dens = process_normal(iso_man, sample).tolist()
+    pd_dens = process_normal(pod_model, sample).tolist()
+    dia_dens = process_normal(dia_model, sample).tolist()
+    scl_dens = process_normal(iso_model, sample).tolist()
 
     return BivariateResults(
         sample=sample.tolist(),
