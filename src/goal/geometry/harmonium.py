@@ -177,6 +177,18 @@ class Harmonium[
         mx = expand_dual(self.obs_sub.sub_man.sufficient_statistic(x))
         return self.pst_man(self.posterior_function(p), mx)
 
+    def shape_initialize(
+        self,
+        key: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Natural, Self]:
+        keys = jax.random.split(key, 3)
+        obs_bias = self.obs_man.shape_initialize(keys[0], mu, shp)
+        lat_bias = self.lat_man.shape_initialize(keys[1], mu, shp)
+        int_mat = jax.random.normal(keys[2], shape=(self.int_man.dim,)) * shp + mu
+        return self.join_params(obs_bias, lat_bias, Point(int_mat))
+
 
 class BackwardLatent[
     Rep: MatrixRep,

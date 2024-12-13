@@ -108,6 +108,26 @@ class ExponentialFamily(Manifold, ABC):
         """Construct a point in mean coordinates."""
         return Point[Mean, Self](jnp.atleast_1d(params))
 
+    def shape_initialize(
+        self,
+        key: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Natural, Self]:
+        """Initialize a point with mean and shape parameters --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
+        params = jax.random.normal(key, shape=(self.dim,)) * shp + mu
+        return Point(params)
+
+    def uniform_initialize(
+        self,
+        key: Array,
+        low: float = -1.0,
+        high: float = 1.0,
+    ) -> Point[Natural, Self]:
+        """Initialize a point from a uniformly distributed, bounded rectangle in parameter space."""
+        params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
+        return Point(params)
+
 
 class Generative(ExponentialFamily, ABC):
     """An `ExponentialFamily` that supports random sampling.
@@ -273,6 +293,15 @@ class LocationShape(Generic[Location, Shape], Pair[Location, Shape], Exponential
     def log_base_measure(self, x: Array) -> Array:
         """Base measure from location component, as both components should share the same measure."""
         return self.fst_man.log_base_measure(x)
+
+    def shape_initialize(
+        self, key: Array, mu: float = 0.0, shp: float = 0.1
+    ) -> Point[Natural, LocationShape[Location, Shape]]:
+        """Initialize location and shape parameters."""
+        key_loc, key_shp = jax.random.split(key)
+        fst_loc = self.fst_man.shape_initialize(key_loc, mu, shp)
+        shp_loc = self.snd_man.shape_initialize(key_shp, mu, shp)
+        return self.join_params(fst_loc, shp_loc)
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Any, Self
 
 import jax
 import jax.numpy as jnp
@@ -93,6 +93,16 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
     def log_base_measure(self, x: Array) -> Array:
         """Base measure matches location component."""
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
+
+    def shape_initialize(
+        self, key: Array, mu: float = 0.0, sigma: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize covariance matrix with random diagonal structure.
+
+        Uses exp(N(mu, sigma)) to generate positive diagonal elements.
+        """
+        diag = jnp.exp(jax.random.normal(key, (self.data_dim,)) * sigma + mu)
+        return self.from_dense(jnp.diag(diag))
 
 
 @dataclass(frozen=True)
@@ -366,7 +376,7 @@ class Normal[Rep: PositiveDefinite](
         target_prec = target_man.cov_man.from_dense(dense_prec)
         return target_man.join_location_precision(loc, target_prec)
 
-    def standard_normal(self) -> Point[Mean, Self]:
+    def standard_normal(self) -> Point[Any, Self]:
         """Return the standard normal distribution."""
         return self.join_mean_covariance(
             Point(jnp.zeros(self.data_dim)),
