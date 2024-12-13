@@ -14,7 +14,6 @@ class LGMResults(TypedDict):
     grid_points: dict[str, list[list[float]]]  # Points where densities are evaluated
     observable_densities: dict[str, list[float]]  # Model densities in data space
     latent_densities: dict[str, list[float]]  # Model densities in latent space
-    true_direction: list[float]  # True direction vector [1, slope]
 
 
 # Set up paths similar to mixture example

@@ -7,8 +7,17 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Diagonal, Natural, Point, Scale
+from goal.geometry import (
+    Diagonal,
+    LinearMap,
+    Natural,
+    Point,
+    PositiveDefinite,
+    Rectangular,
+    Scale,
+)
 from goal.models import (
+    Euclidean,
     FactorAnalysis,
     LinearGaussianModel,
 )
@@ -16,7 +25,7 @@ from goal.models import (
 from .common import LGMResults, analysis_path
 
 
-def generate_ground_truth_data(
+def ground_truth(
     key: Array,
     sample_size: int,
 ) -> tuple[FactorAnalysis, Point[Natural, FactorAnalysis], Array]:
@@ -28,21 +37,23 @@ def generate_ground_truth_data(
     3. Adding different noise scales parallel/perpendicular to line
     """
     fan_man = FactorAnalysis(2, 1)
+
     om = fan_man.obs_man
     obs_mean = om.loc_man.mean_point(jnp.asarray([-0.5, 1.5]))
-    obs_cov = om.cov_man.mean_point(jnp.asarray([[2, 0.2, 0.5]]))
+    obs_cov = om.cov_man.mean_point(jnp.asarray([2, 0.5]))
     obs_means = om.join_mean_covariance(obs_mean, obs_cov)
     obs_params = om.to_natural(obs_means)
 
-    lm = fan_man.lat_man
-    obs_mean = om.loc_man.shape_initialize(key)
-    obs_cov = om.cov_man.shape_initialize(key)
-    obs_means = om.join_mean_covariance(obs_mean, obs_cov)
-    obs_params = om.to_natural(obs_means)
+    prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
 
-    lat_mu = fan_man.lat_man.standard_normal()
+    int_params: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = Point(
+        jnp.asarray([1.0, 0.5])
+    )
+    lkl_params = fan_man.lkl_man.join_params(obs_params, int_params)
+    fan_params = fan_man.join_conjugated(lkl_params, prr_params)
+    sample = fan_man.observable_sample(key, fan_params, sample_size)
 
-    return noisy_points, latents
+    return fan_man, fan_params, sample
 
 
 def get_plot_bounds(
@@ -59,42 +70,20 @@ def get_plot_bounds(
     return (x_min, x_max, y_min, y_max)
 
 
-def initialize_parameters[R: Scale | Diagonal](
+def fit_model[Rep: PositiveDefinite](
     key: Array,
-    model: LinearGaussianModel[R],
-) -> Point[Natural, LinearGaussianModel[R]]:
-    """Initialize model parameters for EM algorithm."""
-    # Split keys for independent initialization
-    key_obs_mu, key_obs_cov, key_lat_mu, key_lat_cov, key_int = jax.random.split(key, 5)
-
-    om = model.obs_man
-    obs_mu = om.loc_man.shape_initialize(key_obs_mu)
-    obs_cov = om.cov_man.shape_initialize(key_obs_cov)
-    obs_bias = om.to_natural(om.join_mean_covariance(obs_mu, obs_cov))
-
-    lm = model.lat_man
-    lat_mu = lm.loc_man.shape_initialize(key_lat_mu)
-    lat_cov = lm.cov_man.shape_initialize(key_lat_cov)
-    lat_bias = lm.to_natural(lm.join_mean_covariance(lat_mu, lat_cov))
-
-    # Initialize interaction matrix with small values
-    int_mat = model.int_man.shape_initialize(key_int)
-
-    return model.join_params(obs_bias, lat_bias, int_mat)
-
-
-def fit_model[R: Scale | Diagonal](
-    key: Array,
-    model: LinearGaussianModel[R],
+    model: LinearGaussianModel[Rep],
     n_steps: int,
     sample: Array,
-) -> tuple[Array, Point[Natural, LinearGaussianModel[R]]]:
+) -> tuple[Array, Point[Natural, LinearGaussianModel[Rep]]]:
     """Fit model using EM algorithm."""
-    params = initialize_parameters(key, model)
+    params = model.shape_initialize(key)
+    x0 = model.sample(jax.random.PRNGKey(0), params)
+    print(x0)
 
     def em_step(
-        carry: Point[Natural, LinearGaussianModel[R]], _: Any
-    ) -> tuple[Point[Natural, LinearGaussianModel[R]], Array]:
+        carry: Point[Natural, LinearGaussianModel[Rep]], _: Any
+    ) -> tuple[Point[Natural, LinearGaussianModel[Rep]], Array]:
         params = carry
         ll = model.average_log_observable_density(params, sample)
         next_params = model.lgm_expectation_maximization(params, sample)
@@ -108,7 +97,7 @@ fit_model = jax.jit(fit_model, static_argnames=["model", "n_steps"])
 
 
 def create_evaluation_grids(
-    bounds: Bounds2D, n_points: int = 50
+    bounds: tuple[float, float, float, float], n_points: int = 50
 ) -> tuple[Array, Array]:
     """Create grids for evaluating densities in observable and latent space."""
     x_min, x_max, y_min, y_max = bounds
@@ -124,14 +113,13 @@ def create_evaluation_grids(
 
 def compute_lgm_results(
     key: Array,
-    true_params: TrueParameters,
     sample_size: int,
     n_steps: int,
 ) -> LGMResults:
     """Run complete LGM analysis."""
     # Generate synthetic data
     key_data, key_train = jax.random.split(key)
-    sample, latents = generate_ground_truth_data(key_data, true_params, sample_size)
+    _, _, sample = ground_truth(key_data, sample_size)
 
     # Create models
     fa_model = LinearGaussianModel(2, Diagonal, 1)
@@ -167,14 +155,9 @@ def compute_lgm_results(
         pca_prior, lat_grid[:, None]
     )
 
-    # Create direction vector
-    direction = jnp.array([1.0, true_params.slope])
-    direction = direction / jnp.sqrt(jnp.sum(jnp.square(direction)))
-
     # Structure results
     return LGMResults(
         sample=sample.tolist(),
-        true_latents=latents.tolist(),
         plot_bounds=plot_bounds,
         training_lls={
             "factor_analysis": fa_lls.tolist(),
@@ -192,7 +175,6 @@ def compute_lgm_results(
             "factor_analysis": fa_lat_densities.tolist(),
             "pca": pca_lat_densities.tolist(),
         },
-        true_direction=direction.tolist(),
     )
 
 
@@ -200,17 +182,14 @@ def main() -> None:
     """Run LGM comparison tests."""
     # Configure JAX
     jax.config.update("jax_platform_name", "cpu")
+    jax.config.update("jax_disable_jit", False)
 
     # Set random seed
     key = jax.random.PRNGKey(0)
 
-    # Define parameters
-    true_params = TrueParameters()
-
     # Generate sample and fit models
     results = compute_lgm_results(
         key,
-        true_params,
         sample_size=500,
         n_steps=100,
     )
