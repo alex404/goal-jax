@@ -102,11 +102,6 @@ def _change_of_basis[
     return cov_man, out_mat
 
 
-type LinearModel = LinearGaussianModel[PositiveDefinite]
-type FactorAnalysis = LinearGaussianModel[Diagonal]
-type PrincipalComponentAnalysis = LinearGaussianModel[Scale]
-
-
 @dataclass(frozen=True)
 class LinearGaussianModel[
     Rep: PositiveDefinite,
@@ -282,3 +277,27 @@ class LinearGaussianModel[
         return nor_man.join_location_precision(
             nor_loc, nor_man.cov_man.from_dense(joint_shape_array)
         )
+
+
+@dataclass(frozen=True)
+class LinearModel(LinearGaussianModel[PositiveDefinite]):
+    """A linear model with Gaussian latent variables."""
+
+    def __init__(self, obs_dim: int, lat_dim: int):
+        super().__init__(obs_dim, PositiveDefinite, lat_dim)
+
+
+@dataclass(frozen=True)
+class FactorAnalysis(LinearGaussianModel[Diagonal]):
+    """A factor analysis model with Gaussian latent variables."""
+
+    def __init__(self, obs_dim: int, lat_dim: int):
+        super().__init__(obs_dim, Diagonal, lat_dim)
+
+
+@dataclass(frozen=True)
+class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
+    """A principal component analysis model with Gaussian latent variables."""
+
+    def __init__(self, obs_dim: int, lat_dim: int):
+        super().__init__(obs_dim, Scale, lat_dim)
