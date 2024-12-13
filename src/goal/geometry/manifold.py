@@ -58,6 +58,17 @@ class Manifold(ABC):
     In our implementation, a `Manifold` defines operations on `Point`s rather than containing `Point`s itself - it also acts as a "Point factory", and should be used to create points rather than the `Point` constructor itself.
     """
 
+    def __enter__(self):
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: type[BaseException] | None,
+    ) -> None:
+        pass
+
     @property
     @abstractmethod
     def dim(self) -> int:
