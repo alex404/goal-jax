@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Self
 
 import jax
 import jax.numpy as jnp
@@ -376,7 +376,7 @@ class Normal[Rep: PositiveDefinite](
         target_prec = target_man.cov_man.from_dense(dense_prec)
         return target_man.join_location_precision(loc, target_prec)
 
-    def standard_normal(self) -> Point[Any, Self]:
+    def standard_normal(self) -> Point[Mean, Self]:
         """Return the standard normal distribution."""
         return self.join_mean_covariance(
             Point(jnp.zeros(self.data_dim)),

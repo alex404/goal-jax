@@ -303,9 +303,10 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
     ) -> Point[Natural, Self]:
         keys = jax.random.split(key, 2)
         obs_bias = self.obs_man.shape_initialize(keys[0], mu, shp)
-        lat_bias = self.lat_man.standard_normal()
         int_mat = self.int_man.shape_initialize(keys[2], mu, shp)
-        return self.join_params(obs_bias, lat_bias, int_mat)
+        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
+        prr_params = self.lat_man.to_natural(self.lat_man.standard_normal())
+        return self.join_conjugated(lkl_params, prr_params)
 
 
 @dataclass(frozen=True)
@@ -323,6 +324,7 @@ class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
     ) -> Point[Natural, Self]:
         keys = jax.random.split(key, 2)
         obs_bias = self.obs_man.shape_initialize(keys[0], mu, shp)
-        lat_bias = self.lat_man.standard_normal()
         int_mat = self.int_man.shape_initialize(keys[2], mu, shp)
-        return self.join_params(obs_bias, lat_bias, int_mat)
+        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
+        prr_params = self.lat_man.to_natural(self.lat_man.standard_normal())
+        return self.join_conjugated(lkl_params, prr_params)

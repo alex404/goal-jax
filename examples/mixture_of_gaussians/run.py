@@ -74,48 +74,6 @@ def create_ground_truth_parameters(
     return mix_man.to_natural(mean_mix)
 
 
-# def initialize_mixture_parameters[R: PositiveDefinite](
-#     key: Array,
-#     mix_man: Mixture[Normal[R]],
-#     n_components: int,
-#     mean_scale: float = 1.0,
-#     cov_scale: float = 0.1,
-# ) -> Point[Natural, Mixture[Normal[R]]]:
-#     # Split keys for independent initialization
-#     keys = jax.random.split(key, 3)
-#
-#     # Initialize component means and covariances
-#     components = []
-#     for i in range(n_components):
-#         # Get fresh key for each component
-#         key_i = jax.random.fold_in(keys[0], i)
-#         keys_i = jax.random.split(key_i, 2)
-#
-#         # Initialize mean - spread out within data scale
-#         mean: Point[Mean, Euclidean] = Point(
-#             mean_scale * jax.random.normal(keys_i[0], shape=(mix_man.obs_man.data_dim,))
-#         )
-#
-#         # Initialize covariance - start near identity
-#         base_cov = jnp.eye(mix_man.obs_man.data_dim)
-#         noise = cov_scale * jax.random.normal(keys_i[1], shape=base_cov.shape)
-#         cov = base_cov + noise @ noise.T  # Ensure positive definite
-#
-#         # Convert to natural parameters
-#         cov_mat = mix_man.obs_man.cov_man.from_dense(cov)
-#         mean_params = mix_man.obs_man.join_mean_covariance(mean, cov_mat)
-#         comp = mix_man.obs_man.to_natural(mean_params)
-#         components.append(comp)
-#
-#     # Initialize weights close to uniform
-#     prior: Point[Natural, Categorical] = mix_man.lat_man.shape_initialize(
-#         keys[1], shp=0.1
-#     )
-#
-#     # Join into mixture parameters
-#     return mix_man.join_natural_mixture(components, prior)
-
-
 def goal_to_sklearn_mixture(
     mix_man: Mixture[FullNormal],
     goal_mixture: Point[Natural, Mixture[FullNormal]],
