@@ -101,8 +101,10 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
 
         Uses exp(N(mu, shp)) to generate positive diagonal elements.
         """
-        diag = jnp.exp(jax.random.normal(key, (self.data_dim,)) * shp + mu)
-        return self.from_dense(jnp.diag(diag))
+        base_cov = jnp.eye(self.data_dim)
+        noise = shp * jax.random.normal(key, shape=base_cov.shape)
+        cov = base_cov + noise @ noise.T  # Ensure positive definite
+        return self.from_dense(cov)
 
 
 @dataclass(frozen=True)
