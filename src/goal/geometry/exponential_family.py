@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, Self, TypeVar
+from typing import Self
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from .manifold import Coordinates, Dual, Manifold, Pair, Point, Subspace
+from .manifold import Coordinates, Dual, Manifold, Pair, Point
+from .subspace import Subspace
 
 ### Coordinate Systems ###
 
@@ -244,11 +245,9 @@ class Backward(Forward, ABC):
         )
 
 
-Location = TypeVar("Location", bound=ExponentialFamily, covariant=True)
-Shape = TypeVar("Shape", bound=ExponentialFamily, covariant=True)
-
-
-class LocationShape(Generic[Location, Shape], Pair[Location, Shape], ExponentialFamily):
+class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
+    Pair[Location, Shape], ExponentialFamily
+):
     """A product exponential family with location and shape parameters.
 
     This structure captures distributions like the Normal distribution that decompose into a location parameter (e.g. mean) and a shape parameter (e.g. covariance).

@@ -7,14 +7,15 @@ from typing import Any, Generic, Self, TypeVar
 
 from jax import Array
 
-from .manifold import Coordinates, Dual, Manifold, Pair, Point, Subspace
+from .manifold import Coordinates, Dual, Manifold, Pair, Point
 from .rep.matrix import MatrixRep, Square
+from .subspace import Subspace
 
 ### Linear Maps ###
 
 Rep = TypeVar("Rep", bound="MatrixRep", covariant=True)
-Domain = TypeVar("Domain", bound="Manifold", contravariant=True)
-Codomain = TypeVar("Codomain", bound="Manifold", covariant=True)
+Domain = TypeVar("Domain", bound="Manifold", covariant=True)
+Codomain = TypeVar("Codomain", bound="Manifold", contravariant=True)
 
 
 @dataclass(frozen=True)
@@ -128,13 +129,14 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 ### Affine Maps ###
 
 
+SubCodomain = TypeVar("SubCodomain", bound="Manifold", contravariant=True)
+
+
 @dataclass(frozen=True)
-class AffineMap[
-    Rep: MatrixRep,
-    Domain: Manifold,
-    SubCodomain: Manifold,
-    Codomain: Manifold,
-](Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]]):
+class AffineMap(
+    Generic[Rep, Domain, SubCodomain, Codomain],
+    Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]],
+):
     """Affine transformation targeting a subspace of the codomain.
 
     Args:

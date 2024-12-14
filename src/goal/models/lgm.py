@@ -183,7 +183,9 @@ class LinearGaussianModel[
         obs_mean = obs_cov_man(obs_sigma, expand_dual(obs_loc))
 
         # Conjugation parameters
-        chi = 0.5 * self.obs_man.loc_man.dot(obs_mean, obs_cov_man(obs_prec, obs_mean))
+        chi = 0.5 * self.obs_man.loc_man.dot(
+            obs_mean, expand_dual(obs_cov_man(obs_prec, obs_mean))
+        )
         chi += 0.5 * log_det
         rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
         _, rho_shape = _change_of_basis(self.int_man, int_mat, obs_cov_man, obs_sigma)

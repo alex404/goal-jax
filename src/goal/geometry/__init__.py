@@ -16,6 +16,7 @@ from .harmonium import (
     GenerativeConjugated,
     Harmonium,
 )
+from .hierarchical import HierarchicalHarmonium
 from .linear import (
     AffineMap,
     LinearMap,
@@ -24,14 +25,10 @@ from .linear import (
 from .manifold import (
     Coordinates,
     Dual,
-    IdentitySubspace,
     Manifold,
     Pair,
-    PairSubspace,
     Point,
-    Subspace,
     Triple,
-    TripleSubspace,
     expand_dual,
     reduce_dual,
 )
@@ -45,6 +42,13 @@ from .rep.matrix import (
     Square,
     Symmetric,
 )
+from .subspace import (
+    IdentitySubspace,
+    PairPairSubspace,
+    PairSubspace,
+    Subspace,
+    TripleSubspace,
+)
 
 __all__ = [
     # Manifolds
@@ -54,9 +58,11 @@ __all__ = [
     "Pair",
     "Triple",
     "Point",
+    # Subsapce
     "Subspace",
     "IdentitySubspace",
     "PairSubspace",
+    "PairPairSubspace",
     "TripleSubspace",
     "expand_dual",
     "reduce_dual",
@@ -82,10 +88,13 @@ __all__ = [
     "Forward",
     "Backward",
     "Generative",
+    # Harmoniums
     "Harmonium",
     "BackwardLatent",
     "Conjugated",
     "GenerativeConjugated",
     "ForwardConjugated",
     "BackwardConjugated",
+    # Hierarchical Harmonium
+    "HierarchicalHarmonium",
 ]

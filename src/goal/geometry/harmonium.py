@@ -19,8 +19,9 @@ from .exponential_family import (
     Natural,
 )
 from .linear import AffineMap, LinearMap
-from .manifold import Pair, Point, Subspace, expand_dual
+from .manifold import Pair, Point, expand_dual
 from .rep.matrix import MatrixRep
+from .subspace import Subspace
 
 
 @dataclass(frozen=True)
@@ -52,19 +53,10 @@ class Harmonium[
     Args:
         fst_man: The observable exponential family
         snd_man: The latent exponential family
-        trd_man: Representation of the interaction matrix
-        obs_sub: Interactive subspace of latent sufficient statistics
         lat_sub: Interactive subspace of observable sufficient
     """
 
     lat_sub: Subspace[Latent, SubLatent]
-
-    @property
-    def dim(self) -> int:
-        """Total dimension includes biases + interaction parameters."""
-        obs_dim = self.obs_man.dim
-        lat_dim = self.lat_man.dim
-        return obs_dim + lat_dim + (obs_dim * lat_dim)
 
     @property
     def data_dim(self) -> int:
