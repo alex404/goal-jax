@@ -76,42 +76,13 @@ class PairSubspace[First: Manifold, Second: Manifold](
 
 
 @dataclass(frozen=True)
-class PairPairSubspace[
-    FirstFirst: Manifold,
-    FirstSecond: Manifold,
-    Second: Manifold,
-](Subspace[Pair[Pair[FirstFirst, FirstSecond], Second], FirstFirst]):
-    """Subspace relationship for a product manifold $M \\times N$."""
-
-    def __init__(self, prp_man: Pair[Pair[FirstFirst, FirstSecond], Second]):
-        super().__init__(prp_man, prp_man.fst_man.fst_man)
-
-    def project[C: Coordinates](
-        self, p: Point[C, Pair[Pair[FirstFirst, FirstSecond], Second]]
-    ) -> Point[C, FirstFirst]:
-        fst_params = self.sup_man.split_params(p)[0]
-        return self.sup_man.fst_man.split_params(fst_params)[0]
-
-    def translate[C: Coordinates](
-        self,
-        p: Point[C, Pair[Pair[FirstFirst, FirstSecond], Second]],
-        q: Point[C, FirstFirst],
-    ) -> Point[C, Pair[Pair[FirstFirst, FirstSecond], Second]]:
-        fst_params, snd_params = self.sup_man.split_params(p)
-        with self.sup_man.fst_man as fm:
-            fstfst_params, fstsnd_params = fm.split_params(fst_params)
-            fst_params1 = fm.join_params(fstfst_params + q, fstsnd_params)
-        return self.sup_man.join_params(fst_params1, snd_params)
-
-
-@dataclass(frozen=True)
 class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
     Subspace[Triple[First, Second, Third], First]
 ):
     """Subspace relationship for a product manifold $M \\times N$."""
 
-    def __init__(self, fst_man: First, snd_man: Second, trd_man: Third):
-        super().__init__(Triple(fst_man, snd_man, trd_man), fst_man)
+    def __init__(self, thr_man: Triple[First, Second, Third]):
+        super().__init__(thr_man, thr_man.fst_man)
 
     def project[C: Coordinates](
         self, p: Point[C, Triple[First, Second, Third]]
@@ -124,3 +95,32 @@ class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
     ) -> Point[C, Triple[First, Second, Third]]:
         first, second, third = self.sup_man.split_params(p)
         return self.sup_man.join_params(first + q, second, third)
+
+
+@dataclass(frozen=True)
+class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
+    Subspace[Super, Sub]
+):
+    """Composition of two subspace relationships."""
+
+    sup_sub: Subspace[Super, Mid]
+    sub_sub: Subspace[Mid, Sub]
+
+    def __init__(
+        self,
+        sup_sub: Subspace[Super, Mid],
+        sub_sub: Subspace[Mid, Sub],
+    ):
+        object.__setattr__(self, "sup_sub", sup_sub)
+        object.__setattr__(self, "sub_sub", sub_sub)
+        super().__init__(sup_sub.sup_man, sub_sub.sub_man)
+
+    def project[C: Coordinates](self, p: Point[C, Super]) -> Point[C, Sub]:
+        mid = self.sup_sub.project(p)
+        return self.sub_sub.project(mid)
+
+    def translate[C: Coordinates](
+        self, p: Point[C, Super], q: Point[C, Sub]
+    ) -> Point[C, Super]:
+        mid = self.sub_sub.translate(self.sup_sub.project(p), q)
+        return self.sup_sub.translate(p, mid)

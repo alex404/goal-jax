@@ -43,8 +43,8 @@ from .rep.matrix import (
     Symmetric,
 )
 from .subspace import (
+    ComposedSubspace,
     IdentitySubspace,
-    PairPairSubspace,
     PairSubspace,
     Subspace,
     TripleSubspace,
@@ -58,14 +58,14 @@ __all__ = [
     "Pair",
     "Triple",
     "Point",
+    "expand_dual",
+    "reduce_dual",
     # Subsapce
     "Subspace",
     "IdentitySubspace",
     "PairSubspace",
-    "PairPairSubspace",
     "TripleSubspace",
-    "expand_dual",
-    "reduce_dual",
+    "ComposedSubspace",
     # Maps
     "AffineMap",
     "LinearMap",

@@ -50,7 +50,7 @@ class HierarchicalHarmonium[
     def upr_man(
         self,
     ) -> BackwardConjugated[Rep, LatentY, SubHighLatentY, SubLatentZ, LatentZ]:
-        return self.snd_man
+        return self.trd_man
 
     def conjugation_parameters(
         self,
@@ -67,8 +67,9 @@ class HierarchicalHarmonium[
         """Compute lower conjugation parameters for the hierarchical model."""
         chi, rho0 = self.lwr_man.conjugation_parameters(lkl_params)
         with self.upr_man as um:
-            lkl_rho = um.lkl_man.join_params(rho0, Point(jnp.zeros(um.int_man.dim)))
-            rho = um.join_params(lkl_rho, Point(jnp.zeros(um.lat_man.dim)))
+            rho = um.join_params(
+                rho0, Point(jnp.zeros(um.int_man.dim)), Point(jnp.zeros(um.lat_man.dim))
+            )
 
         # Combine the conjugation parameters
         return chi, rho
@@ -78,10 +79,9 @@ class HierarchicalHarmonium[
     ) -> Point[Natural, AffineMap[Rep, SubLowLatentY, SubObservable, Observable]]:
         """Use mean parameters to compute natural parameters for the lower likelihood."""
 
-        lkl_means, lat_means = self.split_params(p)
-        ylkl_means = self.upr_man.split_params(lat_means)[0]
-        ylat_means = self.upr_man.lkl_man.split_params(ylkl_means)[0]
-        lwr_means = self.lwr_man.join_params(lkl_means, ylat_means)
+        obs_means, lwr_int_means, lat_means = self.split_params(p)
+        lwr_lat_means = self.upr_man.split_params(lat_means)[0]
+        lwr_means = self.lwr_man.join_params(obs_means, lwr_int_means, lwr_lat_means)
 
         # Combine the likelihoods
         return self.lwr_man.to_natural_likelihood(lwr_means)

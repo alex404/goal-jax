@@ -147,14 +147,19 @@ class LinearGaussianModel[
         """Initialize a linear Gaussian model."""
         obs_man = Normal(obs_dim, obs_rep)
         lat_man = Normal(lat_dim)
+        int_man = LinearMap(
+            Rectangular(),
+            lat_man.loc_man,
+            obs_man.loc_man,
+        )
+        obs_sub = LocationSubspace(obs_man)
+        lat_sub = LocationSubspace(lat_man)
         super().__init__(
-            AffineMap(
-                Rectangular(),
-                lat_man.loc_man,
-                LocationSubspace(obs_man),
-            ),
+            obs_man,
+            int_man,
             lat_man,
-            LocationSubspace(lat_man),
+            obs_sub,
+            lat_sub,
         )
 
     def conjugation_parameters(
@@ -202,8 +207,7 @@ class LinearGaussianModel[
         # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
-        (lkl_means, lat_means) = self.split_params(p)
-        obs_means, int_means = self.lkl_man.split_params(lkl_means)
+        obs_means, int_means, lat_means = self.split_params(p)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
@@ -244,12 +248,10 @@ class LinearGaussianModel[
         Acts as an embedding when going to more complex representations and as a
         projection when going to simpler ones.
         """
-        lkl_params, lat_params = self.split_params(p)
-        obs_params, int_params = self.lkl_man.split_params(lkl_params)
+        obs_params, int_params, lat_params = self.split_params(p)
         trn_obs_params = self.obs_man.transform_rep(trg_man.obs_man, obs_params)
-        trn_lkl_params = trg_man.lkl_man.join_params(trn_obs_params, int_params)
 
-        return trg_man.join_params(trn_lkl_params, lat_params)
+        return trg_man.join_params(trn_obs_params, int_params, lat_params)
 
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
@@ -259,8 +261,7 @@ class LinearGaussianModel[
             lat_dim=self.lat_man.data_dim,
         )
         p_embedded = self.transform_observable_rep(new_man, p)
-        lkl_params, lat_params = new_man.split_params(p_embedded)
-        obs_params, int_params = new_man.lkl_man.split_params(lkl_params)
+        obs_params, int_params, lat_params = new_man.split_params(p_embedded)
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(obs_params)
         lat_loc, lat_prs = new_man.lat_man.split_location_precision(lat_params)
         nor_loc: Point[Natural, Euclidean] = Point(

@@ -15,6 +15,7 @@ from ..geometry import (
     Backward,
     BackwardConjugated,
     IdentitySubspace,
+    LinearMap,
     Mean,
     Natural,
     Point,
@@ -46,14 +47,15 @@ class Mixture[Observable: Backward](
 
     def __init__(self, obs_man: Observable, n_categories: int):
         cat_man = Categorical(n_categories)
+        int_man = LinearMap(Rectangular(), cat_man, obs_man)
+        obs_sub = IdentitySubspace(obs_man)
+        lat_sub = IdentitySubspace(cat_man)
         super().__init__(
-            AffineMap(
-                Rectangular(),
-                cat_man,
-                IdentitySubspace(obs_man),
-            ),
+            obs_man,
+            int_man,
             cat_man,
-            IdentitySubspace(cat_man),
+            obs_sub,
+            lat_sub,
         )
 
     def conjugation_parameters(
@@ -116,18 +118,16 @@ class Mixture[Observable: Backward](
             p * comp for p, comp in zip(probs, components)
         ]
 
-        obs_mean: Point[Mean, Observable] = reduce(add, weighted_comps)
+        obs_means: Point[Mean, Observable] = reduce(add, weighted_comps)
         int_means = self.int_man.from_columns([comp for comp in weighted_comps[1:]])
-        lkl_means = self.lkl_man.join_params(obs_mean, int_means)
 
-        return self.join_params(lkl_means, weights)
+        return self.join_params(obs_means, int_means, weights)
 
     def split_mean_mixture(
         self, p: Point[Mean, Self]
     ) -> tuple[list[Point[Mean, Observable]], Point[Mean, Categorical]]:
         """Split a mixture model in mean coordinates into components and weights."""
-        lkl_means, cat_means = self.split_params(p)
-        obs_means, int_means = self.lkl_man.split_params(lkl_means)
+        obs_means, int_means, cat_means = self.split_params(p)
 
         probs = self.lat_man.to_probs(cat_means)
         int_cols = self.int_man.to_columns(int_means)

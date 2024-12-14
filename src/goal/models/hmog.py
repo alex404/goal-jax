@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 from ..geometry import (
-    AffineMap,
+    ComposedSubspace,
     HierarchicalHarmonium,
     LinearMap,
     LocationSubspace,
-    PairPairSubspace,
     PositiveDefinite,
     Rectangular,
+    TripleSubspace,
 )
 from .lgm import LinearGaussianModel
 from .mixture import Mixture
@@ -52,18 +52,24 @@ class HierarchicalMixtureOfGaussians[ObsRep: PositiveDefinite](
     def __init__(
         self, obs_dim: int, obs_rep: type[ObsRep], lat_dim: int, n_components: int
     ):
+        obs_man = Normal(obs_dim, obs_rep)
+        lwr_lat_man = Normal(lat_dim)
         lwr_man = LinearGaussianModel(obs_dim, obs_rep, lat_dim)
-        with lwr_man as lm:
-            lkl_man = AffineMap(
-                Rectangular(), lm.lat_man.loc_man, LocationSubspace(lm.obs_man)
-            )
-            upr_man = Mixture(lm.lat_man, n_components)
-            lat_sub: PairPairSubspace[
-                FullNormal, LinearMap[Rectangular, FullNormal, FullNormal], FullNormal
-            ] = PairPairSubspace(upr_man)
-            super().__init__(
-                lkl_man,
-                upr_man,
-                lat_sub,
-                lwr_man,
-            )
+        int_man = LinearMap(
+            Rectangular(),
+            lwr_lat_man.loc_man,
+            obs_man.loc_man,
+        )
+        lat_man = Mixture(lwr_lat_man, n_components)
+        obs_sub = LocationSubspace(obs_man)
+        lat_sub = ComposedSubspace(
+            TripleSubspace(lat_man), LocationSubspace(lwr_lat_man)
+        )
+        super().__init__(
+            obs_man,
+            int_man,
+            lat_man,
+            obs_sub,
+            lat_sub,
+            lwr_man,
+        )

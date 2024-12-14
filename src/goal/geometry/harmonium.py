@@ -19,7 +19,7 @@ from .exponential_family import (
     Natural,
 )
 from .linear import AffineMap, LinearMap
-from .manifold import Pair, Point, expand_dual
+from .manifold import Point, Triple, expand_dual
 from .rep.matrix import MatrixRep
 from .subspace import Subspace
 
@@ -32,7 +32,7 @@ class Harmonium[
     SubLatent: ExponentialFamily,
     Latent: ExponentialFamily,
 ](
-    Pair[AffineMap[Rep, SubLatent, SubObservable, Observable], Latent],
+    Triple[Observable, LinearMap[Rep, SubLatent, SubObservable], Latent],
     ExponentialFamily,
 ):
     """An exponential family harmonium is a product of two exponential families.
@@ -56,6 +56,7 @@ class Harmonium[
         lat_sub: Interactive subspace of observable sufficient
     """
 
+    obs_sub: Subspace[Observable, SubObservable]
     lat_sub: Subspace[Latent, SubLatent]
 
     @property
@@ -64,29 +65,24 @@ class Harmonium[
         return self.obs_man.data_dim + self.lat_man.data_dim
 
     @property
-    def lkl_man(self) -> AffineMap[Rep, SubLatent, SubObservable, Observable]:
-        """Manifold of conditional likelihood distributions $p(x \\mid z)$."""
+    def obs_man(self) -> Observable:
+        """Manifold of observable biases."""
         return self.fst_man
-
-    @property
-    def obs_sub(self) -> Subspace[Observable, SubObservable]:
-        """Observable subspace."""
-        return self.lkl_man.cod_sub
 
     @property
     def lat_man(self) -> Latent:
         """Manifold of latent biases."""
-        return self.snd_man
-
-    @property
-    def obs_man(self) -> Observable:
-        """Manifold of observable biases."""
-        return self.lkl_man.fst_man
+        return self.trd_man
 
     @property
     def int_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
         """Manifold of interaction matrices."""
-        return self.lkl_man.snd_man
+        return self.snd_man
+
+    @property
+    def lkl_man(self) -> AffineMap[Rep, SubLatent, SubObservable, Observable]:
+        """Manifold of conditional posterior distributions $p(z \\mid x)$."""
+        return AffineMap(self.int_man.rep, self.lat_sub.sub_man, self.obs_sub)
 
     @property
     def pst_man(self) -> AffineMap[Rep, SubObservable, SubLatent, Latent]:
@@ -110,9 +106,8 @@ class Harmonium[
         int_stats = self.int_man.outer_product(
             self.obs_sub.project(obs_stats), self.lat_sub.project(lat_stats)
         )
-        lkl_stats = self.lkl_man.join_params(obs_stats, int_stats)
 
-        return self.join_params(lkl_stats, lat_stats).params
+        return self.join_params(obs_stats, int_stats, lat_stats).params
 
     def log_base_measure(self, x: Array) -> Array:
         """Compute log base measure for joint observation.
@@ -137,7 +132,8 @@ class Harmonium[
 
         The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
         """
-        return self.split_params(p)[0]
+        obs_params, int_params, _ = self.split_params(p)
+        return self.lkl_man.join_params(obs_params, int_params)
 
     def posterior_function(
         self, p: Point[Natural, Self]
@@ -146,8 +142,7 @@ class Harmonium[
 
         The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}^T$.
         """
-        lkl_params, lat_params = self.split_params(p)
-        int_params = self.lkl_man.split_params(lkl_params)[1]
+        _, int_params, lat_params = self.split_params(p)
         int_mat_t = self.int_man.transpose(int_params)
         return self.pst_man.join_params(lat_params, int_mat_t)
 
@@ -184,8 +179,7 @@ class Harmonium[
         obs_params = self.obs_man.shape_initialize(keys[0], mu, shp)
         lat_params = self.lat_man.shape_initialize(keys[1], mu, shp)
         int_params = self.int_man.shape_initialize(keys[2], mu, shp)
-        lkl_params = self.lkl_man.join_params(obs_params, int_params)
-        return self.join_params(lkl_params, lat_params)
+        return self.join_params(obs_params, int_params, lat_params)
 
 
 class BackwardLatent[
@@ -236,10 +230,9 @@ class BackwardLatent[
                 self.obs_sub.project(obs_stats), self.lat_sub.project(lat_means)
             )
         )
-        lkl_means = self.lkl_man.join_params(obs_stats, int_means)
 
         # Join parameters into harmonium point
-        return self.join_params(lkl_means, lat_means)
+        return self.join_params(obs_stats, int_means, lat_means)
 
     def expectation_step(
         self: Self,
@@ -285,7 +278,8 @@ class Conjugated[
 
     def prior(self, p: Point[Natural, Self]) -> Point[Natural, Latent]:
         """Natural parameters of the prior distribution $p(z)$."""
-        lkl_params, lat_params = self.split_params(p)
+        obs_params, int_params, lat_params = self.split_params(p)
+        lkl_params = self.lkl_man.join_params(obs_params, int_params)
         _, rho = self.conjugation_parameters(lkl_params)
         return lat_params + rho
 
@@ -296,7 +290,8 @@ class Conjugated[
         Point[Natural, Latent],
     ]:
         """Split conjugated harmonium into likelihood and prior."""
-        lkl_params, lat_params = self.split_params(p)
+        obs_params, int_params, lat_params = self.split_params(p)
+        lkl_params = self.lkl_man.join_params(obs_params, int_params)
         _, rho = self.conjugation_parameters(lkl_params)
         return lkl_params, lat_params + rho
 
@@ -310,7 +305,8 @@ class Conjugated[
         """Join likelihood and prior parameters into a conjugated harmonium."""
         _, rho = self.conjugation_parameters(lkl_params)
         lat_params = prior_params - rho
-        return self.join_params(lkl_params, lat_params)
+        obs_params, int_params = self.lkl_man.split_params(lkl_params)
+        return self.join_params(obs_params, int_params, lat_params)
 
 
 class GenerativeConjugated[
@@ -384,7 +380,10 @@ class ForwardConjugated[
         where $\\psi_Z$ is the log partition function of the latent exponential family.
         """
         # Split parameters
-        lkl_params, lat_params = self.split_params(self.natural_point(natural_params))
+        obs_params, int_params, lat_params = self.split_params(
+            self.natural_point(natural_params)
+        )
+        lkl_params = self.lkl_man.join_params(obs_params, int_params)
 
         # Get conjugation parameters
         chi, rho = self.conjugation_parameters(lkl_params)
@@ -417,8 +416,8 @@ class ForwardConjugated[
         Returns:
             Log density at x
         """
-        lkl_params, lat_bias = self.split_params(p)
-        obs_params = self.lkl_man.split_params(lkl_params)[0]
+        obs_params, int_params, lat_bias = self.split_params(p)
+        lkl_params = self.lkl_man.join_params(obs_params, int_params)
 
         chi, rho = self.conjugation_parameters(lkl_params)
         obs_stats = self.obs_man.sufficient_statistic(x)
@@ -473,7 +472,7 @@ class BackwardConjugated[
         where $\\rho$ are the conjugation parameters of the likelihood.
         """
         lkl_params = self.to_natural_likelihood(p)
-        mean_lat = self.split_params(p)[1]
+        mean_lat = self.split_params(p)[2]
         nat_lat = self.lat_man.to_natural(mean_lat)
         return self.join_conjugated(lkl_params, nat_lat)
 
