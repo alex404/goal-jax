@@ -28,6 +28,7 @@ Example:
    >>> point = model.random_point()  # Sample a random point on manifold
 """
 
+from .hmog import HierarchicalMixtureOfGaussians
 from .lgm import (
     FactorAnalysis,
     LinearGaussianModel,
@@ -53,6 +54,7 @@ from .univariate import Categorical, Poisson
 __all__ = [
     "LinearGaussianModel",
     "LinearModel",
+    "HierarchicalMixtureOfGaussians",
     "FactorAnalysis",
     "PrincipalComponentAnalysis",
     "Mixture",
