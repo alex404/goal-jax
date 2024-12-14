@@ -15,7 +15,6 @@ from ..geometry import (
     Backward,
     BackwardConjugated,
     IdentitySubspace,
-    LinearMap,
     Mean,
     Natural,
     Point,
@@ -48,10 +47,12 @@ class Mixture[Observable: Backward](
     def __init__(self, obs_man: Observable, n_categories: int):
         cat_man = Categorical(n_categories)
         super().__init__(
-            obs_man,
+            AffineMap(
+                Rectangular(),
+                cat_man,
+                IdentitySubspace(obs_man),
+            ),
             cat_man,
-            LinearMap(Rectangular(), cat_man, obs_man),
-            IdentitySubspace(obs_man),
             IdentitySubspace(cat_man),
         )
 
@@ -116,28 +117,30 @@ class Mixture[Observable: Backward](
         ]
 
         obs_mean: Point[Mean, Observable] = reduce(add, weighted_comps)
-        int_mat = self.int_man.from_columns([comp for comp in weighted_comps[1:]])
+        int_means = self.int_man.from_columns([comp for comp in weighted_comps[1:]])
+        lkl_means = self.lkl_man.join_params(obs_mean, int_means)
 
-        return self.join_params(obs_mean, weights, int_mat)
+        return self.join_params(lkl_means, weights)
 
     def split_mean_mixture(
         self, p: Point[Mean, Self]
     ) -> tuple[list[Point[Mean, Observable]], Point[Mean, Categorical]]:
         """Split a mixture model in mean coordinates into components and weights."""
-        obs_mean, cat_mean, int_mat = self.split_params(p)
+        lkl_means, cat_means = self.split_params(p)
+        obs_means, int_means = self.lkl_man.split_params(lkl_means)
 
-        probs = self.lat_man.to_probs(cat_mean)
-        int_cols = self.int_man.to_columns(int_mat)
+        probs = self.lat_man.to_probs(cat_means)
+        int_cols = self.int_man.to_columns(int_means)
 
         components: list[Point[Mean, Observable]] = [
-            (obs_mean - reduce(add, int_cols)) / probs[0]
+            (obs_means - reduce(add, int_cols)) / probs[0]
         ]
 
         for i, col in enumerate(int_cols):
             comp_mean = col / probs[i + 1]
             components.append(comp_mean)
 
-        return components, cat_mean
+        return components, cat_means
 
     def join_natural_mixture(
         self,

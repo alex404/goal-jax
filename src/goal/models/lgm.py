@@ -107,7 +107,7 @@ def _change_of_basis[
 class LinearGaussianModel[
     Rep: PositiveDefinite,
 ](
-    BackwardConjugated[Rectangular, Normal[Rep], Euclidean, FullNormal, Euclidean],
+    BackwardConjugated[Rectangular, Normal[Rep], Euclidean, Euclidean, FullNormal],
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
 
@@ -148,17 +148,19 @@ class LinearGaussianModel[
         obs_man = Normal(obs_dim, obs_rep)
         lat_man = Normal(lat_dim)
         super().__init__(
-            obs_man,
+            AffineMap(
+                Rectangular(),
+                lat_man.loc_man,
+                LocationSubspace(obs_man),
+            ),
             lat_man,
-            LinearMap(Rectangular(), lat_man.loc_man, obs_man.loc_man),
-            LocationSubspace(obs_man.loc_man, obs_man.cov_man),
-            LocationSubspace(lat_man.loc_man, lat_man.cov_man),
+            LocationSubspace(lat_man),
         )
 
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rectangular, Euclidean, Normal[Rep], Euclidean]
+            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[Rep]]
         ],
     ) -> tuple[Array, Point[Natural, FullNormal]]:
         """Compute conjugation parameters for a linear model.
@@ -194,11 +196,12 @@ class LinearGaussianModel[
 
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Normal[Rep], Euclidean]]:
+    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[Rep]]]:
         # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
-        (obs_means, lat_means, int_means) = self.split_params(p)
+        (lkl_means, lat_means) = self.split_params(p)
+        obs_means, int_means = self.lkl_man.split_params(lkl_means)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
@@ -229,7 +232,7 @@ class LinearGaussianModel[
 
     def transform_observable_rep[TargetRep: PositiveDefinite](
         self,
-        target_man: LinearGaussianModel[TargetRep],
+        trg_man: LinearGaussianModel[TargetRep],
         p: Point[Natural, Self],
     ) -> Point[Natural, LinearGaussianModel[TargetRep]]:
         """Transform observable parameters to target representation.
@@ -239,9 +242,12 @@ class LinearGaussianModel[
         Acts as an embedding when going to more complex representations and as a
         projection when going to simpler ones.
         """
-        obs_bias, lat_bias, int_mat = self.split_params(p)
-        transformed_bias = self.obs_man.transform_rep(target_man.obs_man, obs_bias)
-        return target_man.join_params(transformed_bias, lat_bias, int_mat)
+        lkl_params, lat_params = self.split_params(p)
+        obs_params, int_params = self.lkl_man.split_params(lkl_params)
+        trn_obs_params = self.obs_man.transform_rep(trg_man.obs_man, obs_params)
+        trn_lkl_params = trg_man.lkl_man.join_params(trn_obs_params, int_params)
+
+        return trg_man.join_params(trn_lkl_params, lat_params)
 
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
@@ -251,7 +257,8 @@ class LinearGaussianModel[
             lat_dim=self.lat_man.data_dim,
         )
         p_embedded = self.transform_observable_rep(new_man, p)
-        obs_params, lat_params, int_params = new_man.split_params(p_embedded)
+        lkl_params, lat_params = new_man.split_params(p_embedded)
+        obs_params, int_params = new_man.lkl_man.split_params(lkl_params)
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(obs_params)
         lat_loc, lat_prs = new_man.lat_man.split_location_precision(lat_params)
         nor_loc: Point[Natural, Euclidean] = Point(
@@ -304,8 +311,7 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
         # E-step: Compute expectations
         q = self.expectation_step(p, xs)
         p1 = self.to_natural(q)
-        obs_params, _, int_parms = self.split_params(p1)
-        lkl_params = self.lkl_man.join_params(obs_params, int_parms)
+        lkl_params = self.likelihood_function(p1)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
@@ -337,7 +343,6 @@ class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
         # E-step: Compute expectations
         q = self.expectation_step(p, xs)
         p1 = self.to_natural(q)
-        obs_params, _, int_parms = self.split_params(p1)
-        lkl_params = self.lkl_man.join_params(obs_params, int_parms)
+        lkl_params = self.likelihood_function(p1)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)

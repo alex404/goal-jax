@@ -290,8 +290,8 @@ class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
 ):
     """Subspace relationship for a product manifold $M \\times N$."""
 
-    def __init__(self, loc_man: Location, shp_man: Shape):
-        super().__init__(LocationShape(loc_man, shp_man), loc_man)
+    def __init__(self, lsh_man: LocationShape[Location, Shape]):
+        super().__init__(lsh_man, lsh_man.fst_man)
 
     def project[C: Coordinates](
         self, p: Point[C, LocationShape[Location, Shape]]

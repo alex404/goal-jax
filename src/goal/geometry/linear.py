@@ -109,12 +109,12 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
     Args:
         rep: Matrix representation strategy
-        domain: Source and target manifold
+        dom_man: Source and target manifold
 
     """
 
-    def __init__(self, rep: R, domain: M):
-        super().__init__(rep, domain, domain)
+    def __init__(self, rep: R, dom_man: M):
+        super().__init__(rep, dom_man, dom_man)
 
     def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""
@@ -132,14 +132,14 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 class AffineMap[
     Rep: MatrixRep,
     Domain: Manifold,
-    Codomain: Manifold,
     SubCodomain: Manifold,
+    Codomain: Manifold,
 ](Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]]):
     """Affine transformation targeting a subspace of the codomain.
 
     Args:
         rep: Matrix representation strategy
-        domain: Source manifold
+        dom_man: Source manifold
         cod_sub: Target manifold and subspace
 
     """
@@ -147,9 +147,9 @@ class AffineMap[
     cod_sub: Subspace[Codomain, SubCodomain]
 
     def __init__(
-        self, rep: Rep, domain: Domain, cod_sub: Subspace[Codomain, SubCodomain]
+        self, rep: Rep, dom_man: Domain, cod_sub: Subspace[Codomain, SubCodomain]
     ):
-        super().__init__(cod_sub.sup_man, LinearMap(rep, domain, cod_sub.sub_man))
+        super().__init__(cod_sub.sup_man, LinearMap(rep, dom_man, cod_sub.sub_man))
         object.__setattr__(self, "cod_sub", cod_sub)
 
     def __call__[C: Coordinates](
