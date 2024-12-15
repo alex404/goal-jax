@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
+import jax.numpy as jnp
+
 from .manifold import Coordinates, Manifold, Pair, Point, Triple
 
 ### Linear Subspaces ###
@@ -122,5 +124,6 @@ class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
     def translate[C: Coordinates](
         self, p: Point[C, Super], q: Point[C, Sub]
     ) -> Point[C, Super]:
-        mid = self.sub_sub.translate(self.sup_sub.project(p), q)
+        mid_zero: Point[C, Mid] = Point(jnp.zeros(self.sup_sub.sub_man.dim))
+        mid = self.sub_sub.translate(mid_zero, q)
         return self.sup_sub.translate(p, mid)

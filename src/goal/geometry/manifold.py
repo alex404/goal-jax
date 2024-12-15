@@ -99,7 +99,7 @@ class Manifold(ABC):
         return Point(params)
 
 
-C = TypeVar("C", bound=Coordinates, covariant=True)
+C = TypeVar("C", bound=Coordinates)
 M = TypeVar("M", bound=Manifold, covariant=True)
 
 
