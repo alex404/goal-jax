@@ -7,14 +7,19 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Diagonal, Mean, Natural, Point, PositiveDefinite
+from goal.geometry import (
+    Diagonal,
+    Mean,
+    Natural,
+    Point,
+    PositiveDefinite,
+    Scale,
+)
 from goal.models import (
     Categorical,
     Covariance,
     Euclidean,
-    FactorAnalysis,
     HierarchicalMixtureOfGaussians,
-    Normal,
 )
 
 from .common import HMoGResults, analysis_path
@@ -44,63 +49,111 @@ def create_ground_truth_model() -> (
     )
 
     # Create latent categorical prior
-    z_nat = Point[Natural, Categorical](jnp.array([0.0]))
+    cat_nat = Point[Natural, Categorical](jnp.array([0.0]))
+    cat_means = hmog.upr_man.lat_man.to_mean(cat_nat)
 
     # Create latent Gaussian components
     with hmog.upr_man as um:
-        y0_nat = um.obs_man.join_mean_covariance(
+        y0_means = um.obs_man.join_mean_covariance(
             Point[Mean, Euclidean](jnp.array([-SEP / 2])),
-            Point[Mean, Covariance[PositiveDefinite]](jnp.array([[1.0]])),
+            Point[Mean, Covariance[PositiveDefinite]](jnp.array([1.0])),
         )
-        y1_nat = um.obs_man.join_mean_covariance(
+        y1_means = um.obs_man.join_mean_covariance(
             Point[Mean, Euclidean](jnp.array([SEP / 2])),
-            Point[Mean, Covariance[PositiveDefinite]](jnp.array([[1.0]])),
+            Point[Mean, Covariance[PositiveDefinite]](jnp.array([1.0])),
         )
 
-        y_mix_nat = um.join_natural_mixture([y0_nat, y1_nat], z_nat)
+        mix_means = um.join_mean_mixture([y0_means, y1_means], cat_means)
+        mix_params = um.to_natural(mix_means)
 
     # Create observable normal with diagonal covariance
-    x = Normal(2, Diagonal)
-    x_nat = x.join_mean_covariance(
+    obs_means = hmog.obs_man.join_mean_covariance(
         Point[Mean, Euclidean](jnp.array([0.0, 0.0])),
         Point[Mean, Covariance[Diagonal]](jnp.array([WIDTH, HEIGHT])),
     )
+    obs_params = hmog.obs_man.to_natural(obs_means)
 
-    # Create factor analysis model
-    fa = FactorAnalysis(2, 1)
-    # Need to handle the factor analysis parameters properly
-    fa_nat = fa.join_params(
-        x_nat,
-        Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]](
-            jnp.array([1.0, 0.0])
-        ),
-    )
+    # NB: Multiplying the interaction parameters by the observable precision makes them scale more intuitively
+    int_mat0 = jnp.array([1.0, 0.0])
+    obs_prs = hmog.obs_man.split_location_precision(obs_params)[1]
+    int_mat = hmog.int_man.from_dense(hmog.obs_man.cov_man.to_dense(obs_prs) @ int_mat0)
 
-    return hmog, hmog.join_conjugated(fa_nat, y_mix_nat)
+    lkl_params = hmog.lkl_man.join_params(obs_params, int_mat)
+
+    hmog_params = hmog.join_conjugated(lkl_params, mix_params)
+
+    return hmog, hmog_params
 
 
 ### Training ###
 
 
-def fit_hmog(
+def initialize_hmog[Rep: PositiveDefinite](
     key: Array,
-    hmog: HierarchicalMixtureOfGaussians[Diagonal],
+    hmog: HierarchicalMixtureOfGaussians[Rep],
+    sample: Array,
+    n_components: int = 2,
+) -> Point[Natural, HierarchicalMixtureOfGaussians[Rep]]:
+    keys = jax.random.split(key, 2)
+
+    # Initialize observable normal with data statistics
+    obs_means = hmog.obs_man.average_sufficient_statistic(sample)
+    obs_params = hmog.obs_man.to_natural(obs_means)
+
+    # Create latent categorical prior - slightly break symmetry
+    cat_params = hmog.upr_man.lat_man.shape_initialize(keys[0])
+    cat_means = hmog.upr_man.lat_man.to_mean(cat_params)
+
+    # Initialize separated components
+    with hmog.upr_man as um:
+        components = []
+        sg = 1
+        stp = 3 * sg
+        strt = -stp * (n_components - 1) / 2
+        rng = jnp.arange(strt, strt + n_components * stp, stp)
+        for i in range(n_components):
+            comp_means = um.obs_man.join_mean_covariance(
+                Point[Mean, Euclidean](jnp.atleast_1d(rng[i])),
+                Point[Mean, Covariance[PositiveDefinite]](jnp.array([sg**2])),
+            )
+            components.append(comp_means)
+
+        mix_means = um.join_mean_mixture(components, cat_means)
+        mix_params = um.to_natural(mix_means)
+
+    # Initialize interaction matrix scaled by precision
+    obs_prs = hmog.obs_man.split_location_precision(obs_params)[1]
+    int_mat0 = jnp.array([0.0, 0.0]) + 0.1 * jax.random.normal(keys[1], shape=(2,))
+    int_mat = hmog.int_man.from_dense(hmog.obs_man.cov_man.to_dense(obs_prs) @ int_mat0)
+
+    # Combine parameters
+    lkl_params = hmog.lkl_man.join_params(obs_params, int_mat)
+    return hmog.join_conjugated(lkl_params, mix_params)
+
+
+def fit_hmog[R: PositiveDefinite](
+    key: Array,
+    hmog: HierarchicalMixtureOfGaussians[R],
     n_steps: int,
     sample: Array,
-) -> tuple[Array, Point[Natural, HierarchicalMixtureOfGaussians[Diagonal]]]:
+) -> tuple[
+    Array,
+    Point[Natural, HierarchicalMixtureOfGaussians[R]],
+    Point[Natural, HierarchicalMixtureOfGaussians[R]],
+]:
     """Train HMoG model using expectation maximization."""
-    init_params = hmog.shape_initialize(key)
+    init_params = initialize_hmog(key, hmog, sample)
 
     def em_step(
-        carry: Point[Natural, HierarchicalMixtureOfGaussians[Diagonal]], _: Any
-    ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Diagonal]], Array]:
+        carry: Point[Natural, HierarchicalMixtureOfGaussians[R]], _: Any
+    ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[R]], Array]:
         params = carry
         ll = hmog.average_log_observable_density(params, sample)
         next_params = hmog.expectation_maximization(params, sample)
         return next_params, ll
 
     final_params, lls = jax.lax.scan(em_step, init_params, None, length=n_steps)
-    return lls.ravel(), final_params
+    return lls.ravel(), init_params, final_params
 
 
 fit_hmog = jax.jit(fit_hmog, static_argnames=["hmog", "n_steps"])
@@ -110,24 +163,30 @@ fit_hmog = jax.jit(fit_hmog, static_argnames=["hmog", "n_steps"])
 
 def compute_hmog_results(
     key: Array,
-    n_obs: int = 400,
+    sample_size: int = 400,
     n_steps: int = 200,
     n_points: int = 100,
 ) -> HMoGResults:
     """Generate samples and train model following Haskell implementation."""
 
     # Create ground truth model
-    true_hmog = create_ground_truth_model()
+    gt_hmog, gt_hmog_params = create_ground_truth_model()
 
     # Generate samples
     key_sample, key_train = jax.random.split(key)
-    sample = true_hmog.observable_sample(key_sample, true_hmog, n_obs)
+    sample = gt_hmog.observable_sample(key_sample, gt_hmog_params, sample_size)
 
     # Create HMoG model
-    hmog = HierarchicalMixtureOfGaussians(2, Diagonal, 1, 2)
+    iso_hmog = HierarchicalMixtureOfGaussians(2, Scale, 1, 2)
+    dia_hmog = HierarchicalMixtureOfGaussians(2, Diagonal, 1, 2)
 
     # Train model
-    lls, final_params = fit_hmog(key_train, hmog, n_steps, sample)
+    iso_lls, init_iso_params, final_iso_params = fit_hmog(
+        key_train, iso_hmog, n_steps, sample
+    )
+    dia_lls, init_dia_params, final_dia_params = fit_hmog(
+        key_train, dia_hmog, n_steps, sample
+    )
 
     # Create evaluation grids
     x1 = jnp.linspace(-10, 10, n_points)
@@ -138,38 +197,56 @@ def compute_hmog_results(
     y = jnp.linspace(-6, 6, n_points)
 
     # Compute densities
-    def compute_observable_density(params):
-        return jax.vmap(hmog.observable_density, in_axes=(None, 0))(
+    def compute_observable_density[R: PositiveDefinite](
+        model: HierarchicalMixtureOfGaussians[R],
+        params: Point[Natural, HierarchicalMixtureOfGaussians[R]],
+    ):
+        return jax.vmap(model.observable_density, in_axes=(None, 0))(
             params, grid_points
         ).reshape(x1s.shape)
 
-    true_density = compute_observable_density(true_hmog)
-    init_density = compute_observable_density(init_params)
-    final_density = compute_observable_density(final_params)
+    true_density = compute_observable_density(gt_hmog, gt_hmog_params)
+    init_iso_density = compute_observable_density(iso_hmog, init_iso_params)
+    final_iso_density = compute_observable_density(iso_hmog, final_iso_params)
+    init_dia_density = compute_observable_density(dia_hmog, init_dia_params)
+    final_dia_density = compute_observable_density(dia_hmog, final_dia_params)
 
     # Get mixture densities
-    def compute_mixture_density(params):
-        mix_model = hmog.split_conjugated(params)[1]
-        return jax.vmap(mix_model.observable_density, in_axes=(None, 0))(
+    def compute_mixture_density[R: PositiveDefinite](
+        model: HierarchicalMixtureOfGaussians[R],
+        params: Point[Natural, HierarchicalMixtureOfGaussians[R]],
+    ):
+        mix_model = model.split_conjugated(params)[1]
+        return jax.vmap(model.upr_man.observable_density, in_axes=(None, 0))(
             mix_model, y[:, None]
         )
 
-    true_mix = compute_mixture_density(true_hmog)
-    init_mix = compute_mixture_density(init_params)
-    final_mix = compute_mixture_density(final_params)
+    true_mix = compute_mixture_density(gt_hmog, gt_hmog_params)
+    init_iso_mix = compute_mixture_density(iso_hmog, init_iso_params)
+    final_iso_mix = compute_mixture_density(iso_hmog, final_iso_params)
+    init_dia_mix = compute_mixture_density(dia_hmog, init_dia_params)
+    final_dia_mix = compute_mixture_density(dia_hmog, final_dia_params)
 
     return HMoGResults(
         plot_range_x1=x1.tolist(),
         plot_range_x2=x2.tolist(),
         observations=sample.tolist(),
-        log_likelihoods=lls.tolist(),
-        observable_densities=[
-            true_density.tolist(),
-            init_density.tolist(),
-            final_density.tolist(),
-        ],
+        log_likelihoods={"Isotropic": iso_lls.tolist(), "Diagonal": dia_lls.tolist()},
+        observable_densities={
+            "Ground Truth": true_density.tolist(),
+            "Isotropic Initial": init_iso_density.tolist(),
+            "Isotropic Final": final_iso_density.tolist(),
+            "Diagonal Initial": init_dia_density.tolist(),
+            "Diagonal Final": final_dia_density.tolist(),
+        },
         plot_range_y=y.tolist(),
-        mixture_densities=[true_mix.tolist(), init_mix.tolist(), final_mix.tolist()],
+        mixture_densities={
+            "Ground Truth": true_mix.tolist(),
+            "Isotropic Initial": init_iso_mix.tolist(),
+            "Isotropic Final": final_iso_mix.tolist(),
+            "Diagonal Initial": init_dia_mix.tolist(),
+            "Diagonal Final": final_dia_mix.tolist(),
+        },
     )
 
 

@@ -17,9 +17,9 @@ class HMoGResults(TypedDict):
     plot_range_x2: list[float]  # X2 coordinates for plotting
     plot_range_y: list[float]  # Y coordinates for latent plotting
     observations: list[list[float]]  # List of [x1,x2] points
-    log_likelihoods: list[float]  # Training log likelihoods
-    observable_densities: list[list[list[float]]]  # [true, init, final] densities
-    mixture_densities: list[list[float]]  # [true, init, final] latent densities
+    log_likelihoods: dict[str, list[float]]  # Training log likelihoods
+    observable_densities: dict[str, list[list[float]]]  # [true, init, final] densities
+    mixture_densities: dict[str, list[float]]  # [true, init, final] latent densities
 
 
 results_dir = Path(__file__).parent / "results"

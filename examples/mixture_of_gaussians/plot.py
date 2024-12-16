@@ -34,17 +34,6 @@ def plot_density_comparison(
     zss: list[NDArray[np.float64]],
     colors: list[str] = default_colors,
 ) -> None:
-    """Plot comparison between target and model densities with data overlay.
-
-    Args:
-        target_name: Name of target distribution
-        model_name: Name of model being compared
-        ax: Matplotlib axes for plotting
-        sample: Data points to overlay
-        xs, ys: Grid coordinates for density evaluation
-        target_zs: Target density values on grid
-        model_zs: Model density values on grid
-    """
     # Find density plot ranges
     min_val = min(xs.min(), ys.min())
     max_val = max(xs.max(), ys.max())
@@ -70,13 +59,6 @@ def plot_training_histories(
     ax_ll: Axes,
     training_lls: dict[str, list[float]],
 ) -> None:
-    """Plot training histories for log likelihood and relative entropy.
-
-    Args:
-        ax_ll: Axes for log likelihood plot
-        ax_re: Axes for relative entropy plot
-        training_lls: Log likelihood histories for each model
-    """
     # Plot histories for each model
     for (model_name, lls), color in zip(training_lls.items(), default_colors):
         steps = np.arange(len(lls))
@@ -91,14 +73,6 @@ def plot_training_histories(
 
 
 def create_mixture_plots(results: MixtureResults) -> Figure:
-    """Create complete figure with all mixture model plots.
-
-    Args:
-        results: Analysis results from mixture model training
-
-    Returns:
-        Figure containing all plots
-    """
     # Create figure with 3x2 subplot grid
     fig = plt.figure(figsize=(15, 10))
     gs = fig.add_gridspec(2, 3)
@@ -186,7 +160,6 @@ def create_mixture_plots(results: MixtureResults) -> Figure:
 
 
 def main() -> None:
-    """Generate all plots from analysis results."""
     # Load results
     with open(analysis_path) as f:
         results = cast(MixtureResults, json.load(f))
