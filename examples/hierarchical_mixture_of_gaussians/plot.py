@@ -88,9 +88,10 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     gs = fig.add_gridspec(2, 4)
 
     # Create axes for each panel
-    ax_iso_init = fig.add_subplot(gs[0, 0])
-    ax_dia_init = fig.add_subplot(gs[0, 1])
-    ax_ll = fig.add_subplot(gs[0, 2:])
+    ax_gt = fig.add_subplot(gs[0, 0])
+    ax_iso_init = fig.add_subplot(gs[0, 1])
+    ax_dia_init = fig.add_subplot(gs[0, 2])
+    ax_ll = fig.add_subplot(gs[0, 3])
     ax_iso_final = fig.add_subplot(gs[1, 0])
     ax_dia_final = fig.add_subplot(gs[1, 1])
     ax_lat_init = fig.add_subplot(gs[1, 2])
@@ -120,6 +121,17 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     # Get log likelihoods
     iso_lls = np.array(results["log_likelihoods"]["Isotropic"])
     dia_lls = np.array(results["log_likelihoods"]["Diagonal"])
+
+    # Plot initial observable distributions
+    plot_density_comparison(
+        "Ground Truth",
+        ["True"],
+        ax_gt,
+        sample,
+        X1,
+        X2,
+        [true_dens],
+    )
 
     # Plot initial observable distributions
     plot_density_comparison(

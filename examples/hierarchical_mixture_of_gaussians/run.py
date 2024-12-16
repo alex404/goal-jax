@@ -29,7 +29,7 @@ from .common import HMoGResults, analysis_path
 # Model parameters from Haskell code
 WIDTH = 0.1  # Width parameter
 HEIGHT = 8.0  # Height parameter
-SEP = 5.0  # Separation parameter
+SEP = 3.0  # Separation parameter
 
 ### Ground Truth ###
 
@@ -49,7 +49,7 @@ def create_ground_truth_model() -> (
     )
 
     # Create latent categorical prior
-    cat_nat = Point[Natural, Categorical](jnp.array([0.0]))
+    cat_nat = Point[Natural, Categorical](jnp.array([0.5]))
     cat_means = hmog.upr_man.lat_man.to_mean(cat_nat)
 
     # Create latent Gaussian components
@@ -108,7 +108,7 @@ def initialize_hmog[Rep: PositiveDefinite](
     with hmog.upr_man as um:
         components = []
         sg = 1
-        stp = 3 * sg
+        stp = 4 * sg
         strt = -stp * (n_components - 1) / 2
         rng = jnp.arange(strt, strt + n_components * stp, stp)
         for i in range(n_components):
