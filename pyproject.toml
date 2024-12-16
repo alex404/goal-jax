@@ -20,6 +20,9 @@ requires-python = ">=3.12"
 where = ["src"]
 include =["goal*"]
 
+[tool.setuptools.package-data]
+goal = ["py.typed"]
+
 [tool.pyright]
 include = ["src/goal", "examples", "tests"]
 extraPaths = ["src"]
