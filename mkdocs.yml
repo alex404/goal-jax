@@ -17,6 +17,7 @@ nav:
       - Linear Maps: geometry/linear.md
       - Exponential Families: geometry/exponential_family.md
       - Harmoniums: geometry/harmonium.md
+      - Hierarchical Harmoniums: geometry/hierarchical.md
     - Models: 
       - Univariate: models/univariate.md
       - Normal: models/normal.md

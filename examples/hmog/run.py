@@ -50,10 +50,10 @@ def create_ground_truth_model() -> (
 
     # Create latent categorical prior
     cat_nat = Point[Natural, Categorical](jnp.array([0.5]))
-    cat_means = hmog.upr_man.lat_man.to_mean(cat_nat)
+    cat_means = hmog.lat_man.lat_man.to_mean(cat_nat)
 
     # Create latent Gaussian components
-    with hmog.upr_man as um:
+    with hmog.lat_man as um:
         y0_means = um.obs_man.join_mean_covariance(
             Point[Mean, Euclidean](jnp.array([-SEP / 2])),
             Point[Mean, Covariance[PositiveDefinite]](jnp.array([1.0])),
@@ -101,11 +101,11 @@ def initialize_hmog[Rep: PositiveDefinite](
     obs_params = hmog.obs_man.to_natural(obs_means)
 
     # Create latent categorical prior - slightly break symmetry
-    cat_params = hmog.upr_man.lat_man.shape_initialize(keys[0])
-    cat_means = hmog.upr_man.lat_man.to_mean(cat_params)
+    cat_params = hmog.lat_man.lat_man.shape_initialize(keys[0])
+    cat_means = hmog.lat_man.lat_man.to_mean(cat_params)
 
     # Initialize separated components
-    with hmog.upr_man as um:
+    with hmog.lat_man as um:
         components = []
         sg = 1
         stp = 4 * sg
@@ -217,7 +217,7 @@ def compute_hmog_results(
         params: Point[Natural, HierarchicalMixtureOfGaussians[R]],
     ):
         mix_model = model.split_conjugated(params)[1]
-        return jax.vmap(model.upr_man.observable_density, in_axes=(None, 0))(
+        return jax.vmap(model.lat_man.observable_density, in_axes=(None, 0))(
             mix_model, y[:, None]
         )
 
