@@ -1,5 +1,3 @@
-# ruff: noqa: ARG004
-
 """Linear operators with structural specializations.
 
 This module provides a hierarchy of linear operators with increasingly specialized
@@ -80,6 +78,13 @@ def _matmat(
     return out_rep, out_shape, out_params
 
 
+def _validate_dense_matrix(matrix: Array) -> Array:
+    """Validate matrix shape and return the matrix if valid."""
+    if __debug__ and matrix.ndim != 2:
+        raise ValueError(f"Expected 2D array, got shape {matrix.shape}")
+    return matrix
+
+
 ### Matrix Representations ###
 
 
@@ -107,13 +112,17 @@ class MatrixRep(ABC):
         """Multiply matrices, returning optimal representation type and parameters.
 
         Args:
-            shape: (m,n) shape of output matrix
+            shape: (m,n) shape of left matrix
             params: Parameters of left matrix
             right_rep: Matrix representation class of right matrix
+            right_shape: (n,p) shape of right matrix
             right_params: Parameters of right matrix
 
         Returns:
-            Tuple of optimal matrix representation type and parameters
+            Tuple of:
+                - Optimal matrix representation class
+                - Resulting (m,p) shape
+                - Parameters for resulting matrix
         """
         return _matmat(cls(), shape, params, right_rep, right_shape, right_params)
 
@@ -190,7 +199,7 @@ class Rectangular(MatrixRep):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        return matrix.reshape(-1)
+        return _validate_dense_matrix(matrix).reshape(-1)
 
     @classmethod
     def num_params(cls, shape: tuple[int, int]) -> int:
@@ -248,7 +257,7 @@ class Symmetric(Square):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        n = matrix.shape[0]
+        n = _validate_dense_matrix(matrix).shape[0]
         i_upper = jnp.triu_indices(n)
         return matrix[i_upper]
 
@@ -261,12 +270,27 @@ class Symmetric(Square):
 class PositiveDefinite(Symmetric):
     """Symmetric positive definite matrix representation.
 
+    A symmetric matrix $A$ is positive definite if and only if:
+
+    1. $x^T A x > 0$ for all $x \\neq 0$
+    2. All eigenvalues $\\lambda_i > 0$
+    3. Unique Cholesky decomposition exists: $A = LL^T$
+    4. All leading principal minors are positive
+
     Properties:
-        - Symmetric $n \\times n$ matrix with $x^T A x > 0$ for all $x \\neq 0$
-        - All eigenvalues strictly positive
-        - Unique Cholesky decomposition $A = LL^T$
-        - Parameterized by upper triangular elements
+        - Inverse is also positive definite
+        - Determinant is positive
+        - Stable and efficient algorithms via Cholesky factorization
     """
+
+    @classmethod
+    def is_positive_definite(cls, matrix: Array) -> Array:
+        """Check if matrix is positive definite by verifying eigenvalues.
+
+        Returns True if all eigenvalues are strictly positive.
+        """
+        eigenvals = jnp.linalg.eigvalsh(matrix)  # type: ignore
+        return jnp.all(eigenvals > 0)
 
     @classmethod
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
@@ -324,7 +348,7 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        return jnp.diag(matrix)
+        return jnp.diag(_validate_dense_matrix(matrix))
 
     @classmethod
     def num_params(cls, shape: tuple[int, int]) -> int:
@@ -374,7 +398,7 @@ class Scale(Diagonal):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        return jnp.array([jnp.mean(jnp.diag(matrix))])
+        return jnp.array([jnp.mean(jnp.diag(_validate_dense_matrix(matrix)))])
 
     @classmethod
     def num_params(cls, shape: tuple[int, int]) -> int:
@@ -411,6 +435,7 @@ class Identity(Scale):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
+        _ = _validate_dense_matrix(matrix)
         return jnp.array([])
 
     @classmethod

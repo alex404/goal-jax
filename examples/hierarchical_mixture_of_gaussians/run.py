@@ -123,7 +123,7 @@ def initialize_hmog[Rep: PositiveDefinite](
 
     # Initialize interaction matrix scaled by precision
     obs_prs = hmog.obs_man.split_location_precision(obs_params)[1]
-    int_mat0 = jnp.array([0.0, 0.0]) + 0.1 * jax.random.normal(keys[1], shape=(2,))
+    int_mat0 = 0.1 * jax.random.normal(keys[1], shape=(2,))
     int_mat = hmog.int_man.from_dense(hmog.obs_man.cov_man.to_dense(obs_prs) @ int_mat0)
 
     # Combine parameters

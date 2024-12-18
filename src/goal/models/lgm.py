@@ -1,4 +1,31 @@
-"""Core definitions for harmonium models - product exponential families combining observable and latent variables."""
+"""Linear Gaussian Models.
+
+This module implements several variations of linear Gaussian models:
+
+1. Core Structure:
+
+    - Linear relationship between observed and latent variables
+    - Gaussian distributions for both observable and latent spaces
+    - Conjugate structure enabling exact inference and EM
+
+2. Specialized Variants:
+
+    - LinearModel: Full covariance structure
+    - FactorAnalysis: Diagonal observation noise
+    - PrincipalComponentAnalysis: Isotropic observation noise
+
+The joint distribution takes the form:
+
+$$p(x,z) \\propto \\exp(\\theta_x \\cdot s_x(x) + \\theta_z \\cdot s_z(z) + x \\cdot \\Theta^m_{xz} \\cdot z)$$
+
+where $x$ represents observations and $z$ represents latent variables.
+
+Implementation Structure:
+
+- Helper functions for matrix operations
+- Base LinearGaussianModel class with flexible covariance
+- Specialized model classes for constrained covariances
+"""
 
 from __future__ import annotations
 

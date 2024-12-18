@@ -1,4 +1,9 @@
-"""Linear and affine transformations between manifolds."""
+"""Linear and affine transformations between manifolds. The implementation focuses on:
+
+- Type safety through generics,
+- Efficient matrix representations, and
+- Mathematical correctness.
+"""
 
 from __future__ import annotations
 

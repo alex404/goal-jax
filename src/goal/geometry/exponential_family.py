@@ -1,6 +1,40 @@
 """Core definitions for exponential families and their parameterizations.
 
-This module defines the structure of an [`ExponentialFamily`][goal.geometry.exponential_family.ExponentialFamily] and their various parameter spaces, with a focus on the dually flat structure arising from convex conjugacy between the [`log_partition_function`][goal.geometry.exponential_family.Forward.log_partition_function] and the [`negative_entropy`][goal.geometry.Backward.negative_entropy].
+An exponential family is a collection of probability distributions with densities of the form:
+
+$$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf{s}(x) - \\psi(\\theta)),$$
+
+where:
+
+- $\\theta$ are the natural parameters,
+- $\\mathbf{s}(x)$ is the sufficient statistic,
+- $\\mu(x)$ is the base measure, and
+- $\\psi(\\theta)$ is the log partition function.
+
+Exponential families have a rich geometric structure that can be expressed through their dual parameterizations:
+
+1. Natural Parameters ($\\theta$):
+
+    - Define the density directly
+    - Connected to maximum likelihood estimation
+
+2. Mean Parameters ($\\eta$):
+
+    - Given by expectations: $\\eta = \\mathbb{E}[\\mathbf{s}(x)]$
+    - Connected to moment matching and variational inference
+
+Mappings between the two parameterizations are given by
+
+- $\\eta = \\nabla\\psi(\\theta)$, and
+- $\\theta = \\nabla\\phi(\\eta)$,
+
+where $\\phi(\\eta)$ is the negative entropy, which is the convex conjugate of $\\psi(\\theta)$.
+
+This module implements this structure through a hierarchy of classes:
+
+- `ExponentialFamily`: Base class defining sufficient statistics and base measure
+- `Forward`: Exponential families with analytical log partition function, and support mapping to the mean parameters by autodifferentation.
+- `Backward`: Exponential families with analytical negative entropy, and support mapping to the natural parameters by autodifferentation.
 """
 
 from __future__ import annotations

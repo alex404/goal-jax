@@ -1,4 +1,29 @@
-"""Core definitions for harmonium models - product exponential families combining observable and latent variables."""
+"""Core definitions for harmonium models.
+
+A harmonium is a type of probabilistic graphical model over observable and latent variables with exponential family densities of the form
+
+$$p(x,z) \\propto \\exp(\\theta_X \\cdot \\mathbf{s}_X(x) + \\theta_Z \\cdot \\mathbf{s}_Z(z) + \\mathbf{s}_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf{s}_Z(z)).$$
+
+Data points of a harmonium are represented by the concatenation of observable and latent variables $x$ and $z$:
+
+```python
+# Observable data point from 2D observable space (e.g. points in R²)
+x = jnp.array([1.2, -0.5])  # shape: (2,)
+# Latent data point from a 3D latent space (e.g. 3 binary variables)
+z = jnp.array([1.0, 0.0, 1.0])  # shape: (3,)
+# harmonium data point
+xz = jnp.concatenate([x, z])  # shape: (5,)
+```
+
+The module provides a hierarchy of harmonium models with increasing structure:
+
+- `Harmonium`: Core exponential family structure with observable and latent variables.
+- `BackwardLatent`: Supports differentiation of latent variables.
+- `Conjugated`: Enables analytical computation of marginals $p(x)$ and $p(z)$ of $p(x, z)$.
+- `GenerativeConjugated`: Harmoniums that can be sampled from.
+- `ForwardConjugated`: Harmoniums with an analytical log-partition function.
+- `BackwardConjugated`: Harmoniums with an analytic negative entropy.
+"""
 
 from __future__ import annotations
 
@@ -53,7 +78,8 @@ class Harmonium[
     Args:
         fst_man: The observable exponential family
         snd_man: The latent exponential family
-        lat_sub: Interactive subspace of observable sufficient
+        obs_sub: Interactive subspace of observable sufficient statistics
+        lat_sub: Interactive subspace of observable sufficient statistics
     """
 
     obs_sub: Subspace[Observable, SubObservable]
@@ -93,7 +119,7 @@ class Harmonium[
         """Compute sufficient statistics for joint observation.
 
         Args:
-            x: Array of shape (..., obs_dim + lat_dim) containing concatenated observable and latent states
+            x: Array of shape (obs_dim + lat_dim) containing concatenated observable and latent states
 
         Returns:
             Array of sufficient statistics
@@ -113,7 +139,7 @@ class Harmonium[
         """Compute log base measure for joint observation.
 
         Args:
-            x: Array of shape (..., obs_dim + lat_dim) containing concatenated observable and latent states
+            x: Array of shape (obs_dim + lat_dim) containing concatenated observable and latent states
 
         Returns:
             Log base measure at x
@@ -140,7 +166,7 @@ class Harmonium[
     ) -> Point[Natural, AffineMap[Rep, SubObservable, SubLatent, Latent]]:
         """Natural parameters of the posterior distribution as an affine function.
 
-        The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}^T$.
+        The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}$.
         """
         _, int_params, lat_params = self.split_params(p)
         int_mat_t = self.int_man.transpose(int_params)
@@ -264,7 +290,7 @@ class Conjugated[
     SubLatent: ExponentialFamily,
     Latent: ExponentialFamily,
 ](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
-    """A harmonium with conjugation structure enabling analytical decomposition of the log-partition function and exact Bayesian inference of latent states."""
+    """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
 
     @abstractmethod
     def conjugation_parameters(
@@ -316,11 +342,12 @@ class GenerativeConjugated[
     SubLatent: ExponentialFamily,
     Latent: Generative,
 ](Conjugated[Rep, Observable, SubObservable, SubLatent, Latent], Generative):
-    """A conjugated harmonium that supports sampling through its latent distribution.
+    """A conjugated harmonium that supports sampling.
 
-    The sampling process leverages the conjugate structure to:
-    1. Sample from the marginal latent distribution $p(z)$
-    2. Sample from the conditional likelihood $p(x \\mid z)$
+    Sampling from a conjugated harmonium reduces to
+
+    1. Sampling from the marginal latent distribution $p(z)$, and then
+    2. Sampling from the conditional likelihood $p(x \\mid z)$.
     """
 
     def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
@@ -370,6 +397,8 @@ class ForwardConjugated[
     GenerativeConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     ABC,
 ):
+    """A conjugated harmonium with an analytical log-partition function."""
+
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
         """Compute the log partition function using conjugation parameters.
 
@@ -453,13 +482,20 @@ class BackwardConjugated[
     Backward,
     ABC,
 ):
-    """A conjugated harmonium with invertible likelihood parameterization."""
+    """A conjugated harmonium with an analytically tractable negative entropy.
+
+    BackwardConjugated harmoniums have:
+
+    1. Conjugate structure (analytical marginals),
+    2. Forward structure (analytical log partition function), and
+    3. Backward structure (analytical entropy).
+    """
 
     @abstractmethod
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
     ) -> Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]]:
-        """Map mean to natural parameters for observable and interaction components."""
+        """Given a harmonium density in mean coordinates, returns the natural parameters of the likelihood."""
         ...
 
     def to_natural(self, p: Point[Mean, Self]) -> Point[Natural, Self]:
@@ -467,7 +503,7 @@ class BackwardConjugated[
 
         Uses `to_natural_likelihood` for observable and interaction components, then computes latent natural parameters using conjugation structure:
 
-        $\\theta_Z = \\nabla \\phi_Z(\\eta_Z) - \\rho$
+        $\\theta_Z = \\nabla \\phi_Z(\\eta_Z) - \\rho$,
 
         where $\\rho$ are the conjugation parameters of the likelihood.
         """

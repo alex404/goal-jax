@@ -1,4 +1,18 @@
-"""Defines the subspace relationship between manifolds."""
+"""Defines subspace relationships between manifolds.
+
+A subspace relationship defines how one manifold $\\mathcal{N}$ can be embedded within another manifold $\\mathcal{M}$, supporting two key operations:
+
+1. Projection $\\pi: \\mathcal{M} \\to \\mathcal{N}$, that takes a point in the larger space and returns its projected components in the subspace.
+
+2. Translation $\\tau: \\mathcal{M} \\times \\mathcal{N} \\to \\mathcal{M}$, that takes a point in the larger space and a point in the subspace and a new point in the larger space shifted by the subspace components.
+
+The module implements several types of subspace relationships:
+
+- `IdentitySubspace`: Trivial embedding of a manifold in itself.
+- `PairSubspace`: Projects product manifold $\\mathcal{M} \\times \\mathcal{N}$ to first component.
+- `TripleSubspace`: Projects triple product to first component.
+- `ComposedSubspace`: Composes two subspace relationships $\\mathcal{L} \\to \\mathcal{M} \\to \\mathcal{N}$.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +35,7 @@ class Subspace(Generic[Super, Sub], ABC):
     """Defines how a super-manifold $\\mathcal M$ can be projected onto a sub-manifold $\\mathcal N$.
 
     A subspace relationship between manifolds allows us to:
+
     1. Project a point in the super manifold $\\mathcal M$ to its $\\mathcal N$-manifold components
     2. Partially translate a point in $\\mathcal M$ by a point in $\\mathcal N$
     """
@@ -59,7 +74,7 @@ class IdentitySubspace[M: Manifold](Subspace[M, M]):
 class PairSubspace[First: Manifold, Second: Manifold](
     Subspace[Pair[First, Second], First]
 ):
-    """Subspace relationship for a product manifold $M \\times N$."""
+    """Subspace relationship for a product manifold $\\mathcal M \\times \\mathcal N$."""
 
     def __init__(self, two_man: Pair[First, Second]):
         super().__init__(two_man, two_man.fst_man)
@@ -81,7 +96,7 @@ class PairSubspace[First: Manifold, Second: Manifold](
 class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
     Subspace[Triple[First, Second, Third], First]
 ):
-    """Subspace relationship for a product manifold $M \\times N$."""
+    """Subspace relationship for a product manifold $\\mathcal M \\times \\mathcal N \\times \\mathcal O$."""
 
     def __init__(self, thr_man: Triple[First, Second, Third]):
         super().__init__(thr_man, thr_man.fst_man)

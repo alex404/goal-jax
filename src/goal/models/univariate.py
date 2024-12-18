@@ -1,4 +1,8 @@
-"""Core exponential families."""
+"""Core exponential families. In particular provides
+
+- `Categorical`: Family of discrete probability distributions over $n$ states.
+- `Poisson`: Family of Poisson distribution over counts $k \\in \\mathbb{N}$.
+"""
 
 from __future__ import annotations
 
@@ -14,29 +18,18 @@ from ..geometry import Backward, Mean, Natural, Point
 
 @dataclass(frozen=True)
 class Categorical(Backward):
-    """Categorical distribution over $n$ states, of dimension $d = n-1$.
+    """Categorical distribution over $n$ states.
 
-    Parameters:
-        n_categories: Number of categories.
+    The categorical distribution describes discrete probability distributions over $n$ states with probabilities $\\eta_i$ where $\\sum_{i=0}^n \\eta_i = 1$. The probability mass function for outcome $k$ is:
 
-    For $n = (d+1)$ categories and label $0 \\leq k \\leq d$, the probability mass function is given by
+    $$p(k; \\eta) = \\eta_k$$
 
-    $$p(k; \\eta) = \\eta_k,$$
+    Properties:
 
-    where
-
-    - $\\mathbf \\eta = (\\eta_1, \\ldots, \\eta_d)$ are the probabilities states 1 to $d$, and
-    - $\\eta_0 = 1 - \\sum_{i=1}^d \\eta_i$ is the probability of state 0.
-
-    The base measure is $\\mu(k) = 0$ for all $k$, and the sufficient statistic for $k=0$ is the 0 vector, and the one-hot vector for $k > 0$. The log-partition function is given by
-
-    $$\\psi(\\theta) = \\log(1 + \\sum_{i=1}^d e^{\\theta_i}),$$
-
-    and the negative entropy is given by
-
-    $$\\phi(\\eta) = \\sum_{i=0}^d \\eta_i \\log(\\eta_i).$$
-
-    As such, the the mapping from natural to mean parameters is given by $\\theta_i = \\log(\\eta_i/\\eta_0)$ for $i=1,\\ldots,d$.
+    - Base measure: $\\mu(k) = 0$
+    - Sufficient statistic: One-hot encoding for $k > 0$
+    - Log partition: $\\psi(\\theta) = \\log(1 + \\sum_{i=1}^d e^{\\theta_i})$
+    - Negative entropy: $\\phi(\\eta) = \\sum_{i=0}^d \\eta_i \\log(\\eta_i)$
     """
 
     n_categories: int
@@ -103,7 +96,12 @@ class Poisson(Backward):
 
     $$p(k; \\eta) = \\frac{\\eta^k e^{-\\eta}}{k!}.$$
 
-    The base measure is $\\mu(k) = -\\log(k!)$, and the sufficient statistic is simply the count itself. The log-partition function is given by $\\psi(\\theta) = e^{\\theta},$ and the negative entropy is given by $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$. As such, the mapping between the natural and mean parameters is given by $\\theta = \\log(\\eta)$.
+    Properties:
+
+    - Base measure $\\mu(k) = -\\log(k!)$
+    - Sufficient statistic $s(x) = x$
+    - Log-partition function: $\\psi(\\theta) = e^{\\theta}$
+    - Negative entropy: $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$
     """
 
     @property

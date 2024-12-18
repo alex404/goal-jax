@@ -1,4 +1,17 @@
-"""Core definitions for harmonium models - product exponential families combining observable and latent variables."""
+"""Mixture Models as Conjugate Harmoniums.
+
+This module implements mixture models using a harmonium structure where
+
+- The observable manifold is any exponential family with a backward mapping, and
+- the Latent Manifold is Categorical distribution over mixture components
+
+Key Features:
+
+- Conjugate structure enabling exact inference
+- Support for any exponential family observations
+- Parameter conversion between natural and mean coordinates
+- Methods for component-wise manipulation
+"""
 
 from __future__ import annotations
 
@@ -30,19 +43,11 @@ from .univariate import (
 class Mixture[Observable: Backward](
     BackwardConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
 ):
-    """A mixture model implemented as a harmonium with categorical latent variables.
+    """Mixture model with categorical latent variables.
 
-    The joint distribution takes the form:
-
-    $p(x,z) \\propto e^{\\theta_x \\cdot s_x(x) + \\theta_z \\cdot s_z + s_x(x) \\cdot \\Theta_{xz} \\cdot s_z}$
-
-    where $s_z$ is the one-hot encoding of the categorical variable z.
-
-    This can be rewritten as:
-
-    $$p(x,z=k) \\propto e^{\\theta_x \\cdot s_x(x)} e^{\\theta_k} e^{s_x(x) \\cdot \\theta_{k}}$$
-
-    where $\\theta_k$ and $\\theta_{k}$ are the k-th components of $\\theta_z$ and $\\Theta_{xz}$ respectively.
+    Parameters:
+        obs_man: Base exponential family for observations
+        n_categories: Number of mixture components
     """
 
     def __init__(self, obs_man: Observable, n_categories: int):
@@ -68,8 +73,8 @@ class Mixture[Observable: Backward](
 
         For a categorical mixture model:
 
-        - $\\rho_0 = \\psi(\\theta_x)$
-        - $\\rho_z = \\{\\psi(\\theta_x + \\theta_{xz,k}) - \\rho_0\\}_k$
+        - $\\chi = \\psi(\\theta_x)$
+        - $\\rho_k = \\psi(\\theta_x + \\theta_{xz,k}) - \\chi$
         """
         # Compute base term from observable bias
         obs_bias, int_mat = self.lkl_man.split_params(lkl_params)

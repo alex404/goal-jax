@@ -27,8 +27,12 @@ class Coordinates:
 class Dual[C: Coordinates](Coordinates):
     """Dual coordinates to a given coordinate system.
 
-    For a vector space $V$, its dual space $V^*$ consists of linear functionals $\\{V \\mapsto \\mathbb R\\}$.
-    Where $V$ has coordinates $\\theta$, $V^*$ has dual coordinates $\\theta^*$.
+    For a vector space $V$, its dual space $V^*$ consists of linear functionals $f: V \\to \\mathbb{R}$.
+    The duality pairing between $V$ and $V^*$ is given by:
+
+    $$\\langle v, v^* \\rangle = \\sum_i v_i v^*_i$$
+
+    where $v \\in V$ and $v^* \\in V^*$.
     """
 
 
@@ -84,7 +88,7 @@ class Manifold(ABC):
         mu: float = 0.0,
         shp: float = 0.1,
     ) -> Point[Any, Self]:
-        """Initialize a point with mean and shape parameters --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
+        """Convenience function to randomly initialize the coordinates of a point based on a mean and a shape parameter --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
         params = jax.random.normal(key, shape=(self.dim,)) * shp + mu
         return Point(params)
 
@@ -94,7 +98,7 @@ class Manifold(ABC):
         low: float = -1.0,
         high: float = 1.0,
     ) -> Point[Any, Self]:
-        """Initialize a point from a uniformly distributed, bounded rectangle in parameter space."""
+        """Initialize a point from a uniformly distributed, bounded square in parameter space."""
         params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
         return Point(params)
 
@@ -120,6 +124,10 @@ class Point(Generic[C, M]):
 
     params: Array
 
+    def __post_init__(self):
+        if __debug__ and self.params.ndim != 1:
+            raise ValueError(f"params must be 1D, got shape {self.params.shape}")
+
     def __add__(self, other: Point[C, M]) -> Point[C, M]:
         return Point(self.params + other.params)
 
@@ -132,30 +140,23 @@ class Point(Generic[C, M]):
     def __rmul__(self, scalar: float) -> Point[C, M]:
         return self.__mul__(scalar)
 
-    # def __truediv__(self, scalar: float) -> Point[C, M]:
-    #     return Point(self.params / scalar)
-
     def __truediv__(self, other: float | Array) -> Point[C, M]:
         return Point(self.params / other)
 
 
 @dataclass(frozen=True)
 class Pair[First: Manifold, Second: Manifold](Manifold):
-    """A product manifold combining two component manifolds.
-
-    The product structure allows operations to be performed on each component separately
-    while maintaining the joint structure of the manifold.
-    """
+    """The manifold given by the Cartesian product between the first and second manifold."""
 
     fst_man: First
-    """First component manifold"""
+    """First component manifold."""
 
     snd_man: Second
-    """Second component manifold"""
+    """Second component manifold."""
 
     @property
     def dim(self) -> int:
-        """Total dimension is sum of component dimensions."""
+        """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim
 
     def split_params[C: Coordinates](
@@ -177,24 +178,20 @@ class Pair[First: Manifold, Second: Manifold](Manifold):
 
 @dataclass(frozen=True)
 class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold):
-    """A product manifold combining three component manifolds.
-
-    The product structure allows operations to be performed on each component separately
-    while maintaining the joint structure of the manifold.
-    """
+    """A product manifold combining three component manifolds."""
 
     fst_man: First
-    """First component manifold"""
+    """First component manifold."""
 
     snd_man: Second
-    """Second component manifold"""
+    """Second component manifold."""
 
     trd_man: Third
-    """Third component manifold"""
+    """Third component manifold."""
 
     @property
     def dim(self) -> int:
-        """Total dimension is sum of component dimensions."""
+        """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim + self.trd_man.dim
 
     def split_params[C: Coordinates](

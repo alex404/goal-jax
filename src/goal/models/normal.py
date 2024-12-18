@@ -1,4 +1,26 @@
-"""Core exponential families."""
+"""Normal distributions as exponential families.
+
+1. Base Components:
+
+    - `Euclidean`: The location component ($\\mathbb{R}^n$)
+    - `Covariance`: The shape component with flexible structure
+
+2. Covariance Structures (Type Synonyms):
+
+    - `FullNormal`: Unrestricted positive definite covariance
+    - `DiagonalNormal`: Diagonal covariance matrix
+    - `IsotropicNormal`: Scalar multiple of identity
+    - `StandardNormal`: Unit covariance (identity matrix)
+
+The normal density has the form
+
+$$p(x; \\mu, \\Sigma) = (2\\pi)^{-d/2}|\\Sigma|^{-1/2}\\exp\\left(-\\frac{1}{2}(x-\\mu)^T\\Sigma^{-1}(x-\\mu)\\right)$$.
+
+This can be expressed in exponontial family coordinates as
+
+- Natural parameters: $(\\theta_1, \\theta_2) = (\\Sigma^{-1}\\mu, -\\frac{1}{2}\\Sigma^{-1})$
+- Mean parameters: $(\\eta_1, \\eta_2) = (\\mu, \\mu\\mu^T + \\Sigma)$
+"""
 
 from __future__ import annotations
 
@@ -73,8 +95,16 @@ class Euclidean(ExponentialFamily):
 class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):
     """Shape component of a Normal distribution.
 
-    This represents a zero-centered normal distribution with flexible covariance.
-    The sufficient statistic is the outer product of the data with itself.
+    This represents the covariance structure of a Normal distribution through different matrix representations:
+
+    - `PositiveDefinite`: Full covariance matrix
+    - `Diagonal`: diagonal elements
+    - `Scale`: Scalar multiple of identity
+
+    The Rep parameter determines both:
+
+    1. How parameters are stored (symmetric matrix, diagonal, scalar)
+    2. The effiency of operations (matrix multiply, inversion, etc.)
     """
 
     def __init__(self, data_dim: int, rep: type[Rep]):
@@ -282,16 +312,12 @@ class Normal[Rep: PositiveDefinite](
     def split_location_precision(
         self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[Rep]]]:
-        """Join natural location and precision (inverse covariance) parameters. There's a lot of rescaling that has to happen to ensure that the minimal representation of the natural parameters behaves correctly when used either as a vector in a dot product, or as a matrix.
+        """Join natural location and precision (inverse covariance) parameters. There's some subtle rescaling that has to happen to ensure that the minimal representation of the natural parameters behaves correctly when used either as a vector in a dot product, or as a precision matrix.
 
-
-        For a multivariate normal distribution, the natural parameters $(\\theta_1,\\theta_2)$ are related to the standard parameters $(\\mu,\\Sigma)$ by, $\\theta_1 = \\Sigma^{-1}\\mu$ and $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$.
-
-        Different matrix representations require different scaling to maintain these relationships:
+        For a multivariate normal distribution, the natural parameters $(\\theta_1,\\theta_2)$ are related to the standard parameters $(\\mu,\\Sigma)$ by, $\\theta_1 = \\Sigma^{-1}\\mu$ and $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$. matrix representations require different scaling to maintain these relationships:
 
         1. Diagonal case:
-            - No rescaling needed as parameters directly represent diagonal elements
-            - $\\theta_2$ diagonal elements already represent $-\\frac{1}{2}\\Sigma^{-1}$
+            - No additional rescaling needed as parameters directly represent diagonal elements
 
         2. Full (PositiveDefinite) case:
             - Off-diagonal elements appear twice in the matrix but once in parameters
@@ -299,8 +325,9 @@ class Normal[Rep: PositiveDefinite](
             - When converting to precision $\\Sigma^{-1}$, vector elements corresponding to off-diagonal elements are halved
 
         3. Scale case:
-            - Dot product between second order parameter requires scaling by $\\frac{1}{d}$, stored either in the sufficient statistic or the natural parameters
-            - We store it in the sufficient statistic, which requires we divide the natural parameters by $d$ when converting to precision
+            - The exponential family dot product has to be scaled by $\\frac{1}{d}$
+            - This scales needs to be ``stored'' in either in the sufficient statistic or the natural parameters
+            - We store it in the sufficient statistic (hence its defined as an average), which requires that we divide the natural parameters by $d$ when converting to precision
 
         Args:
             p: Point in natural coordinates containing concatenated $\\theta_1$ and $\\theta_2$ parameters

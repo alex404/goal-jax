@@ -12,6 +12,7 @@ nav:
   - API:
     - Geometry:
       - Manifolds: geometry/manifold.md
+      - Submanifolds: geometry/subspace.md
       - Matrix Representations: geometry/rep/matrix.md
       - Linear Maps: geometry/linear.md
       - Exponential Families: geometry/exponential_family.md
