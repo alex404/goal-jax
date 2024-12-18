@@ -1,10 +1,4 @@
-from pathlib import Path
 from typing import TypedDict
-
-import matplotlib.pyplot as plt
-
-style_path = Path(__file__).parent.parent / "default.mplstyle"
-plt.style.use(str(style_path))
 
 
 # Type declarations for saved results
@@ -36,11 +30,3 @@ class UnivariateResults(TypedDict):
     gaussian: NormalResults
     categorical: CategoricalResults
     poisson: PoissonResults
-
-
-results_dir = Path(__file__).parent / "results"
-results_dir.mkdir(exist_ok=True)
-
-analysis_file = "analysis.json"
-
-analysis_path = results_dir / analysis_file

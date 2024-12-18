@@ -78,13 +78,6 @@ def _matmat(
     return out_rep, out_shape, out_params
 
 
-def _validate_dense_matrix(matrix: Array) -> Array:
-    """Validate matrix shape and return the matrix if valid."""
-    if __debug__ and matrix.ndim != 2:
-        raise ValueError(f"Expected 2D array, got shape {matrix.shape}")
-    return matrix
-
-
 ### Matrix Representations ###
 
 
@@ -199,7 +192,7 @@ class Rectangular(MatrixRep):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        return _validate_dense_matrix(matrix).reshape(-1)
+        return matrix.reshape(-1)
 
     @classmethod
     def num_params(cls, shape: tuple[int, int]) -> int:
@@ -257,7 +250,7 @@ class Symmetric(Square):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        n = _validate_dense_matrix(matrix).shape[0]
+        n = matrix.shape[0]
         i_upper = jnp.triu_indices(n)
         return matrix[i_upper]
 
@@ -348,7 +341,7 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        return jnp.diag(_validate_dense_matrix(matrix))
+        return jnp.diag(matrix)
 
     @classmethod
     def num_params(cls, shape: tuple[int, int]) -> int:
@@ -398,7 +391,7 @@ class Scale(Diagonal):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        return jnp.array([jnp.mean(jnp.diag(_validate_dense_matrix(matrix)))])
+        return jnp.array([jnp.mean(jnp.diag(matrix))])
 
     @classmethod
     def num_params(cls, shape: tuple[int, int]) -> int:
@@ -435,7 +428,7 @@ class Identity(Scale):
 
     @classmethod
     def from_dense(cls, matrix: Array) -> Array:
-        _ = _validate_dense_matrix(matrix)
+        _ = matrix
         return jnp.array([])
 
     @classmethod

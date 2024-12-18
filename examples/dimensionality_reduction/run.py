@@ -1,6 +1,5 @@
 """Test script for comparing Factor Analysis and PCA."""
 
-import json
 from typing import Any
 
 import jax
@@ -20,7 +19,14 @@ from goal.models import (
     PrincipalComponentAnalysis,
 )
 
-from .common import LGMResults, analysis_path
+from ..shared import (
+    create_grid,
+    get_plot_bounds,
+    initialize_jax,
+    initialize_paths,
+    save_results,
+)
+from .types import LGMResults
 
 
 def ground_truth(
@@ -54,20 +60,6 @@ def ground_truth(
     return fan_man, fan_params, sample
 
 
-def get_plot_bounds(
-    sample: Array, margin: float = 0.2
-) -> tuple[float, float, float, float]:
-    """Compute bounds for plotting with margin."""
-    min_vals = jnp.min(sample, axis=0)
-    max_vals = jnp.max(sample, axis=0)
-    range_vals = max_vals - min_vals
-    x_min = float(min_vals[0] - margin * range_vals[0])
-    x_max = float(max_vals[0] + margin * range_vals[0])
-    y_min = float(min_vals[1] - margin * range_vals[1])
-    y_max = float(max_vals[1] + margin * range_vals[1])
-    return (x_min, x_max, y_min, y_max)
-
-
 def fit_model[Model: LinearGaussianModel[Any]](
     key: Array,
     model: Model,
@@ -96,13 +88,13 @@ def create_evaluation_grids(
     bounds: tuple[float, float, float, float], n_points: int = 50
 ) -> tuple[Array, Array]:
     """Create grids for evaluating densities in observable and latent space."""
-    x_min, x_max, y_min, y_max = bounds
-    x = jnp.linspace(x_min, x_max, n_points)
-    y = jnp.linspace(y_min, y_max, n_points)
-    xs, ys = jnp.meshgrid(x, y)
-    grid_points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
+    # Create observable space grid
+    grid_points = jnp.stack(
+        [arr.ravel() for arr in create_grid(bounds, n_points)], axis=1
+    )
 
     # For latent space, use range of true latents
+    x_min, x_max, _, _ = bounds
     z = jnp.linspace(x_min, x_max, n_points)
     return grid_points, z
 
@@ -177,8 +169,8 @@ def compute_lgm_results(
 def main() -> None:
     """Run LGM comparison tests."""
     # Configure JAX
-    jax.config.update("jax_platform_name", "cpu")
-    jax.config.update("jax_disable_jit", False)
+    initialize_jax()
+    paths = initialize_paths(__file__)
 
     # Set random seed
     key = jax.random.PRNGKey(0)
@@ -191,8 +183,7 @@ def main() -> None:
     )
 
     # Save results
-    with open(analysis_path, "w") as f:
-        json.dump(results, f, indent=2)
+    save_results(results, paths)
 
 
 if __name__ == "__main__":

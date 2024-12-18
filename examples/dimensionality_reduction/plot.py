@@ -10,7 +10,8 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from .common import LGMResults, analysis_path, results_dir
+from ..shared import initialize_paths
+from .types import LGMResults
 
 # Default colors for consistent styling
 br_colors = ["#000000", "#FF0000"]  # black, red
@@ -162,12 +163,13 @@ def create_lgm_plots(results: LGMResults) -> Figure:
 def main() -> None:
     """Generate all plots from analysis results."""
     # Load results
-    with open(analysis_path) as f:
+    paths = initialize_paths(__file__)
+    with open(paths.analysis_path) as f:
         results = cast(LGMResults, json.load(f))
 
     # Create and save figure
     fig = create_lgm_plots(results)
-    fig.savefig(results_dir / "lgm_analysis.png", dpi=300, bbox_inches="tight")
+    fig.savefig(paths.results_dir / "lgm_analysis.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 

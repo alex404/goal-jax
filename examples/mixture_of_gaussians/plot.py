@@ -9,7 +9,8 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from .common import MixtureResults, analysis_path, results_dir
+from ..shared import initialize_paths
+from .types import MixtureResults
 
 # built in colors
 default_colors = [
@@ -160,13 +161,16 @@ def create_mixture_plots(results: MixtureResults) -> Figure:
 
 
 def main() -> None:
+    paths = initialize_paths(__file__)
     # Load results
-    with open(analysis_path) as f:
+    with open(paths.analysis_path) as f:
         results = cast(MixtureResults, json.load(f))
 
     # Create and save figure
     fig = create_mixture_plots(results)
-    fig.savefig(results_dir / "mixture_analysis.png", dpi=300, bbox_inches="tight")
+    fig.savefig(
+        paths.results_dir / "mixture_analysis.png", dpi=300, bbox_inches="tight"
+    )
     plt.close(fig)
 
 

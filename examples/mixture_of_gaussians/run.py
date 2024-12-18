@@ -1,6 +1,5 @@
 """Test script for mixture models with different covariance structures."""
 
-import json
 from typing import Any
 
 import jax
@@ -18,20 +17,10 @@ from goal.models import (
     Normal,
 )
 
-from .common import MixtureResults, analysis_path
+from ..shared import create_grid, initialize_jax, initialize_paths, save_results
+from .types import MixtureResults
 
 ### Constructors ###
-
-
-def create_test_grid(
-    bounds: tuple[float, float, float, float], n_points: int = 50
-) -> tuple[Array, Array]:
-    """Create a grid for density evaluation."""
-    x_min, x_max, y_min, y_max = bounds
-    x = jnp.linspace(x_min, x_max, n_points)
-    y = jnp.linspace(y_min, y_max, n_points)
-    xs, ys = jnp.meshgrid(x, y)
-    return xs, ys
 
 
 def create_ground_truth_parameters(
@@ -117,7 +106,7 @@ def goal_to_sklearn_mixture(
 ### Fitting ###
 
 
-def fit_mixture[R: PositiveDefinite](
+def fit_model[R: PositiveDefinite](
     key: Array,
     mix_man: Mixture[Normal[R]],
     n_steps: int,
@@ -139,7 +128,7 @@ def fit_mixture[R: PositiveDefinite](
     return lls.ravel(), init_params, final_params
 
 
-fit_mixture = jax.jit(fit_mixture, static_argnames=["mix_man", "n_steps"])
+fit_model = jax.jit(fit_model, static_argnames=["mix_man", "n_steps"])
 
 ### Analysis ###
 
@@ -168,20 +157,20 @@ def compute_mixture_results(
     sample = pd_mix_man.observable_sample(key_sample, gt_params, sample_size)
 
     # Create evaluation grid
-    xs, ys = create_test_grid(bounds)
+    xs, ys = create_grid(bounds)
     grid_points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
 
     # Split training key
     keys_train = jax.random.split(key_train, 3)
 
     # Train all models
-    pd_lls, pod_params0, pod_params1 = fit_mixture(
+    pd_lls, pod_params0, pod_params1 = fit_model(
         keys_train[0], pd_mix_man, n_steps, sample
     )
-    dia_lls, dia_params0, dia_params1 = fit_mixture(
+    dia_lls, dia_params0, dia_params1 = fit_model(
         keys_train[1], dia_mix_man, n_steps, sample
     )
-    iso_lls, iso_params0, iso_params1 = fit_mixture(
+    iso_lls, iso_params0, iso_params1 = fit_model(
         keys_train[2], iso_mix_man, n_steps, sample
     )
 
@@ -214,14 +203,7 @@ def compute_mixture_results(
     )
 
     # Compute scipy density
-    sklearn_dens = np.exp(sklearn_mixture.score_samples(grid_points)).reshape(xs.shape)
-
-    # Compute ground truth log likelihood
-    gt_ll = jnp.mean(
-        jax.vmap(pd_mix_man.log_observable_density, in_axes=(None, 0))(
-            gt_params, sample
-        )
-    )
+    sklearn_dens = np.exp(sklearn_mixture.score_samples(grid_points)).reshape(xs.shape)  # type: ignore
 
     return MixtureResults(
         sample=sample.tolist(),
@@ -249,6 +231,9 @@ jax.config.update("jax_disable_jit", False)
 
 def main():
     """Run mixture model tests."""
+    initialize_jax()
+    paths = initialize_paths(__file__)
+
     key = jax.random.PRNGKey(0)
 
     # Set bounds based on expected component locations
@@ -262,9 +247,7 @@ def main():
         bounds=bounds,
     )
 
-    # Save results
-    with open(analysis_path, "w") as f:
-        json.dump(results, f, indent=2)
+    save_results(results, paths)
 
 
 if __name__ == "__main__":

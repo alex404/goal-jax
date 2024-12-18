@@ -1,6 +1,5 @@
 """Test script for hierarchical mixture of Gaussians."""
 
-import json
 from typing import Any
 
 import jax
@@ -22,7 +21,8 @@ from goal.models import (
     HierarchicalMixtureOfGaussians,
 )
 
-from .common import HMoGResults, analysis_path
+from ..shared import initialize_jax, initialize_paths, save_results
+from .types import HMoGResults
 
 ### Constants ###
 
@@ -252,20 +252,18 @@ def compute_hmog_results(
 
 ### Main ###
 
-jax.config.update("jax_platform_name", "cpu")
-jax.config.update("jax_disable_jit", False)
-
 
 def main():
     """Run hierarchical mixture of Gaussians tests."""
+    initialize_jax()
+    paths = initialize_paths(__file__)
     key = jax.random.PRNGKey(0)
 
     # Run analysis
     results = compute_hmog_results(key)
 
     # Save results
-    with open(analysis_path, "w") as f:
-        json.dump(results, f, indent=2)
+    save_results(results, paths)
 
 
 if __name__ == "__main__":

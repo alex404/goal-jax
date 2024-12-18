@@ -1,6 +1,5 @@
 """Test script for univariate auistributions in the exponential family."""
 
-import json
 from typing import Tuple
 
 import jax
@@ -17,12 +16,12 @@ from goal.models import (
     Poisson,
 )
 
-from .common import (
+from ..shared import initialize_jax, initialize_paths, save_results
+from .types import (
     CategoricalResults,
     NormalResults,
     PoissonResults,
     UnivariateResults,
-    analysis_path,
 )
 
 
@@ -120,10 +119,10 @@ def compute_poisson_results(
 ### Main ###
 
 
-jax.config.update("jax_platform_name", "cpu")
-
-
 def main():
+    initialize_jax()
+    paths = initialize_paths(__file__)
+
     """Run all distribution tests and plots."""
     # Create figure
     key = jax.random.PRNGKey(0)
@@ -202,8 +201,7 @@ def main():
         poisson=poisson_results,
     )
 
-    with open(analysis_path, "w") as f:
-        json.dump(results, f, indent=2)
+    save_results(results, paths)
 
 
 if __name__ == "__main__":

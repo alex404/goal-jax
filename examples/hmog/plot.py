@@ -9,7 +9,8 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from .common import HMoGResults, analysis_path, results_dir
+from ..shared import initialize_paths
+from .types import HMoGResults
 
 # black red for comparing true vs model
 br_colors = ["#000000", "#FF0000"]
@@ -102,7 +103,7 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     x1s = np.array(results["plot_range_x1"])
     x2s = np.array(results["plot_range_x2"])
     ys = np.array(results["plot_range_y"])
-    X1, X2 = np.meshgrid(x1s, x2s)
+    x1_mesh, x2_mesh = np.meshgrid(x1s, x2s)
 
     # Get densities
     true_dens = np.array(results["observable_densities"]["Ground Truth"])
@@ -128,8 +129,8 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
         ["True"],
         ax_gt,
         sample,
-        X1,
-        X2,
+        x1_mesh,
+        x2_mesh,
         [true_dens],
     )
 
@@ -139,8 +140,8 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
         ["True", "Initial"],
         ax_iso_init,
         sample,
-        X1,
-        X2,
+        x1_mesh,
+        x2_mesh,
         [true_dens, iso_init_dens],
     )
 
@@ -149,8 +150,8 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
         ["True", "Initial"],
         ax_dia_init,
         sample,
-        X1,
-        X2,
+        x1_mesh,
+        x2_mesh,
         [true_dens, dia_init_dens],
     )
 
@@ -160,8 +161,8 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
         ["True", "Final"],
         ax_iso_final,
         sample,
-        X1,
-        X2,
+        x1_mesh,
+        x2_mesh,
         [true_dens, iso_final_dens],
     )
 
@@ -170,8 +171,8 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
         ["True", "Final"],
         ax_dia_final,
         sample,
-        X1,
-        X2,
+        x1_mesh,
+        x2_mesh,
         [true_dens, dia_final_dens],
     )
 
@@ -212,12 +213,13 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
 def main() -> None:
     """Load results and create plots."""
     # Load results
-    with open(analysis_path) as f:
+    paths = initialize_paths(__file__)
+    with open(paths.analysis_path) as f:
         results = cast(HMoGResults, json.load(f))
 
     # Create and save figure
     fig = create_hmog_plots(results)
-    fig.savefig(results_dir / "hmog_analysis.png", dpi=300, bbox_inches="tight")
+    fig.savefig(paths.results_dir / "hmog_analysis.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 

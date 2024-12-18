@@ -1,13 +1,6 @@
 """Common definitions for mixture model examples."""
 
-from pathlib import Path
 from typing import TypedDict
-
-import matplotlib.pyplot as plt
-
-examples_dir = Path(__file__).parent.parent
-style_path = examples_dir / "default.mplstyle"
-plt.style.use(str(style_path))
 
 
 class MixtureResults(TypedDict):
@@ -28,8 +21,3 @@ class MixtureResults(TypedDict):
     training_lls: dict[
         str, list[float]
     ]  # Log likelihoods during training for each model
-
-
-results_dir = Path(__file__).parent / "results"
-results_dir.mkdir(exist_ok=True)
-analysis_path = results_dir / "mixture_analysis.json"

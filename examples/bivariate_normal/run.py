@@ -1,7 +1,5 @@
 """Test script for bivariate Normal distributions with different covariance structures."""
 
-import json
-
 import jax
 import jax.numpy as jnp
 from jax import Array
@@ -13,26 +11,14 @@ from goal.models import (
     Normal,
 )
 
-from .common import BivariateResults, analysis_path
-
-
-def create_test_grid(
-    mean: Array, cov: Array, n_points: int = 20
-) -> tuple[Array, Array]:
-    std_devs = jnp.sqrt(jnp.diag(cov))
-    margin = 3.0
-
-    x_min = mean[0] - margin * std_devs[0]
-    x_max = mean[0] + margin * std_devs[0]
-    y_min = mean[1] - margin * std_devs[1]
-    y_max = mean[1] + margin * std_devs[1]
-
-    # Create meshgrid
-    x = jnp.linspace(x_min, x_max, n_points)
-    y = jnp.linspace(y_min, y_max, n_points)
-    xs, ys = jnp.meshgrid(x, y)
-
-    return xs, ys
+from ..shared import (
+    create_grid,
+    get_normal_bounds,
+    initialize_jax,
+    initialize_paths,
+    save_results,
+)
+from .types import BivariateResults
 
 
 def compute_densities[R: PositiveDefinite](
@@ -55,7 +41,8 @@ def compute_gaussian_results(
     sample_size: int,
 ) -> BivariateResults:
     # Initialize grid for plotting
-    xs, ys = create_test_grid(mean, covariance)
+    bounds = get_normal_bounds(mean, covariance, n_std=3.0)
+    xs, ys = create_grid(bounds, n_points=50)
 
     # Scipy densities
     sp_dens = scipy_densities(mean, covariance, xs, ys)
@@ -105,10 +92,9 @@ def compute_gaussian_results(
 ### Main ###
 
 
-jax.config.update("jax_platform_name", "cpu")
-
-
 def main():
+    initialize_jax()
+    paths = initialize_paths(__file__)
     """Run bivariate Normal tests."""
     key = jax.random.PRNGKey(0)
 
@@ -125,8 +111,7 @@ def main():
     )
 
     # Save results
-    with open(analysis_path, "w") as f:
-        json.dump(results, f, indent=2)
+    save_results(results, paths)
 
 
 if __name__ == "__main__":

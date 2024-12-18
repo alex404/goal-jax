@@ -1,13 +1,6 @@
 """Common definitions for hierarchical mixture of Gaussians examples."""
 
-from pathlib import Path
 from typing import TypedDict
-
-import matplotlib.pyplot as plt
-
-examples_dir = Path(__file__).parent.parent
-style_path = examples_dir / "default.mplstyle"
-plt.style.use(str(style_path))
 
 
 class HMoGResults(TypedDict):
@@ -20,8 +13,3 @@ class HMoGResults(TypedDict):
     log_likelihoods: dict[str, list[float]]  # Training log likelihoods
     observable_densities: dict[str, list[list[float]]]  # [true, init, final] densities
     mixture_densities: dict[str, list[float]]  # [true, init, final] latent densities
-
-
-results_dir = Path(__file__).parent / "results"
-results_dir.mkdir(exist_ok=True)
-analysis_path = results_dir / "analysis.json"

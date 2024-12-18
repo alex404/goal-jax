@@ -10,13 +10,12 @@ from numpy.typing import NDArray
 from scipy import stats
 from scipy.special import factorial
 
-from .common import (
+from ..shared import initialize_paths
+from .types import (
     CategoricalResults,
     NormalResults,
     PoissonResults,
     UnivariateResults,
-    analysis_path,
-    results_dir,
 )
 
 
@@ -125,7 +124,9 @@ def plot_poisson_results(
 def main():
     """Run all distribution tests and plots."""
     # Load results
-    with open(analysis_path) as f:
+    paths = initialize_paths(__file__)
+
+    with open(paths.analysis_path) as f:
         results = cast(UnivariateResults, json.load(f))
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
@@ -136,7 +137,7 @@ def main():
 
     # Plot and save Poisson
     plot_poisson_results(axes[2], results["poisson"])
-    fig.savefig(results_dir / "univariate.png")
+    fig.savefig(paths.results_dir / "univariate.png")
     plt.close(fig)
 
 

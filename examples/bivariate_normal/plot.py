@@ -8,7 +8,8 @@ import numpy as np
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
 
-from .common import BivariateResults, analysis_path, results_dir
+from ..shared import initialize_paths
+from .types import BivariateResults
 
 
 def plot_gaussian_comparison(
@@ -62,7 +63,9 @@ def plot_gaussian_comparison(
 
 
 def main():
-    with open(analysis_path) as f:
+    paths = initialize_paths(__file__)
+
+    with open(paths.analysis_path) as f:
         results = cast(BivariateResults, json.load(f))
 
     # Plot and save Normal
@@ -116,7 +119,7 @@ def main():
         gt_dens,
         scl_dens,
     )
-    fig.savefig(results_dir / "gaussian.png")
+    fig.savefig(paths.results_dir / "gaussian.png")
     plt.close(fig)
 
 

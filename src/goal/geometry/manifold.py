@@ -124,10 +124,6 @@ class Point(Generic[C, M]):
 
     params: Array
 
-    def __post_init__(self):
-        if __debug__ and self.params.ndim != 1:
-            raise ValueError(f"params must be 1D, got shape {self.params.shape}")
-
     def __add__(self, other: Point[C, M]) -> Point[C, M]:
         return Point(self.params + other.params)
 
