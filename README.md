@@ -1,3 +1,6 @@
+![Tests](https://github.com/alex404/goal-jax/actions/workflows/tests.yml/badge.svg)
+![Demonstrations](https://github.com/alex404/goal-jax/actions/workflows/demonstrations.yml/badge.svg)
+
 # goal-jax: Geometric OptimizAtion Libraries (in JAX!)
 
 A JAX implementation of information geometric algorithms and exponential families.
@@ -8,11 +11,6 @@ A JAX implementation of information geometric algorithms and exponential familie
 
 * Efficient implementations of common exponential families
 * Optimization algorithms
-
-## Testing
-
-![Tests](https://github.com/alex404/goal-jax/actions/workflows/tests.yml/badge.svg)
-![Demonstrations](https://github.com/alex404/goal-jax/actions/workflows/demonstrations.yml/badge.svg)
 
 ## License
 

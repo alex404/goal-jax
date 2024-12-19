@@ -37,6 +37,7 @@ ENV/
 # Test outputs
 *.png
 *.json
+examples/.cache
 
 # Jupyter Notebook
 .ipynb_checkpoints

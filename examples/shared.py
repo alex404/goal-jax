@@ -3,29 +3,17 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, Protocol, TypeAlias, TypeVar
+from typing import Any, TypeAlias
 
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from jax import Array
 
-from goal.geometry import Manifold
-
 # Custom type aliases
 Bounds2D: TypeAlias = tuple[float, float, float, float]  # (x_min, x_max, y_min, y_max)
 
-M = TypeVar("M", bound=Manifold, covariant=True)
-
 ### Initialization and Path Management ###
-
-
-class BackwardModel(Protocol, Generic[M]):
-    """Protocol for exponential family models."""
-
-    def sample(self, key: Array, params: Any, sample_size: int) -> Array: ...
-    def expectation_maximization(self, params: Any, sample: Array) -> Any: ...
-    def average_log_observable_density(self, params: Any, sample: Array) -> Array: ...
 
 
 @dataclass(frozen=True)
@@ -34,6 +22,7 @@ class ExamplePaths:
     results_dir: Path
     analysis_path: Path
     style_path: Path
+    cache_dir: Path
 
     @classmethod
     def from_module(cls, module_path: str | Path) -> "ExamplePaths":
@@ -42,15 +31,19 @@ class ExamplePaths:
         results_dir = example_dir / "results"
         analysis_path = results_dir / "analysis.json"
         style_path = example_dir.parent.parent / "default.mplstyle"
+        project_root = example_dir.parent.parent
+        cache_dir = project_root / ".cache"
 
         # Ensure results directory exists
         results_dir.mkdir(exist_ok=True)
+        cache_dir.mkdir(exist_ok=True)
 
         return cls(
             example_dir=example_dir,
             results_dir=results_dir,
             analysis_path=analysis_path,
             style_path=style_path,
+            cache_dir=cache_dir,
         )
 
     def setup_plotting(self) -> None:

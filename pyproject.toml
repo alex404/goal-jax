@@ -15,6 +15,10 @@ test = [
     "pytest-cov>=4.0",  # For coverage reporting
 ]
 
+benchmark = [
+    "torchvision",
+]
+
 [build-system]
 # These are standard for modern Python projects:
 requires = ["setuptools>=61.0"]
