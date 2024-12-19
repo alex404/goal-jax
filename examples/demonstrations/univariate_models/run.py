@@ -16,7 +16,7 @@ from goal.models import (
     Poisson,
 )
 
-from ..shared import initialize_jax, initialize_paths, save_results
+from ...shared import initialize_jax, initialize_paths, save_results
 from .types import (
     CategoricalResults,
     NormalResults,

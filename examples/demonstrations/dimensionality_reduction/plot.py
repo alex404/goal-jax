@@ -10,7 +10,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from ..shared import initialize_paths
+from ...shared import initialize_paths
 from .types import LGMResults
 
 # Default colors for consistent styling

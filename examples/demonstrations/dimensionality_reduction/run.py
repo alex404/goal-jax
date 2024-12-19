@@ -19,7 +19,7 @@ from goal.models import (
     PrincipalComponentAnalysis,
 )
 
-from ..shared import (
+from ...shared import (
     create_grid,
     get_plot_bounds,
     initialize_jax,

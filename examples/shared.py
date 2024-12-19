@@ -41,7 +41,7 @@ class ExamplePaths:
         example_dir = module_path.parent
         results_dir = example_dir / "results"
         analysis_path = results_dir / "analysis.json"
-        style_path = example_dir.parent / "default.mplstyle"
+        style_path = example_dir.parent.parent / "default.mplstyle"
 
         # Ensure results directory exists
         results_dir.mkdir(exist_ok=True)

@@ -11,7 +11,7 @@ from goal.models import (
     Normal,
 )
 
-from ..shared import (
+from ...shared import (
     create_grid,
     get_normal_bounds,
     initialize_jax,

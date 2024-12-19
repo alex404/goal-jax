@@ -17,7 +17,7 @@ from goal.models import (
     Normal,
 )
 
-from ..shared import create_grid, initialize_jax, initialize_paths, save_results
+from ...shared import create_grid, initialize_jax, initialize_paths, save_results
 from .types import MixtureResults
 
 ### Constructors ###

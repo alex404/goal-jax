@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
 
-from ..shared import initialize_paths
+from ...shared import initialize_paths
 from .types import BivariateResults
 
 

@@ -21,7 +21,7 @@ from goal.models import (
     HierarchicalMixtureOfGaussians,
 )
 
-from ..shared import initialize_jax, initialize_paths, save_results
+from ...shared import initialize_jax, initialize_paths, save_results
 from .types import HMoGResults
 
 ### Constants ###
