@@ -426,25 +426,33 @@ class Normal[Rep: PositiveDefinite](
             self.cov_man.from_dense(jnp.eye(self.data_dim)),
         )
 
-    def set_min_variance(
-        self, p: Point[Mean, Self], min_var: float
+    def regularize_covariance(
+        self, p: Point[Mean, Self], jitter: float = 0, min_var: float = 0
     ) -> Point[Mean, Self]:
-        """Ensure minimum variance across all dimensions while preserving dependencies.
+        """Regularize covariance matrix to ensure numerical stability and reasonable variances.
 
-        Takes a point in mean coordinates, extracts the mean and covariance matrix, bounds the variances (diagonal of the covariance matrix) from below, and reconstructs the point in mean coordinates.
+        This method applies two forms of regularization to the covariance matrix:
+        1. A minimum variance constraint that prevents any dimension from having
+           variance below a specified threshold
+        2. A jitter term that adds a small positive value to all diagonal elements,
+           improving numerical stability
+
+        The regularization preserves the correlation structure while ensuring the
+        covariance matrix remains well-conditioned.
 
         Args:
-            p: Point in mean coordinates
+            p: Point in mean coordinates containing location and covariance
             min_var: Minimum allowed variance for any dimension
+            jitter: Small positive value added to diagonal elements
 
         Returns:
-            New point in mean coordinates with adjusted covariance
+            New point in mean coordinates with regularized covariance
         """
         mean, covariance = self.split_mean_covariance(p)
 
-        def ensure_min_var(x: Array) -> Array:
-            return jnp.maximum(x, min_var)
+        def regularize_diagonal(x: Array) -> Array:
+            return jnp.maximum(x + jitter, min_var)
 
-        adjusted_covariance = self.cov_man.map_diagonal(covariance, ensure_min_var)
+        adjusted_covariance = self.cov_man.map_diagonal(covariance, regularize_diagonal)
 
         return self.join_mean_covariance(mean, adjusted_covariance)

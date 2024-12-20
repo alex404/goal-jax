@@ -1,8 +1,10 @@
 """Common definitions for MNIST benchmark models."""
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal, Protocol, TypedDict, runtime_checkable
 
+import jax
 from jax import Array
 
 
@@ -17,6 +19,7 @@ class MNISTData:
 
 
 @runtime_checkable
+@dataclass(frozen=True)
 class BaseModel[P, B](Protocol):
     """Base protocol for all unsupervised models."""
 
@@ -34,7 +37,8 @@ class BaseModel[P, B](Protocol):
         """Initialize model parameters based on data dimensions and statistics."""
         ...
 
-    def fit(self, params: P, data: Array) -> tuple[P, Array]:
+    @partial(jax.jit, static_argnums=(0,))
+    def fit(self, params0: P, data: Array) -> tuple[P, Array]:
         """Train model parameters, returning final parameters and training metrics."""
         ...
 
@@ -76,6 +80,7 @@ class TwoStageResults(TypedDict):
 
 
 @runtime_checkable
+@dataclass(frozen=True)
 class ProbabilisticModel[P](BaseModel[P, ProbabilisticResults], Protocol):
     """Protocol for models that support likelihood computation."""
 
@@ -85,6 +90,7 @@ class ProbabilisticModel[P](BaseModel[P, ProbabilisticResults], Protocol):
 
 
 @runtime_checkable
+@dataclass(frozen=True)
 class TwoStageModel[P](BaseModel[P, TwoStageResults], Protocol):
     """Protocol for models that support two-stage training."""
 

@@ -24,19 +24,19 @@ def create_parser() -> ArgumentParser:
     model_group.add_argument(
         "--model",
         choices=["pcagmm", "hmog"],
-        required=True,
+        default="hmog",
         help="Model architecture to evaluate",
     )
     model_group.add_argument(
         "--latent-dim",
         type=int,
-        required=True,
+        default=10,
         help="Dimensionality of latent space",
     )
     model_group.add_argument(
         "--n-clusters",
         type=int,
-        required=True,
+        default=10,
         help="Number of clusters/mixture components",
     )
 
@@ -52,6 +52,12 @@ def create_parser() -> ArgumentParser:
         choices=["cpu", "gpu"],
         default="cpu",
         help="Device to run computations on",
+    )
+    # Jit disabled by default, flag for true
+    training_group.add_argument(
+        "--jit",
+        action="store_true",
+        help="Enable JIT compilation for JAX functions",
     )
 
     return parser
@@ -95,6 +101,8 @@ def create_model(
         return PCAGMM(latent_dim, n_clusters)
     if model_name == "hmog":
         return HMoG(
+            stage1_epochs=20,
+            stage2_epochs=20,
             n_epochs=n_epochs,
             model=HierarchicalMixtureOfGaussians(
                 obs_dim=data_dim,
@@ -118,7 +126,9 @@ def main() -> None:
         f"e{args.n_epochs}"
     )
 
-    initialize_jax(device=args.device)
+    print(f"Running experiment: {experiment}")
+    print(f"with JIT: {args.jit}")
+    initialize_jax(device=args.device, disable_jit=not (args.jit))
     paths = initialize_paths(__file__, experiment)
     key = jax.random.PRNGKey(0)
 

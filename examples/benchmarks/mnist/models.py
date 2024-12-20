@@ -1,19 +1,26 @@
 """Model implementations for MNIST benchmarks."""
 
 from dataclasses import dataclass
+from functools import partial
 from time import time
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import Array
+from jax import Array, debug
 from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score  # type: ignore
 from sklearn.mixture import GaussianMixture
 
-from goal.geometry import Natural, Point, PositiveDefinite
-from goal.models import Covariance, Euclidean, HierarchicalMixtureOfGaussians
+from goal.geometry import Mean, Natural, Point, PositiveDefinite
+from goal.models import (
+    FullNormal,
+    HierarchicalMixtureOfGaussians,
+    LinearGaussianModel,
+    Mixture,
+    Normal,
+)
 
 from .common import (
     MNISTData,
@@ -22,6 +29,24 @@ from .common import (
     TwoStageModel,
     TwoStageResults,
 )
+
+JITTER = 1e-3
+MIN_VAR = 1
+
+
+def set_min_component_variance[Rep: PositiveDefinite](
+    man: Mixture[Normal[Rep]],
+    params: Point[Mean, Mixture[Normal[Rep]]],
+) -> Point[Mean, Mixture[Normal[Rep]]]:
+    """Set minimum variance for each component in the mixture."""
+    nrm_meanss, cat_means = man.split_mean_mixture(params)
+
+    adjusted_means = [
+        man.obs_man.regularize_covariance(nrm_means, jitter=JITTER, min_var=MIN_VAR)
+        for nrm_means in nrm_meanss
+    ]
+
+    return man.join_mean_mixture(adjusted_means, cat_means)
 
 
 def evaluate_clustering(cluster_assignments: Array, true_labels: Array) -> float:
@@ -41,7 +66,7 @@ def evaluate_clustering(cluster_assignments: Array, true_labels: Array) -> float
     return float(accuracy_score(true_labels, predicted_labels))
 
 
-@dataclass
+@dataclass(frozen=True)
 class PCAGMM(TwoStageModel[tuple[PCA, GaussianMixture]]):
     _latent_dim: int
     _n_clusters: int
@@ -61,15 +86,16 @@ class PCAGMM(TwoStageModel[tuple[PCA, GaussianMixture]]):
         gmm = GaussianMixture(n_components=self._n_clusters, random_state=int(key[0]))
         return pca, gmm
 
+    @partial(jax.jit, static_argnums=(0,))
     def fit(
-        self, params: tuple[PCA, GaussianMixture], data: Array
+        self, params0: tuple[PCA, GaussianMixture], data: Array
     ) -> tuple[tuple[PCA, GaussianMixture], Array]:
-        pca, gmm = params
+        pca, gmm = params0
         data_np = np.array(data, dtype=np.float64)
         latents = pca.transform(data_np)  # type: ignore
         gmm.fit(latents)
 
-        reconstruction_errors = self.reconstruction_error(params, data)
+        reconstruction_errors = self.reconstruction_error(params0, data)
         return (pca, gmm), jnp.mean(reconstruction_errors)
 
     def encode(self, params: tuple[PCA, GaussianMixture], data: Array) -> Array:
@@ -112,7 +138,7 @@ class PCAGMM(TwoStageModel[tuple[PCA, GaussianMixture]]):
         """Evaluate two-stage model performance."""
         start_time = time()
         params = self.initialize(key, data.train_images)
-        final_params, _ = self.fit(params, data.train_images)
+        final_params, _ = self.fit(params, data.train_images)  # type: ignore
 
         train_clusters = self.cluster_assignments(final_params, data.train_images)
         test_clusters = self.cluster_assignments(final_params, data.test_images)
@@ -136,29 +162,24 @@ class PCAGMM(TwoStageModel[tuple[PCA, GaussianMixture]]):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class HMoG[Rep: PositiveDefinite](
     ProbabilisticModel[Point[Natural, HierarchicalMixtureOfGaussians[Rep]]]
 ):
     model: HierarchicalMixtureOfGaussians[Rep]
     n_epochs: int
-
-    @property
-    def latent_dim(self) -> int:
-        return self.model.lat_man.obs_man.data_dim
-
-    @property
-    def n_clusters(self) -> int:
-        return self.model.lat_man.lat_man.dim + 1
+    stage1_epochs: int
+    stage2_epochs: int
 
     def initialize(
         self, key: Array, data: Array
     ) -> Point[Natural, HierarchicalMixtureOfGaussians[Rep]]:
-        keys = jax.random.split(key, 4)
-        key_cat, key_vertices, key_cov, key_int = keys
+        keys = jax.random.split(key, 3)
+        key_cat, key_comp, key_int = keys
 
         # Initialize observable parameters from data statistics
         obs_means = self.model.obs_man.average_sufficient_statistic(data)
+        obs_means = self.model.obs_man.regularize_covariance(obs_means, JITTER, MIN_VAR)
         obs_params = self.model.obs_man.to_natural(obs_means)
 
         # Create latent categorical prior with slight symmetry breaking
@@ -167,26 +188,11 @@ class HMoG[Rep: PositiveDefinite](
 
         # Initialize separated components in latent space
         with self.model.lat_man as um:
-            latent_dim = um.obs_man.data_dim
-            scale = 2.0  # Scale factor for separation - 2 standard deviations
-
-            # Generate vertices of a hypercube centered at origin
-            vertices = scale * jax.random.choice(
-                key_vertices,
-                jnp.array([-1.0, 1.0]),
-                shape=(self.n_clusters, latent_dim),
-            )
-
+            key_comps = jax.random.split(key_comp, self.n_clusters)
             components = []
-            key_covs = jax.random.split(key_cov, self.n_clusters)
-            for i in range(self.n_clusters):
-                cov: Point[Natural, Covariance[PositiveDefinite]] = (
-                    um.obs_man.cov_man.shape_initialize(key_covs[i])
-                )
-                comp_means = um.obs_man.join_location_precision(
-                    Point[Natural, Euclidean](vertices[i]), cov
-                )
-                components.append(comp_means)
+            for key_compi in key_comps:
+                comp_params = um.obs_man.shape_initialize(key_compi)
+                components.append(um.obs_man.to_mean(comp_params))
 
             mix_means = um.join_mean_mixture(components, cat_means)
             mix_params = um.to_natural(mix_means)
@@ -196,18 +202,81 @@ class HMoG[Rep: PositiveDefinite](
         lkl_params = self.model.lkl_man.join_params(obs_params, int_mat)
         return self.model.join_conjugated(lkl_params, mix_params)
 
+    @partial(jax.jit, static_argnums=(0,))
     def fit(
-        self, params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], data: Array
+        self,
+        params0: Point[Natural, HierarchicalMixtureOfGaussians[Rep]],
+        data: Array,
     ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Rep]], Array]:
-        def em_step(
-            carry: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], _: Any
-        ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Rep]], Array]:
-            ll = self.model.average_log_observable_density(carry, data)
-            next_params = self.model.expectation_maximization(carry, data)
+        lkl_params0, mix_params0 = self.model.split_conjugated(params0)
+
+        with self.model.lwr_man as lm:
+            z = lm.lat_man.standard_normal()
+            lgm_params0 = lm.join_conjugated(lkl_params0, lm.lat_man.to_natural(z))
+
+            def em_step1(
+                params: Point[Natural, LinearGaussianModel[Rep]], _: Any
+            ) -> tuple[Point[Natural, LinearGaussianModel[Rep]], Array]:
+                ll = lm.average_log_observable_density(params, data)
+                means = lm.expectation_step(params, data)
+                obs_means, int_means, lat_means = lm.split_params(means)
+                obs_means = lm.obs_man.regularize_covariance(obs_means, JITTER, MIN_VAR)
+                means = lm.join_params(obs_means, int_means, lat_means)
+                params1 = lm.to_natural(means)
+                lkl_params = lm.likelihood_function(params1)
+                z = lm.lat_man.to_natural(lm.lat_man.standard_normal())
+                next_params = lm.join_conjugated(lkl_params, z)
+                debug.print("Stage 1 LL: {}", ll)
+                return next_params, ll
+
+            lgm_params1, lls1 = jax.lax.scan(
+                em_step1, lgm_params0, None, length=self.stage1_epochs
+            )
+            lkl_params1 = lm.likelihood_function(lgm_params1)
+
+        def em_step2(
+            params: Point[Natural, Mixture[FullNormal]], _: Any
+        ) -> tuple[Point[Natural, Mixture[FullNormal]], Array]:
+            hmog_params = self.model.join_conjugated(lkl_params1, params)
+            ll = self.model.average_log_observable_density(hmog_params, data)
+            hmog_means = self.model.expectation_step(hmog_params, data)
+            mix_means = self.model.split_params(hmog_means)[2]
+            mix_means = set_min_component_variance(self.model.lat_man, mix_means)
+            next_params = self.model.lat_man.to_natural(mix_means)
+            debug.print("Stage 2 LL: {}", ll)
             return next_params, ll
 
-        final_params, lls = jax.lax.scan(em_step, params, None, length=self.n_epochs)
+        mix_params1, lls2 = jax.lax.scan(
+            em_step2, mix_params0, None, length=self.stage2_epochs
+        )
+
+        def em_step3(
+            params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], _: Any
+        ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Rep]], Array]:
+            ll = self.model.average_log_observable_density(params, data)
+            means = self.model.expectation_step(params, data)
+            obs_means, int_means, mix_means = self.model.split_params(means)
+            obs_means = lm.obs_man.regularize_covariance(obs_means, JITTER, MIN_VAR)
+            mix_means = set_min_component_variance(self.model.lat_man, mix_means)
+            means = self.model.join_params(obs_means, int_means, mix_means)
+            next_params = self.model.to_natural(means)
+            debug.print("Stage 3 LL: {}", ll)
+            return next_params, ll
+
+        params1 = self.model.join_conjugated(lkl_params1, mix_params1)
+        stage3_epochs = self.n_epochs - self.stage1_epochs - self.stage2_epochs
+        final_params, lls3 = jax.lax.scan(em_step3, params1, None, length=stage3_epochs)
+        # concatenate log-likelihoods from all stages
+        lls = jnp.concatenate([lls1, lls2, lls3])
         return final_params, lls.ravel()
+
+    @property
+    def latent_dim(self) -> int:
+        return self.model.lat_man.obs_man.data_dim
+
+    @property
+    def n_clusters(self) -> int:
+        return self.model.lat_man.lat_man.dim + 1
 
     def log_likelihood(
         self, params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], data: Array
@@ -243,7 +312,7 @@ class HMoG[Rep: PositiveDefinite](
         """Evaluate probabilistic model performance."""
         start_time = time()
         params = self.initialize(key, data.train_images)
-        final_params, train_lls = self.fit(params, data.train_images)
+        final_params, train_lls = self.fit(params, data.train_images)  # type: ignore
 
         train_clusters = self.cluster_assignments(final_params, data.train_images)
         test_clusters = self.cluster_assignments(final_params, data.test_images)
