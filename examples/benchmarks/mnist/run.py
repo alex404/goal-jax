@@ -13,7 +13,7 @@ from goal.models import HierarchicalMixtureOfGaussians
 
 from ...shared import ExamplePaths, initialize_jax, initialize_paths, save_results
 from .common import MNISTData
-from .models import HMoGModel, PCAGMMModel
+from .models import PCAGMM, HMoG
 
 
 def create_parser() -> ArgumentParser:
@@ -87,18 +87,21 @@ def load_mnist(paths: ExamplePaths) -> MNISTData:
     )
 
 
-def create_model(model_name: str, latent_dim: int, n_clusters: int, data_dim: int):
+def create_model(
+    model_name: str, latent_dim: int, n_clusters: int, data_dim: int, n_epochs: int
+):
     """Create model instance based on configuration."""
     if model_name == "pcagmm":
-        return PCAGMMModel(latent_dim, n_clusters)
+        return PCAGMM(latent_dim, n_clusters)
     if model_name == "hmog":
-        return HMoGModel(
+        return HMoG(
+            n_epochs=n_epochs,
             model=HierarchicalMixtureOfGaussians(
                 obs_dim=data_dim,
                 obs_rep=Diagonal,
                 lat_dim=latent_dim,
                 n_components=n_clusters,
-            )
+            ),
         )
     raise ValueError(f"Unknown model: {model_name}")
 
@@ -112,7 +115,7 @@ def main() -> None:
         f"model_{args.model}_"
         f"ld{args.latent_dim}_"
         f"nc{args.n_clusters}_"
-        f"e{args.n_epochs}.json"
+        f"e{args.n_epochs}"
     )
 
     initialize_jax(device=args.device)
@@ -121,10 +124,14 @@ def main() -> None:
 
     data = load_mnist(paths)
     model = create_model(
-        args.model, args.latent_dim, args.n_clusters, data.train_images.shape[1]
+        args.model,
+        args.latent_dim,
+        args.n_clusters,
+        data.train_images.shape[1],
+        args.n_epochs,
     )
 
-    results = model.evaluate(key, data, args.n_epochs)
+    results = model.evaluate(key, data)
 
     save_results(results, paths)
 

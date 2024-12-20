@@ -34,7 +34,7 @@ class BaseModel[P, B](Protocol):
         """Initialize model parameters based on data dimensions and statistics."""
         ...
 
-    def fit(self, params: P, data: Array, n_steps: int) -> tuple[P, Array]:
+    def fit(self, params: P, data: Array) -> tuple[P, Array]:
         """Train model parameters, returning final parameters and training metrics."""
         ...
 
@@ -46,7 +46,7 @@ class BaseModel[P, B](Protocol):
         """Determine cluster assignments for each sample."""
         ...
 
-    def evaluate(self, key: Array, data: MNISTData, n_steps: int) -> B: ...
+    def evaluate(self, key: Array, data: MNISTData) -> B: ...
 
 
 ModelType = Literal["probabilistic", "two_stage"]
@@ -55,12 +55,12 @@ ModelType = Literal["probabilistic", "two_stage"]
 class ProbabilisticResults(TypedDict):
     model_name: str
     train_log_likelihood: list[float]
-    test_log_likelihood: list[float]
     final_train_log_likelihood: float
     final_test_log_likelihood: float
     train_accuracy: float
     test_accuracy: float
     latent_dim: int
+    n_clusters: int
     n_parameters: int
     training_time: float
 
@@ -71,6 +71,7 @@ class TwoStageResults(TypedDict):
     train_accuracy: float
     test_accuracy: float
     latent_dim: int
+    n_clusters: int
     training_time: float
 
 

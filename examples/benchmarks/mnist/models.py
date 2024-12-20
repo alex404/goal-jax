@@ -42,7 +42,7 @@ def evaluate_clustering(cluster_assignments: Array, true_labels: Array) -> float
 
 
 @dataclass
-class PCAGMMModel(TwoStageModel[tuple[PCA, GaussianMixture]]):
+class PCAGMM(TwoStageModel[tuple[PCA, GaussianMixture]]):
     _latent_dim: int
     _n_clusters: int
 
@@ -62,7 +62,7 @@ class PCAGMMModel(TwoStageModel[tuple[PCA, GaussianMixture]]):
         return pca, gmm
 
     def fit(
-        self, params: tuple[PCA, GaussianMixture], data: Array, n_steps: int
+        self, params: tuple[PCA, GaussianMixture], data: Array
     ) -> tuple[tuple[PCA, GaussianMixture], Array]:
         pca, gmm = params
         data_np = np.array(data, dtype=np.float64)
@@ -70,7 +70,7 @@ class PCAGMMModel(TwoStageModel[tuple[PCA, GaussianMixture]]):
         gmm.fit(latents)
 
         reconstruction_errors = self.reconstruction_error(params, data)
-        return (pca, gmm), jnp.full(n_steps, jnp.mean(reconstruction_errors))
+        return (pca, gmm), jnp.mean(reconstruction_errors)
 
     def encode(self, params: tuple[PCA, GaussianMixture], data: Array) -> Array:
         pca, _ = params
@@ -108,12 +108,11 @@ class PCAGMMModel(TwoStageModel[tuple[PCA, GaussianMixture]]):
         self,
         key: Array,
         data: MNISTData,
-        n_steps: int = 100,
     ) -> TwoStageResults:
         """Evaluate two-stage model performance."""
         start_time = time()
         params = self.initialize(key, data.train_images)
-        final_params, _ = self.fit(params, data.train_images, n_steps)
+        final_params, _ = self.fit(params, data.train_images)
 
         train_clusters = self.cluster_assignments(final_params, data.train_images)
         test_clusters = self.cluster_assignments(final_params, data.test_images)
@@ -132,16 +131,17 @@ class PCAGMMModel(TwoStageModel[tuple[PCA, GaussianMixture]]):
             train_accuracy=train_accuracy,
             test_accuracy=test_accuracy,
             latent_dim=self.latent_dim,
+            n_clusters=self.n_clusters,
             training_time=training_time,
         )
 
 
-type HMoG[Rep: PositiveDefinite] = HierarchicalMixtureOfGaussians[Rep]
-
-
 @dataclass
-class HMoGModel[Rep: PositiveDefinite](ProbabilisticModel[Point[Natural, HMoG[Rep]]]):
+class HMoG[Rep: PositiveDefinite](
+    ProbabilisticModel[Point[Natural, HierarchicalMixtureOfGaussians[Rep]]]
+):
     model: HierarchicalMixtureOfGaussians[Rep]
+    n_epochs: int
 
     @property
     def latent_dim(self) -> int:
@@ -151,7 +151,9 @@ class HMoGModel[Rep: PositiveDefinite](ProbabilisticModel[Point[Natural, HMoG[Re
     def n_clusters(self) -> int:
         return self.model.lat_man.lat_man.dim + 1
 
-    def initialize(self, key: Array, data: Array) -> Point[Natural, HMoG[Rep]]:
+    def initialize(
+        self, key: Array, data: Array
+    ) -> Point[Natural, HierarchicalMixtureOfGaussians[Rep]]:
         keys = jax.random.split(key, 4)
         key_cat, key_vertices, key_cov, key_int = keys
 
@@ -195,28 +197,33 @@ class HMoGModel[Rep: PositiveDefinite](ProbabilisticModel[Point[Natural, HMoG[Re
         return self.model.join_conjugated(lkl_params, mix_params)
 
     def fit(
-        self, params: Point[Natural, HMoG[Rep]], data: Array, n_steps: int
-    ) -> tuple[Point[Natural, HMoG[Rep]], Array]:
+        self, params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], data: Array
+    ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Rep]], Array]:
         def em_step(
-            carry: Point[Natural, HMoG[Rep]], _: Any
-        ) -> tuple[Point[Natural, HMoG[Rep]], Array]:
+            carry: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], _: Any
+        ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Rep]], Array]:
             ll = self.model.average_log_observable_density(carry, data)
             next_params = self.model.expectation_maximization(carry, data)
             return next_params, ll
 
-        final_params, lls = jax.lax.scan(em_step, params, None, length=n_steps)
+        final_params, lls = jax.lax.scan(em_step, params, None, length=self.n_epochs)
         return final_params, lls.ravel()
 
-    def log_likelihood(self, params: Point[Natural, HMoG[Rep]], data: Array) -> Array:
+    def log_likelihood(
+        self, params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], data: Array
+    ) -> Array:
         return self.model.average_log_observable_density(params, data)
 
     def generate(
-        self, params: Point[Natural, HMoG[Rep]], key: Array, n_samples: int
+        self,
+        params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]],
+        key: Array,
+        n_samples: int,
     ) -> Array:
         return self.model.observable_sample(key, params, n_samples)
 
     def cluster_assignments(
-        self, params: Point[Natural, HMoG[Rep]], data: Array
+        self, params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], data: Array
     ) -> Array:
         def data_point_cluster(x: Array) -> Array:
             with self.model as m:
@@ -232,12 +239,11 @@ class HMoGModel[Rep: PositiveDefinite](ProbabilisticModel[Point[Natural, HMoG[Re
         self,
         key: Array,
         data: MNISTData,
-        n_steps: int = 100,
     ) -> ProbabilisticResults:
         """Evaluate probabilistic model performance."""
         start_time = time()
         params = self.initialize(key, data.train_images)
-        final_params, train_lls = self.fit(params, data.train_images, n_steps)
+        final_params, train_lls = self.fit(params, data.train_images)
 
         train_clusters = self.cluster_assignments(final_params, data.train_images)
         test_clusters = self.cluster_assignments(final_params, data.test_images)
@@ -258,6 +264,7 @@ class HMoGModel[Rep: PositiveDefinite](ProbabilisticModel[Point[Natural, HMoG[Re
             train_accuracy=train_accuracy,
             test_accuracy=test_accuracy,
             latent_dim=self.latent_dim,
+            n_clusters=self.n_clusters,
             n_parameters=self.model.dim,
             training_time=training_time,
         )
