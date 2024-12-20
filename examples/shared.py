@@ -25,15 +25,20 @@ class ExamplePaths:
     cache_dir: Path
 
     @classmethod
-    def from_module(cls, module_path: str | Path) -> "ExamplePaths":
+    def from_module(
+        cls, module_path: str | Path, experiment: str | None
+    ) -> "ExamplePaths":
         module_path = Path(module_path)
         example_dir = module_path.parent
         results_dir = example_dir / "results"
-        analysis_path = results_dir / "analysis.json"
         style_path = example_dir.parent.parent / "default.mplstyle"
         project_root = example_dir.parent.parent
         cache_dir = project_root / ".cache"
 
+        if experiment is not None:
+            analysis_path = results_dir / f"{experiment}.json"
+        else:
+            analysis_path = results_dir / "analysis.json"
         # Ensure results directory exists
         results_dir.mkdir(exist_ok=True)
         cache_dir.mkdir(exist_ok=True)
@@ -50,8 +55,10 @@ class ExamplePaths:
         plt.style.use(str(self.style_path))
 
 
-def initialize_paths(module_path: str | Path) -> ExamplePaths:
-    paths = ExamplePaths.from_module(module_path)
+def initialize_paths(
+    module_path: str | Path, experiment: str | None = None
+) -> ExamplePaths:
+    paths = ExamplePaths.from_module(module_path, experiment)
     paths.setup_plotting()
     return paths
 

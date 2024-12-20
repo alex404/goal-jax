@@ -17,7 +17,7 @@ class MNISTData:
 
 
 @runtime_checkable
-class BaseModel[P](Protocol):
+class BaseModel[P, B](Protocol):
     """Base protocol for all unsupervised models."""
 
     @property
@@ -46,23 +46,7 @@ class BaseModel[P](Protocol):
         """Determine cluster assignments for each sample."""
         ...
 
-
-@runtime_checkable
-class ProbabilisticModel[P](BaseModel[P], Protocol):
-    """Protocol for models that support likelihood computation."""
-
-    def log_likelihood(self, params: P, data: Array) -> Array:
-        """Compute per-sample log likelihood under the model."""
-        ...
-
-
-@runtime_checkable
-class TwoStageModel[P](BaseModel[P], Protocol):
-    """Protocol for models that support two-stage training."""
-
-    def reconstruction_error(self, params: P, data: Array) -> Array:
-        """Compute per-sample reconstruction error using encode/decode."""
-        ...
+    def evaluate(self, key: Array, data: MNISTData, n_steps: int) -> B: ...
 
 
 ModelType = Literal["probabilistic", "two_stage"]
@@ -87,5 +71,22 @@ class TwoStageResults(TypedDict):
     train_accuracy: float
     test_accuracy: float
     latent_dim: int
-    n_parameters: int
     training_time: float
+
+
+@runtime_checkable
+class ProbabilisticModel[P](BaseModel[P, ProbabilisticResults], Protocol):
+    """Protocol for models that support likelihood computation."""
+
+    def log_likelihood(self, params: P, data: Array) -> Array:
+        """Compute per-sample log likelihood under the model."""
+        ...
+
+
+@runtime_checkable
+class TwoStageModel[P](BaseModel[P, TwoStageResults], Protocol):
+    """Protocol for models that support two-stage training."""
+
+    def reconstruction_error(self, params: P, data: Array) -> Array:
+        """Compute per-sample reconstruction error using encode/decode."""
+        ...
