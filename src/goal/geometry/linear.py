@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Generic, Self, TypeVar
+from typing import Any, Callable, Generic, Self, TypeVar
 
 from jax import Array
 
@@ -107,6 +107,20 @@ class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
         col_arrays = [col.params for col in cols]
         params = self.rep.from_cols(col_arrays)
         return Point(params)
+
+    def map_diagonal[C: Coordinates](
+        self, f: Point[C, Self], diagonal_fn: Callable[[Array], Array]
+    ) -> Point[C, Self]:
+        """Apply a function to the diagonal elements while preserving matrix structure.
+
+        Args:
+            f: Point in the linear map manifold
+            diagonal_fn: Function to apply to diagonal elements
+
+        Returns:
+            New point with modified diagonal elements
+        """
+        return Point(self.rep.map_diagonal(self.shape, f.params, diagonal_fn))
 
 
 @dataclass(frozen=True)

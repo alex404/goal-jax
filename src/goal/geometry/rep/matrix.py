@@ -23,6 +23,7 @@ Notes:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -161,6 +162,14 @@ class MatrixRep(ABC):
         """Construct parameters from outer product $v_1 \\otimes v_2$."""
         ...
 
+    @classmethod
+    @abstractmethod
+    def map_diagonal(
+        cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
+    ) -> Array:
+        """Apply function f to diagonal elements while preserving matrix structure."""
+        ...
+
 
 class Rectangular(MatrixRep):
     """Full matrix representation with no special structure."""
@@ -204,6 +213,17 @@ class Rectangular(MatrixRep):
         """Create parameters from outer product."""
         matrix = jnp.outer(v1, v2)
         return cls.from_dense(matrix)
+
+    @classmethod
+    def map_diagonal(
+        cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
+    ) -> Array:
+        """Map function over diagonal elements of matrix."""
+        matrix = cls.to_dense(shape, params)
+        diag = jnp.diag(matrix)
+        new_diag = f(diag)
+        new_matrix = matrix.at[jnp.diag_indices(shape[0])].set(new_diag)
+        return cls.from_dense(new_matrix)
 
 
 class Square(Rectangular):
@@ -370,6 +390,12 @@ class Diagonal(PositiveDefinite):
     ) -> Array:
         return jnp.sqrt(params) * vector
 
+    @classmethod
+    def map_diagonal(
+        cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
+    ) -> Array:
+        return f(params)
+
 
 class Scale(Diagonal):
     """Scale transformation $A = \\alpha I$.
@@ -406,6 +432,12 @@ class Scale(Diagonal):
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Average outer product to single scale parameter."""
         return jnp.array([jnp.mean(v1 * v2)])
+
+    @classmethod
+    def map_diagonal(
+        cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
+    ) -> Array:
+        return jnp.array([f(params[0])])
 
 
 class Identity(Scale):

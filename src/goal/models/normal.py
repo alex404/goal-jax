@@ -136,6 +136,12 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
         cov = base_cov + noise @ noise.T  # Ensure positive definite
         return self.from_dense(cov)
 
+    def add_jitter(
+        self, params: Point[Natural, Self], epsilon: float
+    ) -> Point[Natural, Self]:
+        """Add epsilon to diagonal elements while preserving matrix structure."""
+        return self.map_diagonal(params, lambda x: x + epsilon)
+
 
 @dataclass(frozen=True)
 class Normal[Rep: PositiveDefinite](
@@ -419,3 +425,26 @@ class Normal[Rep: PositiveDefinite](
             Point(jnp.zeros(self.data_dim)),
             self.cov_man.from_dense(jnp.eye(self.data_dim)),
         )
+
+    def set_min_variance(
+        self, p: Point[Mean, Self], min_var: float
+    ) -> Point[Mean, Self]:
+        """Ensure minimum variance across all dimensions while preserving dependencies.
+
+        Takes a point in mean coordinates, extracts the mean and covariance matrix, bounds the variances (diagonal of the covariance matrix) from below, and reconstructs the point in mean coordinates.
+
+        Args:
+            p: Point in mean coordinates
+            min_var: Minimum allowed variance for any dimension
+
+        Returns:
+            New point in mean coordinates with adjusted covariance
+        """
+        mean, covariance = self.split_mean_covariance(p)
+
+        def ensure_min_var(x: Array) -> Array:
+            return jnp.maximum(x, min_var)
+
+        adjusted_covariance = self.cov_man.map_diagonal(covariance, ensure_min_var)
+
+        return self.join_mean_covariance(mean, adjusted_covariance)
