@@ -15,10 +15,10 @@ from goal.geometry import (
     Scale,
 )
 from goal.models import (
+    BackwardHMoG,
     Categorical,
     Covariance,
     Euclidean,
-    HierarchicalMixtureOfGaussians,
 )
 
 from ...shared import initialize_jax, initialize_paths, save_results
@@ -36,12 +36,12 @@ SEP = 3.0  # Separation parameter
 
 def create_ground_truth_model() -> (
     tuple[
-        HierarchicalMixtureOfGaussians[Diagonal],
-        Point[Natural, HierarchicalMixtureOfGaussians[Diagonal]],
+        BackwardHMoG[Diagonal],
+        Point[Natural, BackwardHMoG[Diagonal]],
     ]
 ):
     """Create ground truth hierarchical mixture of Gaussians model."""
-    hmog = HierarchicalMixtureOfGaussians(
+    hmog = BackwardHMoG(
         obs_dim=2,
         obs_rep=Diagonal,
         lat_dim=1,
@@ -90,10 +90,10 @@ def create_ground_truth_model() -> (
 
 def initialize_hmog[Rep: PositiveDefinite](
     key: Array,
-    hmog: HierarchicalMixtureOfGaussians[Rep],
+    hmog: BackwardHMoG[Rep],
     sample: Array,
     n_components: int = 2,
-) -> Point[Natural, HierarchicalMixtureOfGaussians[Rep]]:
+) -> Point[Natural, BackwardHMoG[Rep]]:
     keys = jax.random.split(key, 2)
 
     # Initialize observable normal with data statistics
@@ -133,20 +133,20 @@ def initialize_hmog[Rep: PositiveDefinite](
 
 def fit_hmog[R: PositiveDefinite](
     key: Array,
-    hmog: HierarchicalMixtureOfGaussians[R],
+    hmog: BackwardHMoG[R],
     n_steps: int,
     sample: Array,
 ) -> tuple[
     Array,
-    Point[Natural, HierarchicalMixtureOfGaussians[R]],
-    Point[Natural, HierarchicalMixtureOfGaussians[R]],
+    Point[Natural, BackwardHMoG[R]],
+    Point[Natural, BackwardHMoG[R]],
 ]:
     """Train HMoG model using expectation maximization."""
     init_params = initialize_hmog(key, hmog, sample)
 
     def em_step(
-        carry: Point[Natural, HierarchicalMixtureOfGaussians[R]], _: Any
-    ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[R]], Array]:
+        carry: Point[Natural, BackwardHMoG[R]], _: Any
+    ) -> tuple[Point[Natural, BackwardHMoG[R]], Array]:
         params = carry
         ll = hmog.average_log_observable_density(params, sample)
         next_params = hmog.expectation_maximization(params, sample)
@@ -177,8 +177,8 @@ def compute_hmog_results(
     sample = gt_hmog.observable_sample(key_sample, gt_hmog_params, sample_size)
 
     # Create HMoG model
-    iso_hmog = HierarchicalMixtureOfGaussians(2, Scale, 1, 2)
-    dia_hmog = HierarchicalMixtureOfGaussians(2, Diagonal, 1, 2)
+    iso_hmog = BackwardHMoG(2, Scale, 1, 2)
+    dia_hmog = BackwardHMoG(2, Diagonal, 1, 2)
 
     # Train model
     iso_lls, init_iso_params, final_iso_params = fit_hmog(
@@ -198,8 +198,8 @@ def compute_hmog_results(
 
     # Compute densities
     def compute_observable_density[R: PositiveDefinite](
-        model: HierarchicalMixtureOfGaussians[R],
-        params: Point[Natural, HierarchicalMixtureOfGaussians[R]],
+        model: BackwardHMoG[R],
+        params: Point[Natural, BackwardHMoG[R]],
     ):
         return jax.vmap(model.observable_density, in_axes=(None, 0))(
             params, grid_points
@@ -213,8 +213,8 @@ def compute_hmog_results(
 
     # Get mixture densities
     def compute_mixture_density[R: PositiveDefinite](
-        model: HierarchicalMixtureOfGaussians[R],
-        params: Point[Natural, HierarchicalMixtureOfGaussians[R]],
+        model: BackwardHMoG[R],
+        params: Point[Natural, BackwardHMoG[R]],
     ):
         mix_model = model.split_conjugated(params)[1]
         return jax.vmap(model.lat_man.observable_density, in_axes=(None, 0))(

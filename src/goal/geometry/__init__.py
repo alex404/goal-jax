@@ -16,7 +16,7 @@ from .harmonium import (
     GenerativeConjugated,
     Harmonium,
 )
-from .hierarchical import HierarchicalBackward
+from .hierarchical import HierarchicalBackward, HierarchicalForward
 from .linear import (
     AffineMap,
     LinearMap,
@@ -96,5 +96,6 @@ __all__ = [
     "ForwardConjugated",
     "BackwardConjugated",
     # Hierarchical Harmonium
+    "HierarchicalForward",
     "HierarchicalBackward",
 ]

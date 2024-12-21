@@ -28,7 +28,7 @@ Example:
    >>> point = model.random_point()  # Sample a random point on manifold
 """
 
-from .hmog import HierarchicalMixtureOfGaussians
+from .hmog import BackwardHMoG, ForwardHMoG
 from .lgm import (
     FactorAnalysis,
     LinearGaussianModel,
@@ -46,13 +46,15 @@ from .normal import (
     IsotropicCovariance,
     IsotropicNormal,
     Normal,
+    NormalSubspace,
 )
 from .univariate import Categorical, Poisson
 
 __all__ = [
     "LinearGaussianModel",
     "LinearModel",
-    "HierarchicalMixtureOfGaussians",
+    "ForwardHMoG",
+    "BackwardHMoG",
     "FactorAnalysis",
     "PrincipalComponentAnalysis",
     "Mixture",
@@ -69,4 +71,5 @@ __all__ = [
     "FullCovariance",
     "DiagonalCovariance",
     "IsotropicCovariance",
+    "NormalSubspace",
 ]
