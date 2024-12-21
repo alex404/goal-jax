@@ -73,6 +73,25 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
             lat_sub,
         )
 
+    def join_mean_mixture(
+        self,
+        components: list[Point[Mean, Observable]],
+        weights: Point[Mean, Categorical],
+    ) -> Point[Mean, Self]:
+        """Create a mixture model in mean coordinates from components and weights. Note that if only a submanifold of interactions on the observables are considered (i.e. obs_sub is not the IdentitySubspace), then information in the components list will be discarded."""
+        probs = self.lat_man.to_probs(weights)
+
+        weighted_comps: list[Point[Mean, Observable]] = [
+            p * comp for p, comp in zip(probs, components)
+        ]
+
+        obs_means: Point[Mean, Observable] = reduce(add, weighted_comps)
+        int_means = self.int_man.from_columns(
+            [self.obs_sub.project(comp) for comp in weighted_comps[1:]]
+        )
+
+        return self.join_params(obs_means, int_means, weights)
+
 
 class ForwardMixture[Observable: Forward, SubObservable: ExponentialFamily](
     Mixture[Observable, SubObservable],
@@ -161,23 +180,6 @@ class BackwardMixture[Observable: Backward](
         int_mat = self.int_man.from_columns(int_cols)
 
         return self.lkl_man.join_params(obs_bias, int_mat)
-
-    def join_mean_mixture(
-        self,
-        components: list[Point[Mean, Observable]],
-        weights: Point[Mean, Categorical],
-    ) -> Point[Mean, Self]:
-        """Create a mixture model in mean coordinates from components and weights."""
-        probs = self.lat_man.to_probs(weights)
-
-        weighted_comps: list[Point[Mean, Observable]] = [
-            p * comp for p, comp in zip(probs, components)
-        ]
-
-        obs_means: Point[Mean, Observable] = reduce(add, weighted_comps)
-        int_means = self.int_man.from_columns([comp for comp in weighted_comps[1:]])
-
-        return self.join_params(obs_means, int_means, weights)
 
     def split_mean_mixture(
         self, p: Point[Mean, Self]

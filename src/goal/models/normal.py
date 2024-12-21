@@ -528,8 +528,7 @@ class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
     def project(self, p: Point[Mean, Normal[SuperRep]]) -> Point[Mean, Normal[SubRep]]:
         """Project from super-manifold to sub-manifold.
 
-        This operation is only valid in mean coordinates, where it corresponds to
-        the information projection (moment matching).
+        This operation is only valid in mean coordinates, where it corresponds to the information projection (moment matching).
 
         Args:
             p: Point in super-manifold (must be in mean coordinates)
@@ -544,8 +543,7 @@ class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
     ) -> Point[Natural, Normal[SuperRep]]:
         """Translate a point in super-manifold by a point in sub-manifold.
 
-        This operation is only valid in natural coordinates, where it embeds the
-        simpler structure into the more complex one before adding.
+        This operation is only valid in natural coordinates, where it embeds the simpler structure into the more complex one before adding, effectively zero padding the missing elements of the point on the submanifold.
 
         Args:
             p: Point in super-manifold (must be in natural coordinates)
