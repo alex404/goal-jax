@@ -44,6 +44,7 @@ from ..geometry import (
     PositiveDefinite,
     Scale,
     SquareMap,
+    Subspace,
     reduce_dual,
 )
 
@@ -396,35 +397,65 @@ class Normal[Rep: PositiveDefinite](
         cov = self.cov_man.shape_initialize(key, mu=mu, shp=shp)
         return self.join_location_precision(mean, cov)
 
-    def transform_rep[TargetRep: PositiveDefinite](
+    def embed_rep[TargetRep: PositiveDefinite](
         self, target_man: Normal[TargetRep], p: Point[Natural, Self]
     ) -> Point[Natural, Normal[TargetRep]]:
-        """Transform natural parameters to target representation.
+        """Embed natural parameters into a more complex representation.
 
-        This function converts parameters between different matrix representations
-        (Scale, Diagonal, PositiveDefinite). When going from a simpler to more complex
-        representation (e.g. Scale to PositiveDefinite), this acts as an embedding.
-        When going from complex to simpler (e.g. PositiveDefinite to Scale), this
-        acts as a projection.
+        This converts parameters from a simpler to more complex representation (e.g. Scale to PositiveDefinite) by treating the simpler structure as a special case of the more complex one. For example, a diagonal matrix can be embedded as a full matrix with zeros off the diagonal.
 
         Args:
-            target_man: Target normal distribution
-            p: Parameters in natural coordinates to transform
+            target_man: Target normal distribution (must have more complex structure)
+            p: Parameters in natural coordinates to embed
 
         Returns:
-            Parameters in target representation
+            Parameters embedded in target representation
+
+        Raises:
+            TypeError: If trying to embed into a simpler representation
         """
+        # Check we're going from simpler to more complex
+        if not isinstance(self.cov_man.rep, target_man.cov_man.rep.__class__):
+            raise TypeError(
+                f"Cannot embed {self.cov_man.rep} into {target_man.cov_man.rep}"
+            )
+
+        # Embedding in natural coordinates means embedding precision matrix
         loc, precision = self.split_location_precision(p)
         dense_prec = self.cov_man.to_dense(precision)
         target_prec = target_man.cov_man.from_dense(dense_prec)
         return target_man.join_location_precision(loc, target_prec)
 
-    def standard_normal(self) -> Point[Mean, Self]:
-        """Return the standard normal distribution."""
-        return self.join_mean_covariance(
-            Point(jnp.zeros(self.data_dim)),
-            self.cov_man.from_dense(jnp.eye(self.data_dim)),
-        )
+    def project_rep[TargetRep: PositiveDefinite](
+        self, target_man: Normal[TargetRep], p: Point[Mean, Self]
+    ) -> Point[Mean, Normal[TargetRep]]:
+        """Project mean parameters to a simpler representation.
+
+        This converts parameters from a more complex to simpler representation (e.g. PositiveDefinite to Diagonal) by discarding components not representable in the simpler structure.
+
+        For example, a full matrix can be projected to a diagonal one. In Mean coordinates this this corresponds to the information (moment matching) projection.
+
+        Args:
+            target_man: Target normal distribution (must have simpler structure)
+            p: Parameters in mean coordinates to project
+
+        Returns:
+            Parameters projected to target representation
+
+        Raises:
+            TypeError: If trying to project to a more complex representation
+        """
+        # Check we're going from more complex to simpler
+
+        if not isinstance(target_man.cov_man.rep, self.cov_man.rep.__class__):
+            raise TypeError(
+                f"Cannot project {self.cov_man.rep} into {target_man.cov_man.rep}"
+            )
+        # Projection in mean coordinates means projecting covariance matrix
+        mean, second_moment = self.split_mean_second_moment(p)
+        dense_second_moment = self.cov_man.to_dense(second_moment)
+        target_second_moment = target_man.cov_man.from_dense(dense_second_moment)
+        return target_man.join_mean_second_moment(mean, target_second_moment)
 
     def regularize_covariance(
         self, p: Point[Mean, Self], jitter: float = 0, min_var: float = 0
@@ -456,3 +487,66 @@ class Normal[Rep: PositiveDefinite](
         adjusted_covariance = self.cov_man.map_diagonal(covariance, regularize_diagonal)
 
         return self.join_mean_covariance(mean, adjusted_covariance)
+
+
+@dataclass(frozen=True)
+class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
+    Subspace[Normal[SuperRep], Normal[SubRep]]
+):
+    """Subspace relationship between Normal distributions with different covariance structures.
+
+    This relationship defines how simpler normal distributions (e.g. DiagonalNormal) embed
+    into more complex ones (e.g. FullNormal). The key operations are:
+
+    1. Projection: Extract diagonal/scaled components from a full distribution.
+       Should be used with mean coordinates (expectations and covariances).
+
+    2. Translation: Embed simpler parameters into the full space.
+       Should be used with natural coordinates (natural parameters and precisions).
+
+    For example, a DiagonalNormal can be seen as a submanifold of FullNormal where
+    off-diagonal elements are zero.
+
+    Warning:
+        This subspace relationship is sensitive to coordinate systems. Projection should only be used with mean coordinates, while translation should only be used with natural coordinates. Incorrect usage will lead to errors.
+    """
+
+    def __init__(self, sup_man: Normal[SuperRep], sub_man: Normal[SubRep]):
+        if not isinstance(sub_man.cov_man.rep, sup_man.cov_man.rep.__class__):
+            raise TypeError(
+                f"Sub-manifold rep {sub_man.cov_man.rep} must be simpler than "
+                f"super-manifold rep {sup_man.cov_man.rep}"
+            )
+        super().__init__(sup_man, sub_man)
+
+    def project(self, p: Point[Mean, Normal[SuperRep]]) -> Point[Mean, Normal[SubRep]]:
+        """Project from super-manifold to sub-manifold.
+
+        This operation is only valid in mean coordinates, where it corresponds to
+        the information projection (moment matching).
+
+        Args:
+            p: Point in super-manifold (must be in mean coordinates)
+
+        Returns:
+            Projected point in sub-manifold
+        """
+        return self.sup_man.project_rep(self.sub_man, p)
+
+    def translate(
+        self, p: Point[Natural, Normal[SuperRep]], q: Point[Natural, Normal[SubRep]]
+    ) -> Point[Natural, Normal[SuperRep]]:
+        """Translate a point in super-manifold by a point in sub-manifold.
+
+        This operation is only valid in natural coordinates, where it embeds the
+        simpler structure into the more complex one before adding.
+
+        Args:
+            p: Point in super-manifold (must be in natural coordinates)
+            q: Point in sub-manifold to translate by
+
+        Returns:
+            Translated point in super-manifold
+        """
+        embedded_q = self.sub_man.embed_rep(self.sup_man, q)
+        return p + embedded_q
