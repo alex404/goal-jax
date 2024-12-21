@@ -15,10 +15,10 @@ from sklearn.mixture import GaussianMixture
 
 from goal.geometry import Mean, Natural, Point, PositiveDefinite
 from goal.models import (
+    BackwardHMoG,
+    BackwardMixture,
     FullNormal,
-    HierarchicalMixtureOfGaussians,
     LinearGaussianModel,
-    Mixture,
     Normal,
 )
 
@@ -37,9 +37,9 @@ LAT_MIN_VAR = 1e-3
 
 
 def set_min_component_variance[Rep: PositiveDefinite](
-    man: Mixture[Normal[Rep]],
-    params: Point[Mean, Mixture[Normal[Rep]]],
-) -> Point[Mean, Mixture[Normal[Rep]]]:
+    man: BackwardMixture[Normal[Rep]],
+    params: Point[Mean, BackwardMixture[Normal[Rep]]],
+) -> Point[Mean, BackwardMixture[Normal[Rep]]]:
     """Set minimum variance for each component in the mixture."""
     nrm_meanss, cat_means = man.split_mean_mixture(params)
 
@@ -168,16 +168,14 @@ class PCAGMM(TwoStageModel[tuple[PCA, GaussianMixture]]):
 
 @dataclass(frozen=True)
 class HMoG[Rep: PositiveDefinite](
-    ProbabilisticModel[Point[Natural, HierarchicalMixtureOfGaussians[Rep]]]
+    ProbabilisticModel[Point[Natural, BackwardHMoG[Rep]]]
 ):
-    model: HierarchicalMixtureOfGaussians[Rep]
+    model: BackwardHMoG[Rep]
     n_epochs: int
     stage1_epochs: int
     stage2_epochs: int
 
-    def initialize(
-        self, key: Array, data: Array
-    ) -> Point[Natural, HierarchicalMixtureOfGaussians[Rep]]:
+    def initialize(self, key: Array, data: Array) -> Point[Natural, BackwardHMoG[Rep]]:
         keys = jax.random.split(key, 3)
         key_cat, key_comp, key_int = keys
 
@@ -211,9 +209,9 @@ class HMoG[Rep: PositiveDefinite](
     @partial(jax.jit, static_argnums=(0,))
     def fit(
         self,
-        params0: Point[Natural, HierarchicalMixtureOfGaussians[Rep]],
+        params0: Point[Natural, BackwardHMoG[Rep]],
         data: Array,
-    ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Rep]], Array]:
+    ) -> tuple[Point[Natural, BackwardHMoG[Rep]], Array]:
         lkl_params0, mix_params0 = self.model.split_conjugated(params0)
 
         with self.model.lwr_man as lm:
@@ -243,8 +241,8 @@ class HMoG[Rep: PositiveDefinite](
             lkl_params1 = lm.likelihood_function(lgm_params1)
 
         def em_step2(
-            params: Point[Natural, Mixture[FullNormal]], _: Any
-        ) -> tuple[Point[Natural, Mixture[FullNormal]], Array]:
+            params: Point[Natural, BackwardMixture[FullNormal]], _: Any
+        ) -> tuple[Point[Natural, BackwardMixture[FullNormal]], Array]:
             hmog_params = self.model.join_conjugated(lkl_params1, params)
             ll = self.model.average_log_observable_density(hmog_params, data)
             hmog_means = self.model.expectation_step(hmog_params, data)
@@ -259,8 +257,8 @@ class HMoG[Rep: PositiveDefinite](
         )
 
         def em_step3(
-            params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], _: Any
-        ) -> tuple[Point[Natural, HierarchicalMixtureOfGaussians[Rep]], Array]:
+            params: Point[Natural, BackwardHMoG[Rep]], _: Any
+        ) -> tuple[Point[Natural, BackwardHMoG[Rep]], Array]:
             ll = self.model.average_log_observable_density(params, data)
             means = self.model.expectation_step(params, data)
             obs_means, int_means, mix_means = self.model.split_params(means)
@@ -289,20 +287,20 @@ class HMoG[Rep: PositiveDefinite](
         return self.model.lat_man.lat_man.dim + 1
 
     def log_likelihood(
-        self, params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], data: Array
+        self, params: Point[Natural, BackwardHMoG[Rep]], data: Array
     ) -> Array:
         return self.model.average_log_observable_density(params, data)
 
     def generate(
         self,
-        params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]],
+        params: Point[Natural, BackwardHMoG[Rep]],
         key: Array,
         n_samples: int,
     ) -> Array:
         return self.model.observable_sample(key, params, n_samples)
 
     def cluster_assignments(
-        self, params: Point[Natural, HierarchicalMixtureOfGaussians[Rep]], data: Array
+        self, params: Point[Natural, BackwardHMoG[Rep]], data: Array
     ) -> Array:
         def data_point_cluster(x: Array) -> Array:
             with self.model as m:

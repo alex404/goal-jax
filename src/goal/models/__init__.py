@@ -49,6 +49,7 @@ from .normal import (
     NormalSubspace,
 )
 from .univariate import Categorical, Poisson
+from .von_mises import VonMises
 
 __all__ = [
     "LinearGaussianModel",
@@ -62,6 +63,7 @@ __all__ = [
     "BackwardMixture",
     "Poisson",
     "Categorical",
+    "VonMises",
     "Normal",
     "FullNormal",
     "DiagonalNormal",
