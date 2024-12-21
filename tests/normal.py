@@ -145,8 +145,8 @@ def test_model_consistency(
     # Fit isotropic model
     iso_means = iso_model.average_sufficient_statistic(sample_data)
     iso_natural = iso_model.to_natural(iso_means)
-    dia_natural = iso_model.transform_rep(dia_model, iso_natural)
-    pod_natural = iso_model.transform_rep(pod_model, iso_natural)
+    dia_natural = iso_model.embed_rep(dia_model, iso_natural)
+    pod_natural = iso_model.embed_rep(pod_model, iso_natural)
 
     # Test log partition function
     logger.info("\nComparing log partition functions:")
