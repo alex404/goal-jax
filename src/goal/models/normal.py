@@ -488,6 +488,13 @@ class Normal[Rep: PositiveDefinite](
 
         return self.join_mean_covariance(mean, adjusted_covariance)
 
+    def standard_normal(self) -> Point[Mean, Self]:
+        """Return the standard normal distribution."""
+        return self.join_mean_covariance(
+            Point(jnp.zeros(self.data_dim)),
+            self.cov_man.from_dense(jnp.eye(self.data_dim)),
+        )
+
 
 @dataclass(frozen=True)
 class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
@@ -514,8 +521,7 @@ class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
     def __init__(self, sup_man: Normal[SuperRep], sub_man: Normal[SubRep]):
         if not isinstance(sub_man.cov_man.rep, sup_man.cov_man.rep.__class__):
             raise TypeError(
-                f"Sub-manifold rep {sub_man.cov_man.rep} must be simpler than "
-                f"super-manifold rep {sup_man.cov_man.rep}"
+                f"Sub-manifold rep {sub_man.cov_man.rep} must be simpler than super-manifold rep {sup_man.cov_man.rep}"
             )
         super().__init__(sup_man, sub_man)
 

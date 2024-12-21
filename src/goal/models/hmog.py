@@ -15,7 +15,7 @@ from ..geometry import (
     TripleSubspace,
 )
 from .lgm import LinearGaussianModel
-from .mixture import Mixture
+from .mixture import BackwardMixture
 from .normal import Euclidean, FullNormal, Normal
 
 Rep = TypeVar("Rep", bound=PositiveDefinite)
@@ -28,7 +28,7 @@ class HierarchicalMixtureOfGaussians[ObsRep: PositiveDefinite](
         Normal[ObsRep],
         Euclidean,
         Euclidean,
-        Mixture[FullNormal],
+        BackwardMixture[FullNormal],
     ],
 ):
     """A hierarchical mixture of Gaussians implemented as a three-layer harmonium.
@@ -60,7 +60,7 @@ class HierarchicalMixtureOfGaussians[ObsRep: PositiveDefinite](
             lwr_lat_man.loc_man,
             obs_man.loc_man,
         )
-        lat_man = Mixture(lwr_lat_man, n_components)
+        lat_man = BackwardMixture(lwr_lat_man, n_components)
         obs_sub = LocationSubspace(obs_man)
         lat_sub = ComposedSubspace(
             TripleSubspace(lat_man), LocationSubspace(lwr_lat_man)

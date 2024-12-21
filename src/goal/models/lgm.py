@@ -276,7 +276,7 @@ class LinearGaussianModel[
         projection when going to simpler ones.
         """
         obs_params, int_params, lat_params = self.split_params(p)
-        trn_obs_params = self.obs_man.transform_rep(trg_man.obs_man, obs_params)
+        trn_obs_params = self.obs_man.embed_rep(trg_man.obs_man, obs_params)
 
         return trg_man.join_params(trn_obs_params, int_params, lat_params)
 

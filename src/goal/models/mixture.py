@@ -27,12 +27,17 @@ from ..geometry import (
     AffineMap,
     Backward,
     BackwardConjugated,
+    ExponentialFamily,
+    Forward,
+    ForwardConjugated,
+    Harmonium,
     IdentitySubspace,
     LinearMap,
     Mean,
     Natural,
     Point,
     Rectangular,
+    Subspace,
 )
 from .univariate import (
     Categorical,
@@ -40,20 +45,25 @@ from .univariate import (
 
 
 @dataclass(frozen=True)
-class Mixture[Observable: Backward](
-    BackwardConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
+class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
+    Harmonium[Rectangular, Observable, SubObservable, Categorical, Categorical],
 ):
-    """Mixture model with categorical latent variables.
+    """Mixture models with exponential family observations.
 
     Parameters:
         obs_man: Base exponential family for observations
         n_categories: Number of mixture components
+        obs_sub: Subspace relationship for observable parameters (default: Identity)
     """
 
-    def __init__(self, obs_man: Observable, n_categories: int):
+    def __init__(
+        self,
+        obs_man: Observable,
+        n_categories: int,
+        obs_sub: Subspace[Observable, SubObservable],
+    ):
         cat_man = Categorical(n_categories)
         int_man = LinearMap(Rectangular(), cat_man, obs_man)
-        obs_sub = IdentitySubspace(obs_man)
         lat_sub = IdentitySubspace(cat_man)
         super().__init__(
             obs_man,
@@ -63,10 +73,15 @@ class Mixture[Observable: Backward](
             lat_sub,
         )
 
+
+class ForwardMixture[Observable: Forward, SubObservable: ExponentialFamily](
+    Mixture[Observable, SubObservable],
+    ForwardConjugated[Rectangular, Observable, SubObservable, Categorical, Categorical],
+):
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rectangular, Categorical, Observable, Observable]
+            Natural, AffineMap[Rectangular, Categorical, SubObservable, Observable]
         ],
     ) -> tuple[Array, Point[Natural, Categorical]]:
         """Compute conjugation parameters for categorical mixture.
@@ -87,11 +102,47 @@ class Mixture[Observable: Backward](
         rho_z_components = []
         for comp_params in int_cols:
             # For each component k, compute psi(theta_x + theta_xz_k)
-            adjusted_obs = obs_bias + comp_params
+            # adjusted_obs = obs_bias + comp_params
+            adjusted_obs = self.obs_sub.translate(obs_bias, comp_params)
             comp_term = self.obs_man.log_partition_function(adjusted_obs) - rho_0
             rho_z_components.append(comp_term)
 
         return rho_0, Point(jnp.array(rho_z_components))
+
+    def split_natural_mixture(
+        self, p: Point[Natural, Self]
+    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
+        """Split a mixture model in natural coordinates into components and prior."""
+
+        lkl_params, prr_params = self.split_conjugated(p)
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        int_cols = self.int_man.to_columns(int_mat)
+        components = [obs_bias]  # First component
+
+        for col in int_cols:
+            comp = self.obs_sub.translate(obs_bias, col)
+            components.append(comp)
+
+        return components, prr_params
+
+
+@dataclass(frozen=True)
+class BackwardMixture[Observable: Backward](
+    ForwardMixture[Observable, Observable],
+    BackwardConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
+):
+    """Mixture model with analytical entropy.
+
+    This class adds the ability to convert from mean to natural parameters and
+    compute negative entropy. Only works with identity subspace relationships.
+
+    Args:
+        obs_man: Base exponential family for observations
+        n_categories: Number of mixture components
+    """
+
+    def __init__(self, obs_man: Observable, n_categories: int):
+        super().__init__(obs_man, n_categories, IdentitySubspace(obs_man))
 
     def to_natural_likelihood(
         self, p: Point[Mean, Self]
@@ -160,19 +211,3 @@ class Mixture[Observable: Backward](
         lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
-
-    def split_natural_mixture(
-        self, p: Point[Natural, Self]
-    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
-        """Split a mixture model in natural coordinates into components and prior."""
-
-        lkl_params, prr_params = self.split_conjugated(p)
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
-        int_cols = self.int_man.to_columns(int_mat)
-        components = [obs_bias]  # First component
-
-        for col in int_cols:
-            comp = obs_bias + col
-            components.append(comp)
-
-        return components, prr_params
