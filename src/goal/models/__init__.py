@@ -35,9 +35,7 @@ from .lgm import (
     LinearModel,
     PrincipalComponentAnalysis,
 )
-from .mixture import (
-    Mixture,
-)
+from .mixture import BackwardMixture, ForwardMixture, Mixture
 from .normal import (
     Covariance,
     DiagonalCovariance,
@@ -58,6 +56,8 @@ __all__ = [
     "FactorAnalysis",
     "PrincipalComponentAnalysis",
     "Mixture",
+    "ForwardMixture",
+    "BackwardMixture",
     "Poisson",
     "Categorical",
     "Normal",
