@@ -30,8 +30,10 @@ from .common import (
     TwoStageResults,
 )
 
-JITTER = 1e-3
-MIN_VAR = 1
+OBS_JITTER = 1e-6
+OBS_MIN_VAR = 1e-5
+LAT_JITTER = 1e-5
+LAT_MIN_VAR = 1e-3
 
 
 def set_min_component_variance[Rep: PositiveDefinite](
@@ -42,7 +44,9 @@ def set_min_component_variance[Rep: PositiveDefinite](
     nrm_meanss, cat_means = man.split_mean_mixture(params)
 
     adjusted_means = [
-        man.obs_man.regularize_covariance(nrm_means, jitter=JITTER, min_var=MIN_VAR)
+        man.obs_man.regularize_covariance(
+            nrm_means, jitter=LAT_JITTER, min_var=LAT_MIN_VAR
+        )
         for nrm_means in nrm_meanss
     ]
 
@@ -179,7 +183,9 @@ class HMoG[Rep: PositiveDefinite](
 
         # Initialize observable parameters from data statistics
         obs_means = self.model.obs_man.average_sufficient_statistic(data)
-        obs_means = self.model.obs_man.regularize_covariance(obs_means, JITTER, MIN_VAR)
+        obs_means = self.model.obs_man.regularize_covariance(
+            obs_means, OBS_JITTER, OBS_MIN_VAR
+        )
         obs_params = self.model.obs_man.to_natural(obs_means)
 
         # Create latent categorical prior with slight symmetry breaking
@@ -220,7 +226,9 @@ class HMoG[Rep: PositiveDefinite](
                 ll = lm.average_log_observable_density(params, data)
                 means = lm.expectation_step(params, data)
                 obs_means, int_means, lat_means = lm.split_params(means)
-                obs_means = lm.obs_man.regularize_covariance(obs_means, JITTER, MIN_VAR)
+                obs_means = lm.obs_man.regularize_covariance(
+                    obs_means, OBS_JITTER, OBS_MIN_VAR
+                )
                 means = lm.join_params(obs_means, int_means, lat_means)
                 params1 = lm.to_natural(means)
                 lkl_params = lm.likelihood_function(params1)
@@ -256,7 +264,9 @@ class HMoG[Rep: PositiveDefinite](
             ll = self.model.average_log_observable_density(params, data)
             means = self.model.expectation_step(params, data)
             obs_means, int_means, mix_means = self.model.split_params(means)
-            obs_means = lm.obs_man.regularize_covariance(obs_means, JITTER, MIN_VAR)
+            obs_means = lm.obs_man.regularize_covariance(
+                obs_means, OBS_JITTER, OBS_MIN_VAR
+            )
             mix_means = set_min_component_variance(self.model.lat_man, mix_means)
             means = self.model.join_params(obs_means, int_means, mix_means)
             next_params = self.model.to_natural(means)
