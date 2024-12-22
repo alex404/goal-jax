@@ -32,8 +32,6 @@ jobs:
           python -m examples.demonstrations.hmog.plot
           python -m examples.demonstrations.mixture_of_gaussians.run
           python -m examples.demonstrations.mixture_of_gaussians.plot
-          python -m examples.demonstrations.univariate_forward.run
-          python -m examples.demonstrations.univariate_forward.plot
           python -m examples.demonstrations.univariate_backward.run
           python -m examples.demonstrations.univariate_backward.plot
       - name: Upload artifacts
