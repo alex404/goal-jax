@@ -25,11 +25,11 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import i0e  # type: ignore
 
-from ..geometry import Forward, Natural, Point
+from ..geometry import Differentiable, Natural, Point
 
 
 @dataclass(frozen=True)
-class VonMises(Forward):
+class VonMises(Differentiable):
     """[previous docstring remains the same]"""
 
     @property

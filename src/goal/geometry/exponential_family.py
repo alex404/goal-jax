@@ -33,8 +33,8 @@ where $\\phi(\\eta)$ is the negative entropy, which is the convex conjugate of $
 This module implements this structure through a hierarchy of classes:
 
 - `ExponentialFamily`: Base class defining sufficient statistics and base measure
-- `Forward`: Exponential families with analytical log partition function, and support mapping to the mean parameters by autodifferentation.
-- `Backward`: Exponential families with analytical negative entropy, and support mapping to the natural parameters by autodifferentation.
+- `Differentiable`: Exponential families with analytical log partition function, and support mapping to the mean parameters by autodifferentation.
+- `Analytic`: Exponential families with analytical negative entropy, and support mapping to the natural parameters by autodifferentation.
 """
 
 from __future__ import annotations
@@ -171,8 +171,8 @@ class Generative(ExponentialFamily, ABC):
         return self.average_sufficient_statistic(samples)
 
 
-class Forward(Generative, ABC):
-    """Exponential family with an analytically tractable log-partition function, which thereby permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
+class Differentiable(Generative, ABC):
+    """Exponential family with an analytically tractable log-partition function, which permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
 
     The log partition function $\\psi(\\theta)$ is given by:
 
@@ -240,7 +240,7 @@ class Forward(Generative, ABC):
         return jnp.exp(self.log_density(p, x))
 
 
-class Backward(Forward, ABC):
+class Analytic(Differentiable, ABC):
     """An exponential family comprising distributions for which the entropy can be evaluated in closed-form. The negative entropy is the convex conjugate of the log-partition function
 
     $$

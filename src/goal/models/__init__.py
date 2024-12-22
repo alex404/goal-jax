@@ -28,14 +28,14 @@ Example:
    >>> point = model.random_point()  # Sample a random point on manifold
 """
 
-from .hmog import BackwardHMoG, ForwardHMoG
+from .hmog import AnalyticHMoG, DifferentiableHMoG
 from .lgm import (
     FactorAnalysis,
     LinearGaussianModel,
     LinearModel,
     PrincipalComponentAnalysis,
 )
-from .mixture import BackwardMixture, ForwardMixture, Mixture
+from .mixture import AnalyticMixture, DifferentiableMixture, Mixture
 from .normal import (
     Covariance,
     DiagonalCovariance,
@@ -54,13 +54,13 @@ from .von_mises import VonMises
 __all__ = [
     "LinearGaussianModel",
     "LinearModel",
-    "ForwardHMoG",
-    "BackwardHMoG",
+    "DifferentiableHMoG",
+    "AnalyticHMoG",
     "FactorAnalysis",
     "PrincipalComponentAnalysis",
     "Mixture",
-    "ForwardMixture",
-    "BackwardMixture",
+    "DifferentiableMixture",
+    "AnalyticMixture",
     "Poisson",
     "Categorical",
     "VonMises",

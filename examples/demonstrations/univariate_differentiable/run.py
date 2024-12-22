@@ -9,7 +9,11 @@ from goal.geometry import Natural, Point
 from goal.models import VonMises
 
 from ...shared import initialize_jax, initialize_paths, save_results
-from .types import ForwardUnivariateResults, VonMisesOptimizationStep, VonMisesResults
+from .types import (
+    DifferentiableUnivariateResults,
+    VonMisesOptimizationStep,
+    VonMisesResults,
+)
 
 
 @jax.jit
@@ -119,7 +123,7 @@ def main():
         learning_rate=0.1,
     )
 
-    save_results(ForwardUnivariateResults(von_mises=results), paths)
+    save_results(DifferentiableUnivariateResults(von_mises=results), paths)
 
 
 if __name__ == "__main__":

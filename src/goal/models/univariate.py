@@ -13,11 +13,11 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..geometry import Backward, Mean, Natural, Point
+from ..geometry import Analytic, Mean, Natural, Point
 
 
 @dataclass(frozen=True)
-class Categorical(Backward):
+class Categorical(Analytic):
     """Categorical distribution over $n$ states.
 
     The categorical distribution describes discrete probability distributions over $n$ states with probabilities $\\eta_i$ where $\\sum_{i=0}^n \\eta_i = 1$. The probability mass function for outcome $k$ is:
@@ -88,7 +88,7 @@ class Categorical(Backward):
 
 
 @dataclass(frozen=True)
-class Poisson(Backward):
+class Poisson(Analytic):
     """
     The Poisson distribution over counts.
 

@@ -22,23 +22,23 @@ import jax.numpy as jnp
 from jax import Array
 
 from .exponential_family import ExponentialFamily, Generative, Mean, Natural
-from .harmonium import BackwardConjugated, ForwardConjugated
+from .harmonium import AnalyticConjugated, DifferentiableConjugated
 from .linear import AffineMap
 from .manifold import Point
 from .rep.matrix import MatrixRep
 
 
 @dataclass(frozen=True)
-class HierarchicalForward[
+class DifferentiableHierarchical[
     Rep: MatrixRep,
     Observable: Generative,
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
     Latent: Any,
-](ForwardConjugated[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
+](DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
     """Class for hierarchical harmoniums with deep conjugate structure.
 
-    This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses ForwardConjugated to maintain the exponential family structure while adding hierarchical capabilities.
+    This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses DifferentiableConjugated to maintain the exponential family structure while adding hierarchical capabilities.
 
     Type Parameters
     --------------
@@ -51,32 +51,32 @@ class HierarchicalForward[
     SubLatent : ExponentialFamily
         Interactive subspace of latent manifold
     Latent : Any
-        Type of latent manifold (must be a ForwardConjugated at runtime)
+        Type of latent manifold (must be a DifferentiableConjugated at runtime)
 
     Properties
     ----------
-    lwr_man : ForwardConjugated
+    lwr_man : DifferentiableConjugated
         Lower harmonium between observable and first latent layer
-    lat_man : ForwardConjugated
-        Upper harmonium between latent layers (inherited from ForwardConjugated)
+    lat_man : DifferentiableConjugated
+        Upper harmonium between latent layers (inherited from DifferentiableConjugated)
 
     Notes
     -----
-    While the Latent type parameter is Any for typing flexibility, at runtime we verify that it is actually a ForwardConjugated through __post_init__. This ensures proper hierarchical structure while avoiding complex generic typing.
+    While the Latent type parameter is Any for typing flexibility, at runtime we verify that it is actually a DifferentiableConjugated through __post_init__. This ensures proper hierarchical structure while avoiding complex generic typing.
     """
 
     def __post_init__(self):
-        # Check that the latent manifold is a ForwardConjugated
-        if not isinstance(self.lat_man, ForwardConjugated):
+        # Check that the latent manifold is a DifferentiableConjugated
+        if not isinstance(self.lat_man, DifferentiableConjugated):
             raise TypeError(
-                f"Latent manifold must be a ForwardConjugated, got {type(self.lat_man)}"
+                f"Latent manifold must be a DifferentiableConjugated, got {type(self.lat_man)}"
             )
 
     @property
     @abstractmethod
     def lwr_man(
         self,
-    ) -> ForwardConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
+    ) -> DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
 
     def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
         """Generate samples from the harmonium distribution.
@@ -124,20 +124,20 @@ class HierarchicalForward[
 
 
 @dataclass(frozen=True)
-class HierarchicalBackward[
+class AnalyticHierarchical[
     Rep: MatrixRep,
     Observable: Generative,
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
     Latent: Any,
 ](
-    HierarchicalForward[Rep, Observable, SubObservable, SubLatent, Latent],
-    BackwardConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
+    DifferentiableHierarchical[Rep, Observable, SubObservable, SubLatent, Latent],
+    AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     ABC,
 ):
     """Class for hierarchical harmoniums with deep conjugate structure.
 
-    This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses BackwardConjugated to maintain the exponential family structure while adding hierarchical capabilities.
+    This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses AnalyticConjugated to maintain the exponential family structure while adding hierarchical capabilities.
 
     Type Parameters
     --------------
@@ -150,32 +150,32 @@ class HierarchicalBackward[
     SubLatent : ExponentialFamily
         Interactive subspace of latent manifold
     Latent : Any
-        Type of latent manifold (must be a BackwardConjugated at runtime)
+        Type of latent manifold (must be a AnalyticConjugated at runtime)
 
     Properties
     ----------
-    lwr_man : BackwardConjugated
+    lwr_man : AnalyticConjugated
         Lower harmonium between observable and first latent layer
-    lat_man : BackwardConjugated
-        Upper harmonium between latent layers (inherited from BackwardConjugated)
+    lat_man : AnalyticConjugated
+        Upper harmonium between latent layers (inherited from AnalyticConjugated)
 
     Notes
     -----
-    While the Latent type parameter is Any for typing flexibility, at runtime we verify that it is actually a BackwardConjugated through __post_init__. This ensures proper hierarchical structure while avoiding complex generic typing.
+    While the Latent type parameter is Any for typing flexibility, at runtime we verify that it is actually a AnalyticConjugated through __post_init__. This ensures proper hierarchical structure while avoiding complex generic typing.
     """
 
     def __post_init__(self):
-        # Check that the latent manifold is a BackwardConjugated
-        if not isinstance(self.lat_man, BackwardConjugated):
+        # Check that the latent manifold is a AnalyticConjugated
+        if not isinstance(self.lat_man, AnalyticConjugated):
             raise TypeError(
-                f"Latent manifold must be a BackwardConjugated, got {type(self.lat_man)}"
+                f"Latent manifold must be a AnalyticConjugated, got {type(self.lat_man)}"
             )
 
     @property
     @abstractmethod
     def lwr_man(
         self,
-    ) -> BackwardConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
+    ) -> AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
 
     def to_natural_likelihood(
         self,

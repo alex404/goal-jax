@@ -38,7 +38,7 @@ from jax import Array
 
 from ..geometry import (
     AffineMap,
-    BackwardConjugated,
+    AnalyticConjugated,
     Coordinates,
     Diagonal,
     Dual,
@@ -134,7 +134,7 @@ def _change_of_basis[
 class LinearGaussianModel[
     Rep: PositiveDefinite,
 ](
-    BackwardConjugated[Rectangular, Normal[Rep], Euclidean, Euclidean, FullNormal],
+    AnalyticConjugated[Rectangular, Normal[Rep], Euclidean, Euclidean, FullNormal],
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
 

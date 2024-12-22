@@ -1,7 +1,7 @@
 from .exponential_family import (
-    Backward,
+    Analytic,
+    Differentiable,
     ExponentialFamily,
-    Forward,
     Generative,
     LocationShape,
     LocationSubspace,
@@ -9,14 +9,14 @@ from .exponential_family import (
     Natural,
 )
 from .harmonium import (
-    BackwardConjugated,
-    BackwardLatent,
+    AnalyticConjugated,
+    AnalyticLatent,
     Conjugated,
-    ForwardConjugated,
+    DifferentiableConjugated,
     GenerativeConjugated,
     Harmonium,
 )
-from .hierarchical import HierarchicalBackward, HierarchicalForward
+from .hierarchical import AnalyticHierarchical, DifferentiableHierarchical
 from .linear import (
     AffineMap,
     LinearMap,
@@ -85,17 +85,17 @@ __all__ = [
     "ExponentialFamily",
     "LocationSubspace",
     "LocationShape",
-    "Forward",
-    "Backward",
+    "Differentiable",
+    "Analytic",
     "Generative",
     # Harmoniums
     "Harmonium",
-    "BackwardLatent",
+    "AnalyticLatent",
     "Conjugated",
     "GenerativeConjugated",
-    "ForwardConjugated",
-    "BackwardConjugated",
+    "DifferentiableConjugated",
+    "AnalyticConjugated",
     # Hierarchical Harmonium
-    "HierarchicalForward",
-    "HierarchicalBackward",
+    "DifferentiableHierarchical",
+    "AnalyticHierarchical",
 ]

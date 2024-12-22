@@ -18,11 +18,11 @@ xz = jnp.concatenate([x, z])  # shape: (5,)
 The module provides a hierarchy of harmonium models with increasing structure:
 
 - `Harmonium`: Core exponential family structure with observable and latent variables.
-- `BackwardLatent`: Supports differentiation of latent variables.
+- `AnalyticLatent`: Supports differentiation of latent variables.
 - `Conjugated`: Enables analytical computation of marginals $p(x)$ and $p(z)$ of $p(x, z)$.
 - `GenerativeConjugated`: Harmoniums that can be sampled from.
-- `ForwardConjugated`: Harmoniums with an analytical log-partition function.
-- `BackwardConjugated`: Harmoniums with an analytic negative entropy.
+- `DifferentiableConjugated`: Harmoniums with an analytical log-partition function.
+- `AnalyticConjugated`: Harmoniums with an analytic negative entropy.
 """
 
 from __future__ import annotations
@@ -36,9 +36,9 @@ import jax.numpy as jnp
 from jax import Array
 
 from .exponential_family import (
-    Backward,
+    Analytic,
+    Differentiable,
     ExponentialFamily,
-    Forward,
     Generative,
     Mean,
     Natural,
@@ -208,12 +208,12 @@ class Harmonium[
         return self.join_params(obs_params, int_params, lat_params)
 
 
-class BackwardLatent[
+class AnalyticLatent[
     Rep: MatrixRep,
     Observable: ExponentialFamily,
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
-    Latent: Backward,
+    Latent: Analytic,
 ](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]):
     """A harmonium with differentiable latent exponential family."""
 
@@ -386,14 +386,14 @@ class GenerativeConjugated[
         return xzs[:, : self.obs_man.data_dim]
 
 
-class ForwardConjugated[
+class DifferentiableConjugated[
     Rep: MatrixRep,
     Observable: Generative,
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
-    Latent: Forward,
+    Latent: Differentiable,
 ](
-    Forward,
+    Differentiable,
     GenerativeConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     ABC,
 ):
@@ -470,25 +470,25 @@ class ForwardConjugated[
         return jnp.exp(self.log_observable_density(p, x))
 
 
-class BackwardConjugated[
+class AnalyticConjugated[
     Rep: MatrixRep,
     Observable: Generative,
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
-    Latent: Backward,
+    Latent: Analytic,
 ](
-    ForwardConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
-    BackwardLatent[Rep, Observable, SubObservable, SubLatent, Latent],
-    Backward,
+    DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
+    AnalyticLatent[Rep, Observable, SubObservable, SubLatent, Latent],
+    Analytic,
     ABC,
 ):
     """A conjugated harmonium with an analytically tractable negative entropy.
 
-    BackwardConjugated harmoniums have:
+    AnalyticConjugated harmoniums have:
 
     1. Conjugate structure (analytical marginals),
-    2. Forward structure (analytical log partition function), and
-    3. Backward structure (analytical entropy).
+    2. Differentiable structure (analytical log partition function), and
+    3. Analytic structure (analytical entropy).
     """
 
     @abstractmethod

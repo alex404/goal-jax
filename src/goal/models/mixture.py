@@ -25,11 +25,11 @@ from jax import Array
 
 from ..geometry import (
     AffineMap,
-    Backward,
-    BackwardConjugated,
+    Analytic,
+    AnalyticConjugated,
+    Differentiable,
+    DifferentiableConjugated,
     ExponentialFamily,
-    Forward,
-    ForwardConjugated,
     Harmonium,
     IdentitySubspace,
     LinearMap,
@@ -93,9 +93,14 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         return self.join_params(obs_means, int_means, weights)
 
 
-class ForwardMixture[Observable: Forward, SubObservable: ExponentialFamily](
+class DifferentiableMixture[
+    Observable: Differentiable,
+    SubObservable: ExponentialFamily,
+](
     Mixture[Observable, SubObservable],
-    ForwardConjugated[Rectangular, Observable, SubObservable, Categorical, Categorical],
+    DifferentiableConjugated[
+        Rectangular, Observable, SubObservable, Categorical, Categorical
+    ],
 ):
     def conjugation_parameters(
         self,
@@ -146,9 +151,9 @@ class ForwardMixture[Observable: Forward, SubObservable: ExponentialFamily](
 
 
 @dataclass(frozen=True)
-class BackwardMixture[Observable: Backward](
-    ForwardMixture[Observable, Observable],
-    BackwardConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
+class AnalyticMixture[Observable: Analytic](
+    DifferentiableMixture[Observable, Observable],
+    AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
 ):
     """Mixture model with analytical entropy.
 

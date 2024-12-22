@@ -33,7 +33,7 @@ class VonMisesResults(TypedDict):
     fitted_density: list[float]  # Fitted density using optimized parameters
 
 
-class ForwardUnivariateResults(TypedDict):
+class DifferentiableUnivariateResults(TypedDict):
     """Container for all numerical univariate results."""
 
     von_mises: VonMisesResults

@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 from ..geometry import (
+    AnalyticHierarchical,
     ComposedSubspace,
-    HierarchicalBackward,
-    HierarchicalForward,
+    DifferentiableHierarchical,
     LinearMap,
     LocationSubspace,
     PositiveDefinite,
@@ -16,20 +16,20 @@ from ..geometry import (
     TripleSubspace,
 )
 from .lgm import LinearGaussianModel
-from .mixture import BackwardMixture, ForwardMixture
+from .mixture import AnalyticMixture, DifferentiableMixture
 from .normal import Euclidean, FullNormal, Normal, NormalSubspace
 
 Rep = TypeVar("Rep", bound=PositiveDefinite)
 
 
 @dataclass(frozen=True)
-class ForwardHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
-    HierarchicalForward[
+class DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
+    DifferentiableHierarchical[
         Rectangular,
         Normal[ObsRep],
         Euclidean,
         Euclidean,
-        ForwardMixture[FullNormal, Normal[LatRep]],
+        DifferentiableMixture[FullNormal, Normal[LatRep]],
     ],
 ):
     """A hierarchical mixture of Gaussians implemented as a three-layer harmonium.
@@ -68,7 +68,7 @@ class ForwardHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
             obs_man.loc_man,
         )
         nrm_sub = NormalSubspace(lwr_lat_man, lwr_sub_lat_man)
-        lat_man = ForwardMixture(lwr_lat_man, n_components, nrm_sub)
+        lat_man = DifferentiableMixture(lwr_lat_man, n_components, nrm_sub)
         obs_sub = LocationSubspace(obs_man)
         lat_sub = ComposedSubspace(
             TripleSubspace(lat_man), LocationSubspace(lwr_lat_man)
@@ -89,13 +89,13 @@ class ForwardHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
 
 
 @dataclass(frozen=True)
-class BackwardHMoG[ObsRep: PositiveDefinite](
-    HierarchicalBackward[
+class AnalyticHMoG[ObsRep: PositiveDefinite](
+    AnalyticHierarchical[
         Rectangular,
         Normal[ObsRep],
         Euclidean,
         Euclidean,
-        BackwardMixture[FullNormal],
+        AnalyticMixture[FullNormal],
     ],
 ):
     """HMoG where submixture components have full covariance (current impl)."""
@@ -119,7 +119,7 @@ class BackwardHMoG[ObsRep: PositiveDefinite](
             lwr_lat_man.loc_man,
             obs_man.loc_man,
         )
-        lat_man = BackwardMixture(lwr_lat_man, n_components)
+        lat_man = AnalyticMixture(lwr_lat_man, n_components)
         obs_sub = LocationSubspace(obs_man)
         lat_sub = ComposedSubspace(
             TripleSubspace(lat_man), LocationSubspace(lwr_lat_man)

@@ -32,7 +32,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..geometry import (
-    Backward,
+    Analytic,
     Coordinates,
     Diagonal,
     ExponentialFamily,
@@ -146,7 +146,7 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
 
 @dataclass(frozen=True)
 class Normal[Rep: PositiveDefinite](
-    LocationShape[Euclidean, Covariance[Rep]], Backward
+    LocationShape[Euclidean, Covariance[Rep]], Analytic
 ):
     """(Multivariate) Normal distributions.
 

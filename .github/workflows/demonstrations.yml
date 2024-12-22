@@ -32,8 +32,8 @@ jobs:
           python -m examples.demonstrations.hmog.plot
           python -m examples.demonstrations.mixture_of_gaussians.run
           python -m examples.demonstrations.mixture_of_gaussians.plot
-          python -m examples.demonstrations.univariate_backward.run
-          python -m examples.demonstrations.univariate_backward.plot
+          python -m examples.demonstrations.univariate_analytic.run
+          python -m examples.demonstrations.univariate_analytic.plot
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:

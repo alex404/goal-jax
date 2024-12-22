@@ -10,7 +10,7 @@ from sklearn.mixture import GaussianMixture
 
 from goal.geometry import Diagonal, Mean, Natural, Point, PositiveDefinite, Scale
 from goal.models import (
-    BackwardMixture,
+    AnalyticMixture,
     Categorical,
     Euclidean,
     FullNormal,
@@ -24,8 +24,8 @@ from .types import MixtureResults
 
 
 def create_ground_truth_parameters(
-    mix_man: BackwardMixture[FullNormal],
-) -> Point[Natural, BackwardMixture[FullNormal]]:
+    mix_man: AnalyticMixture[FullNormal],
+) -> Point[Natural, AnalyticMixture[FullNormal]]:
     """Create ground truth parameters for a mixture of 3 bivariate Gaussians.
 
     Returns:
@@ -54,15 +54,15 @@ def create_ground_truth_parameters(
 
     weights: Point[Mean, Categorical] = Point(jnp.array([0.35, 0.25]))
 
-    mean_mix: Point[Mean, BackwardMixture[FullNormal]] = mix_man.join_mean_mixture(
+    mean_mix: Point[Mean, AnalyticMixture[FullNormal]] = mix_man.join_mean_mixture(
         components, weights
     )
     return mix_man.to_natural(mean_mix)
 
 
 def goal_to_sklearn_mixture(
-    mix_man: BackwardMixture[FullNormal],
-    goal_mixture: Point[Natural, BackwardMixture[FullNormal]],
+    mix_man: AnalyticMixture[FullNormal],
+    goal_mixture: Point[Natural, AnalyticMixture[FullNormal]],
 ) -> GaussianMixture:
     # Convert to mean coordinates first
     mean_mixture = mix_man.to_mean(goal_mixture)
@@ -108,19 +108,19 @@ def goal_to_sklearn_mixture(
 
 def fit_model[R: PositiveDefinite](
     key: Array,
-    mix_man: BackwardMixture[Normal[R]],
+    mix_man: AnalyticMixture[Normal[R]],
     n_steps: int,
     sample: Array,
 ) -> tuple[
     Array,
-    Point[Natural, BackwardMixture[Normal[R]]],
-    Point[Natural, BackwardMixture[Normal[R]]],
+    Point[Natural, AnalyticMixture[Normal[R]]],
+    Point[Natural, AnalyticMixture[Normal[R]]],
 ]:
     init_params = mix_man.shape_initialize(key)
 
     def em_step(
-        carry: Point[Natural, BackwardMixture[Normal[R]]], _: Any
-    ) -> tuple[Point[Natural, BackwardMixture[Normal[R]]], Array]:
+        carry: Point[Natural, AnalyticMixture[Normal[R]]], _: Any
+    ) -> tuple[Point[Natural, AnalyticMixture[Normal[R]]], Array]:
         params = carry
         ll = mix_man.average_log_observable_density(params, sample)
         next_params = mix_man.expectation_maximization(params, sample)
@@ -146,9 +146,9 @@ def compute_mixture_results(
     dia_man = Normal(2, Diagonal)
     iso_man = Normal(2, Scale)
 
-    pd_mix_man = BackwardMixture(pd_man, 3)
-    dia_mix_man = BackwardMixture(dia_man, 3)
-    iso_mix_man = BackwardMixture(iso_man, 3)
+    pd_mix_man = AnalyticMixture(pd_man, 3)
+    dia_mix_man = AnalyticMixture(dia_man, 3)
+    iso_mix_man = AnalyticMixture(iso_man, 3)
 
     # Generate ground truth model
     gt_params = create_ground_truth_parameters(pd_mix_man)
@@ -183,8 +183,8 @@ def compute_mixture_results(
     }
 
     def compute_grid_density[R: PositiveDefinite](
-        model: BackwardMixture[Normal[R]],
-        params: Point[Natural, BackwardMixture[Normal[R]]],
+        model: AnalyticMixture[Normal[R]],
+        params: Point[Natural, AnalyticMixture[Normal[R]]],
     ) -> Array:
         return jax.vmap(model.observable_density, in_axes=(None, 0))(
             params, grid_points
