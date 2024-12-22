@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Generic, Self, TypeVar
+from typing import Any, Callable, Generic, Self, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -81,6 +81,29 @@ class Manifold(ABC):
 
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.params, q.params)
+
+    def value_and_grad[C: Coordinates](
+        self,
+        f: Callable[[Point[C, Self]], Array],
+        point: Point[C, Self],
+    ) -> tuple[Array, Point[Dual[C], Self]]:
+        """Compute value and gradients of loss function.
+
+        Returns gradients in the dual coordinate system to the input point's coordinates.
+        """
+        value, grads = jax.value_and_grad(f)(point)
+        return value, Point[Dual[C], Self](grads)
+
+    def grad[C: Coordinates](
+        self,
+        f: Callable[[Point[C, Self]], Array],
+        point: Point[C, Self],
+    ) -> Point[Dual[C], Self]:
+        """Compute gradients of loss function.
+
+        Returns gradients in the dual coordinate system to the input point's coordinates.
+        """
+        return self.value_and_grad(f, point)[1]
 
     def shape_initialize(
         self,

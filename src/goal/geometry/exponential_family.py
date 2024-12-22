@@ -47,7 +47,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from .manifold import Coordinates, Dual, Manifold, Pair, Point
+from .manifold import Coordinates, Dual, Manifold, Pair, Point, reduce_dual
 from .subspace import Subspace
 
 ### Coordinate Systems ###
@@ -198,8 +198,7 @@ class Differentiable(Generative, ABC):
 
     def to_mean(self, p: Point[Natural, Self]) -> Point[Mean, Self]:
         """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
-        mean_params = jax.grad(self._compute_log_partition_function)(p.params)  # type: ignore
-        return Point(mean_params)
+        return reduce_dual(self.grad(self.log_partition_function, p))
 
     def _log_density(self, params: Array, x: Array) -> Array:
         suff_stats = self._compute_sufficient_statistic(x)
@@ -263,8 +262,7 @@ class Analytic(Differentiable, ABC):
 
     def to_natural(self, p: Point[Mean, Self]) -> Point[Natural, Self]:
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
-        natural_params = jax.grad(self._compute_negative_entropy)(p.params)  # type: ignore
-        return Point(natural_params)
+        return self.grad(self.negative_entropy, p)
 
     def relative_entropy(self, p: Point[Natural, Self], q: Point[Mean, Self]) -> Array:
         """Compute the entropy of $p$ relative to $q$.
