@@ -4,6 +4,7 @@ version="0.0.1"
 description = "(G)eometric (O)ptimiz(A)tion (L)ibraries"
 dependencies = [
     "jax",
+    "optax",
     "matplotlib",
     "scipy",
     "scikit-learn",
