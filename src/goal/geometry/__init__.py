@@ -32,7 +32,7 @@ from .manifold import (
     expand_dual,
     reduce_dual,
 )
-from .optimizer import Optimizer
+from .optimizer import Optimizer, OptState
 from .rep.matrix import (
     Diagonal,
     Identity,
@@ -63,6 +63,7 @@ __all__ = [
     "reduce_dual",
     # Optimizer
     "Optimizer",
+    "OptState",
     # Subsapce
     "Subspace",
     "IdentitySubspace",

@@ -41,8 +41,7 @@ class VonMises(Differentiable):
         return 1
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:
-        x = jnp.asarray(x).reshape(-1)
-        return jnp.array([jnp.cos(x), jnp.sin(x)])
+        return jnp.array([jnp.cos(x), jnp.sin(x)]).ravel()
 
     def log_base_measure(self, x: Array) -> Array:
         return -jnp.log(2 * jnp.pi)
@@ -61,26 +60,33 @@ class VonMises(Differentiable):
         r = (1 + rho**2) / (2 * rho)
 
         def sample_one(key: Array) -> Array:
-            key1, key2, key3 = jax.random.split(key, 3)
-            u1 = jax.random.uniform(key1)
-            u2 = jax.random.uniform(key2)
-            u3 = jax.random.uniform(key3)
+            def cond_fn(val: tuple[Array, Array, Array]) -> Array:
+                _, _, accept = val
+                return jnp.logical_not(accept)
 
-            z = jnp.cos(jnp.pi * u1)
-            f = (1 + r * z) / (r + z)
-            c = kappa * (r - f)
+            def body_fn(val: tuple[Array, Array, Array]) -> tuple[Array, Array, Array]:
+                key, _, _ = val
+                key, key1, key2, key3 = jax.random.split(key, 4)
 
-            accept = jnp.log(c / u2) + 1 - c >= 0
-            angle = jnp.where(u3 < 0.5, -jnp.arccos(f), jnp.arccos(f))
-            # Add explicit typing for the recursive call
-            result: Array = jnp.where(
-                accept, angle + mu, sample_one(jax.random.split(key, 1)[0])
-            )
-            return result
+                u1 = jax.random.uniform(key1)
+                u2 = jax.random.uniform(key2)
+                u3 = jax.random.uniform(key3)
+
+                z = jnp.cos(jnp.pi * u1)
+                f = (1 + r * z) / (r + z)
+                c = kappa * (r - f)
+
+                accept = jnp.log(c / u2) + 1 - c >= 0
+                new_angle = jnp.where(u3 < 0.5, -jnp.arccos(f), jnp.arccos(f))
+                return key, new_angle, accept
+
+            init_val = (key, jnp.array(0.0), jnp.array(False))
+            _, angle, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+            return angle + mu
 
         keys = jax.random.split(key, n)
         samples = jax.vmap(sample_one)(keys)
-        return samples[..., None]  # Add explicit dimension at the end
+        return samples[..., None]
 
     def to_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:
         theta = p.params
@@ -88,6 +94,10 @@ class VonMises(Differentiable):
         mu = jnp.arctan2(theta[1], theta[0])
         return mu, kappa
 
-    def from_mean_concentration(self, mu: Array, kappa: Array) -> Point[Natural, Self]:
-        theta = kappa * jnp.array([jnp.cos(mu), jnp.sin(mu)])
+    def from_mean_concentration(
+        self, mu0: float, kappa0: float
+    ) -> Point[Natural, Self]:
+        mu = jnp.atleast_1d(mu0)
+        kappa = jnp.atleast_1d(kappa0)
+        theta = kappa * jnp.concatenate([jnp.cos(mu), jnp.sin(mu)])
         return Point(theta)

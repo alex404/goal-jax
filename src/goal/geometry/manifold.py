@@ -92,7 +92,7 @@ class Manifold(ABC):
         Returns gradients in the dual coordinate system to the input point's coordinates.
         """
         value, grads = jax.value_and_grad(f)(point)
-        return value, Point[Dual[C], Self](grads)
+        return value, grads
 
     def grad[C: Coordinates](
         self,
@@ -146,6 +146,20 @@ class Point(Generic[C, M]):
     """
 
     params: Array
+
+    def __array__(self) -> Array:
+        """Allow numpy to treat Points as arrays."""
+        return self.params
+
+    def __getitem__(self, idx: int) -> Array:
+        return self.params[idx]
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return self.params.shape
+
+    def __len__(self) -> int:
+        return len(self.params)
 
     def __add__(self, other: Point[C, M]) -> Point[C, M]:
         return Point(self.params + other.params)

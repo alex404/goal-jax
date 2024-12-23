@@ -119,9 +119,8 @@ def fit_model[R: PositiveDefinite](
     init_params = mix_man.shape_initialize(key)
 
     def em_step(
-        carry: Point[Natural, AnalyticMixture[Normal[R]]], _: Any
+        params: Point[Natural, AnalyticMixture[Normal[R]]], _: Any
     ) -> tuple[Point[Natural, AnalyticMixture[Normal[R]]], Array]:
-        params = carry
         ll = mix_man.average_log_observable_density(params, sample)
         next_params = mix_man.expectation_maximization(params, sample)
         return next_params, ll
