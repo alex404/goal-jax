@@ -52,49 +52,40 @@ class VonMises(Differentiable):
         return jnp.log(i0e(kappa)) + kappa
 
     def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
-        mu, kappa = self.to_mean_concentration(p)
+        """Sample from von Mises distribution using direct transformation method.
+
+        Based on Best & Fisher (1979) algorithm as implemented in numpy/numpyro.
+        """
+        mu, kappa = self.split_mean_concentration(p)
         kappa = jnp.maximum(kappa, 1e-5)
 
-        tau = 1 + jnp.sqrt(1 + 4 * kappa**2)
-        rho = (tau - jnp.sqrt(2 * tau)) / (2 * kappa)
-        r = (1 + rho**2) / (2 * rho)
+        # Split key for the two uniform samples needed
+        key_u, key_v = jax.random.split(key)
 
-        def sample_one(key: Array) -> Array:
-            def cond_fn(val: tuple[Array, Array, Array]) -> Array:
-                _, _, accept = val
-                return jnp.logical_not(accept)
+        # Generate shape-(n,) uniform samples
+        u = jax.random.uniform(key_u, (n,))
+        v = jax.random.uniform(key_v, (n,))
 
-            def body_fn(val: tuple[Array, Array, Array]) -> tuple[Array, Array, Array]:
-                key, _, _ = val
-                key, key1, key2, key3 = jax.random.split(key, 4)
+        # Direct transformation of uniforms to von Mises
+        z = jnp.cos(jnp.pi * u)
+        r = (1.0 + jnp.sqrt(1.0 + 4.0 * kappa**2)) / (4.0 * kappa)
+        w = (1.0 + r * z) / (r + z)
 
-                u1 = jax.random.uniform(key1)
-                u2 = jax.random.uniform(key2)
-                u3 = jax.random.uniform(key3)
+        samples = w * (2.0 * jnp.arccos(jnp.sqrt(w)) * (v - 0.5) + jnp.arcsin(z))
 
-                z = jnp.cos(jnp.pi * u1)
-                f = (1 + r * z) / (r + z)
-                c = kappa * (r - f)
+        # Shift by mean direction and ensure samples are in [-pi, pi]
+        samples = samples + mu
+        samples = (samples + jnp.pi) % (2.0 * jnp.pi) - jnp.pi
 
-                accept = jnp.log(c / u2) + 1 - c >= 0
-                new_angle = jnp.where(u3 < 0.5, -jnp.arccos(f), jnp.arccos(f))
-                return key, new_angle, accept
-
-            init_val = (key, jnp.array(0.0), jnp.array(False))
-            _, angle, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
-            return angle + mu
-
-        keys = jax.random.split(key, n)
-        samples = jax.vmap(sample_one)(keys)
         return samples[..., None]
 
-    def to_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:
+    def split_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:
         theta = p.params
         kappa = jnp.sqrt(jnp.sum(theta**2))
         mu = jnp.arctan2(theta[1], theta[0])
         return mu, kappa
 
-    def from_mean_concentration(
+    def join_mean_concentration(
         self, mu0: float, kappa0: float
     ) -> Point[Natural, Self]:
         mu = jnp.atleast_1d(mu0)
