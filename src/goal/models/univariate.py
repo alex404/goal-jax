@@ -114,7 +114,7 @@ class Poisson(Analytic):
         return 1
 
     def _compute_sufficient_statistic(self, x: Array) -> Array:
-        return jnp.asarray(x)
+        return jnp.atleast_1d(x)
 
     def log_base_measure(self, x: Array) -> Array:
         k = jnp.asarray(x, dtype=jnp.float32)

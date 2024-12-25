@@ -51,32 +51,42 @@ class VonMises(Differentiable):
         # Explicitly cast i0e output to Array
         return jnp.log(i0e(kappa)) + kappa
 
+    # TODO: Right now this is based on rejection sampling, but we should switch to a more efficient method that's more suitable for JAX
     def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
-        """Sample from von Mises distribution using direct transformation method.
-
-        Based on Best & Fisher (1979) algorithm as implemented in numpy/numpyro.
-        """
         mu, kappa = self.split_mean_concentration(p)
         kappa = jnp.maximum(kappa, 1e-5)
 
-        # Split key for the two uniform samples needed
-        key_u, key_v = jax.random.split(key)
+        tau = 1 + jnp.sqrt(1 + 4 * kappa**2)
+        rho = (tau - jnp.sqrt(2 * tau)) / (2 * kappa)
+        r = (1 + rho**2) / (2 * rho)
 
-        # Generate shape-(n,) uniform samples
-        u = jax.random.uniform(key_u, (n,))
-        v = jax.random.uniform(key_v, (n,))
+        def sample_one(key: Array) -> Array:
+            def cond_fn(val: tuple[Array, Array, Array]) -> Array:
+                _, _, accept = val
+                return jnp.logical_not(accept)
 
-        # Direct transformation of uniforms to von Mises
-        z = jnp.cos(jnp.pi * u)
-        r = (1.0 + jnp.sqrt(1.0 + 4.0 * kappa**2)) / (4.0 * kappa)
-        w = (1.0 + r * z) / (r + z)
+            def body_fn(val: tuple[Array, Array, Array]) -> tuple[Array, Array, Array]:
+                key, _, _ = val
+                key, key1, key2, key3 = jax.random.split(key, 4)
 
-        samples = w * (2.0 * jnp.arccos(jnp.sqrt(w)) * (v - 0.5) + jnp.arcsin(z))
+                u1 = jax.random.uniform(key1)
+                u2 = jax.random.uniform(key2)
+                u3 = jax.random.uniform(key3)
 
-        # Shift by mean direction and ensure samples are in [-pi, pi]
-        samples = samples + mu
-        samples = (samples + jnp.pi) % (2.0 * jnp.pi) - jnp.pi
+                z = jnp.cos(jnp.pi * u1)
+                f = (1 + r * z) / (r + z)
+                c = kappa * (r - f)
 
+                accept = jnp.log(c / u2) + 1 - c >= 0
+                new_angle = jnp.where(u3 < 0.5, -jnp.arccos(f), jnp.arccos(f))
+                return key, new_angle, accept
+
+            init_val = (key, jnp.array(0.0), jnp.array(False))
+            _, angle, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+            return angle + mu
+
+        keys = jax.random.split(key, n)
+        samples = jax.vmap(sample_one)(keys)
         return samples[..., None]
 
     def split_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:

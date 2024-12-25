@@ -286,7 +286,6 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
     - The components must have matching data dimensions.
     - The sufficient statistic is the concatenation of component sufficient statistics.
-    - The base measure is inherited from the location component since both componentsshoudl share the same base measure.
     """
 
     @property
@@ -300,10 +299,6 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         loc_stats = self.fst_man._compute_sufficient_statistic(x)
         shape_stats = self.snd_man._compute_sufficient_statistic(x)
         return self.join_params(Point(loc_stats), Point(shape_stats)).params
-
-    def log_base_measure(self, x: Array) -> Array:
-        """Base measure from location component, as both components should share the same measure."""
-        return self.fst_man.log_base_measure(x)
 
     def shape_initialize(
         self, key: Array, mu: float = 0.0, shp: float = 0.1

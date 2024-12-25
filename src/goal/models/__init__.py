@@ -28,6 +28,7 @@ Example:
    >>> point = model.random_point()  # Sample a random point on manifold
 """
 
+from .com_poisson import CoMPoisson, CoMShape
 from .hmog import AnalyticHMoG, DifferentiableHMoG
 from .lgm import (
     FactorAnalysis,
@@ -64,6 +65,8 @@ __all__ = [
     "Poisson",
     "Categorical",
     "VonMises",
+    "CoMPoisson",
+    "CoMShape",
     "Normal",
     "FullNormal",
     "DiagonalNormal",
