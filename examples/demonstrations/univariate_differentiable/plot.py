@@ -49,10 +49,15 @@ def plot_com_poisson_pmf(ax: Axes, results: CoMPoissonResults) -> None:
     true_pmf = np.array(results["true_pmf"])
     fitted_pmf = np.array(results["fitted_pmf"])
 
-    ax.hist(samples, bins=len(eval_points), density=True, alpha=0.3, label="Samples")
+    # Count occurrences of each integer value
+    unique, counts = np.unique(samples, return_counts=True)
+    ax.bar(unique, counts / len(samples), alpha=0.3, label="Samples")
+
     ax.plot(eval_points, true_pmf, "b-", label="True PMF")
     ax.plot(eval_points, fitted_pmf, "r--", label="Fitted PMF")
 
+    step = max(1, len(eval_points) // 10)
+    ax.set_xticks(eval_points[::step])
     ax.set_title("COM-Poisson PMF")
     ax.set_xlabel("Count")
     ax.set_ylabel("Probability")

@@ -36,7 +36,7 @@ def fit_von_mises(
     def cross_entropy_loss(params: Point[Natural, VonMises]) -> Array:
         return -von_man.average_log_density(params, sample)
 
-    def adam_step(
+    def grad_step(
         opt_state_and_params: tuple[OptState, Point[Natural, VonMises]], _: Any
     ) -> tuple[tuple[OptState, Point[Natural, VonMises]], Array]:
         # Compute loss and gradients
@@ -49,7 +49,7 @@ def fit_von_mises(
         return (opt_state, params), loss_val
 
     (_, final_params), ces = jax.lax.scan(
-        adam_step, (opt_state, init_params), None, length=n_steps
+        grad_step, (opt_state, init_params), None, length=n_steps
     )
     eval_points = jnp.linspace(-jnp.pi, jnp.pi, 200)
 
@@ -83,21 +83,24 @@ def fit_com_poisson(
         key: PRNG key
         com_man: COM-Poisson manifold
         true_mu: True mode parameter
-        true_nu: True shape parameter
+        true_nu: True dispersion parameter
         n_samples: Number of synthetic samples
         n_steps: Number of optimization steps
-        learning_rate: Learning rate for Adam optimizer
+        learning_rate: Learning rate for optimizer
         eval_points: Points at which to evaluate pmf
 
     Returns:
         Results dictionary containing samples, training history and pmf evaluations
     """
     # Generate synthetic data
-    true_params = com_man.join_mode_shape(true_mu, true_nu)
+    true_params = com_man.join_mode_dispersion(true_mu, true_nu)
     sample = com_man.sample(key, true_params, n_samples)
 
+    # Print number of samples for counts 0..20
+    for i in range(21):
+        print(f"Count {i}: {jnp.sum(sample == i)}")
     # Initialize optimization at reasonable starting point
-    init_params = com_man.join_mode_shape(1.0, 1.0)  # Start at Poisson(1)
+    init_params = com_man.join_mode_dispersion(1.0, 1.0)  # Start at Poisson(1)
 
     # Setup optimizer
     optimizer: Optimizer[CoMPoisson] = Optimizer.adam(learning_rate=learning_rate)
@@ -106,7 +109,7 @@ def fit_com_poisson(
     def cross_entropy_loss(params: Point[Natural, CoMPoisson]) -> Array:
         return -com_man.average_log_density(params, sample)
 
-    def adam_step(
+    def grad_step(
         opt_state_and_params: tuple[OptState, Point[Natural, CoMPoisson]], _: Any
     ) -> tuple[tuple[OptState, Point[Natural, CoMPoisson]], Array]:
         opt_state, params = opt_state_and_params
@@ -115,7 +118,7 @@ def fit_com_poisson(
         return (opt_state, params), loss_val
 
     (_, final_params), ces = jax.lax.scan(
-        adam_step, (opt_state, init_params), None, length=n_steps
+        grad_step, (opt_state, init_params), None, length=n_steps
     )
 
     # Evaluate pmf
@@ -159,10 +162,10 @@ def main():
     con_results = fit_com_poisson(
         key=com_key,
         com_man=com_man,
-        true_mu=5.0,
+        true_mu=10.0,
         true_nu=0.5,
-        n_samples=1000,
-        n_steps=100,
+        n_samples=100,
+        n_steps=1000,
         learning_rate=0.1,
     )
 

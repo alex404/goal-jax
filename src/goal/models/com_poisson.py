@@ -90,7 +90,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         super().__init__(Poisson(), CoMShape())
         object.__setattr__(self, "window_size", window_size)
 
-    def split_mode_shape(
+    def split_mode_dispersion(
         self, natural_params: Point[Natural, Self]
     ) -> tuple[Array, Array]:
         """Convert from natural parameters to mode-shape parameters.
@@ -112,7 +112,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         mu = jnp.exp(-theta1 / theta2)
         return mu, nu
 
-    def join_mode_shape(self, mu: float, nu: float) -> Point[Natural, Self]:
+    def join_mode_dispersion(self, mu: float, nu: float) -> Point[Natural, Self]:
         """Convert from mode-shape parameters to natural parameters.
 
         The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
@@ -135,25 +135,6 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
     def log_base_measure(self, x: Array) -> Array:
         return jnp.asarray(0.0)
 
-    def _compute_log_partition_terms(
-        self, natural_params: Array, indices: Array
-    ) -> Array:
-        """Compute terms in the log partition function for given indices.
-
-        For natural parameters $(\\theta_1, \\theta_2)$, computes array of:
-        $$\\theta_1 j + \\theta_2 \\log(j!)$$
-
-        Args:
-            natural_params: Array of natural parameters $(\\theta_1, \\theta_2)$
-            indices: Array of indices $j$ to evaluate terms at
-
-        Returns:
-            Array of log terms in the partition function
-        """
-        theta1, theta2 = natural_params[0], natural_params[1]
-        log_factorial = _log_factorial(indices + 1)
-        return theta1 * indices + theta2 * log_factorial
-
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
         """Compute log partition function using fixed-width window strategy.
 
@@ -170,7 +151,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         """
         # Estimate mode and center window around it
         # Estimate mode
-        mu, _ = self.split_mode_shape(Point(natural_params))
+        mu, _ = self.split_mode_dispersion(Point(natural_params))
 
         # Create fixed window of indices
         base_indices = jnp.arange(self.window_size)
@@ -181,143 +162,154 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         )
         indices = base_indices + mode_shift
 
+        def _compute_log_partition_terms(natural_params: Array, index: Array) -> Array:
+            return self.dot(self.sufficient_statistic(index), Point(natural_params))
+
         # Compute terms and use log-sum-exp for numerical stability
-        log_terms = self._compute_log_partition_terms(natural_params, indices)
+        log_terms = jax.vmap(_compute_log_partition_terms, in_axes=(None, 0))(
+            natural_params, indices
+        )
         return jax.nn.logsumexp(log_terms)
 
     def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate random samples from the distribution.
+        """Generate random COM-Poisson samples using Algorithm 2 from Benson & Friel (2021)."""
+        mu, nu = self.split_mode_dispersion(p)
+        mode = jnp.floor(mu)
 
-        Args:
-            key: PRNGKey that will be split into (n, batch_shape, 2) keys
-            p: Parameters in natural coordinates
-            n: Number of samples per parameter set
+        # Envelope terms for both Poisson and Geometric cases
 
-        Returns:
-            Array of shape (n, *data_dims) containing samples
-        """
-        mu, nu = self.split_mode_shape(p)
+        # Underdispersed case (nu >= 1): Poisson envelope
+        log_pois_scale = (nu - 1) * (mode * jnp.log(mu) - _log_factorial(mode))
 
-        # Split into n sets of batch_size pairs of keys
-        keys = jax.random.split(key, n * 2)
-        proposal_keys = keys[::2].reshape(n, *mu.shape, -1)
-        accept_keys = keys[1::2].reshape(n, *mu.shape, -1)
+        # Overdispersed case (nu < 1): Geometric envelope
+        p_geo = (2 * nu) / (2 * nu * mu + 1 + nu)
+        ratio = jnp.floor(mu / ((1 - p_geo) ** (1 / nu)))
+        log_geo_scale = (
+            -jnp.log(p_geo)
+            + nu * ratio * jnp.log(mu)
+            - (ratio * jnp.log(1 - p_geo) + nu * _log_factorial(ratio))
+        )
 
-        def sample_one(pkey: Array, akey: Array, mu: Array, nu: Array) -> Array:
-            is_poisson = nu >= 1
-            return jnp.where(
-                is_poisson,
-                _poisson_envelope_sample_one(pkey, akey, mu, self.max_proposals),
-                _geometric_envelope_sample_one(pkey, akey, mu, nu, self.max_proposals),
-            )
+        def sample_one(key: Array) -> Array:
+            def cond_fn(val: tuple[Array, Array, Array]) -> Array:
+                _, _, accept = val
+                return jnp.logical_not(accept)
 
-        return jax.vmap(sample_one, in_axes=(0, 0, None, None))(
-            proposal_keys, accept_keys, mu, nu
-        ).reshape(n, 1)
+            def body_fn(val: tuple[Array, Array, Array]) -> tuple[Array, Array, Array]:
+                key, y, _ = val
+                key, key_prop, key_u = jax.random.split(key, 3)
+
+                # Underdispersed case (nu >= 1): Poisson envelope
+                pois_y = jax.random.poisson(key_prop, mu)
+                log_alpha_pois = nu * (
+                    pois_y * jnp.log(mu) - _log_factorial(pois_y)
+                ) - (log_pois_scale + pois_y * jnp.log(mu) - _log_factorial(pois_y))
+
+                # Overdispersed case (nu >= 1): Poisson envelope
+                u0 = jax.random.uniform(key_prop)
+                geo_y = jnp.floor(jnp.log(u0) / jnp.log(1 - p_geo))
+                log_alpha_geo = nu * (geo_y * jnp.log(mu) - _log_factorial(geo_y)) - (
+                    log_geo_scale + geo_y * jnp.log(1 - p_geo) + jnp.log(p_geo)
+                )
+
+                # Select proposal and ratio based on nu
+                y = jnp.where(nu >= 1, pois_y, geo_y)
+                log_alpha = jnp.where(nu >= 1, log_alpha_pois, log_alpha_geo)
+
+                # Accept/reject step
+                u = jax.random.uniform(key_u)
+                accept = jnp.asarray(jnp.log(u) <= log_alpha).reshape(())
+
+                return key, y, accept
+
+            init_val = (key, jnp.array(0), jnp.asarray(False).reshape(()))
+            _, sample, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
+            return sample
+
+        keys = jax.random.split(key, n)
+        samples = jax.vmap(sample_one)(keys)
+        return samples[..., None]
 
 
 def _log_factorial(n: Array) -> Array:
     return jnp.atleast_1d(jax.lax.lgamma(n.astype(float) + 1))
 
-
-def _safe_log(x: Array) -> Array:
-    """Safe log that handles x = 0."""
-    return jnp.log(jnp.maximum(x, 1e-10))
-
-
-def _poisson_envelope_sample_one(
-    proposal_key: Array,
-    accept_key: Array,
-    mu: Array,
-    max_proposals: int,
-) -> Array:
-    """Sample single value from Poisson envelope with fixed number of proposals."""
-    proposals = jax.random.poisson(proposal_key, mu, shape=(max_proposals,))
-    log_mu = _safe_log(mu)
-    log_fact = jax.vmap(_log_factorial)(proposals)
-    ratios = proposals * log_mu - log_fact
-
-    uniforms = jax.random.uniform(accept_key, shape=(max_proposals,))
-    accepted = uniforms < ratios
-
-    first_accept = jnp.argmax(accepted)
-    return proposals[jnp.minimum(first_accept, max_proposals - 1)]
-
-
-def _geometric_envelope_sample_one(
-    proposal_key: Array,
-    accept_key: Array,
-    mu: Array,
-    nu: Array,
-    max_proposals: int,
-) -> Array:
-    """Sample single value from geometric envelope with fixed number of proposals."""
-    p = 2 * nu / (2 * mu * nu + 1 + nu)
-
-    uniforms = jax.random.uniform(proposal_key, shape=(max_proposals,))
-    proposals = jnp.floor(_safe_log(uniforms) / _safe_log(1 - p))
-
-    log_mu = _safe_log(mu)
-    log_fact = jax.vmap(_log_factorial)(proposals)
-    ratios = nu * (proposals * log_mu - log_fact)
-    bound = nu * (proposals * _safe_log(1 - p))
-
-    accept_uniforms = jax.random.uniform(accept_key, shape=(max_proposals,))
-    accepted = accept_uniforms < jnp.exp(ratios - bound)
-
-    first_accept = jnp.argmax(accepted)
-    return proposals[jnp.minimum(first_accept, max_proposals - 1)]
-
     # def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
-    #     """Generate random samples using rejection sampling as in Benson & Friel (2021)."""
-    #     mu, nu = self.split_mode_shape(p)
+    #     """Generate random samples from the distribution.
     #
-    #     def sample_one(key: Array) -> Array:
-    #         def cond_fn(val: tuple[Array, Array, Array]) -> Array:
-    #             _, _, accept = val
-    #             return jnp.logical_not(accept)  # accept is scalar shape ()
+    #     Args:
+    #         key: PRNGKey that will be split into (n, batch_shape, 2) keys
+    #         p: Parameters in natural coordinates
+    #         n: Number of samples per parameter set
     #
-    #         def body_fn(val: tuple[Array, Array, Array]) -> tuple[Array, Array, Array]:
-    #             key, y, _ = val
-    #             key, key_prop, key_u = jax.random.split(key, 3)
+    #     Returns:
+    #         Array of shape (n, *data_dims) containing samples
+    #     """
+    #     mu, nu = self.split_mode_dispersion(p)
     #
-    #             # Poisson case
-    #             poisson_y = jax.random.poisson(key_prop, mu)
-    #             poisson_log_ratio = -(nu - 1) * jnp.log(mu) + (nu - 1) * _log_factorial(
-    #                 poisson_y
-    #             )
+    #     # Split into n sets of batch_size pairs of keys
+    #     keys = jax.random.split(key, n * 2)
+    #     proposal_keys = keys[::2].reshape(n, *mu.shape, -1)
+    #     accept_keys = keys[1::2].reshape(n, *mu.shape, -1)
     #
-    #             # Geometric case
-    #             p = 2 * nu / (2 * mu * nu + 1 + nu)
-    #             u0 = jax.random.uniform(key_prop)
-    #             geom_y = jnp.floor(jnp.log(u0) / jnp.log(1 - p))
-    #             geom_log_ratio = nu * (
-    #                 geom_y * jnp.log(mu) - _log_factorial(geom_y)
-    #             ) - (geom_y * jnp.log(1 - p))
+    #     def sample_one(pkey: Array, akey: Array, mu: Array, nu: Array) -> Array:
+    #         is_poisson = nu >= 1
+    #         return jnp.where(
+    #             is_poisson,
+    #             _poisson_envelope_sample_one(pkey, akey, mu, self.max_proposals),
+    #             _geometric_envelope_sample_one(pkey, akey, mu, nu, self.max_proposals),
+    #         )
     #
-    #             # Select based on nu
-    #             y = jnp.where(nu >= 1, poisson_y, geom_y)
-    #             log_ratio = jnp.where(nu >= 1, poisson_log_ratio, geom_log_ratio)
-    #
-    #             # Accept/reject ensures scalar result of shape ()
-    #             u = jax.random.uniform(key_u)
-    #             accept = jnp.asarray(jnp.log(u) <= log_ratio).reshape(
-    #                 ()
-    #             )  # Force scalar
-    #
-    #             return key, y, accept
-    #
-    #         init_val = (
-    #             key,
-    #             jnp.array(0),
-    #             jnp.asarray(False).reshape(()),
-    #         )  # Force scalar
-    #         _, sample, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
-    #         return sample
-    #
-    #     keys = jax.random.split(key, n)
-    #     samples = jax.vmap(sample_one)(keys)
-    #     return samples[..., None]
-    #
-    #
-    #
+    #     return jax.vmap(sample_one, in_axes=(0, 0, None, None))(
+    #         proposal_keys, accept_keys, mu, nu
+    #     ).reshape(n, 1)
+
+
+#
+# def _safe_log(x: Array) -> Array:
+#     """Safe log that handles x = 0."""
+#     return jnp.log(jnp.maximum(x, 1e-10))
+#
+#
+# def _poisson_envelope_sample_one(
+#     proposal_key: Array,
+#     accept_key: Array,
+#     mu: Array,
+#     max_proposals: int,
+# ) -> Array:
+#     """Sample single value from Poisson envelope with fixed number of proposals."""
+#     proposals = jax.random.poisson(proposal_key, mu, shape=(max_proposals,))
+#     log_mu = _safe_log(mu)
+#     log_fact = jax.vmap(_log_factorial)(proposals)
+#     ratios = proposals * log_mu - log_fact
+#
+#     uniforms = jax.random.uniform(accept_key, shape=(max_proposals,))
+#     accepted = uniforms < ratios
+#
+#     first_accept = jnp.argmax(accepted)
+#     return proposals[jnp.minimum(first_accept, max_proposals - 1)]
+#
+#
+# def _geometric_envelope_sample_one(
+#     proposal_key: Array,
+#     accept_key: Array,
+#     mu: Array,
+#     nu: Array,
+#     max_proposals: int,
+# ) -> Array:
+#     """Sample single value from geometric envelope with fixed number of proposals."""
+#     p = 2 * nu / (2 * mu * nu + 1 + nu)
+#
+#     uniforms = jax.random.uniform(proposal_key, shape=(max_proposals,))
+#     proposals = jnp.floor(_safe_log(uniforms) / _safe_log(1 - p))
+#
+#     log_mu = _safe_log(mu)
+#     log_fact = jax.vmap(_log_factorial)(proposals)
+#     ratios = nu * (proposals * log_mu - log_fact)
+#     bound = nu * (proposals * _safe_log(1 - p))
+#
+#     accept_uniforms = jax.random.uniform(accept_key, shape=(max_proposals,))
+#     accepted = accept_uniforms < jnp.exp(ratios - bound)
+#
+#     first_accept = jnp.argmax(accepted)
+#     return proposals[jnp.minimum(first_accept, max_proposals - 1)]
