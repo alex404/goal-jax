@@ -286,6 +286,7 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
     - The components must have matching data dimensions.
     - The sufficient statistic is the concatenation of component sufficient statistics.
+    - The log-base measure by default is the log-base measure of the shape component.
     """
 
     @property
@@ -309,27 +310,9 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         shp_loc = self.snd_man.shape_initialize(key_shp, mu, shp)
         return self.join_params(fst_loc, shp_loc)
 
-
-@dataclass(frozen=True)
-class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
-    Subspace[LocationShape[Location, Shape], Location]
-):
-    """Subspace relationship for a product manifold $M \\times N$."""
-
-    def __init__(self, lsh_man: LocationShape[Location, Shape]):
-        super().__init__(lsh_man, lsh_man.fst_man)
-
-    def project[C: Coordinates](
-        self, p: Point[C, LocationShape[Location, Shape]]
-    ) -> Point[C, Location]:
-        first, _ = self.sup_man.split_params(p)
-        return first
-
-    def translate[C: Coordinates](
-        self, p: Point[C, LocationShape[Location, Shape]], q: Point[C, Location]
-    ) -> Point[C, LocationShape[Location, Shape]]:
-        first, second = self.sup_man.split_params(p)
-        return self.sup_man.join_params(first + q, second)
+    def log_base_measure(self, x: Array) -> Array:
+        """Base measure is sum of component base measures."""
+        return self.snd_man.log_base_measure(x)
 
 
 @dataclass(frozen=True)
@@ -409,3 +392,80 @@ class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic):
         params_matrix = mean_params.reshape(self.n_repeats, -1)
         # vmap the entropy computation
         return jnp.sum(jax.vmap(self.man._compute_negative_entropy)(params_matrix))
+
+
+@dataclass(frozen=True)
+class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
+    Subspace[LocationShape[Location, Shape], Location]
+):
+    """Subspace relationship for a product manifold $M \\times N$."""
+
+    def __init__(self, lsh_man: LocationShape[Location, Shape]):
+        super().__init__(lsh_man, lsh_man.fst_man)
+
+    def project[C: Coordinates](
+        self, p: Point[C, LocationShape[Location, Shape]]
+    ) -> Point[C, Location]:
+        first, _ = self.sup_man.split_params(p)
+        return first
+
+    def translate[C: Coordinates](
+        self, p: Point[C, LocationShape[Location, Shape]], q: Point[C, Location]
+    ) -> Point[C, LocationShape[Location, Shape]]:
+        first, second = self.sup_man.split_params(p)
+        return self.sup_man.join_params(first + q, second)
+
+
+@dataclass(frozen=True)
+class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily](
+    Subspace[Replicated[LocationShape[Loc, Shp]], Replicated[Loc]]
+):
+    """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
+
+    For a replicated location-shape manifold with parameters:
+    $((l_1,s_1),\\ldots,(l_n,s_n))$
+
+    Projects to just the location parameters:
+    $(l_1,\\ldots,l_n)$
+
+    This enables mixture models where components only affect location parameters while
+    sharing shape parameters across components.
+    """
+
+    def __init__(self, base_location: Loc, base_shape: Shp, n_neurons: int):
+        """Initialize subspace relationship.
+
+        Args:
+            base_location: Base location manifold
+            base_shape: Base shape manifold
+            n_neurons: Number of replicated units
+        """
+        ls_man = LocationShape(base_location, base_shape)
+        loc_man = Replicated(base_location, n_neurons)
+        sup_man = Replicated(ls_man, n_neurons)
+        super().__init__(sup_man, loc_man)
+
+    def project[C: Coordinates](
+        self, p: Point[C, Replicated[LocationShape[Loc, Shp]]]
+    ) -> Point[C, Replicated[Loc]]:
+        """Project to location parameters $(l_1,\\ldots,l_n)$."""
+        params_matrix = p.params.reshape(self.sup_man.n_repeats, -1)
+        loc_dim = self.sub_man.man.dim
+        loc_params = params_matrix[:, :loc_dim]
+        return Point(loc_params.reshape(-1))
+
+    def translate[C: Coordinates](
+        self,
+        p: Point[C, Replicated[LocationShape[Loc, Shp]]],
+        q: Point[C, Replicated[Loc]],
+    ) -> Point[C, Replicated[LocationShape[Loc, Shp]]]:
+        """Update location parameters while preserving shape parameters.
+
+        Given original parameters $((l_1,s_1),\\ldots,(l_n,s_n))$ and new locations
+        $(l_1',\\ldots,l_n')$, returns $((l_1',s_1),\\ldots,(l_n',s_n))$.
+        """
+        params_matrix = p.params.reshape(self.sup_man.n_repeats, -1)
+        loc_dim = self.sub_man.man.dim
+        q_matrix = q.params.reshape(self.sub_man.n_repeats, -1)
+        params_matrix = params_matrix.at[:, :loc_dim].set(q_matrix)
+        return Point(params_matrix.reshape(-1))
