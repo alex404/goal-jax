@@ -15,9 +15,9 @@ from ..geometry import (
     Rectangular,
     TripleSubspace,
 )
+from .gaussian.normal import Euclidean, FullNormal, Normal, NormalSubspace
 from .lgm import LinearGaussianModel
 from .mixture import AnalyticMixture, DifferentiableMixture
-from .normal import Euclidean, FullNormal, Normal, NormalSubspace
 
 Rep = TypeVar("Rep", bound=PositiveDefinite)
 
