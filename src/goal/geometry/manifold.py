@@ -248,3 +248,54 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold):
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
         return Point(jnp.concatenate([first.params, second.params, third.params]))
+
+
+@dataclass(frozen=True)
+class Replicated[M: Manifold](Manifold):
+    """The manifold given by the $n$-fold Cartesian product between $n$ copies of the given `Manifold`.
+
+    Given a manifold $M$, creates the product manifold $M^n = M \\times M \\times \\cdots \\times M$.
+    The dimension is $n$ times the dimension of $M$, and parameters are stored as concatenated
+    vectors of the individual manifold parameters.
+    """
+
+    man: M
+    """Base manifold to repeat."""
+
+    n_repeats: int
+    """Number of copies in the product."""
+
+    @property
+    def dim(self) -> int:
+        """Total dimension is n times the base manifold dimension."""
+        return self.man.dim * self.n_repeats
+
+    def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
+        """Split parameters into list of n points in the base manifold.
+
+        Args:
+            p: Point in the product manifold
+
+        Returns:
+            List of n points in the base manifold
+        """
+        # Split params into chunks of size man.dim
+        params = jnp.array_split(p.params, self.n_repeats)
+        return [Point(param) for param in params]
+
+    def join_params[C: Coordinates](
+        self,
+        ps: list[Point[C, M]],
+    ) -> Point[C, Self]:
+        """Join list of points in base manifold into single point in product.
+
+        Args:
+            ps: List of n points in base manifold
+
+        Returns:
+            Combined point in product manifold
+        """
+        if len(ps) != self.n_repeats:
+            raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
+        # Concatenate all parameter vectors
+        return Point(jnp.concatenate([p.params for p in ps]))

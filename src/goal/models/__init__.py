@@ -29,15 +29,7 @@ Example:
 """
 
 from .com_poisson import CoMPoisson, CoMShape
-from .hmog import AnalyticHMoG, DifferentiableHMoG
-from .lgm import (
-    FactorAnalysis,
-    LinearGaussianModel,
-    LinearModel,
-    PrincipalComponentAnalysis,
-)
-from .mixture import AnalyticMixture, DifferentiableMixture, Mixture
-from .normal import (
+from .gaussian.normal import (
     Covariance,
     DiagonalCovariance,
     DiagonalNormal,
@@ -49,6 +41,14 @@ from .normal import (
     Normal,
     NormalSubspace,
 )
+from .hmog import AnalyticHMoG, DifferentiableHMoG
+from .lgm import (
+    FactorAnalysis,
+    LinearGaussianModel,
+    LinearModel,
+    PrincipalComponentAnalysis,
+)
+from .mixture import AnalyticMixture, DifferentiableMixture, Mixture
 from .univariate import Categorical, Poisson
 from .von_mises import VonMises
 

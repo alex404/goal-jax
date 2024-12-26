@@ -165,7 +165,7 @@ def main():
         true_mu=10.0,
         true_nu=0.5,
         n_samples=100,
-        n_steps=1000,
+        n_steps=200,
         learning_rate=0.1,
     )
 

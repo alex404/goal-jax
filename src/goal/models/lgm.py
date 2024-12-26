@@ -53,7 +53,7 @@ from ..geometry import (
     Scale,
     expand_dual,
 )
-from .normal import (
+from .gaussian.normal import (
     Covariance,
     Euclidean,
     FullNormal,
