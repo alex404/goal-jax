@@ -330,3 +330,59 @@ class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
     ) -> Point[C, LocationShape[Location, Shape]]:
         first, second = self.sup_man.split_params(p)
         return self.sup_man.join_params(first + q, second)
+
+
+@dataclass(frozen=True)
+class Replicated[M: ExponentialFamily](ExponentialFamily):
+    man: M
+    n_repeats: int
+
+    @property
+    def dim(self) -> int:
+        return self.man.dim * self.n_repeats
+
+    @property
+    def data_dim(self) -> int:
+        return self.man.data_dim * self.n_repeats
+
+    def _compute_sufficient_statistic(self, x: Array) -> Array:
+        # Use reshape instead of array_split for better performance
+        x_reshaped = x.reshape(self.n_repeats, -1)
+        # vmap the sufficient statistic computation
+        stats = jax.vmap(self.man._compute_sufficient_statistic)(x_reshaped)
+        return stats.reshape(-1)  # Flatten output
+
+    def log_base_measure(self, x: Array) -> Array:
+        x_reshaped = x.reshape(self.n_repeats, -1)
+        # vmap the base measure computation
+        return jnp.sum(jax.vmap(self.man.log_base_measure)(x_reshaped))
+
+    def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
+        # Use reshape instead of array_split
+        params_matrix = p.params.reshape(self.n_repeats, -1)
+        return [Point(row) for row in params_matrix]
+
+    def join_params[C: Coordinates](self, ps: list[Point[C, M]]) -> Point[C, Self]:
+        if len(ps) != self.n_repeats:
+            raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
+        # Stack instead of concatenate
+        return Point(jnp.stack([p.params for p in ps]).reshape(-1))
+
+
+@dataclass(frozen=True)
+class DifferentiableReplicated[M: Differentiable](Replicated[M], Differentiable):
+    def _compute_log_partition_function(self, natural_params: Array) -> Array:
+        # Reshape instead of split
+        params_matrix = natural_params.reshape(self.n_repeats, -1)
+        # vmap the partition function computation
+        return jnp.sum(
+            jax.vmap(self.man._compute_log_partition_function)(params_matrix)
+        )
+
+
+@dataclass(frozen=True)
+class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic):
+    def _compute_negative_entropy(self, mean_params: Array) -> Array:
+        params_matrix = mean_params.reshape(self.n_repeats, -1)
+        # vmap the entropy computation
+        return jnp.sum(jax.vmap(self.man._compute_negative_entropy)(params_matrix))
