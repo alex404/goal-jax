@@ -370,7 +370,30 @@ class Replicated[M: ExponentialFamily](ExponentialFamily):
 
 
 @dataclass(frozen=True)
-class DifferentiableReplicated[M: Differentiable](Replicated[M], Differentiable):
+class GenerativeReplicated[M: Generative](Replicated[M], Generative):
+    """Replicated manifold for generative exponential families."""
+
+    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
+        params_matrix = p.params.reshape(self.n_repeats, -1)
+
+        def sample_replicate(key: Array, params: Array) -> Array:
+            return self.man.sample(key, Point(params), 1)
+
+        def sample_once(key: Array) -> Array:
+            rep_keys = jax.random.split(key, self.n_repeats)
+            samples = jax.vmap(sample_replicate, in_axes=(0, 0))(
+                rep_keys, params_matrix
+            )
+            return samples.reshape(-1)
+
+        sam_keys = jax.random.split(key, n)
+        return jax.vmap(sample_once, in_axes=0)(sam_keys)
+
+
+@dataclass(frozen=True)
+class DifferentiableReplicated[M: Differentiable](
+    GenerativeReplicated[M], Differentiable
+):
     def _compute_log_partition_function(self, natural_params: Array) -> Array:
         # Reshape instead of split
         params_matrix = natural_params.reshape(self.n_repeats, -1)
