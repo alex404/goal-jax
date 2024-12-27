@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeVar
 
-from ..geometry import (
+from ...geometry import (
     AnalyticHierarchical,
     ComposedSubspace,
     DifferentiableHierarchical,
@@ -15,7 +15,7 @@ from ..geometry import (
     Rectangular,
     TripleSubspace,
 )
-from .gaussian.normal import Euclidean, FullNormal, Normal, NormalSubspace
+from ..base.gaussian.normal import Euclidean, FullNormal, Normal, NormalSubspace
 from .lgm import LinearGaussianModel
 from .mixture import AnalyticMixture, DifferentiableMixture
 
@@ -43,7 +43,6 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
         obs_dim: Dimension of observable space
         lat_dim: Dimension of latent Gaussian components
         n_components: Number of mixture components
-        n_subcomponents: Number of submixture components
     """
 
     # Lower harmonium between X and Y

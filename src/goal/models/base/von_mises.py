@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import i0e  # type: ignore
 
-from ..geometry import Differentiable, Natural, Point
+from ...geometry import Differentiable, Natural, Point
 
 
 @dataclass(frozen=True)

@@ -28,8 +28,8 @@ Example:
    >>> point = model.random_point()  # Sample a random point on manifold
 """
 
-from .com_poisson import CoMPoisson, CoMShape
-from .gaussian.normal import (
+from .base.categorical import Categorical
+from .base.gaussian.normal import (
     Covariance,
     DiagonalCovariance,
     DiagonalNormal,
@@ -41,16 +41,16 @@ from .gaussian.normal import (
     Normal,
     NormalSubspace,
 )
-from .hmog import AnalyticHMoG, DifferentiableHMoG
-from .lgm import (
+from .base.poisson import CoMPoisson, CoMShape, Poisson
+from .base.von_mises import VonMises
+from .graphical.hmog import AnalyticHMoG, DifferentiableHMoG
+from .graphical.lgm import (
     FactorAnalysis,
     LinearGaussianModel,
     LinearModel,
     PrincipalComponentAnalysis,
 )
-from .mixture import AnalyticMixture, DifferentiableMixture, Mixture
-from .univariate import Categorical, Poisson
-from .von_mises import VonMises
+from .graphical.mixture import AnalyticMixture, DifferentiableMixture, Mixture
 
 __all__ = [
     "LinearGaussianModel",

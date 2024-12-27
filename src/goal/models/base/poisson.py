@@ -5,22 +5,24 @@ that can model both over- and under-dispersed count data. Its probability mass f
 $$p(x; \\mu, \nu) = \\frac{\\mu^x}{(x!)^\\nu Z(\\mu, \\nu)}$$
 
 where:
+
 - $\\mu > 0$ is related to the mode of the distribution
 - $\\nu > 0$ is the dispersion parameter (pseudo-precision)
 - $Z(\\mu, \\nu)$ is the normalizing constant defined as:
 
-$$Z(\\mu, \\nu) = \\sum_{j=0}^{\\infty} \frac{\\mu^j}{(j!)^\\nu}$$
+$$Z(\\mu, \\nu) = \\sum_{j=0}^{\\infty} \\frac{\\mu^j}{(j!)^\\nu}$$
 
 As an exponential family, it can be written with:
-- Natural parameters: $\theta_1 = \\nu\\log(\\mu)$, $\theta_2 = -\\nu$
+
+- Natural parameters: $\\theta_1 = \\nu\\log(\\mu)$, $\\theta_2 = -\\nu$
 - Base measure: $\\mu(x) = 0$
 - Sufficient statistics: $s(x) = (x, \\log(x!))$
 
 Natural to mode-shape:
-$$(\\theta_1, \\theta_2) \\mapsto (\\exp(-\\theta_1/\\theta_2), -\\theta_2)$$
+$(\\theta_1, \\theta_2) \\mapsto (\\exp(-\\theta_1/\\theta_2), -\\theta_2)$
 
 Mode-shape to natural:
-$$(\\mu, \\nu) \\mapsto (\\nu\\log(\\mu), -\\nu)$$
+$(\\mu, \\nu) \\mapsto (\\nu\\log(\\mu), -\\nu)$
 
 Key numerical considerations:
 
@@ -38,8 +40,63 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..geometry import Differentiable, ExponentialFamily, LocationShape, Natural, Point
-from .univariate import Poisson
+from ...geometry import (
+    Analytic,
+    Differentiable,
+    ExponentialFamily,
+    LocationShape,
+    Natural,
+    Point,
+)
+
+
+@dataclass(frozen=True)
+class Poisson(Analytic):
+    """
+    The Poisson distribution over counts.
+
+    The Poisson distribution is defined by a single rate parameter $\\eta > 0$. The probability mass function at count $k \\in \\mathbb{N}$ is given by
+
+    $$p(k; \\eta) = \\frac{\\eta^k e^{-\\eta}}{k!}.$$
+
+    Properties:
+
+    - Base measure $\\mu(k) = -\\log(k!)$
+    - Sufficient statistic $s(x) = x$
+    - Log-partition function: $\\psi(\\theta) = e^{\\theta}$
+    - Negative entropy: $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$
+    """
+
+    @property
+    def dim(self) -> int:
+        """Single rate parameter."""
+        return 1
+
+    @property
+    def data_dim(self) -> int:
+        return 1
+
+    def _compute_sufficient_statistic(self, x: Array) -> Array:
+        return jnp.atleast_1d(x)
+
+    def log_base_measure(self, x: Array) -> Array:
+        k = jnp.asarray(x, dtype=jnp.float32)
+        return -jax.lax.lgamma(k + 1)
+
+    def _compute_log_partition_function(self, natural_params: Array) -> Array:
+        return jnp.squeeze(jnp.exp(jnp.asarray(natural_params)))
+
+    def _compute_negative_entropy(self, mean_params: Array) -> Array:
+        rate = jnp.asarray(mean_params)
+        return jnp.squeeze(rate * (jnp.log(rate) - 1))
+
+    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
+        mean_point = self.to_mean(p)
+        rate = mean_point.params
+
+        key = jnp.asarray(key)
+        # JAX's Poisson sampler expects rate parameter
+        return jax.random.poisson(key, rate, shape=(n,))[..., None]
 
 
 @dataclass(frozen=True)
@@ -80,11 +137,9 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
     Args:
         window_size: Fixed number of terms to evaluate in series expansions (default: 200)
-        max_proposals: Maximum number of proposals for rejection sampling (default: 10)
     """
 
     window_size: int = 200
-    max_proposals: int = 10
 
     def __init__(self, window_size: int = 200):
         super().__init__(Poisson(), CoMShape())
@@ -118,8 +173,8 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
         is given by:
 
-        $$\\theta_1 = \\nu\\log(\\mu)$$
-        $$\\theta_2 = -\\nu$$
+        - $\\theta_1 = \\nu\\log(\\mu)$
+        - $\\theta_2 = -\\nu$
 
         Args:
             mu: Mode parameter $\\mu > 0$

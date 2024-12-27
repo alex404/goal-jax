@@ -467,5 +467,5 @@ class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily]
         params_matrix = p.params.reshape(self.sup_man.n_repeats, -1)
         loc_dim = self.sub_man.man.dim
         q_matrix = q.params.reshape(self.sub_man.n_repeats, -1)
-        params_matrix = params_matrix.at[:, :loc_dim].set(q_matrix)
+        params_matrix = params_matrix.at[:, :loc_dim].add(q_matrix)
         return Point(params_matrix.reshape(-1))

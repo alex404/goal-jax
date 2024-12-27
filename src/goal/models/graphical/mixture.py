@@ -23,7 +23,7 @@ from typing import Self
 import jax.numpy as jnp
 from jax import Array
 
-from ..geometry import (
+from ...geometry import (
     AffineMap,
     Analytic,
     AnalyticConjugated,
@@ -39,7 +39,7 @@ from ..geometry import (
     Rectangular,
     Subspace,
 )
-from .univariate import (
+from ..base.categorical import (
     Categorical,
 )
 

@@ -1,12 +1,16 @@
 from .exponential_family import (
     Analytic,
+    AnalyticReplicated,
     Differentiable,
+    DifferentiableReplicated,
     ExponentialFamily,
     Generative,
+    GenerativeReplicated,
     LocationShape,
     LocationSubspace,
     Mean,
     Natural,
+    Replicated,
 )
 from .harmonium import (
     AnalyticConjugated,
@@ -28,7 +32,6 @@ from .manifold import (
     Manifold,
     Pair,
     Point,
-    Replicated,
     Triple,
     expand_dual,
     reduce_dual,
@@ -59,7 +62,6 @@ __all__ = [
     "Dual",
     "Pair",
     "Triple",
-    "Replicated",
     "Point",
     "expand_dual",
     "reduce_dual",
@@ -94,6 +96,10 @@ __all__ = [
     "Differentiable",
     "Analytic",
     "Generative",
+    "Replicated",
+    "GenerativeReplicated",
+    "DifferentiableReplicated",
+    "AnalyticReplicated",
     # Harmoniums
     "Harmonium",
     "AnalyticLatent",

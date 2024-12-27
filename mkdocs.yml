@@ -19,10 +19,16 @@ nav:
       - Harmoniums: geometry/harmonium.md
       - Hierarchical Harmoniums: geometry/hierarchical.md
     - Models: 
-      - Univariate: models/univariate.md
-      - Normal: models/normal.md
-      - Mixture: models/mixture.md
-      - Linear Gaussian Model: models/lgm.md
+      - Base:
+        - Categorical: models/base/categorical.md
+        - Poisson: models/base/poisson.md
+        - Generalized Gaussians: models/base/gaussian/generalized.md
+        - Normal: models/base/gaussian/normal.md
+        - Boltzmann: models/base/gaussian/boltzmann.md
+      - Graphical:
+        - Mixture: models/graphical/mixture.md
+        - Linear Gaussian Model: models/graphical/lgm.md
+        - Hierarchical Mixture of Gaussians: models/graphical/hmog.md
 
 plugins:
   - search

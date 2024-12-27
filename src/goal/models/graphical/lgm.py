@@ -36,7 +36,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..geometry import (
+from ...geometry import (
     AffineMap,
     AnalyticConjugated,
     Coordinates,
@@ -53,7 +53,7 @@ from ..geometry import (
     Scale,
     expand_dual,
 )
-from .gaussian.normal import (
+from ..base.gaussian.normal import (
     Covariance,
     Euclidean,
     FullNormal,

@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..geometry import (
+from ....geometry import (
     ExponentialFamily,
     Natural,
     Point,

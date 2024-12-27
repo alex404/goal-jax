@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..geometry import Analytic, Mean, Natural, Point
+from ...geometry import Analytic, Mean, Natural, Point
 
 
 @dataclass(frozen=True)
@@ -85,52 +85,3 @@ class Categorical(Analytic):
         probs = p.params
         prob0 = 1 - jnp.sum(probs)
         return jnp.concatenate([jnp.array([prob0]), probs])
-
-
-@dataclass(frozen=True)
-class Poisson(Analytic):
-    """
-    The Poisson distribution over counts.
-
-    The Poisson distribution is defined by a single rate parameter $\\eta > 0$. The probability mass function at count $k \\in \\mathbb{N}$ is given by
-
-    $$p(k; \\eta) = \\frac{\\eta^k e^{-\\eta}}{k!}.$$
-
-    Properties:
-
-    - Base measure $\\mu(k) = -\\log(k!)$
-    - Sufficient statistic $s(x) = x$
-    - Log-partition function: $\\psi(\\theta) = e^{\\theta}$
-    - Negative entropy: $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$
-    """
-
-    @property
-    def dim(self) -> int:
-        """Single rate parameter."""
-        return 1
-
-    @property
-    def data_dim(self) -> int:
-        return 1
-
-    def _compute_sufficient_statistic(self, x: Array) -> Array:
-        return jnp.atleast_1d(x)
-
-    def log_base_measure(self, x: Array) -> Array:
-        k = jnp.asarray(x, dtype=jnp.float32)
-        return -jax.lax.lgamma(k + 1)
-
-    def _compute_log_partition_function(self, natural_params: Array) -> Array:
-        return jnp.squeeze(jnp.exp(jnp.asarray(natural_params)))
-
-    def _compute_negative_entropy(self, mean_params: Array) -> Array:
-        rate = jnp.asarray(mean_params)
-        return jnp.squeeze(rate * (jnp.log(rate) - 1))
-
-    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
-        mean_point = self.to_mean(p)
-        rate = mean_point.params
-
-        key = jnp.asarray(key)
-        # JAX's Poisson sampler expects rate parameter
-        return jax.random.poisson(key, rate, shape=(n,))[..., None]
