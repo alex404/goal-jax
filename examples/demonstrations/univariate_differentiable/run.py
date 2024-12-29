@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Natural, Optimizer, OptState, Point, reduce_dual
+from goal.geometry import Mean, Natural, Optimizer, OptState, Point, reduce_dual
 from goal.models import CoMPoisson, VonMises
 
 from ...shared import initialize_jax, initialize_paths, save_results
@@ -30,7 +30,7 @@ def fit_von_mises(
     init_params = von_man.join_mean_concentration(0.0, 1.0)
 
     # Setup optimizer
-    optimizer: Optimizer[VonMises] = Optimizer.adam(learning_rate=learning_rate)
+    optimizer: Optimizer[Mean, VonMises] = Optimizer.adam(learning_rate=learning_rate)
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, VonMises]) -> Array:
@@ -100,7 +100,7 @@ def fit_com_poisson(
     init_params = com_man.join_mode_dispersion(1.0, 1.0)  # Start at Poisson(1)
 
     # Setup optimizer
-    optimizer: Optimizer[CoMPoisson] = Optimizer.adam(learning_rate=learning_rate)
+    optimizer: Optimizer[Mean, CoMPoisson] = Optimizer.adam(learning_rate=learning_rate)
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, CoMPoisson]) -> Array:

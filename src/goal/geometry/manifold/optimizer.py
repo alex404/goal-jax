@@ -12,14 +12,14 @@ from optax import (  # type: ignore
     sgd,  # type: ignore
 )
 
-from ..geometry import Manifold, Mean, Natural, Point
+from .manifold import Coordinates, Dual, Manifold, Point
 
 # Create an opaque type for optimizer state
 OptState = NewType("OptState", object)
 
 
 @dataclass(frozen=True)
-class Optimizer[M: Manifold]:
+class Optimizer[C: Coordinates, M: Manifold]:
     """Handles parameter updates using gradients in dual coordinates."""
 
     optimizer: GradientTransformation
@@ -30,7 +30,7 @@ class Optimizer[M: Manifold]:
         learning_rate: float = 0.1,
         b1: float = 0.9,
         b2: float = 0.999,
-    ) -> Optimizer[M]:
+    ) -> Optimizer[C, M]:
         return cls(adam(learning_rate, b1=b1, b2=b2))
 
     @classmethod
@@ -38,18 +38,18 @@ class Optimizer[M: Manifold]:
         cls,
         learning_rate: float = 0.1,
         momentum: float = 0.0,
-    ) -> Optimizer[M]:
+    ) -> Optimizer[C, M]:
         return cls(sgd(learning_rate, momentum=momentum))
 
-    def init(self, point: Point[Natural, M]) -> OptState:
+    def init(self, point: Point[Dual[C], M]) -> OptState:
         return OptState(self.optimizer.init(point.params))  # type: ignore
 
     def update(
         self,
         opt_state: OptState,
-        grads: Point[Mean, M],
-        point: Point[Natural, M],
-    ) -> tuple[OptState, Point[Natural, M]]:
+        grads: Point[C, M],
+        point: Point[Dual[C], M],
+    ) -> tuple[OptState, Point[Dual[C], M]]:
         updates, new_opt_state = self.optimizer.update(  # type: ignore
             grads.params,
             opt_state,  # type: ignore

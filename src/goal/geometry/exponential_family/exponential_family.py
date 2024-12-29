@@ -47,8 +47,8 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from .manifold import Coordinates, Dual, Manifold, Pair, Point, reduce_dual
-from .subspace import Subspace
+from ..manifold.manifold import Coordinates, Dual, Manifold, Pair, Point, reduce_dual
+from ..manifold.subspace import Subspace
 
 ### Coordinate Systems ###
 

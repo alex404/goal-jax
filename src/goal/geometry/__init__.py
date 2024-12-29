@@ -1,4 +1,4 @@
-from .exponential_family import (
+from .exponential_family.exponential_family import (
     Analytic,
     AnalyticReplicated,
     Differentiable,
@@ -13,7 +13,7 @@ from .exponential_family import (
     Replicated,
     ReplicatedLocationSubspace,
 )
-from .harmonium import (
+from .exponential_family.harmonium import (
     AnalyticConjugated,
     AnalyticLatent,
     Conjugated,
@@ -21,13 +21,16 @@ from .harmonium import (
     GenerativeConjugated,
     Harmonium,
 )
-from .hierarchical import AnalyticHierarchical, DifferentiableHierarchical
-from .linear import (
+from .exponential_family.hierarchical import (
+    AnalyticHierarchical,
+    DifferentiableHierarchical,
+)
+from .manifold.linear import (
     AffineMap,
     LinearMap,
     SquareMap,
 )
-from .manifold import (
+from .manifold.manifold import (
     Coordinates,
     Dual,
     Manifold,
@@ -37,8 +40,7 @@ from .manifold import (
     expand_dual,
     reduce_dual,
 )
-from .optimizer import Optimizer, OptState
-from .rep.matrix import (
+from .manifold.matrix import (
     Diagonal,
     Identity,
     MatrixRep,
@@ -48,7 +50,8 @@ from .rep.matrix import (
     Square,
     Symmetric,
 )
-from .subspace import (
+from .manifold.optimizer import Optimizer, OptState
+from .manifold.subspace import (
     ComposedSubspace,
     IdentitySubspace,
     PairSubspace,

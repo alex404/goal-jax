@@ -35,6 +35,10 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..manifold.linear import AffineMap, LinearMap
+from ..manifold.manifold import Point, Triple, expand_dual
+from ..manifold.matrix import MatrixRep
+from ..manifold.subspace import Subspace
 from .exponential_family import (
     Analytic,
     Differentiable,
@@ -43,10 +47,6 @@ from .exponential_family import (
     Mean,
     Natural,
 )
-from .linear import AffineMap, LinearMap
-from .manifold import Point, Triple, expand_dual
-from .rep.matrix import MatrixRep
-from .subspace import Subspace
 
 
 @dataclass(frozen=True)

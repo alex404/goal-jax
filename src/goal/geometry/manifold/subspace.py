@@ -27,17 +27,31 @@ from .manifold import Coordinates, Manifold, Pair, Point, Triple
 ### Linear Subspaces ###
 
 Super = TypeVar("Super", bound="Manifold", contravariant=True)
-Sub = TypeVar("Sub", bound="Manifold")  # , covariant=True)
+Sub = TypeVar("Sub", bound="Manifold", covariant=True)
 
 
 @dataclass(frozen=True)
 class Subspace(Generic[Super, Sub], ABC):
-    """Defines how a super-manifold $\\mathcal M$ can be projected onto a sub-manifold $\\mathcal N$.
+    """Defines how a super-manifold $\\mathcal{M}$ can be projected onto a sub-manifold $\\mathcal{N}$.
 
-    A subspace relationship between manifolds allows us to:
+    Type Parameters:
+        Super: Super-manifold type (contravariant).
+            A subspace that can handle a more general super-manifold can handle more specific ones. This contravariance is required for composition - if $S(A,B)$ and $T(B',C)$ are subspaces, then $B$ must be a subtype of $B'$ for composition to be valid.
 
-    1. Project a point in the super manifold $\\mathcal M$ to its $\\mathcal N$-manifold components
-    2. Partially translate a point in $\\mathcal M$ by a point in $\\mathcal N$
+        Sub: Sub-manifold type (covariant).
+            A subspace producing elements of a more specific type can be used where one producing more general types is expected. Again, this is necessary for composition - if $S(A,B)$ composes with $T(B',C)$, then $B$ being more specific than $B'$ is safe.
+
+    Class Attributes:
+        sup_man: The super-manifold $\\mathcal{M}$
+        sub_man: The sub-manifold $\\mathcal{N}$
+
+    A subspace relationship supports two key operations that must preserve the geometric structure:
+
+    1. Projection $\\pi: \\mathcal{M} \\to \\mathcal{N}$ that extracts the subspace components
+    2. Translation $\\tau: \\mathcal{M} \\times \\mathcal{N} \\to \\mathcal{M}$ that shifts by subspace elements
+
+    The variance choices for Super and Sub arise naturally from the need to compose subspaces:
+    If $S: \\mathcal{A} \\to \\mathcal{B}_1$ and $T: \\mathcal{B}_2 \\to \\mathcal{C}$ are subspaces, then composition $(T \\circ S)$ is valid when $\\mathcal{B}_1 <: \\mathcal{B}_2$.
     """
 
     sup_man: Super
@@ -118,7 +132,14 @@ class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
 class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
     Subspace[Super, Sub]
 ):
-    """Composition of two subspace relationships."""
+    """Composition of two subspace relationships.
+    Given subspaces $S: \\mathcal{M} \\to \\mathcal{L}$ and $T: \\mathcal{L} \\to \\mathcal{N}$, forms their composition $(T \\circ S): \\mathcal{M} \\to \\mathcal{N}$ where:
+
+    - Projection: $\\pi_{T \\circ S}(p) = \\pi_T(\\pi_S(p))$
+    - Translation: $\\tau_{T \\circ S}(p,q) = \\tau_S(p, \\tau_T(0,q))$
+
+    The variance requirements of Subspace (contravariant Super, covariant Sub) ensure that composition is well-typed when the middle types are compatible.
+    """
 
     sup_sub: Subspace[Super, Mid]
     sub_sub: Subspace[Mid, Sub]

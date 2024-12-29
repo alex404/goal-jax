@@ -21,11 +21,11 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..manifold.linear import AffineMap
+from ..manifold.manifold import Point
+from ..manifold.matrix import MatrixRep
 from .exponential_family import ExponentialFamily, Generative, Mean, Natural
 from .harmonium import AnalyticConjugated, DifferentiableConjugated
-from .linear import AffineMap
-from .manifold import Point
-from .rep.matrix import MatrixRep
 
 
 @dataclass(frozen=True)

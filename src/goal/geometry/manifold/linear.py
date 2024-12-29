@@ -13,7 +13,7 @@ from typing import Any, Callable, Generic, Self, TypeVar
 from jax import Array
 
 from .manifold import Coordinates, Dual, Manifold, Pair, Point
-from .rep.matrix import MatrixRep, Square
+from .matrix import MatrixRep, Square
 from .subspace import Subspace
 
 ### Linear Maps ###
