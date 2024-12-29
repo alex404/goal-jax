@@ -27,6 +27,13 @@ Codomain = TypeVar("Codomain", bound="Manifold", contravariant=True)
 class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
     """Linear map between manifolds using a specific matrix representation.
 
+    Type Parameters:
+        Rep: Matrix representation type (covariant). A more specific representation can be used where a more general one is expected. For example, a SymmetricMatrix representation can be used where a RectangularMatrix is expected because SymmetricMatrix is-a RectangularMatrix.
+
+        Domain: Source manifold type (covariant). A map defined on a more general domain can accept points from a more specific domain. For example, a LinearMap[R, Shape, C] can accept points from Circle because Circle is-a Shape.
+
+        Codomain: Target manifold type (contravariant). A map producing elements of a more specific type can be used where a map producing a more general type is expected. For example, a LinearMap[R, D, Circle] can be used where a LinearMap[R, D, Shape] is expected because Circle is-a Shape.
+
     A linear map $L: V \\to W$ between vector spaces satisfies:
 
     $$L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$$

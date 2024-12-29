@@ -96,9 +96,6 @@ def fit_com_poisson(
     true_params = com_man.join_mode_dispersion(true_mu, true_nu)
     sample = com_man.sample(key, true_params, n_samples)
 
-    # Print number of samples for counts 0..20
-    for i in range(21):
-        print(f"Count {i}: {jnp.sum(sample == i)}")
     # Initialize optimization at reasonable starting point
     init_params = com_man.join_mode_dispersion(1.0, 1.0)  # Start at Poisson(1)
 

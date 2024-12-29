@@ -11,6 +11,7 @@ from .exponential_family import (
     Mean,
     Natural,
     Replicated,
+    ReplicatedLocationSubspace,
 )
 from .harmonium import (
     AnalyticConjugated,
@@ -100,6 +101,7 @@ __all__ = [
     "GenerativeReplicated",
     "DifferentiableReplicated",
     "AnalyticReplicated",
+    "ReplicatedLocationSubspace",
     # Harmoniums
     "Harmonium",
     "AnalyticLatent",

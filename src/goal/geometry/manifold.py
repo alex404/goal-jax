@@ -135,6 +135,11 @@ M = TypeVar("M", bound=Manifold, covariant=True)
 class Point(Generic[C, M]):
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
+    Type Parameters:
+        C: The coordinate system type (invariant). Coordinate systems are fixed structural elements that define how points are represented.
+
+        M: The manifold type (covariant). Points on a more specific manifold can be used wherever points on a more general manifold are expected. For example, a Point[C, Circle] can be used where a Point[C, Shape] is expected because a Circle is-a Shape.
+
     Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
 
     - Addition: $\\phi(p) + \\phi(q)$
