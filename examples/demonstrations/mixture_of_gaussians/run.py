@@ -211,7 +211,7 @@ def compute_mixture_results(
         sample=sample.tolist(),
         plot_xs=xs.tolist(),
         plot_ys=ys.tolist(),
-        scipy_densities=sklearn_dens.tolist(),
+        scipy_densities=sklearn_dens.tolist(),  # type: ignore
         ground_truth_densities=gt_dens.tolist(),
         init_positive_definite_densities=pod_dens0.tolist(),
         init_diagonal_densities=dia_dens0.tolist(),

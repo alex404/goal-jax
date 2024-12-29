@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Self
+from typing import Generic, Self, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -315,8 +315,11 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.snd_man.log_base_measure(x)
 
 
+M = TypeVar("M", bound=ExponentialFamily, covariant=True)
+
+
 @dataclass(frozen=True)
-class Replicated[M: ExponentialFamily](ExponentialFamily):
+class Replicated(Generic[M], ExponentialFamily):
     man: M
     n_repeats: int
 
