@@ -153,23 +153,23 @@ class ExponentialFamily(Manifold, ABC):
     def initialize(
         self,
         key: Array,
-        mu: float = 0.0,
-        shp: float = 0.1,
+        location: float = 0.0,
+        shape: float = 0.1,
     ) -> Point[Natural, Self]:
         """Convenience function to randomly initialize the coordinates of a point based on a mean and a shape parameter --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
-        params = jax.random.normal(key, shape=(self.dim,)) * shp + mu
-        return Point(params)
+        params = jax.random.normal(key, shape=(self.dim,)) * shape + location
+        return self.natural_point(params)
 
     def initialize_from_sample(
         self,
         key: Array,
         sample: Array,
-        mu: float = 0.0,
-        shp: float = 0.1,
+        location: float = 0.0,
+        shape: float = 0.1,
     ) -> Point[Natural, Self]:
         """Convenience function to initialize a model based on the sample. By default it ignores the sample, but most distributions can do better than this."""
         sample = sample
-        return self.initialize(key, mu, shp)
+        return self.initialize(key, location, shape)
 
 
 class Generative(ExponentialFamily, ABC):
@@ -308,17 +308,16 @@ class Analytic(Differentiable, ABC):
         self,
         key: Array,
         sample: Array,
-        mu: float = 0.0,
-        shp: float = 0.1,
+        location: float = 0.0,
+        shape: float = 0.1,
     ) -> Point[Natural, Self]:
         """Initialize a model based on the noisy average sufficient statistics."""
         avg_suff_stat = self.average_sufficient_statistic(sample)
         # add gaussian noise
-        noise = jax.random.normal(key, shape=(self.dim,)) * shp + mu
+        noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
         avg_suff_stat = avg_suff_stat + Point(noise)
         params = self.to_natural(avg_suff_stat)
-        self.check_natural_parameters(params)
-        return params
+        return self.natural_point(params.params)
 
 
 class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
@@ -346,12 +345,12 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.join_params(Point(loc_stats), Point(shape_stats)).params
 
     def initialize(
-        self, key: Array, mu: float = 0.0, shp: float = 0.1
+        self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Point[Natural, Self]:
         """Initialize location and shape parameters."""
         key_loc, key_shp = jax.random.split(key)
-        fst_loc = self.fst_man.initialize(key_loc, mu, shp)
-        shp_loc = self.snd_man.initialize(key_shp, mu, shp)
+        fst_loc = self.fst_man.initialize(key_loc, location, shape)
+        shp_loc = self.snd_man.initialize(key_shp, location, shape)
         return self.join_params(fst_loc, shp_loc)
 
     def log_base_measure(self, x: Array) -> Array:

@@ -125,17 +125,38 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
         """Base measure matches location component."""
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
-    def initialize(
-        self, key: Array, mu: float = 0.0, shp: float = 0.1
-    ) -> Point[Natural, Self]:
-        """Initialize covariance matrix with random diagonal structure.
+    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
+        """Check if natural parameters (precision matrix) are valid.
 
-        Uses exp(N(mu, shp)) to generate positive diagonal elements.
+        For covariance/precision matrices, we check:
+        1. All parameters are finite
+        2. Precision matrix is numerically positive definite
         """
-        base_cov = jnp.eye(self.data_dim)
-        noise = shp * jax.random.normal(key, shape=base_cov.shape)
-        cov = base_cov + noise @ noise.T  # Ensure positive definite
-        return self.from_dense(cov)
+        finite = super().check_natural_parameters(params)
+        is_pd = self.is_positive_definite(params)
+        return finite & is_pd
+
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize covariance matrix with random perturbation from identity.
+
+        Uses a low-rank perturbation I + LL^T where L has entries N(0, shape/sqrt(dim))
+        to ensure reasonable condition numbers. The representation (Scale, Diagonal,
+        PositiveDefinite) determines how this matrix is stored and used.
+
+        Args:
+            key: Random key
+            location: Base location (not currently used)
+            shape: Scale of perturbation from identity
+
+        Returns:
+            Point in natural coordinates
+        """
+        noise_scale = shape / jnp.sqrt(self.data_dim)
+        big_l = noise_scale * jax.random.normal(key, (self.data_dim, self.data_dim))
+        base_cov = jnp.eye(self.data_dim) + big_l @ big_l.T
+        return self.from_dense(base_cov)
 
     def add_jitter(
         self, params: Point[Natural, Self], epsilon: float
@@ -390,12 +411,66 @@ class Normal[Rep: PositiveDefinite](
         return self.join_params(loc, Point(theta2))
 
     def initialize(
-        self, key: Array, mu: float = 0.0, shp: float = 0.1
+        self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Point[Natural, Self]:
         """Initialize means with normal and covariance matrix with random diagonal structure."""
-        mean = self.loc_man.initialize(key, mu, shp)
-        cov = self.cov_man.initialize(key, mu=mu, shp=shp)
+        mean = self.loc_man.initialize(key, location, shape)
+        cov = self.cov_man.initialize(key, location=location, shape=shape)
         return self.join_location_precision(mean, cov)
+
+    def initialize_from_sample(
+        self,
+        key: Array,
+        sample: Array,
+        location: float = 0.0,  # renamed from location
+        shape: float = 0.1,  # renamed from shape
+    ) -> Point[Natural, Self]:
+        """Initialize Normal parameters from sample data.
+
+        Computes mean and second moments from sample data, then adds regularizing
+        noise to avoid degenerate cases. The noise is scaled relative to the
+        observed variance to maintain reasonable parameter ranges.
+
+        Args:
+            key: Random key
+            sample: Sample data to initialize from
+            location_noise: Scale for additive noise to mean (relative to observed std dev)
+            scale_noise: Scale for multiplicative noise to covariance
+
+        Returns:
+            Point in natural coordinates
+        """
+        # Get average sufficient statistics (mean and second moment)
+        avg_stats = self.average_sufficient_statistic(sample)
+        mean, second_moment = self.split_mean_second_moment(avg_stats)
+
+        # Add noise to mean based on observed scale
+        key_mean, key_cov = jax.random.split(key)
+        observed_scale = jnp.sqrt(jnp.diag(self.cov_man.to_dense(second_moment)))
+        mean_noise = observed_scale * (
+            location + shape * jax.random.normal(key_mean, mean.params.shape)
+        )
+        mean: Point[Mean, Euclidean] = Point(mean.params + mean_noise)
+
+        # Add multiplicative noise to second moment
+        noise = shape * jax.random.normal(key_cov, (self.data_dim, self.data_dim))
+        noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
+        noise_matrix: Point[Mean, Covariance[Rep]] = self.cov_man.from_dense(noise)
+        second_moment: Point[Mean, Covariance[Rep]] = Point(
+            second_moment.params * noise_matrix.params
+        )
+
+        # Join parameters and convert to natural coordinates
+        mean_params = self.join_mean_second_moment(mean, second_moment)
+        return self.to_natural(mean_params)
+
+    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
+        """Check if natural parameters are valid.
+
+        Delegates to Covariance check after extracting precision component.
+        """
+        _, precision = self.split_location_precision(params)
+        return self.cov_man.check_natural_parameters(precision)
 
     def embed_rep[TargetRep: PositiveDefinite](
         self, target_man: Normal[TargetRep], p: Point[Natural, Self]

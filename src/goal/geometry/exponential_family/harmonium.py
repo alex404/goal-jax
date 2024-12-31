@@ -196,15 +196,72 @@ class Harmonium[
         return self.pst_man(self.posterior_function(p), mx)
 
     def initialize(
-        self,
-        key: Array,
-        mu: float = 0.0,
-        shp: float = 0.1,
+        self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Point[Natural, Self]:
+        """Initialize harmonium parameters.
+
+        Observable and latent biases are initialized using their respective
+        initialization strategies. The interaction matrix is initialized with
+        random entries scaled by 1/sqrt(dim) to maintain reasonable magnitudes
+        for the interactions.
+
+        Args:
+            key: Random key
+            location: Location parameter for bias initialization
+            shape: Shape parameter for random perturbations
+        """
         keys = jax.random.split(key, 3)
-        obs_params = self.obs_man.initialize(keys[0], mu, shp)
-        lat_params = self.lat_man.initialize(keys[1], mu, shp)
-        int_params = self.int_man.initialize(keys[2], mu, shp)
+
+        # Initialize biases using component initialization
+        obs_params = self.obs_man.initialize(keys[0], location, shape)
+        lat_params = self.lat_man.initialize(keys[1], location, shape)
+
+        # Initialize interaction matrix with appropriate scaling
+        obs_dim = self.obs_sub.sub_man.dim
+        lat_dim = self.lat_sub.sub_man.dim
+        scaling = shape / jnp.sqrt(obs_dim * lat_dim)
+
+        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
+        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = Point(
+            self.int_man.rep.from_dense(noise)
+        )
+
+        return self.join_params(obs_params, int_params, lat_params)
+
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize harmonium using sample data for observable biases.
+
+        Uses sample data to initialize observable biases, while latent biases
+        and interaction matrix use standard initialization.
+
+        Args:
+            key: Random key
+            sample: Sample data for observable initialization
+            location: Location parameter for random initialization
+            shape: Shape parameter for random initialization
+        """
+        keys = jax.random.split(key, 3)
+
+        # Initialize observable biases from data
+        obs_params = self.obs_man.initialize_from_sample(
+            keys[0], sample, location, shape
+        )
+
+        # Use standard initialization for everything else
+        lat_params = self.lat_man.initialize(keys[1], location, shape)
+
+        # Initialize interaction matrix with appropriate scaling
+        obs_dim = self.obs_sub.sub_man.dim
+        lat_dim = self.lat_sub.sub_man.dim
+        scaling = shape / jnp.sqrt(obs_dim * lat_dim)
+
+        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
+        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = Point(
+            self.int_man.rep.from_dense(noise)
+        )
+
         return self.join_params(obs_params, int_params, lat_params)
 
 

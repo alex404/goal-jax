@@ -32,7 +32,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Self
 
-import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -321,19 +320,6 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
     def __init__(self, obs_dim: int, lat_dim: int):
         super().__init__(obs_dim, Diagonal, lat_dim)
 
-    def initialize(
-        self,
-        key: Array,
-        mu: float = 0.0,
-        shp: float = 0.1,
-    ) -> Point[Natural, Self]:
-        keys = jax.random.split(key, 2)
-        obs_bias = self.obs_man.initialize(keys[0], mu, shp)
-        int_mat = self.int_man.initialize(keys[1], mu, shp)
-        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
-        prr_params = self.lat_man.to_natural(self.lat_man.standard_normal())
-        return self.join_conjugated(lkl_params, prr_params)
-
     def expectation_maximization(
         self, p: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:
@@ -352,19 +338,6 @@ class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
 
     def __init__(self, obs_dim: int, lat_dim: int):
         super().__init__(obs_dim, Scale, lat_dim)
-
-    def initialize(
-        self,
-        key: Array,
-        mu: float = 0.0,
-        shp: float = 0.1,
-    ) -> Point[Natural, Self]:
-        keys = jax.random.split(key, 2)
-        obs_bias = self.obs_man.initialize(keys[0], mu, shp)
-        int_mat = self.int_man.initialize(keys[2], mu, shp)
-        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
-        prr_params = self.lat_man.to_natural(self.lat_man.standard_normal())
-        return self.join_conjugated(lkl_params, prr_params)
 
     def expectation_maximization(
         self, p: Point[Natural, Self], xs: Array

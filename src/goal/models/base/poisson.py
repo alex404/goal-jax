@@ -167,7 +167,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         mu = jnp.exp(-theta1 / theta2)
         return mu, nu
 
-    def join_mode_dispersion(self, mu: float, nu: float) -> Point[Natural, Self]:
+    def join_mode_dispersion(self, mu: Array, nu: Array) -> Point[Natural, Self]:
         """Convert from mode-shape parameters to natural parameters.
 
         The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
@@ -306,7 +306,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         approx_var = mu / nu
         return approx_mean, approx_var
 
-    def check_natural_parameters(self, params: Array) -> Array:
+    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
         """Check if natural parameters are valid for COM-Poisson.
 
         For parameters $(\\theta_1, \\theta_2)$, the following conditions must hold:
@@ -316,7 +316,47 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         theta2_valid = params[1] < 0
         return finite & theta2_valid
 
-    # Shape/data initialization based on approximate mean and variance
+    def initialize(
+        self,
+        key: Array,
+        location: float = 0.0,
+        shape: float = 0.1,
+    ) -> Point[Natural, Self]:
+        """Initialize COM-Poisson parameters."""
+        key_mu, key_nu = jax.random.split(key)
+
+        mu_init = 1.0 + jax.random.normal(key_mu) * shape + location
+
+        nu_init = 1.0 + jnp.abs(jax.random.normal(key_nu) * shape)
+
+        return self.join_mode_dispersion(mu_init, nu_init)
+
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize COM-Poisson parameters from sample.
+
+        Estimates mode and shape parameters using method of moments based on sample mean and variance, with added noise for regularization.
+        """
+        # Compute sample statistics
+        mean = jnp.mean(sample)
+        var = jnp.var(sample)
+
+        # Add noise for regularization
+        noise = jax.random.normal(key, shape=(2,)) * shape + location
+        mean = mean + noise[0]
+        var = var + noise[1]
+
+        a = var
+        b = -(mean + 0.5)
+        c = 0.5
+
+        nu = (-b + jnp.sqrt(b**2 - 4 * a * c)) / (2 * a)
+
+        mu = var * nu
+
+        # Convert to natural parameters
+        return self.join_mode_dispersion(mu, nu)
 
 
 def _log_factorial(n: Array) -> Array:
