@@ -151,6 +151,10 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
         """Log determinant (requires square matrix)."""
         return self.rep.logdet(self.shape, f.params)
 
+    def is_positive_definite[C: Coordinates](self, p: Point[C, Self]) -> Array:
+        """Check if matrix is positive definite."""
+        return self.rep.is_positive_definite(self.shape, p.params)
+
 
 ### Affine Maps ###
 

@@ -235,6 +235,13 @@ class Square(Rectangular):
     """
 
     @classmethod
+    def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Check if symmetric matrix is positive definite using eigenvalues."""
+        matrix = cls.to_dense(shape, params)
+        eigenvals = jnp.linalg.eigvalsh(matrix)  # type: ignore
+        return jnp.all(eigenvals > 0)
+
+    @classmethod
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_dense(shape, params)
         inv = jnp.linalg.inv(matrix)  # type: ignore
@@ -297,13 +304,16 @@ class PositiveDefinite(Symmetric):
     """
 
     @classmethod
-    def is_positive_definite(cls, matrix: Array) -> Array:
-        """Check if matrix is positive definite by verifying eigenvalues.
+    def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Check positive definiteness via Cholesky decomposition.
 
-        Returns True if all eigenvalues are strictly positive.
+        Uses Cholesky attempt as a numerically stable way to check positive
+        definiteness. More efficient than computing eigenvalues.
         """
-        eigenvals = jnp.linalg.eigvalsh(matrix)  # type: ignore
-        return jnp.all(eigenvals > 0)
+        matrix = cls.to_dense(shape, params)
+        # Use linalg_ops.cholesky which returns NaN on failure
+        chol = jax.lax.linalg.cholesky(matrix)
+        return jnp.all(jnp.isfinite(chol))
 
     @classmethod
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
@@ -344,6 +354,11 @@ class Diagonal(PositiveDefinite):
         - Most operations reduce to element-wise operations on diagonal
         - $O(n)$ storage and operations
     """
+
+    @classmethod
+    def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Check if all diagonal elements are positive."""
+        return jnp.all(params > 0)
 
     @classmethod
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
@@ -407,6 +422,11 @@ class Scale(Diagonal):
     """
 
     @classmethod
+    def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Check if scale factor is positive."""
+        return params[0] > 0
+
+    @classmethod
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return params[0] * vector
 
@@ -452,6 +472,11 @@ class Identity(Scale):
     @classmethod
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return vector
+
+    @classmethod
+    def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Identity is always positive definite."""
+        return jnp.array(True)
 
     @classmethod
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
