@@ -116,7 +116,7 @@ def fit_model[R: PositiveDefinite](
     Point[Natural, AnalyticMixture[Normal[R]]],
     Point[Natural, AnalyticMixture[Normal[R]]],
 ]:
-    init_params = mix_man.shape_initialize(key)
+    init_params = mix_man.initialize(key)
 
     def em_step(
         params: Point[Natural, AnalyticMixture[Normal[R]]], _: Any

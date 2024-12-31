@@ -123,8 +123,6 @@ class CoMShape(ExponentialFamily):
     def log_base_measure(self, x: Array) -> Array:
         return jnp.array(0.0)
 
-    # Shape/data initialization based on approximate mean and variance
-
 
 @dataclass(frozen=True)
 class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
@@ -287,6 +285,38 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         keys = jax.random.split(key, n)
         samples = jax.vmap(sample_one)(keys)
         return samples[..., None]
+
+    def approximate_mean_variance(
+        self, natural_params: Point[Natural, Self]
+    ) -> tuple[Array, Array]:
+        """Compute approximate mean and variance of COM-Poisson distribution.
+
+        Given mode $\\mu$ and shape $\\nu$ parameters, the approximations are:
+        $E(X) \\approx \\mu + 1/(2\\nu) - 1/2$
+        Var(X) ≈ $\\mu$/$\\nu$
+
+        Args:
+            natural_params: Natural parameters $(\\theta_1$, \\theta_2)$
+
+        Returns:
+            Tuple of (approximate mean, approximate variance)
+        """
+        mu, nu = self.split_mode_dispersion(natural_params)
+        approx_mean = mu + 1 / (2 * nu) - 0.5
+        approx_var = mu / nu
+        return approx_mean, approx_var
+
+    def check_natural_parameters(self, params: Array) -> Array:
+        """Check if natural parameters are valid for COM-Poisson.
+
+        For parameters $(\\theta_1, \\theta_2)$, the following conditions must hold:
+        - $\\theta_1$ is finite, $\\theta_2 < 0$
+        """
+        finite = super().check_natural_parameters(params)
+        theta2_valid = params[1] < 0
+        return finite & theta2_valid
+
+    # Shape/data initialization based on approximate mean and variance
 
 
 def _log_factorial(n: Array) -> Array:

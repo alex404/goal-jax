@@ -67,7 +67,7 @@ def fit_model[Model: LinearGaussianModel[Any]](
     sample: Array,
 ) -> tuple[Array, Point[Natural, Model], Point[Natural, Model]]:
     """Fit model using EM algorithm."""
-    params0 = model.shape_initialize(key)
+    params0 = model.initialize(key)
 
     def em_step(
         carry: Point[Natural, Model], _: Any

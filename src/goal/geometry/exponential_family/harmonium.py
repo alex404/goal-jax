@@ -195,16 +195,16 @@ class Harmonium[
         mx = expand_dual(self.obs_sub.sub_man.sufficient_statistic(x))
         return self.pst_man(self.posterior_function(p), mx)
 
-    def shape_initialize(
+    def initialize(
         self,
         key: Array,
         mu: float = 0.0,
         shp: float = 0.1,
     ) -> Point[Natural, Self]:
         keys = jax.random.split(key, 3)
-        obs_params = self.obs_man.shape_initialize(keys[0], mu, shp)
-        lat_params = self.lat_man.shape_initialize(keys[1], mu, shp)
-        int_params = self.int_man.shape_initialize(keys[2], mu, shp)
+        obs_params = self.obs_man.initialize(keys[0], mu, shp)
+        lat_params = self.lat_man.initialize(keys[1], mu, shp)
+        int_params = self.int_man.initialize(keys[2], mu, shp)
         return self.join_params(obs_params, int_params, lat_params)
 
 

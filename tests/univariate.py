@@ -84,7 +84,7 @@ class DifferentiableUnivariateTest[M: Differentiable](ABC):
         keys = jax.random.split(key, 3)
 
         # Initialize
-        params = self.model.shape_initialize(keys[0])
+        params = self.model.initialize(keys[0])
 
         # Integration test
         total_mass = self.run_integration_test(params).item()

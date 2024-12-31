@@ -105,16 +105,6 @@ class Manifold(ABC):
         """
         return self.value_and_grad(f, point)[1]
 
-    def shape_initialize(
-        self,
-        key: Array,
-        mu: float = 0.0,
-        shp: float = 0.1,
-    ) -> Point[Any, Self]:
-        """Convenience function to randomly initialize the coordinates of a point based on a mean and a shape parameter --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
-        params = jax.random.normal(key, shape=(self.dim,)) * shp + mu
-        return Point(params)
-
     def uniform_initialize(
         self,
         key: Array,

@@ -135,13 +135,41 @@ class ExponentialFamily(Manifold, ABC):
         """Compute log of base measure $\\mu(x)$."""
         ...
 
-    def natural_point(self, params: Array) -> Point[Natural, Self]:
-        """Construct a point in natural coordinates."""
-        return Point[Natural, Self](jnp.atleast_1d(params))
-
     def mean_point(self, params: Array) -> Point[Mean, Self]:
         """Construct a point in mean coordinates."""
         return Point[Mean, Self](jnp.atleast_1d(params))
+
+    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
+        """Check if parameters are valid for this exponential family."""
+        return jnp.all(jnp.isfinite(params.params)).astype(jnp.int32)
+
+    def natural_point(self, params: Array) -> Point[Natural, Self]:
+        """Construct a point in natural coordinates."""
+        p = Point[Natural, Self](jnp.atleast_1d(params))
+        if __debug__ and not bool(self.check_natural_parameters(p)):
+            raise ValueError(f"Invalid natural parameters for {type(self)}")
+        return p
+
+    def initialize(
+        self,
+        key: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Natural, Self]:
+        """Convenience function to randomly initialize the coordinates of a point based on a mean and a shape parameter --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
+        params = jax.random.normal(key, shape=(self.dim,)) * shp + mu
+        return Point(params)
+
+    def initialize_from_sample(
+        self,
+        key: Array,
+        sample: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Natural, Self]:
+        """Convenience function to initialize a model based on the sample. By default it ignores the sample, but most distributions can do better than this."""
+        sample = sample
+        return self.initialize(key, mu, shp)
 
 
 class Generative(ExponentialFamily, ABC):
@@ -276,6 +304,22 @@ class Analytic(Differentiable, ABC):
             self.log_partition_function(p) + self.negative_entropy(q) - self.dot(q, p)
         )
 
+    def initialize_from_sample(
+        self,
+        key: Array,
+        sample: Array,
+        mu: float = 0.0,
+        shp: float = 0.1,
+    ) -> Point[Natural, Self]:
+        """Initialize a model based on the noisy average sufficient statistics."""
+        avg_suff_stat = self.average_sufficient_statistic(sample)
+        # add gaussian noise
+        noise = jax.random.normal(key, shape=(self.dim,)) * shp + mu
+        avg_suff_stat = avg_suff_stat + Point(noise)
+        params = self.to_natural(avg_suff_stat)
+        self.check_natural_parameters(params)
+        return params
+
 
 class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
     Pair[Location, Shape], ExponentialFamily
@@ -301,13 +345,13 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         shape_stats = self.snd_man._compute_sufficient_statistic(x)
         return self.join_params(Point(loc_stats), Point(shape_stats)).params
 
-    def shape_initialize(
+    def initialize(
         self, key: Array, mu: float = 0.0, shp: float = 0.1
     ) -> Point[Natural, Self]:
         """Initialize location and shape parameters."""
         key_loc, key_shp = jax.random.split(key)
-        fst_loc = self.fst_man.shape_initialize(key_loc, mu, shp)
-        shp_loc = self.snd_man.shape_initialize(key_shp, mu, shp)
+        fst_loc = self.fst_man.initialize(key_loc, mu, shp)
+        shp_loc = self.snd_man.initialize(key_shp, mu, shp)
         return self.join_params(fst_loc, shp_loc)
 
     def log_base_measure(self, x: Array) -> Array:

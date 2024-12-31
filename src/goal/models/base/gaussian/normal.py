@@ -125,7 +125,7 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
         """Base measure matches location component."""
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
-    def shape_initialize(
+    def initialize(
         self, key: Array, mu: float = 0.0, shp: float = 0.1
     ) -> Point[Natural, Self]:
         """Initialize covariance matrix with random diagonal structure.
@@ -389,12 +389,12 @@ class Normal[Rep: PositiveDefinite](
 
         return self.join_params(loc, Point(theta2))
 
-    def shape_initialize(
+    def initialize(
         self, key: Array, mu: float = 0.0, shp: float = 0.1
     ) -> Point[Natural, Self]:
         """Initialize means with normal and covariance matrix with random diagonal structure."""
-        mean = self.loc_man.shape_initialize(key, mu, shp)
-        cov = self.cov_man.shape_initialize(key, mu=mu, shp=shp)
+        mean = self.loc_man.initialize(key, mu, shp)
+        cov = self.cov_man.initialize(key, mu=mu, shp=shp)
         return self.join_location_precision(mean, cov)
 
     def embed_rep[TargetRep: PositiveDefinite](

@@ -101,7 +101,7 @@ def initialize_hmog[Rep: PositiveDefinite](
     obs_params = hmog.obs_man.to_natural(obs_means)
 
     # Create latent categorical prior - slightly break symmetry
-    cat_params = hmog.lat_man.lat_man.shape_initialize(keys[0])
+    cat_params = hmog.lat_man.lat_man.initialize(keys[0])
     cat_means = hmog.lat_man.lat_man.to_mean(cat_params)
 
     # Initialize separated components
