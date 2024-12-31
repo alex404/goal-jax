@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Self
 
 import jax.numpy as jnp
+from jax import Array
 
 from goal.geometry import (
     AnalyticReplicated,
@@ -109,6 +110,46 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
         """
         params_matrix = p.params.reshape(self.n_repeats, 2)
         return Point(params_matrix[:, 0]), Point(params_matrix[:, 1])
+
+    def join_mode_dispersion(
+        self,
+        modes: Array,
+        dispersions: Array,
+    ) -> Point[Natural, Self]:
+        """Construct population from mode and dispersion values.
+
+        Args:
+            modes: Array of mode parameters $\\mu$ for each unit
+            dispersions: Array of dispersion parameters $\\nu$ for each unit
+
+        Returns:
+            Natural parameters for the population
+        """
+        # Convert modes and dispersions to natural parameters
+        theta1 = dispersions * jnp.log(modes)
+        theta2 = -dispersions
+
+        params_matrix = jnp.stack([theta1, theta2])
+        return Point(params_matrix.T.reshape(-1))
+
+    def split_mode_dispersion(
+        self,
+        p: Point[Natural, Self],
+    ) -> tuple[Array, Array]:
+        """Extract mode and dispersion values from population parameters.
+
+        Args:
+            p: Natural parameters for the population
+
+        Returns:
+            Tuple of (modes, dispersions) arrays with standard parameters
+        """
+        theta1, theta2 = self.split_population_parameters(p)
+
+        dispersions = -theta2.params
+        modes = jnp.exp(-theta1.params / theta2.params)  # μ = exp(-θ₁/θ₂)
+
+        return modes, dispersions
 
 
 @dataclass(frozen=True)

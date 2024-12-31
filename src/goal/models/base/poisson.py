@@ -123,6 +123,8 @@ class CoMShape(ExponentialFamily):
     def log_base_measure(self, x: Array) -> Array:
         return jnp.array(0.0)
 
+    # Shape/data initialization based on approximate mean and variance
+
 
 @dataclass(frozen=True)
 class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
