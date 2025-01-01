@@ -233,8 +233,7 @@ class Harmonium[
     ) -> Point[Natural, Self]:
         """Initialize harmonium using sample data for observable biases.
 
-        Uses sample data to initialize observable biases, while latent biases
-        and interaction matrix use standard initialization.
+        Uses sample data to initialize observable biases, while latent biases and interaction matrix use standard initialization.
 
         Args:
             key: Random key
@@ -450,8 +449,8 @@ class DifferentiableConjugated[
     SubLatent: ExponentialFamily,
     Latent: Differentiable,
 ](
-    Differentiable,
     GenerativeConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
+    Differentiable,
     ABC,
 ):
     """A conjugated harmonium with an analytical log-partition function."""
