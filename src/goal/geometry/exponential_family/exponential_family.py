@@ -143,12 +143,16 @@ class ExponentialFamily(Manifold, ABC):
         """Check if parameters are valid for this exponential family."""
         return jnp.all(jnp.isfinite(params.params)).astype(jnp.int32)
 
+    # def natural_point(self, params: Array) -> Point[Natural, Self]:
+    #     """Construct a point in natural coordinates."""
+    #     p = Point[Natural, Self](jnp.atleast_1d(params))
+    #     if __debug__ and not bool(self.check_natural_parameters(p)):
+    #         raise ValueError(f"Invalid natural parameters for {type(self)}")
+    #     return p
+
     def natural_point(self, params: Array) -> Point[Natural, Self]:
         """Construct a point in natural coordinates."""
-        p = Point[Natural, Self](jnp.atleast_1d(params))
-        if __debug__ and not bool(self.check_natural_parameters(p)):
-            raise ValueError(f"Invalid natural parameters for {type(self)}")
-        return p
+        return Point[Natural, Self](jnp.atleast_1d(params))
 
     def initialize(
         self,
@@ -396,6 +400,49 @@ class Replicated(Generic[M], ExponentialFamily):
             raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
         # Stack instead of concatenate
         return Point(jnp.stack([p.params for p in ps]).reshape(-1))
+
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize replicated parameters.
+
+        Generates n_repeats independent initializations of the base manifold.
+
+        Args:
+            key: Random key
+            location: Location parameter for initialization
+            shape: Shape parameter for random perturbations
+        """
+        keys = jax.random.split(key, self.n_repeats)
+        params = [self.man.initialize(k, location, shape) for k in keys]
+        return self.join_params(params)
+
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize replicated parameters from sample.
+
+        Splits sample data into n_repeats chunks and initializes each component
+        using its corresponding chunk of data.
+
+        Args:
+            key: Random key
+            sample: Sample array of shape (batch_size, data_dim)
+            location: Location parameter for initialization
+            shape: Shape parameter for random perturbations
+        """
+        keys = jax.random.split(key, self.n_repeats)
+        # Split samples into chunks for each replicate
+        samples = sample.reshape(-1, self.n_repeats, self.man.data_dim)
+        samples = jnp.moveaxis(
+            samples, 1, 0
+        )  # Shape: (n_repeats, batch_size, data_dim)
+
+        params = [
+            self.man.initialize_from_sample(k, s, location, shape)
+            for k, s in zip(keys, samples)
+        ]
+        return self.join_params(params)
 
 
 @dataclass(frozen=True)
