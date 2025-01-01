@@ -85,6 +85,12 @@ class DifferentiableUnivariateTest[M: Differentiable](ABC):
 
         # Initialize
         params = self.model.initialize(keys[0])
+        valid = bool(self.model.check_natural_parameters(params))
+
+        logger.info(
+            "Natural parameter check for %s: %s", type(self.model).__name__, valid
+        )
+        assert valid, f"Invalid natural parameters after initialization for {type(self.model).__name__}"
 
         # Integration test
         total_mass = self.run_integration_test(params).item()
@@ -236,6 +242,8 @@ def assert_univariate_stats(stats: UnivariateStats) -> None:
     assert jnp.allclose(
         jnp.mean(jnp.array(stats.total_mass)), 1.0, rtol=1e-2
     ), f"{stats.model_name} total probability mass deviates significantly from 1"
+
+    # Check parameter bounds
 
     # MSE should decrease with sample size
     mse_array = jnp.array(stats.mse_progression)

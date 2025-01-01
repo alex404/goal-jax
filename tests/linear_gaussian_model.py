@@ -126,6 +126,14 @@ def test_single_model(
 
     # Natural -> Mean recovery
     params = lgm_man.to_natural(means)
+
+    # Add validation check and logging
+    valid = bool(lgm_man.check_natural_parameters(params))
+    logger.info("Natural parameter check for %s: %s", type(lgm_man).__name__, valid)
+    assert (
+        valid
+    ), f"Invalid natural parameters after fitting for {type(lgm_man).__name__}"
+
     remeans = lgm_man.to_mean(params)
     reparams = lgm_man.to_natural(remeans)
     logger.info(f"Mean parameters: {means.params}")

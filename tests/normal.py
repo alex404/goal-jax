@@ -102,6 +102,13 @@ def test_single_model(
     natural_params = model.to_natural(mean_params)
     logger.info(f"Natural parameters: {natural_params.params}")
 
+    valid = bool(model.check_natural_parameters(natural_params))
+
+    logger.info("Natural parameter check for %s: %s", type(model).__name__, valid)
+    assert (
+        valid
+    ), f"Invalid natural parameters after initialization for {type(model).__name__}"
+
     # Compute average log-density
     log_density = model.average_log_density(natural_params, sample_data)
     logger.info(f"Average log-density: {log_density}")
