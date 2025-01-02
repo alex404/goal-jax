@@ -63,7 +63,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         obs_sub: Subspace[Observable, SubObservable],
     ):
         cat_man = Categorical(n_categories)
-        int_man = LinearMap(Rectangular(), cat_man, obs_man)
+        int_man = LinearMap(Rectangular(), cat_man, obs_sub.sub_man)
         lat_sub = IdentitySubspace(cat_man)
         super().__init__(
             obs_man,
