@@ -331,6 +331,53 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
+    def to_natural_from_loadings(
+        self,
+        loadings: Array,
+        means: Array,
+        diags: Array,
+    ) -> Point[Natural, FactorAnalysis]:
+        """Convert source parameters to natural parameters for factor analysis.
+
+        For a factor analysis model with generative form:
+        $$p(x \\mid z) = \\mathcal{N}(Az + \\mu, D)$$
+
+        where:
+        - $A$ is the loading matrix
+        - $\\mu$ is the mean vector
+        - $D$ is a diagonal covariance matrix
+        - $z \\sim \\mathcal{N}(0, I)$
+
+        This method converts these source parameters to natural parameters
+        $$p(x \\mid z) \\propto \\exp(\\theta_x \\cdot s_x(x) + s_x(x) \\cdot \\Theta_{xz} \\cdot z)$$
+
+        where:
+        - $\\theta_x$ are observable natural parameters derived from $\\mu$ and $D$
+        - $\\Theta_{xz} = D^{-1}A$ is the precision-scaled loading matrix
+
+        Args:
+            loadings: Loading matrix $A$ of shape (obs_dim, lat_dim)
+            means: Mean vector $\\mu$ for observable variables
+            diags: Diagonal entries of $D$
+
+        Returns:
+            Natural parameters for factor analysis model
+        """
+        # Initialize interaction matrix scaled by precision
+        with self.obs_man as om:
+            mu = om.loc_man.mean_point(means)
+            cov = om.cov_man.mean_point(diags)
+            obs_params = om.to_natural(om.join_mean_covariance(mu, cov))
+            obs_prs = om.split_location_precision(obs_params)[1]
+            dns_prs = om.cov_man.to_dense(obs_prs)
+
+        int_mat = self.int_man.from_dense(dns_prs @ loadings)
+
+        # Combine parameters
+        lkl_params = self.lkl_man.join_params(obs_params, int_mat)
+        z = self.lat_man.to_natural(self.lat_man.standard_normal())
+        return self.join_conjugated(lkl_params, z)
+
 
 @dataclass(frozen=True)
 class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
