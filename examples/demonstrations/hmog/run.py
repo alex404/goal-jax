@@ -88,49 +88,6 @@ def create_ground_truth_model() -> (
 ### Training ###
 
 
-# def initialize_hmog[Rep: PositiveDefinite](
-#     key: Array,
-#     hmog: AnalyticHMoG[Rep],
-#     sample: Array,
-#     n_components: int = 2,
-# ) -> Point[Natural, AnalyticHMoG[Rep]]:
-#     keys = jax.random.split(key, 2)
-#
-#     # Initialize observable normal with data statistics
-#     obs_means = hmog.obs_man.average_sufficient_statistic(sample)
-#     obs_params = hmog.obs_man.to_natural(obs_means)
-#
-#     # Create latent categorical prior - slightly break symmetry
-#     cat_params = hmog.lat_man.lat_man.initialize(keys[0])
-#     cat_means = hmog.lat_man.lat_man.to_mean(cat_params)
-#
-#     # Initialize separated components
-#     with hmog.lat_man as um:
-#         components = []
-#         sg = 1
-#         stp = 4 * sg
-#         strt = -stp * (n_components - 1) / 2
-#         rng = jnp.arange(strt, strt + n_components * stp, stp)
-#         for i in range(n_components):
-#             comp_means = um.obs_man.join_mean_covariance(
-#                 Point[Mean, Euclidean](jnp.atleast_1d(rng[i])),
-#                 Point[Mean, Covariance[PositiveDefinite]](jnp.array([sg**2])),
-#             )
-#             components.append(comp_means)
-#
-#         mix_means = um.join_mean_mixture(components, cat_means)
-#         mix_params = um.to_natural(mix_means)
-#
-#     # Initialize interaction matrix scaled by precision
-#     obs_prs = hmog.obs_man.split_location_precision(obs_params)[1]
-#     int_mat0 = 0.1 * jax.random.normal(keys[1], shape=(2,))
-#     int_mat = hmog.int_man.from_dense(hmog.obs_man.cov_man.to_dense(obs_prs) @ int_mat0)
-#
-#     # Combine parameters
-#     lkl_params = hmog.lkl_man.join_params(obs_params, int_mat)
-#     return hmog.join_conjugated(lkl_params, mix_params)
-#
-#
 def fit_hmog[R: PositiveDefinite](
     key: Array,
     hmog: AnalyticHMoG[R],
