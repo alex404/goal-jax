@@ -151,6 +151,32 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
 
         return modes, dispersions
 
+    def numerical_mean_variance(
+        self: Self,
+        params: Point[Natural, Self],
+    ) -> tuple[Array, Array]:
+        """Compute mean vector and diagonal variance for population.
+
+        Computes statistics for each neuron independently using numerical integration.
+
+        Args:
+            params: Natural parameters for population
+
+        Returns:
+            Tuple of (mean vector, variance vector)
+        """
+        params_list = self.split_params(params)
+        means = []
+        variances = []
+
+        # Compute statistics for each unit
+        for unit_params in params_list:
+            mean, var = self.man.numerical_mean_variance(unit_params)
+            means.append(mean)
+            variances.append(var)
+
+        return jnp.array(means), jnp.array(variances)
+
 
 @dataclass(frozen=True)
 class CoMMixture(DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation]):
@@ -186,3 +212,56 @@ class CoMMixture(DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation])
         )
 
         super().__init__(obs_man=pop_man, n_categories=n_components, obs_sub=subspace)
+
+    def numerical_mean_covariance(
+        self,
+        params: Point[Natural, Self],
+    ) -> tuple[Array, Array]:
+        """Compute mean vector and covariance matrix for mixture model numerically.
+
+        For a mixture model with K components:
+        $$E[X] = \\sum_{k=1}^K \\pi_k E[X|k]$$
+        $$\\text{Cov}(X) = \\sum_{k=1}^K \\pi_k (\\text{Cov}(X|k) + E[X|k]E[X|k]^T) - E[X]E[X]^T$$
+
+        Uses numerical integration to compute component statistics.
+
+        Args:
+            params: Natural parameters for mixture model
+
+        Returns:
+            Tuple of (mean vector, covariance matrix)
+        """
+        # Split into observable and latent parameters
+        components, cat_params = self.split_natural_mixture(params)
+        mix_means = self.lat_man.to_mean(cat_params)
+
+        # Get mixture weights
+        weights = self.lat_man.to_probs(mix_means)
+
+        # Compute component means and variances
+        comp_means = []
+        comp_vars = []
+        for comp_params in components:
+            mean, var = self.obs_man.numerical_mean_variance(comp_params)
+            comp_means.append(mean)
+            comp_vars.append(var)
+
+        comp_means = jnp.stack(comp_means)  # Shape: (n_components, n_neurons)
+        comp_vars = jnp.stack(comp_vars)  # Shape: (n_components, n_neurons)
+
+        # Compute mixture mean
+        mean = jnp.einsum("k,ki->i", weights, comp_means)
+
+        # Compute mixture covariance
+        # First term: weighted sum of diagonal component covariances
+        cov = jnp.einsum("k,ki->i", weights, comp_vars)
+        cov = jnp.diag(cov)
+
+        # Second term: weighted sum of outer products of component means
+        mean_outer = jnp.einsum("ki,kj->kij", comp_means, comp_means)
+        cov += jnp.einsum("k,kij->ij", weights, mean_outer)
+
+        # Third term: subtract outer product of mixture mean
+        cov -= jnp.outer(mean, mean)
+
+        return mean, cov

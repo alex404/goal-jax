@@ -306,6 +306,47 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         approx_var = mu / nu
         return approx_mean, approx_var
 
+    def numerical_mean_variance(
+        self,
+        natural_params: Point[Natural, Self],
+    ) -> tuple[Array, Array]:
+        """Compute mean and variance using numerical integration.
+
+        Uses window-based approach centered on mode to compute:
+        $$E[X] = \\sum_{x=0}^\\infty x p(x)$$
+        $$E[X^2] = \\sum_{x=0}^\\infty x^2 p(x)$$
+        $$\\text{Var}(X) = E[X^2] - E[X]^2$$
+
+        Args:
+            natural_params: Natural parameters $(\\theta_1, \\theta_2)$
+
+        Returns:
+            Tuple of (mean, variance)
+        """
+        # Get mode for window centering
+        mu, _ = self.split_mode_dispersion(natural_params)
+
+        # Create fixed window of indices
+        mode_shift = jnp.maximum(0, jnp.floor(mu - self.window_size / 2)).astype(
+            jnp.int32
+        )
+        indices = jnp.arange(self.window_size) + mode_shift
+
+        # Compute log probabilities
+        log_probs = jax.vmap(self.log_density, in_axes=(None, 0))(
+            natural_params, indices
+        )
+        probs = jnp.exp(log_probs)
+
+        # Compute first and second moments
+        mean = jnp.sum(indices * probs)
+        second_moment = jnp.sum(indices**2 * probs)
+
+        # Compute variance
+        variance = second_moment - mean**2
+
+        return mean, variance
+
     def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
         """Check if natural parameters are valid for COM-Poisson.
 

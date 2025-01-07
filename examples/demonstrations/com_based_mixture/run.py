@@ -37,8 +37,8 @@ from .types import ComAnalysisResults, CovarianceStatistics
 # Constants
 N_NEURONS = 10  # Observable dimension
 N_FACTORS = 3  # Latent dimension
-N_SAMPLES = 1000  # Number of samples
-N_STEPS = 200  # Training steps
+SAMPLE_SIZE = 1000  # Number of samples
+N_STEPS = 1  # Training steps
 N_COMPONENTS = 3  # Number of mixture components
 LEARNING_RATE = 0.1
 
@@ -100,6 +100,37 @@ def compute_covariance_statistics(sample: Array) -> CovarianceStatistics:
     )
 
 
+def compute_numerical_statistics(
+    mean: Array, covariance: Array
+) -> CovarianceStatistics:
+    """Compute statistics from numerically computed mean and covariance.
+
+    Args:
+        mean: Mean vector
+        covariance: Covariance matrix
+
+    Returns:
+        CovarianceStatistics object
+    """
+    variances = jnp.diag(covariance)
+    fano_factors = variances / mean
+
+    # Compute correlation matrix
+    std_devs = jnp.sqrt(variances)
+    corr_matrix = covariance / (std_devs[:, None] @ std_devs[None, :])
+
+    # Extract lower triangular elements of covariance
+    tril_idx = jnp.tril_indices(covariance.shape[0])
+    covariances = covariance[tril_idx]
+
+    return CovarianceStatistics(
+        means=mean.tolist(),
+        fano_factors=fano_factors.tolist(),
+        covariances=covariances.tolist(),
+        correlation_matrix=corr_matrix.tolist(),
+    )
+
+
 def fit_com_mixture(
     key: Array,
     sample: Array,
@@ -120,7 +151,7 @@ def fit_com_mixture(
         lls: Training log likelihoods
     """
     com_mix = CoMMixture(N_NEURONS, N_COMPONENTS)
-    init_params = com_mix.initialize(key)
+    init_params = com_mix.initialize(key, shape=0.01)
 
     optimizer: Optimizer[Mean, CoMMixture] = Optimizer.adam(learning_rate=learning_rate)
     opt_state = optimizer.init(init_params)
@@ -153,10 +184,10 @@ def main() -> None:
 
     # Create models and generate data
     key = jax.random.PRNGKey(0)
-    key_sample, key_resample, key_fit = jax.random.split(key, 3)
+    key_sample, key_fit = jax.random.split(key, 2)
 
     fa_model, fa_params = create_factor_analysis()
-    sample = fa_model.observable_sample(key_sample, fa_params, N_SAMPLES)
+    sample = fa_model.observable_sample(key_sample, fa_params, SAMPLE_SIZE)
 
     # Compute statistics for original FA model
     continuous_stats = compute_covariance_statistics(sample)
@@ -167,8 +198,19 @@ def main() -> None:
 
     # Fit COM mixture and compute its statistics
     com_mix, com_params, training_lls = fit_com_mixture(key_fit, discrete_sample)
-    cbm_sample = com_mix.observable_sample(key_resample, com_params, N_SAMPLES)
-    cbm_stats = compute_covariance_statistics(cbm_sample)
+    # Use numerical approximation instead of sampling
+    obs_params, int_params, lat_params = com_mix.split_params(com_params)
+    print(f"Learned Obs params: {obs_params}")
+    print(f"Learned Int params: {int_params}")
+    print(f"Learned Lat params: {lat_params}")
+    _, prr_params = com_mix.split_conjugated(com_params)
+    prr_means = com_mix.lat_man.to_mean(prr_params)
+    print(f"Learned component probabilities: {com_mix.lat_man.to_probs(prr_means)}")
+    # comp_params, mix_params = com_mix.split_natural_mixture(com_params)
+    # print(f"Learned Comp params: {comp_params}")
+    # print(f"Learned Mix params: {mix_params}")
+    cbm_mean, cbm_cov = com_mix.numerical_mean_covariance(com_params)
+    cbm_stats = compute_numerical_statistics(cbm_mean, cbm_cov)
 
     # Save results
     results = ComAnalysisResults(
