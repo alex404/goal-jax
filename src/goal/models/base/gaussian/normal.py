@@ -434,8 +434,8 @@ class Normal[Rep: PositiveDefinite](
         Args:
             key: Random key
             sample: Sample data to initialize from
-            location_noise: Scale for additive noise to mean (relative to observed std dev)
-            scale_noise: Scale for multiplicative noise to covariance
+            location: Scale for additive noise to mean (relative to observed std dev)
+            shape: Scale for multiplicative noise to covariance
 
         Returns:
             Point in natural coordinates

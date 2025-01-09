@@ -11,20 +11,24 @@ nav:
   - Home: index.md
   - API:
     - Geometry:
-      - Manifolds: geometry/manifold.md
-      - Submanifolds: geometry/subspace.md
-      - Matrix Representations: geometry/rep/matrix.md
-      - Linear Maps: geometry/linear.md
-      - Exponential Families: geometry/exponential_family.md
-      - Harmoniums: geometry/harmonium.md
-      - Hierarchical Harmoniums: geometry/hierarchical.md
+      - Manifold:
+        - Manifolds: geometry/manifold/manifold.md
+        - Submanifolds: geometry/manifold/subspace.md
+        - Matrix Representations: geometry/manifold/matrix.md
+        - Linear Maps: geometry/manifold/linear.md
+        - Optimizers: geometry/manifold/optimizer.md
+      - Exponential Family:
+        - Exponential Families: geometry/exponential_family/exponential_family.md
+        - Harmoniums: geometry/exponential_family/harmonium.md
+        - Hierarchical Harmoniums: geometry/exponential_family/hierarchical.md
     - Models: 
       - Base:
         - Categorical: models/base/categorical.md
         - Poisson: models/base/poisson.md
-        - Generalized Gaussians: models/base/gaussian/generalized.md
-        - Normal: models/base/gaussian/normal.md
-        - Boltzmann: models/base/gaussian/boltzmann.md
+        - Gaussian: 
+          - Generalized Gaussians: models/base/gaussian/generalized.md
+          - Normal: models/base/gaussian/normal.md
+          - Boltzmann: models/base/gaussian/boltzmann.md
       - Graphical:
         - Mixture: models/graphical/mixture.md
         - Linear Gaussian Model: models/graphical/lgm.md

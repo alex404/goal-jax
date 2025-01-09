@@ -1,3 +1,0 @@
-# Manifolds
-
-::: goal.geometry.manifold

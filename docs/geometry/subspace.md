@@ -1,3 +1,0 @@
-# Submanifolds
-
-::: goal.geometry.subspace
