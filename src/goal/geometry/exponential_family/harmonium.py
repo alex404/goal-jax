@@ -27,7 +27,7 @@ The module provides a hierarchy of harmonium models with increasing structure:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Self
 
@@ -60,7 +60,6 @@ class Harmonium[
 ](
     ExponentialFamily,
     Triple[Observable, LinearMap[Rep, SubLatent, SubObservable], Latent],
-    ABC,
 ):
     """An exponential family harmonium is a product of two exponential families.
 
@@ -347,7 +346,7 @@ class Conjugated[
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
     Latent: ExponentialFamily,
-](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
+](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]):
     """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
 
     @abstractmethod
@@ -453,7 +452,6 @@ class DifferentiableConjugated[
 ](
     GenerativeConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     Differentiable,
-    ABC,
 ):
     """A conjugated harmonium with an analytical log-partition function."""
 
@@ -538,7 +536,6 @@ class AnalyticConjugated[
     DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     AnalyticLatent[Rep, Observable, SubObservable, SubLatent, Latent],
     Analytic,
-    ABC,
 ):
     """A conjugated harmonium with an analytically tractable negative entropy.
 

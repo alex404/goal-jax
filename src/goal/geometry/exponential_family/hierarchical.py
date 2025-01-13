@@ -13,7 +13,7 @@ Key algorithms (conjugation, natural parameters, sampling) are implemented recur
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Any, Self
 
 import jax
@@ -33,7 +33,7 @@ class DifferentiableHierarchical[
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
     Latent: Any,
-](DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
+](DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent]):
     """Class for hierarchical harmoniums with deep conjugate structure.
 
     This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses DifferentiableConjugated to maintain the exponential family structure while adding hierarchical capabilities.
@@ -130,7 +130,6 @@ class AnalyticHierarchical[
 ](
     AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     DifferentiableHierarchical[Rep, Observable, SubObservable, SubLatent, Latent],
-    ABC,
 ):
     """Class for hierarchical harmoniums with deep conjugate structure.
 

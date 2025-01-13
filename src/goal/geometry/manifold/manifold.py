@@ -24,7 +24,7 @@ class Coordinates:
     ...
 
 
-class Dual[C: Coordinates](Coordinates):
+class Dual[C: Coordinates](Coordinates, ABC):
     """Dual coordinates to a given coordinate system.
 
     For a vector space $V$, its dual space $V^*$ consists of linear functionals $f: V \\to \\mathbb{R}$.

@@ -39,7 +39,7 @@ This module implements this structure through a hierarchy of classes:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Generic, Self, TypeVar
 
@@ -72,7 +72,7 @@ $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
 ### Exponential Families ###
 
 
-class ExponentialFamily(Manifold, ABC):
+class ExponentialFamily(Manifold):
     """Base manifold class for exponential families.
 
     An exponential family is a manifold of probability distributions with densities
@@ -175,7 +175,7 @@ class ExponentialFamily(Manifold, ABC):
         return self.initialize(key, location, shape)
 
 
-class Generative(ExponentialFamily, ABC):
+class Generative(ExponentialFamily):
     """An `ExponentialFamily` that supports random sampling.
 
     Sampling is performed on distributions in natural coordinates. This enables estimation of mean parameters even when closed-form expressions for the log partition function are unavailable.
@@ -202,7 +202,7 @@ class Generative(ExponentialFamily, ABC):
         return self.average_sufficient_statistic(samples)
 
 
-class Differentiable(Generative, ABC):
+class Differentiable(Generative):
     """Exponential family with an analytically tractable log-partition function, which permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
 
     The log partition function $\\psi(\\theta)$ is given by:
@@ -270,7 +270,7 @@ class Differentiable(Generative, ABC):
         return jnp.exp(self.log_density(p, x))
 
 
-class Analytic(Differentiable, ABC):
+class Analytic(Differentiable):
     """An exponential family comprising distributions for which the entropy can be evaluated in closed-form. The negative entropy is the convex conjugate of the log-partition function
 
     $$
