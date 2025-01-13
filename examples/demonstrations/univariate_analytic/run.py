@@ -129,7 +129,7 @@ def main():
     keys = jax.random.split(key, 3)
 
     # Parameters
-    sample_size = 100
+    sample_size = 20
 
     # # Normal test
     print("\nTesting Normal Distribution...")

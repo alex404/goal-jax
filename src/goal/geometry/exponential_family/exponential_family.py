@@ -296,7 +296,7 @@ class Analytic(Differentiable, ABC):
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
         return self.grad(self.negative_entropy, p)
 
-    def relative_entropy(self, p: Point[Natural, Self], q: Point[Mean, Self]) -> Array:
+    def relative_entropy(self, p: Point[Mean, Self], q: Point[Natural, Self]) -> Array:
         """Compute the entropy of $p$ relative to $q$.
 
         $D(p \\| q) = \\int p(x) \\log \\frac{p(x)}{q(x)} dx = \\theta \\cdot \\eta - \\psi(\\theta) - \\phi(\\eta)$, where
@@ -305,7 +305,7 @@ class Analytic(Differentiable, ABC):
         - $q(x;\\eta)$ has mean parameters $\\eta$.
         """
         return (
-            self.log_partition_function(p) + self.negative_entropy(q) - self.dot(q, p)
+            self.negative_entropy(p) + self.log_partition_function(q) - self.dot(p, q)
         )
 
     def initialize_from_sample(

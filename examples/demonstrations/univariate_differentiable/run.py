@@ -149,7 +149,7 @@ def main():
         von_man=von_man,
         true_mu=jnp.pi / 4,  # 45 degrees
         true_kappa=2.0,  # moderate concentration
-        n_samples=1000,
+        n_samples=20,
         n_steps=100,
         learning_rate=0.1,
     )

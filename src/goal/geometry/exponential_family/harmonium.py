@@ -580,6 +580,5 @@ class AnalyticConjugated[
         self, p: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm."""
-        # E-step: Compute expectations
         q = self.expectation_step(p, xs)
         return self.to_natural(q)
