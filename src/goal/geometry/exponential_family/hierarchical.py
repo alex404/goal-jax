@@ -14,7 +14,6 @@ Key algorithms (conjugation, natural parameters, sampling) are implemented recur
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Any, Self
 
 import jax
@@ -28,7 +27,6 @@ from .exponential_family import ExponentialFamily, Generative, Mean, Natural
 from .harmonium import AnalyticConjugated, DifferentiableConjugated
 
 
-@dataclass(frozen=True)
 class DifferentiableHierarchical[
     Rep: MatrixRep,
     Observable: Generative,
@@ -123,7 +121,6 @@ class DifferentiableHierarchical[
         return chi, rho
 
 
-@dataclass(frozen=True)
 class AnalyticHierarchical[
     Rep: MatrixRep,
     Observable: Generative,
@@ -131,8 +128,8 @@ class AnalyticHierarchical[
     SubLatent: ExponentialFamily,
     Latent: Any,
 ](
-    DifferentiableHierarchical[Rep, Observable, SubObservable, SubLatent, Latent],
     AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
+    DifferentiableHierarchical[Rep, Observable, SubObservable, SubLatent, Latent],
     ABC,
 ):
     """Class for hierarchical harmoniums with deep conjugate structure.

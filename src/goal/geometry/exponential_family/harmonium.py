@@ -49,6 +49,7 @@ from .exponential_family import (
 )
 
 
+# NB: this dataclass decorator breaks pyreverse resolution - deleting it allows things to work
 @dataclass(frozen=True)
 class Harmonium[
     Rep: MatrixRep,
@@ -57,8 +58,9 @@ class Harmonium[
     SubLatent: ExponentialFamily,
     Latent: ExponentialFamily,
 ](
-    Triple[Observable, LinearMap[Rep, SubLatent, SubObservable], Latent],
     ExponentialFamily,
+    Triple[Observable, LinearMap[Rep, SubLatent, SubObservable], Latent],
+    ABC,
 ):
     """An exponential family harmonium is a product of two exponential families.
 

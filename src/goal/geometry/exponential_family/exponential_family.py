@@ -72,7 +72,6 @@ $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
 ### Exponential Families ###
 
 
-@dataclass(frozen=True)
 class ExponentialFamily(Manifold, ABC):
     """Base manifold class for exponential families.
 
@@ -445,7 +444,6 @@ class Replicated(Generic[M], ExponentialFamily):
         return self.join_params(params)
 
 
-@dataclass(frozen=True)
 class GenerativeReplicated[M: Generative](Replicated[M], Generative):
     """Replicated manifold for generative exponential families."""
 
@@ -466,7 +464,6 @@ class GenerativeReplicated[M: Generative](Replicated[M], Generative):
         return jax.vmap(sample_once, in_axes=0)(sam_keys)
 
 
-@dataclass(frozen=True)
 class DifferentiableReplicated[M: Differentiable](
     GenerativeReplicated[M], Differentiable
 ):
@@ -479,7 +476,6 @@ class DifferentiableReplicated[M: Differentiable](
         )
 
 
-@dataclass(frozen=True)
 class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic):
     def _compute_negative_entropy(self, mean_params: Array) -> Array:
         params_matrix = mean_params.reshape(self.n_repeats, -1)
@@ -487,7 +483,6 @@ class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic):
         return jnp.sum(jax.vmap(self.man._compute_negative_entropy)(params_matrix))
 
 
-@dataclass(frozen=True)
 class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
     Subspace[LocationShape[Location, Shape], Location]
 ):
@@ -509,7 +504,6 @@ class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.sup_man.join_params(first + q, second)
 
 
-@dataclass(frozen=True)
 class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily](
     Subspace[Replicated[LocationShape[Loc, Shp]], Replicated[Loc]]
 ):

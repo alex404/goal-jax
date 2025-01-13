@@ -15,7 +15,6 @@ Key Features:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import reduce
 from operator import add
 from typing import Self
@@ -44,7 +43,6 @@ from ..base.categorical import (
 )
 
 
-@dataclass(frozen=True)
 class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     Harmonium[Rectangular, Observable, SubObservable, Categorical, Categorical],
 ):
@@ -150,7 +148,6 @@ class DifferentiableMixture[
         return components, prr_params
 
 
-@dataclass(frozen=True)
 class AnalyticMixture[Observable: Analytic](
     DifferentiableMixture[Observable, Observable],
     AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
