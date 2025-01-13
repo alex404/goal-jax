@@ -9,6 +9,11 @@ The basic structure is:
 - Together they form a joint distribution $p(x,y,z) = p(x|y)p(y|z)p(z)$
 
 Key algorithms (conjugation, natural parameters, sampling) are implemented recursively.
+
+
+#### Class Hierarchy
+
+![Class Hierarchy](hierarchical.svg)
 """
 
 from __future__ import annotations

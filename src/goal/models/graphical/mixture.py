@@ -11,6 +11,10 @@ Key Features:
 - Support for any exponential family observations
 - Parameter conversion between natural and mean coordinates
 - Methods for component-wise manipulation
+
+#### Class Hierarchy
+
+![Class Hierarchy](mixture.svg)
 """
 
 from __future__ import annotations

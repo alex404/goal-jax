@@ -13,11 +13,10 @@ Diagonal        | $O(n)$     | $O(n)$    | $O(n^3)$
 Scale           | $O(1)$     | $O(n)$    | $O(1)$
 Identity        | $O(1)$     | $O(1)$    | $O(1)$
 
-Notes:
-   - All operators are immutable to align with JAX's functional style
-   - Specialized operators maintain their structure under inversion
-   - Operations use numerically stable algorithms where possible
 
+#### Class Hierarchy
+
+![Class Hierarchy](matrix.svg)
 """
 
 from __future__ import annotations

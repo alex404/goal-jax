@@ -29,6 +29,10 @@ Key numerical considerations:
 1. Series evaluation strategy balancing accuracy and performance
 2. Mode-directed evaluation to handle both under- and over-dispersed cases
 3. JAX-optimized computation patterns
+
+#### Class Hierarchy
+
+![Class Hierarchy](poisson.svg)
 """
 
 from __future__ import annotations

@@ -20,6 +20,10 @@ This can be expressed in exponontial family coordinates as
 
 - Natural parameters: $(\\theta_1, \\theta_2) = (\\Sigma^{-1}\\mu, -\\frac{1}{2}\\Sigma^{-1})$
 - Mean parameters: $(\\eta_1, \\eta_2) = (\\mu, \\mu\\mu^T + \\Sigma)$
+
+#### Class Hierarchy
+
+![Class Hierarchy](normal.svg)
 """
 
 from __future__ import annotations

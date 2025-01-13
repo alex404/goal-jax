@@ -1,6 +1,10 @@
 """Core definitions for parameterized objects and their geometry.
 
 A [Manifold][goal.geometry.manifold.manifold.Manifold] is a space that can be locally represented by $\\mathbb R^n$. A [`Point`][goal.geometry.manifold.manifold.Point] on the [`Manifold`][goal.geometry.manifold.manifold.Manifold] can then be locally represented by their [`Coordinates`][goal.geometry.manifold.manifold.Coordinates] in $\\mathbb R^n$.
+
+#### Class Hierarchy
+
+![Class Hierarchy](manifold.svg)
 """
 
 from __future__ import annotations

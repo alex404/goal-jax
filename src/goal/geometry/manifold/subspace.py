@@ -12,6 +12,10 @@ The module implements several types of subspace relationships:
 - `PairSubspace`: Projects product manifold $\\mathcal{M} \\times \\mathcal{N}$ to first component.
 - `TripleSubspace`: Projects triple product to first component.
 - `ComposedSubspace`: Composes two subspace relationships $\\mathcal{L} \\to \\mathcal{M} \\to \\mathcal{N}$.
+
+#### Class Hierarchy
+
+![Class Hierarchy](subspace.svg)
 """
 
 from __future__ import annotations

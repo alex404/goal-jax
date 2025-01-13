@@ -23,6 +23,10 @@ The module provides a hierarchy of harmonium models with increasing structure:
 - `GenerativeConjugated`: Harmoniums that can be sampled from.
 - `DifferentiableConjugated`: Harmoniums with an analytical log-partition function.
 - `AnalyticConjugated`: Harmoniums with an analytic negative entropy.
+
+#### Class Hierarchy
+
+![Class Hierarchy](harmonium.svg)
 """
 
 from __future__ import annotations

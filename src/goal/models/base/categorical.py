@@ -2,6 +2,11 @@
 
 - `Categorical`: Family of discrete probability distributions over $n$ states.
 - `Poisson`: Family of Poisson distribution over counts $k \\in \\mathbb{N}$.
+
+
+#### Class Hierarchy
+
+![Class Hierarchy](categorical.svg)
 """
 
 from __future__ import annotations

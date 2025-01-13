@@ -3,6 +3,11 @@
 - Type safety through generics,
 - Efficient matrix representations, and
 - Mathematical correctness.
+
+
+#### Class Hierarchy
+
+![Class Hierarchy](linear.svg)
 """
 
 from __future__ import annotations

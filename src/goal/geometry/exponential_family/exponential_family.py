@@ -35,6 +35,10 @@ This module implements this structure through a hierarchy of classes:
 - `ExponentialFamily`: Base class defining sufficient statistics and base measure
 - `Differentiable`: Exponential families with analytical log partition function, and support mapping to the mean parameters by autodifferentation.
 - `Analytic`: Exponential families with analytical negative entropy, and support mapping to the natural parameters by autodifferentation.
+
+#### Class Hierarchy
+
+![Class Hierarchy](exponential_family.svg)
 """
 
 from __future__ import annotations

@@ -25,6 +25,10 @@ Implementation Structure:
 - Helper functions for matrix operations
 - Base LinearGaussianModel class with flexible covariance
 - Specialized model classes for constrained covariances
+
+#### Class Hierarchy
+
+![Class Hierarchy](lgm.svg)
 """
 
 from __future__ import annotations
