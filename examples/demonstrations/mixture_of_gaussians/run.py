@@ -75,7 +75,7 @@ def goal_to_sklearn_mixture(
     covariances: list[Array] = []
     for comp in components:
         mean, cov = mix_man.obs_man.split_mean_covariance(comp)
-        means.append(mean.params)
+        means.append(mean.array)
         covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
 
     # Get mixing weights
@@ -205,7 +205,7 @@ def compute_mixture_results(
     )
 
     # Compute scipy density
-    sklearn_dens = np.exp(sklearn_mixture.score_samples(grid_points)).reshape(xs.shape)  # type: ignore
+    sklearn_dens = np.exp(sklearn_mixture.score_samples(grid_points)).reshape(xs.shape)  # pyright: ignore[reportCallIssue,reportArgumentType,reportUnknownVariableType]
 
     return MixtureResults(
         sample=sample.tolist(),

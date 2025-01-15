@@ -18,8 +18,8 @@ Key algorithms (conjugation, natural parameters, sampling) are implemented recur
 
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Any, Self
+from abc import ABC, abstractmethod
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp
@@ -38,7 +38,7 @@ class DifferentiableHierarchical[
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
     Latent: Any,
-](DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent]):
+](DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
     """Class for hierarchical harmoniums with deep conjugate structure.
 
     This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses DifferentiableConjugated to maintain the exponential family structure while adding hierarchical capabilities.
@@ -81,12 +81,13 @@ class DifferentiableHierarchical[
         self,
     ) -> DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
 
-    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
+    @override
+    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
         """Generate samples from the harmonium distribution.
 
         Args:
             key: PRNG key for sampling
-            p: Parameters in natural coordinates
+            params: Parameters in natural coordinates
             n: Number of samples to generate
 
         Returns:
@@ -96,12 +97,12 @@ class DifferentiableHierarchical[
         key1, key2 = jax.random.split(key)
 
         # Sample from adjusted latent distribution p(z)
-        nat_prior = self.prior(p)
+        nat_prior = self.prior(params)
         yz_sample = self.lat_man.sample(key1, nat_prior, n)
         y_sample = yz_sample[:, : self.lwr_man.lat_man.data_dim]
 
         # Vectorize sampling from conditional distributions
-        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(p, y_sample)
+        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, y_sample)
 
         # Sample from conditionals p(x|z) in parallel
         x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
@@ -111,6 +112,7 @@ class DifferentiableHierarchical[
         # Concatenate samples along data dimension
         return jnp.concatenate([x_sample, yz_sample], axis=-1)
 
+    @override
     def conjugation_parameters(
         self,
         lkl_params: Point[
@@ -135,6 +137,7 @@ class AnalyticHierarchical[
 ](
     AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     DifferentiableHierarchical[Rep, Observable, SubObservable, SubLatent, Latent],
+    ABC,
 ):
     """Class for hierarchical harmoniums with deep conjugate structure.
 
@@ -174,16 +177,18 @@ class AnalyticHierarchical[
 
     @property
     @abstractmethod
+    @override
     def lwr_man(
         self,
     ) -> AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
 
+    @override
     def to_natural_likelihood(
         self,
-        p: Point[Mean, Self],
+        params: Point[Mean, Self],
     ) -> Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]]:
         """Convert mean parameters to natural parameters for lower likelihood."""
-        obs_means, lwr_int_means, lat_means = self.split_params(p)
+        obs_means, lwr_int_means, lat_means = self.split_params(params)
         lwr_lat_means = self.lat_man.split_params(lat_means)[0]
         lwr_means = self.lwr_man.join_params(obs_means, lwr_int_means, lwr_lat_means)
         return self.lwr_man.to_natural_likelihood(lwr_means)

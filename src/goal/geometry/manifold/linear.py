@@ -170,8 +170,8 @@ SubCodomain = TypeVar("SubCodomain", bound="Manifold", contravariant=True)
 
 @dataclass(frozen=True)
 class AffineMap(
-    Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]],
     Generic[Rep, Domain, SubCodomain, Codomain],
+    Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]],
 ):
     """Affine transformation targeting a subspace of the codomain.
 

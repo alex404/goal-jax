@@ -122,7 +122,7 @@ def test_single_model(
 
     # Fit LGM model
     means = lgm_man.average_sufficient_statistic(sample_data)
-    logger.info(f"Mean parameters: {means.params}")
+    logger.info(f"Mean parameters: {means.array}")
 
     # Natural -> Mean recovery
     params = lgm_man.to_natural(means)
@@ -130,37 +130,37 @@ def test_single_model(
     # Add validation check and logging
     valid = bool(lgm_man.check_natural_parameters(params))
     logger.info("Natural parameter check for %s: %s", type(lgm_man).__name__, valid)
-    assert (
-        valid
-    ), f"Invalid natural parameters after fitting for {type(lgm_man).__name__}"
+    assert valid, (
+        f"Invalid natural parameters after fitting for {type(lgm_man).__name__}"
+    )
 
     remeans = lgm_man.to_mean(params)
     reparams = lgm_man.to_natural(remeans)
-    logger.info(f"Mean parameters: {means.params}")
-    logger.info(f"Remean parameters: {remeans.params}")
-    logger.info(f"Natural parameters: {params.params}")
-    logger.info(f"ReNatural parameters: {reparams.params}")
+    logger.info(f"Mean parameters: {means.array}")
+    logger.info(f"Remean parameters: {remeans.array}")
+    logger.info(f"Natural parameters: {params.array}")
+    logger.info(f"ReNatural parameters: {reparams.array}")
 
     assert jnp.allclose(
-        remeans.params, means.params, rtol=relative_tol, atol=absolute_tol
+        remeans.array, means.array, rtol=relative_tol, atol=absolute_tol
     )
 
     assert jnp.allclose(
-        reparams.params, params.params, rtol=relative_tol, atol=absolute_tol
+        reparams.array, params.array, rtol=relative_tol, atol=absolute_tol
     )
 
     # Test parameter recovery
     recovered_mean_params = lgm_man.to_mean(params)
     assert jnp.allclose(
-        recovered_mean_params.params,
-        means.params,
+        recovered_mean_params.array,
+        means.array,
         rtol=relative_tol,
         atol=absolute_tol,
     ), "Failed to recover mean parameters"
 
     # Convert to normal model
     nor_params = lgm_man.to_normal(params)
-    logger.info(f"Normal natural parameters: {nor_params.params}")
+    logger.info(f"Normal natural parameters: {nor_params.array}")
 
     # Compare log-partition functions
     logger.info("\nComparing log partition functions:")
@@ -177,20 +177,20 @@ def test_single_model(
     logger.info(f"LGM average log-density: {lgm_ll}")
     logger.info(f"Normal average log-density: {nor_ll}")
 
-    assert jnp.allclose(
-        lgm_ll, nor_ll, rtol=relative_tol, atol=absolute_tol
-    ), "Log-likelihood differs between LGM and Normal"
+    assert jnp.allclose(lgm_ll, nor_ll, rtol=relative_tol, atol=absolute_tol), (
+        "Log-likelihood differs between LGM and Normal"
+    )
 
     # Compare to scipy
     mean, cov = nor_man.split_mean_covariance(nor_man.to_mean(nor_params))
     scipy_ll = scipy_log_likelihood(
-        sample_data, mean.params, nor_man.cov_man.to_dense(cov)
+        sample_data, mean.array, nor_man.cov_man.to_dense(cov)
     )
     logger.info(f"Scipy average log-density: {scipy_ll}")
 
-    assert jnp.allclose(
-        lgm_ll, scipy_ll, rtol=relative_tol, atol=absolute_tol
-    ), "Log-likelihood differs from scipy implementation"
+    assert jnp.allclose(lgm_ll, scipy_ll, rtol=relative_tol, atol=absolute_tol), (
+        "Log-likelihood differs from scipy implementation"
+    )
 
 
 def test_model_consistency(
@@ -266,4 +266,4 @@ def test_model_consistency(
 
 
 if __name__ == "__main__":
-    pytest.main()
+    _ = pytest.main()

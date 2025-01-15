@@ -12,6 +12,7 @@ Tests cover:
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -71,7 +72,7 @@ class DifferentiableUnivariateTest[M: Differentiable](ABC):
         true_mean_params = self.model.to_mean(params)
         batch = samples[:n_samples]
         est_mean_params = self.model.average_sufficient_statistic(batch)
-        return float(jnp.mean((est_mean_params.params - true_mean_params.params) ** 2))
+        return float(jnp.mean((est_mean_params.array - true_mean_params.array) ** 2))
 
     def run_parameter_recovery_test(self, params: Point[Natural, M]) -> float | None:
         """Test parameter recovery through mean coordinates."""
@@ -90,7 +91,9 @@ class DifferentiableUnivariateTest[M: Differentiable](ABC):
         logger.info(
             "Natural parameter check for %s: %s", type(self.model).__name__, valid
         )
-        assert valid, f"Invalid natural parameters after initialization for {type(self.model).__name__}"
+        assert valid, (
+            f"Invalid natural parameters after initialization for {type(self.model).__name__}"
+        )
 
         # Integration test
         total_mass = self.run_integration_test(params).item()
@@ -127,6 +130,7 @@ class DifferentiableUnivariateTest[M: Differentiable](ABC):
 class CoMPoissonTest[M: CoMPoisson](DifferentiableUnivariateTest[M]):
     """Test harness for count-based distributions."""
 
+    @override
     def run_integration_test(self, params: Point[Natural, M]) -> Array:
         """Compute total probability mass for count-based distributions."""
         max_k = 500  # Could be made adaptive based on parameters
@@ -139,6 +143,7 @@ class CoMPoissonTest[M: CoMPoisson](DifferentiableUnivariateTest[M]):
 class VonMisesTest[M: VonMises](DifferentiableUnivariateTest[M]):
     """Test harness for VonMises distribution."""
 
+    @override
     def run_integration_test(self, params: Point[Natural, M]) -> Array:
         """Compute total probability mass for von Mises distribution."""
         xs = jnp.linspace(-jnp.pi, jnp.pi, 1000)
@@ -150,20 +155,22 @@ class VonMisesTest[M: VonMises](DifferentiableUnivariateTest[M]):
 
 
 @dataclass
-class AnalyticUnivariateTest[M: Analytic](DifferentiableUnivariateTest[M]):
+class AnalyticUnivariateTest[M: Analytic](DifferentiableUnivariateTest[M], ABC):
     """Base test harness defining the testing protocol."""
 
+    @override
     def run_parameter_recovery_test(self, params: Point[Natural, M]) -> float | None:
         """Test parameter recovery through mean coordinates."""
         mean_params = self.model.to_mean(params)
         recovered_params = self.model.to_natural(mean_params)
-        return float(jnp.mean((recovered_params.params - params.params) ** 2))
+        return float(jnp.mean((recovered_params.array - params.array) ** 2))
 
 
 @dataclass
 class CategoricalTest[M: Categorical](AnalyticUnivariateTest[M]):
     """Test harness for Categorical distribution."""
 
+    @override
     def run_integration_test(self, params: Point[Natural, M]) -> Array:
         """Compute total probability mass for categorical distribution."""
         xs = jnp.arange(self.model.n_categories)
@@ -175,6 +182,7 @@ class CategoricalTest[M: Categorical](AnalyticUnivariateTest[M]):
 class PoissonTest[M: Poisson](AnalyticUnivariateTest[M]):
     """Test harness for count-based distributions."""
 
+    @override
     def run_integration_test(self, params: Point[Natural, M]) -> Array:
         """Compute total probability mass for count-based distributions."""
         max_k = 500  # Could be made adaptive based on parameters
@@ -187,11 +195,12 @@ class PoissonTest[M: Poisson](AnalyticUnivariateTest[M]):
 class NormalTest[M: FullNormal](AnalyticUnivariateTest[M]):
     """Test harness for Normal distribution."""
 
+    @override
     def run_integration_test(self, params: Point[Natural, M]) -> Array:
         """Compute total probability mass for normal distribution."""
         mean, var = self.model.split_mean_covariance(self.model.to_mean(params))
-        std = jnp.sqrt(var.params)
-        xs = jnp.linspace(mean.params - 6 * std, mean.params + 6 * std, 1000)
+        std = jnp.sqrt(var.array)
+        xs = jnp.linspace(mean.array - 6 * std, mean.array + 6 * std, 1000)
         densities = jax.vmap(self.model.density, in_axes=(None, 0))(params, xs)
         return jnp.sum(densities) * (12 * std / 1000)
 
@@ -239,24 +248,24 @@ def analyze_stats(stats: UnivariateStats) -> None:
 def assert_univariate_stats(stats: UnivariateStats) -> None:
     """Assert statistical properties of univariate model."""
     # Probability mass should integrate to 1
-    assert jnp.allclose(
-        jnp.mean(jnp.array(stats.total_mass)), 1.0, rtol=1e-2
-    ), f"{stats.model_name} total probability mass deviates significantly from 1"
+    assert jnp.allclose(jnp.mean(jnp.array(stats.total_mass)), 1.0, rtol=1e-2), (
+        f"{stats.model_name} total probability mass deviates significantly from 1"
+    )
 
     # Check parameter bounds
 
     # MSE should decrease with sample size
     mse_array = jnp.array(stats.mse_progression)
     mean_mses = jnp.mean(mse_array, axis=0)
-    assert all(
-        mean_mses[i] > mean_mses[i + 1] for i in range(len(mean_mses) - 1)
-    ), f"{stats.model_name} MSE did not consistently decrease"
+    assert all(mean_mses[i] > mean_mses[i + 1] for i in range(len(mean_mses) - 1)), (
+        f"{stats.model_name} MSE did not consistently decrease"
+    )
 
     # Parameter recovery should be accurate if available
     if stats.param_recovery_error is not None:
-        assert (
-            jnp.mean(jnp.array(stats.param_recovery_error)) < 1e-5
-        ), f"{stats.model_name} parameter recovery error too high"
+        assert jnp.mean(jnp.array(stats.param_recovery_error)) < 1e-5, (
+            f"{stats.model_name} parameter recovery error too high"
+        )
 
 
 ### Tests ###
@@ -314,4 +323,4 @@ def test_com_poisson(caplog: pytest.LogCaptureFixture) -> None:
 
 if __name__ == "__main__":
     # This allows running the tests directly with python
-    pytest.main([__file__])
+    _ = pytest.main([__file__])

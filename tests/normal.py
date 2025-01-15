@@ -95,42 +95,42 @@ def test_single_model(
     model = Normal(sampling_mean.shape[0], rep)
 
     # Fit model
-    mean_params = model.average_sufficient_statistic(sample_data)
-    logger.info(f"Mean parameters: {mean_params.params}")
+    means = model.average_sufficient_statistic(sample_data)
+    logger.info(f"Mean parameters: {means.array}")
 
     # Convert to natural parameters
-    natural_params = model.to_natural(mean_params)
-    logger.info(f"Natural parameters: {natural_params.params}")
+    params = model.to_natural(means)
+    logger.info(f"Natural parameters: {params.array}")
 
-    valid = bool(model.check_natural_parameters(natural_params))
+    valid = bool(model.check_natural_parameters(params))
 
     logger.info("Natural parameter check for %s: %s", type(model).__name__, valid)
-    assert (
-        valid
-    ), f"Invalid natural parameters after initialization for {type(model).__name__}"
+    assert valid, (
+        f"Invalid natural parameters after initialization for {type(model).__name__}"
+    )
 
     # Compute average log-density
-    log_density = model.average_log_density(natural_params, sample_data)
+    log_density = model.average_log_density(params, sample_data)
     logger.info(f"Average log-density: {log_density}")
 
     # Test parameter recovery
-    recovered_mean_params = model.to_mean(natural_params)
+    recovered_means = model.to_mean(params)
     assert jnp.allclose(
-        recovered_mean_params.params,
-        mean_params.params,
+        recovered_means.array,
+        means.array,
         rtol=relative_tol,
         atol=absolute_tol,
     ), "Failed to recover mean parameters"
 
     # Compare to scipy implementation
-    mean, cov = model.split_mean_covariance(mean_params)
+    mean, cov = model.split_mean_covariance(means)
     dense_cov = model.cov_man.to_dense(cov)
-    scipy_ll = scipy_log_likelihood(sample_data, mean.params, dense_cov)
+    scipy_ll = scipy_log_likelihood(sample_data, mean.array, dense_cov)
     logger.info(f"Scipy average log-density: {scipy_ll}")
 
-    assert jnp.allclose(
-        log_density, scipy_ll, rtol=relative_tol, atol=absolute_tol
-    ), "Log-likelihood differs from scipy implementation"
+    assert jnp.allclose(log_density, scipy_ll, rtol=relative_tol, atol=absolute_tol), (
+        "Log-likelihood differs from scipy implementation"
+    )
 
 
 def test_model_consistency(
@@ -189,9 +189,9 @@ def test_model_consistency(
     dia_means = dia_model.to_mean(dia_natural)
     pod_means = pod_model.to_mean(pod_natural)
 
-    logger.info(f"Isotropic natural parameters: {iso_natural.params}")
-    logger.info(f"Diagonal natural parameters: {dia_natural.params}")
-    logger.info(f"PositiveDefinite natural parameters: {pod_natural.params}")
+    logger.info(f"Isotropic natural parameters: {iso_natural.array}")
+    logger.info(f"Diagonal natural parameters: {dia_natural.array}")
+    logger.info(f"PositiveDefinite natural parameters: {pod_natural.array}")
     logger.info(
         f"Isotropic precisions: {iso_model.cov_man.to_dense(iso_model.split_location_precision(iso_natural)[1])}"
     )
@@ -201,9 +201,9 @@ def test_model_consistency(
     logger.info(
         f"Positive Definite precisions: {pod_model.cov_man.to_dense(pod_model.split_location_precision(pod_natural)[1])}"
     )
-    logger.info(f"Isotropic mean parameters: {iso_means.params}")
-    logger.info(f"Diagonal mean parameters: {dia_means.params}")
-    logger.info(f"PositiveDefinite mean parameters: {pod_means.params}")
+    logger.info(f"Isotropic mean parameters: {iso_means.array}")
+    logger.info(f"Diagonal mean parameters: {dia_means.array}")
+    logger.info(f"PositiveDefinite mean parameters: {pod_means.array}")
 
     # Compare negative entropy
     iso_ne = iso_model.negative_entropy(iso_means)
@@ -223,15 +223,15 @@ def test_model_consistency(
     pod_recovered = pod_model.to_natural(pod_means)
 
     assert jnp.allclose(
-        iso_recovered.params, iso_natural.params, rtol=relative_tol, atol=absolute_tol
+        iso_recovered.array, iso_natural.array, rtol=relative_tol, atol=absolute_tol
     )
     assert jnp.allclose(
-        dia_recovered.params, dia_natural.params, rtol=relative_tol, atol=absolute_tol
+        dia_recovered.array, dia_natural.array, rtol=relative_tol, atol=absolute_tol
     )
     assert jnp.allclose(
-        pod_recovered.params, pod_natural.params, rtol=relative_tol, atol=absolute_tol
+        pod_recovered.array, pod_natural.array, rtol=relative_tol, atol=absolute_tol
     )
 
 
 if __name__ == "__main__":
-    pytest.main()
+    _ = pytest.main()

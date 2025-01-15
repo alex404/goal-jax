@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Mean, Natural, Optimizer, OptState, Point, reduce_dual
+from goal.geometry import Natural, Optimizer, OptState, Point
 from goal.models import CoMPoisson, VonMises
 
 from ...shared import initialize_jax, initialize_paths, save_results
@@ -30,7 +30,9 @@ def fit_von_mises(
     init_params = von_man.join_mean_concentration(0.0, 1.0)
 
     # Setup optimizer
-    optimizer: Optimizer[Mean, VonMises] = Optimizer.adam(learning_rate=learning_rate)
+    optimizer: Optimizer[Natural, VonMises] = Optimizer.adam(
+        learning_rate=learning_rate
+    )
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, VonMises]) -> Array:
@@ -44,7 +46,7 @@ def fit_von_mises(
         loss_val, grads = von_man.value_and_grad(cross_entropy_loss, params)
 
         # Get updates from optimizer
-        opt_state, params = optimizer.update(opt_state, reduce_dual(grads), params)
+        opt_state, params = optimizer.update(opt_state, grads, params)
 
         return (opt_state, params), loss_val
 
@@ -93,14 +95,20 @@ def fit_com_poisson(
         Results dictionary containing samples, training history and pmf evaluations
     """
     # Generate synthetic data
-    true_params = com_man.join_mode_dispersion(true_mu, true_nu)
+    true_params = com_man.join_mode_dispersion(
+        jnp.atleast_1d(true_mu), jnp.atleast_1d(true_nu)
+    )
     sample = com_man.sample(key, true_params, n_samples)
 
     # Initialize optimization at reasonable starting point
-    init_params = com_man.join_mode_dispersion(1.0, 1.0)  # Start at Poisson(1)
+    init_params = com_man.join_mode_dispersion(
+        jnp.atleast_1d(1.0), jnp.atleast_1d(1.0)
+    )  # Start at Poisson(1)
 
     # Setup optimizer
-    optimizer: Optimizer[Mean, CoMPoisson] = Optimizer.adam(learning_rate=learning_rate)
+    optimizer: Optimizer[Natural, CoMPoisson] = Optimizer.adam(
+        learning_rate=learning_rate
+    )
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, CoMPoisson]) -> Array:
@@ -111,7 +119,7 @@ def fit_com_poisson(
     ) -> tuple[tuple[OptState, Point[Natural, CoMPoisson]], Array]:
         opt_state, params = opt_state_and_params
         loss_val, grads = com_man.value_and_grad(cross_entropy_loss, params)
-        opt_state, params = optimizer.update(opt_state, reduce_dual(grads), params)
+        opt_state, params = optimizer.update(opt_state, grads, params)
         return (opt_state, params), loss_val
 
     (_, final_params), ces = jax.lax.scan(

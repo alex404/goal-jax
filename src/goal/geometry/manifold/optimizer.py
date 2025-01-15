@@ -41,15 +41,15 @@ class Optimizer[C: Coordinates, M: Manifold]:
     ) -> Optimizer[C, M]:
         return cls(sgd(learning_rate, momentum=momentum))
 
-    def init(self, point: Point[Dual[C], M]) -> OptState:
+    def init(self, point: Point[C, M]) -> OptState:
         return OptState(self.optimizer.init(point.array))
 
     def update(
         self,
         opt_state: OptState,
-        grads: Point[C, M],
-        point: Point[Dual[C], M],
-    ) -> tuple[OptState, Point[Dual[C], M]]:
+        grads: Point[Dual[C], M],
+        point: Point[C, M],
+    ) -> tuple[OptState, Point[C, M]]:
         updates, new_opt_state = self.optimizer.update(  # pyright: ignore[reportUnknownVariableType]
             grads.array,
             opt_state,  # pyright: ignore[reportArgumentType]

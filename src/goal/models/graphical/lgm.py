@@ -34,7 +34,7 @@ Implementation Structure:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, override
 
 import jax.numpy as jnp
 from jax import Array
@@ -55,6 +55,7 @@ from ...geometry import (
     Rectangular,
     Scale,
     expand_dual,
+    reduce_dual,
 )
 from ..base.gaussian.normal import (
     Covariance,
@@ -90,12 +91,12 @@ def _dual_composition[
     """
     # First multiply g @ f
     rep_gf, shape_gf, params_gf = g.rep.matmat(
-        g.shape, g_params.params, f.rep, f.shape, f_params.params
+        g.shape, g_params.array, f.rep, f.shape, f_params.array
     )
 
     # Then multiply h @ (g @ f)
     rep_hgf, shape_hgf, params_hgf = h.rep.matmat(
-        h.shape, h_params.params, rep_gf, shape_gf, params_gf
+        h.shape, h_params.array, rep_gf, shape_gf, params_gf
     )
     out_man = LinearMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
     return out_man, Point(params_hgf)
@@ -192,6 +193,7 @@ class LinearGaussianModel[
             lat_sub,
         )
 
+    @override
     def conjugation_parameters(
         self,
         lkl_params: Point[
@@ -231,13 +233,14 @@ class LinearGaussianModel[
 
         return chi, rho
 
+    @override
     def to_natural_likelihood(
-        self, p: Point[Mean, Self]
+        self, params: Point[Mean, Self]
     ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[Rep]]]:
         # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
-        obs_means, int_means, lat_means = self.split_params(p)
+        obs_means, int_means, lat_means = self.split_params(params)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
@@ -263,8 +266,10 @@ class LinearGaussianModel[
         obs_loc = obs_loc0 - obs_loc1
 
         # Return natural parameters
-        obs_params = self.obs_man.join_location_precision(obs_loc, obs_prs)
-        return self.lkl_man.join_params(obs_params, int_params)
+        obs_params = self.obs_man.join_location_precision(
+            reduce_dual(obs_loc), reduce_dual(obs_prs)
+        )
+        return self.lkl_man.join_params(obs_params, reduce_dual(int_params))
 
     def transform_observable_rep[TargetRep: PositiveDefinite](
         self,
@@ -295,7 +300,7 @@ class LinearGaussianModel[
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(obs_params)
         lat_loc, lat_prs = new_man.lat_man.split_location_precision(lat_params)
         nor_loc: Point[Natural, Euclidean] = Point(
-            jnp.concatenate([obs_loc.params, lat_loc.params])
+            jnp.concatenate([obs_loc.array, lat_loc.array])
         )
         obs_prs_array = new_man.obs_man.cov_man.to_dense(obs_prs)
         lat_prs_array = new_man.lat_man.cov_man.to_dense(lat_prs)
@@ -324,12 +329,13 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
     def __init__(self, obs_dim: int, lat_dim: int):
         super().__init__(obs_dim, Diagonal, lat_dim)
 
+    @override
     def expectation_maximization(
-        self, p: Point[Natural, Self], xs: Array
+        self, params: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm. Without further constraints the latent Normal of FA is not identifiable, and so we hold it fixed at standard normal."""
         # E-step: Compute expectations
-        q = self.expectation_step(p, xs)
+        q = self.expectation_step(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
@@ -390,12 +396,13 @@ class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
     def __init__(self, obs_dim: int, lat_dim: int):
         super().__init__(obs_dim, Scale, lat_dim)
 
+    @override
     def expectation_maximization(
-        self, p: Point[Natural, Self], xs: Array
+        self, params: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm. Without further constraints the latent Normal of PCA is not identifiable, and so we hold it fixed at standard normal."""
         # E-step: Compute expectations
-        q = self.expectation_step(p, xs)
+        q = self.expectation_step(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())

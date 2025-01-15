@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Self, override
+from typing import Any, Callable, Generic, Self, TypeVar, override
 
 import jax
 import jax.numpy as jnp
@@ -54,7 +54,6 @@ def expand_dual[C: Coordinates, M: Manifold](
     return Point(p.array)
 
 
-@dataclass(frozen=True)
 class Manifold(ABC):
     """A manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$. A manifold has a geometric structure described by:
 
@@ -120,9 +119,13 @@ class Manifold(ABC):
         return Point(params)
 
 
+C = TypeVar("C", bound=Coordinates)
+M = TypeVar("M", bound=Manifold, covariant=True)
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Point[C: Coordinates, M: Manifold]:
+class Point(Generic[C, M]):
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
     Type Parameters:
@@ -137,7 +140,7 @@ class Point[C: Coordinates, M: Manifold]:
     - Vector subtraction: $\\phi(p) - \\phi(q)$
 
     Args:
-        params: Coordinate vector $x = \\phi(p) \\in \\mathbb{R}^n$
+        array: Coordinate vector $x = \\phi(p) \\in \\mathbb{R}^n$
     """
 
     array: Array

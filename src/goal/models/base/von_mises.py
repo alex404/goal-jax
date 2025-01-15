@@ -18,14 +18,14 @@ As an exponential family, it can be written with:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.scipy.special import i0e  # type: ignore
+from jax.scipy.special import i0e  # pyright: ignore[reportUnknownVariableType]
 
-from ...geometry import Differentiable, Natural, Point
+from ...geometry import Differentiable, Mean, Natural, Point
 
 
 @dataclass(frozen=True)
@@ -33,27 +33,33 @@ class VonMises(Differentiable):
     """[previous docstring remains the same]"""
 
     @property
+    @override
     def dim(self) -> int:
         return 2
 
     @property
+    @override
     def data_dim(self) -> int:
         return 1
 
-    def _compute_sufficient_statistic(self, x: Array) -> Array:
-        return jnp.array([jnp.cos(x), jnp.sin(x)]).ravel()
+    @override
+    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
+        return Point(jnp.array([jnp.cos(x), jnp.sin(x)]).ravel())
 
+    @override
     def log_base_measure(self, x: Array) -> Array:
         return -jnp.log(2 * jnp.pi)
 
-    def _compute_log_partition_function(self, natural_params: Array) -> Array:
-        kappa = jnp.sqrt(jnp.sum(natural_params**2))
+    @override
+    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
+        kappa = jnp.sqrt(jnp.sum(params.array**2))
         # Explicitly cast i0e output to Array
         return jnp.log(i0e(kappa)) + kappa
 
     # TODO: Right now this is based on rejection sampling, but we should switch to a more efficient method that's more suitable for JAX
-    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
-        mu, kappa = self.split_mean_concentration(p)
+    @override
+    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
+        mu, kappa = self.split_mean_concentration(params)
         kappa = jnp.maximum(kappa, 1e-5)
 
         tau = 1 + jnp.sqrt(1 + 4 * kappa**2)
@@ -90,7 +96,7 @@ class VonMises(Differentiable):
         return samples[..., None]
 
     def split_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:
-        theta = p.params
+        theta = p.array
         kappa = jnp.sqrt(jnp.sum(theta**2))
         mu = jnp.arctan2(theta[1], theta[0])
         return mu, kappa

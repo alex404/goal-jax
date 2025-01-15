@@ -1,7 +1,5 @@
 """Test script for univariate auistributions in the exponential family."""
 
-from typing import Tuple
-
 import jax
 import jax.numpy as jnp
 from jax import Array
@@ -32,7 +30,7 @@ def compute_gaussian_results(
     sigma: Point[Mean, FullCovariance],
     xs: Array,
     sample_size: int,
-) -> Tuple[Array, Array, Array]:
+) -> tuple[Array, Array, Array]:
     """Run Normal computations with JAX.
 
     Returns:
@@ -58,7 +56,7 @@ def compute_categorical_results(
     model: Categorical,
     probs: Array,
     sample_size: int,
-) -> Tuple[Array, Array, Array]:
+) -> tuple[Array, Array, Array]:
     """Run Categorical computations with JAX.
 
     Returns:
@@ -91,7 +89,7 @@ def compute_poisson_results(
     rate: float,
     ks: Array,
     sample_size: int,
-) -> Tuple[Array, Array, Array]:
+) -> tuple[Array, Array, Array]:
     """Run Poisson computations with JAX.
 
     Returns:

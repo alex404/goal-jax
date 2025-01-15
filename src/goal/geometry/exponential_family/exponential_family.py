@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, Self, TypeVar, override
+from typing import Callable, Generic, Self, TypeVar, override
 
 import jax
 import jax.numpy as jnp
@@ -175,11 +175,11 @@ class Generative(ExponentialFamily, ABC):
     """
 
     @abstractmethod
-    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
+    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
         """Generate random samples from the distribution.
 
         Args:
-            p: Parameters in natural coordinates
+            params: Parameters in natural coordinates
             n: Number of samples to generate (default=1)
 
         Returns:
@@ -188,10 +188,10 @@ class Generative(ExponentialFamily, ABC):
         ...
 
     def stochastic_to_mean(
-        self, key: Array, p: Point[Natural, Self], n: int
+        self, key: Array, params: Point[Natural, Self], n: int
     ) -> Point[Mean, Self]:
         """Estimate mean parameters via Monte Carlo sampling."""
-        samples = self.sample(key, p, n)
+        samples = self.sample(key, params, n)
         return self.average_sufficient_statistic(samples)
 
 
@@ -245,14 +245,14 @@ class Differentiable(Generative, ABC):
         """
         return jnp.mean(jax.vmap(self.log_density, in_axes=(None, 0))(p, xs))
 
-    def density(self, p: Point[Natural, Self], x: Array) -> Array:
+    def density(self, params: Point[Natural, Self], x: Array) -> Array:
         """Compute density at x.
 
         $$
         p(x;\\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
         $$
         """
-        return jnp.exp(self.log_density(p, x))
+        return jnp.exp(self.log_density(params, x))
 
 
 class Analytic(Differentiable, ABC):
@@ -268,19 +268,16 @@ class Analytic(Differentiable, ABC):
     """
 
     @abstractmethod
-    def _compute_negative_entropy(self, mean_params: Array) -> Array:
-        """Internal method to compute $\\phi(\\eta)$."""
-        ...
-
-    def negative_entropy(self, p: Point[Mean, Self]) -> Array:
+    def negative_entropy(self, means: Point[Mean, Self]) -> Array:
         """Compute negative entropy $\\phi(\\eta)$."""
-        return self._compute_negative_entropy(p.array)
 
-    def to_natural(self, p: Point[Mean, Self]) -> Point[Natural, Self]:
+    def to_natural(self, means: Point[Mean, Self]) -> Point[Natural, Self]:
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
-        return reduce_dual(self.grad(self.negative_entropy, p))
+        return reduce_dual(self.grad(self.negative_entropy, means))
 
-    def relative_entropy(self, p: Point[Mean, Self], q: Point[Natural, Self]) -> Array:
+    def relative_entropy(
+        self, p_means: Point[Mean, Self], q_params: Point[Natural, Self]
+    ) -> Array:
         """Compute the entropy of $p$ relative to $q$.
 
         $D(p \\| q) = \\int p(x) \\log \\frac{p(x)}{q(x)} dx = \\theta \\cdot \\eta - \\psi(\\theta) - \\phi(\\eta)$, where
@@ -289,7 +286,9 @@ class Analytic(Differentiable, ABC):
         - $q(x;\\eta)$ has mean parameters $\\eta$.
         """
         return (
-            self.negative_entropy(p) + self.log_partition_function(q) - self.dot(q, p)
+            self.negative_entropy(p_means)
+            + self.log_partition_function(q_params)
+            - self.dot(q_params, p_means)
         )
 
     @override
@@ -310,7 +309,7 @@ class Analytic(Differentiable, ABC):
 
 
 class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
-    Pair[Location, Shape], ExponentialFamily, ABC
+    Pair[Location, Shape], ExponentialFamily
 ):
     """A product exponential family with location and shape parameters.
 
@@ -354,9 +353,34 @@ M = TypeVar("M", bound=ExponentialFamily, covariant=True)
 
 
 @dataclass(frozen=True)
-class Replicated(Generic[M], ExponentialFamily, ABC):
+class Replicated(Generic[M], ExponentialFamily):
     man: M
     n_repeats: int
+
+    def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
+        """Split replicated parameters into individual components."""
+        # Use reshape instead of array_split
+        matrix = p.array.reshape(self.n_repeats, -1)
+        return [Point(row) for row in matrix]
+
+    def join_params[C: Coordinates](self, ps: list[Point[C, M]]) -> Point[C, Self]:
+        """Join individual components into replicated parameters."""
+        if len(ps) != self.n_repeats:
+            raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
+        # Stack instead of concatenate
+        return Point(jnp.stack([p.array for p in ps]).reshape(-1))
+
+    def map_replicated[C: Coordinates](
+        self, f: Callable[[Point[C, M]], Array], p: Point[C, Self]
+    ) -> Array:
+        # Reshape instead of split
+        matrix = p.array.reshape(self.n_repeats, -1)
+
+        def g(row: Array) -> Array:
+            return f(Point(row))
+
+        # vmap the partition function computation
+        return jax.vmap(g)(matrix)
 
     @property
     @override
@@ -425,24 +449,13 @@ class Replicated(Generic[M], ExponentialFamily, ABC):
         ]
         return self.join_params(params)
 
-    def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
-        # Use reshape instead of array_split
-        matrix = p.array.reshape(self.n_repeats, -1)
-        return [Point(row) for row in matrix]
-
-    def join_params[C: Coordinates](self, ps: list[Point[C, M]]) -> Point[C, Self]:
-        if len(ps) != self.n_repeats:
-            raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
-        # Stack instead of concatenate
-        return Point(jnp.stack([p.array for p in ps]).reshape(-1))
-
 
 class GenerativeReplicated[M: Generative](Replicated[M], Generative):
     """Replicated manifold for generative exponential families."""
 
     @override
-    def sample(self, key: Array, p: Point[Natural, Self], n: int = 1) -> Array:
-        matrix = p.array.reshape(self.n_repeats, -1)
+    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
+        matrix = params.array.reshape(self.n_repeats, -1)
 
         def sample_replicate(key: Array, params: Array) -> Array:
             return self.man.sample(key, Point(params), 1)
@@ -457,21 +470,19 @@ class GenerativeReplicated[M: Generative](Replicated[M], Generative):
 
 
 class DifferentiableReplicated[M: Differentiable](
-    GenerativeReplicated[M], Differentiable, ABC
+    Differentiable, GenerativeReplicated[M]
 ):
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         # Reshape instead of split
-        matrix = params.array.reshape(self.n_repeats, -1)
-        # vmap the partition function computation
-        return jnp.sum(jax.vmap(self.man.log_partition_function)(matrix))
+        return jnp.sum(self.map_replicated(self.man.log_partition_function, params))
 
 
-class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic, ABC):
-    def _compute_negative_entropy(self, mean_params: Array) -> Array:
-        params_matrix = mean_params.reshape(self.n_repeats, -1)
-        # vmap the entropy computation
-        return jnp.sum(jax.vmap(self.man._compute_negative_entropy)(params_matrix))
+class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic):
+    @override
+    def negative_entropy(self, means: Point[Mean, Self]) -> Array:
+        # Reshape instead of split
+        return jnp.sum(self.map_replicated(self.man.negative_entropy, means))
 
 
 class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
@@ -482,12 +493,14 @@ class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
     def __init__(self, lsh_man: LocationShape[Location, Shape]):
         super().__init__(lsh_man, lsh_man.fst_man)
 
+    @override
     def project[C: Coordinates](
         self, p: Point[C, LocationShape[Location, Shape]]
     ) -> Point[C, Location]:
         first, _ = self.sup_man.split_params(p)
         return first
 
+    @override
     def translate[C: Coordinates](
         self, p: Point[C, LocationShape[Location, Shape]], q: Point[C, Location]
     ) -> Point[C, LocationShape[Location, Shape]]:
@@ -523,15 +536,17 @@ class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily]
         sup_man = Replicated(ls_man, n_neurons)
         super().__init__(sup_man, loc_man)
 
+    @override
     def project[C: Coordinates](
         self, p: Point[C, Replicated[LocationShape[Loc, Shp]]]
     ) -> Point[C, Replicated[Loc]]:
         """Project to location parameters $(l_1,\\ldots,l_n)$."""
-        params_matrix = p.params.reshape(self.sup_man.n_repeats, -1)
+        matrix = p.array.reshape(self.sup_man.n_repeats, -1)
         loc_dim = self.sub_man.man.dim
-        loc_params = params_matrix[:, :loc_dim]
+        loc_params = matrix[:, :loc_dim]
         return Point(loc_params.reshape(-1))
 
+    @override
     def translate[C: Coordinates](
         self,
         p: Point[C, Replicated[LocationShape[Loc, Shp]]],
@@ -542,8 +557,8 @@ class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily]
         Given original parameters $((l_1,s_1),\\ldots,(l_n,s_n))$ and new locations
         $(l_1',\\ldots,l_n')$, returns $((l_1',s_1),\\ldots,(l_n',s_n))$.
         """
-        params_matrix = p.params.reshape(self.sup_man.n_repeats, -1)
+        matrix = p.array.reshape(self.sup_man.n_repeats, -1)
         loc_dim = self.sub_man.man.dim
-        q_matrix = q.params.reshape(self.sub_man.n_repeats, -1)
-        params_matrix = params_matrix.at[:, :loc_dim].add(q_matrix)
-        return Point(params_matrix.reshape(-1))
+        q_matrix = q.array.reshape(self.sub_man.n_repeats, -1)
+        matrix = matrix.at[:, :loc_dim].add(q_matrix)
+        return Point(matrix.reshape(-1))

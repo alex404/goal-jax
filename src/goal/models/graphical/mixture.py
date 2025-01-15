@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from functools import reduce
 from operator import add
-from typing import Self
+from typing import Self, override
 
 import jax.numpy as jnp
 from jax import Array
@@ -104,6 +104,27 @@ class DifferentiableMixture[
         Rectangular, Observable, SubObservable, Categorical, Categorical
     ],
 ):
+    # Mixture methods
+
+    def split_natural_mixture(
+        self, p: Point[Natural, Self]
+    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
+        """Split a mixture model in natural coordinates into components and prior."""
+
+        lkl_params, prr_params = self.split_conjugated(p)
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        int_cols = self.int_man.to_columns(int_mat)
+        components = [obs_bias]  # First component
+
+        for col in int_cols:
+            comp = self.obs_sub.translate(obs_bias, col)
+            components.append(comp)
+
+        return components, prr_params
+
+    # Exponential family methods
+
+    @override
     def conjugation_parameters(
         self,
         lkl_params: Point[
@@ -135,22 +156,6 @@ class DifferentiableMixture[
 
         return rho_0, Point(jnp.array(rho_z_components))
 
-    def split_natural_mixture(
-        self, p: Point[Natural, Self]
-    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
-        """Split a mixture model in natural coordinates into components and prior."""
-
-        lkl_params, prr_params = self.split_conjugated(p)
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
-        int_cols = self.int_man.to_columns(int_mat)
-        components = [obs_bias]  # First component
-
-        for col in int_cols:
-            comp = self.obs_sub.translate(obs_bias, col)
-            components.append(comp)
-
-        return components, prr_params
-
 
 class AnalyticMixture[Observable: Analytic](
     DifferentiableMixture[Observable, Observable],
@@ -169,8 +174,9 @@ class AnalyticMixture[Observable: Analytic](
     def __init__(self, obs_man: Observable, n_categories: int):
         super().__init__(obs_man, n_categories, IdentitySubspace(obs_man))
 
+    @override
     def to_natural_likelihood(
-        self, p: Point[Mean, Self]
+        self, params: Point[Mean, Self]
     ) -> Point[Natural, AffineMap[Rectangular, Categorical, Observable, Observable]]:
         """Map mean harmonium parameters to natural likelihood parameters.
 
@@ -179,7 +185,7 @@ class AnalyticMixture[Observable: Analytic](
         2. Convert each component mean parameter to natural parameters
         3. Extract base and interaction terms
         """
-        comp_means, _ = self.split_mean_mixture(p)
+        comp_means, _ = self.split_mean_mixture(params)
         nat_comps = [self.obs_man.to_natural(comp) for comp in comp_means]
         obs_bias = nat_comps[0]
         int_cols = [comp - obs_bias for comp in nat_comps[1:]]

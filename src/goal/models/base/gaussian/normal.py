@@ -29,7 +29,7 @@ This can be expressed in exponontial family coordinates as
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, override
 
 import jax
 import jax.numpy as jnp
@@ -37,7 +37,6 @@ from jax import Array
 
 from ....geometry import (
     Analytic,
-    Coordinates,
     Diagonal,
     ExponentialFamily,
     Identity,
@@ -49,7 +48,7 @@ from ....geometry import (
     Scale,
     SquareMap,
     Subspace,
-    reduce_dual,
+    expand_dual,
 )
 
 type FullNormal = Normal[PositiveDefinite]
@@ -79,25 +78,29 @@ class Euclidean(ExponentialFamily):
     _dim: int
 
     @property
+    @override
     def dim(self) -> int:
         """Return the dimension of the space."""
         return self._dim
 
     @property
+    @override
     def data_dim(self) -> int:
         return self.dim
 
-    def _compute_sufficient_statistic(self, x: Array) -> Array:
+    @override
+    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
         """Identity map on the data."""
-        return jnp.atleast_1d(x)
+        return Point(jnp.atleast_1d(x))
 
+    @override
     def log_base_measure(self, x: Array) -> Array:
         """Standard normal base measure including normalizing constant."""
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
 @dataclass(frozen=True)
-class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):
+class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):  # pyright: ignore[reportUnsafeMultipleInheritance]
     """Shape component of a Normal distribution.
 
     This represents the covariance structure of a Normal distribution through different matrix representations:
@@ -115,20 +118,34 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
     def __init__(self, data_dim: int, rep: type[Rep]):
         super().__init__(rep(), Euclidean(data_dim))
 
+    # Core class methods
+
+    def add_jitter(
+        self, params: Point[Natural, Self], epsilon: float
+    ) -> Point[Natural, Self]:
+        """Add epsilon to diagonal elements while preserving matrix structure."""
+        return self.map_diagonal(params, lambda x: x + epsilon)
+
+    # Exponential family methods
+
     @property
+    @override
     def data_dim(self) -> int:
         return self.shape[0]
 
-    def _compute_sufficient_statistic(self, x: Array) -> Array:
+    @override
+    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
         """Outer product with appropriate covariance structure."""
         x = jnp.atleast_1d(x)
         x_point: Point[Mean, Euclidean] = Point(x)
-        return self.outer_product(x_point, x_point).params
+        return self.outer_product(x_point, x_point)
 
+    @override
     def log_base_measure(self, x: Array) -> Array:
         """Base measure matches location component."""
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
+    @override
     def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
         """Check if natural parameters (precision matrix) are valid.
 
@@ -140,6 +157,7 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
         is_pd = self.is_positive_definite(params)
         return finite & is_pd
 
+    @override
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Point[Natural, Self]:
@@ -161,12 +179,6 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
         big_l = noise_scale * jax.random.normal(key, (self.data_dim, self.data_dim))
         base_cov = jnp.eye(self.data_dim) + big_l @ big_l.T
         return self.from_dense(base_cov)
-
-    def add_jitter(
-        self, params: Point[Natural, Self], epsilon: float
-    ) -> Point[Natural, Self]:
-        """Add epsilon to diagonal elements while preserving matrix structure."""
-        return self.map_diagonal(params, lambda x: x + epsilon)
 
 
 @dataclass(frozen=True)
@@ -215,11 +227,6 @@ class Normal[Rep: PositiveDefinite](
         )
 
     @property
-    def data_dim(self) -> int:
-        """Dimension of the data space."""
-        return self.fst_man.data_dim
-
-    @property
     def loc_man(self) -> Euclidean:
         """Location manifold."""
         return self.fst_man
@@ -229,80 +236,7 @@ class Normal[Rep: PositiveDefinite](
         """Covariance manifold."""
         return self.snd_man
 
-    # Core class methods
-
-    def _compute_sufficient_statistic(self, x: Array) -> Array:
-        x = jnp.atleast_1d(x)
-
-        # Create point in StandardNormal
-        x_point: Point[Mean, Euclidean] = Point(x)
-
-        # Compute outer product with appropriate structure
-        second_moment: Point[Mean, Covariance[Rep]] = self.snd_man.outer_product(
-            x_point, x_point
-        )
-
-        # Concatenate components into parameter vector
-        return self.join_params(x_point, second_moment).params
-
-    def log_base_measure(self, x: Array) -> Array:
-        return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
-
-    def _compute_log_partition_function(self, natural_params: Array) -> Array:
-        loc, precision = self.split_location_precision(Point(natural_params))
-
-        covariance = reduce_dual(self.snd_man.inverse(precision))
-        mean = self.snd_man(covariance, loc)
-
-        return 0.5 * (jnp.dot(loc.params, mean.params) - self.snd_man.logdet(precision))
-
-    def _compute_negative_entropy(self, mean_params: Array) -> Array:
-        mean, second_moment = self.split_mean_second_moment(Point(mean_params))
-
-        # Compute covariance without forming full matrices
-        outer_mean = self.snd_man.outer_product(mean, mean)
-        covariance = second_moment - outer_mean
-        log_det = self.snd_man.logdet(covariance)
-
-        return -0.5 * (self.data_dim * (1 + jnp.log(2 * jnp.pi)) + log_det)
-
-    def sample(
-        self,
-        key: Array,
-        p: Point[Natural, Self],
-        n: int = 1,
-    ) -> Array:
-        mean_point = self.to_mean(p)
-        mean, covariance = self.split_mean_covariance(mean_point)
-
-        # Draw standard normal samples
-        key = jnp.asarray(key)
-        shape = (n, self.data_dim)
-        z = jax.random.normal(key, shape)
-
-        # Transform samples using Cholesky
-        samples = self.snd_man.rep.apply_cholesky(
-            self.snd_man.shape, covariance.params, z
-        )
-        return mean.params + samples
-
-    # Additional methods
-
-    def split_params[C: Coordinates](
-        self, p: Point[C, Self]
-    ) -> tuple[Point[C, Euclidean], Point[C, Covariance[Rep]]]:
-        """Split parameters into location and scale components.
-
-        Args:
-            p: Point in Normal manifold coordinates
-
-        Returns:
-            Tuple of (location vector, covariance matrix)
-        """
-        loc_params = p.params[: self.data_dim]
-        cov_params = p.params[self.data_dim :]
-
-        return Point(loc_params), Point(cov_params)
+    # Normal-specific methods
 
     def join_mean_covariance(
         self,
@@ -373,7 +307,7 @@ class Normal[Rep: PositiveDefinite](
 
         # We need to rescale off-precision params
         if not isinstance(self.snd_man.rep, Diagonal):
-            precision_params = theta2.params
+            precision_params = theta2.array
             i_diag = (
                 jnp.triu_indices(self.data_dim)[0] == jnp.triu_indices(self.data_dim)[1]
             )
@@ -400,7 +334,7 @@ class Normal[Rep: PositiveDefinite](
         if isinstance(self.snd_man.rep, Scale):
             scl = self.data_dim * scl
 
-        theta2 = scl * precision.params
+        theta2 = scl * precision.array
 
         # We need to rescale off-precision params
         if not isinstance(self.snd_man.rep, Diagonal):
@@ -413,68 +347,6 @@ class Normal[Rep: PositiveDefinite](
             theta2 = scaled_params
 
         return self.join_params(loc, Point(theta2))
-
-    def initialize(
-        self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
-        """Initialize means with normal and covariance matrix with random diagonal structure."""
-        mean = self.loc_man.initialize(key, location, shape)
-        cov = self.cov_man.initialize(key, location=location, shape=shape)
-        return self.join_location_precision(mean, cov)
-
-    def initialize_from_sample(
-        self,
-        key: Array,
-        sample: Array,
-        location: float = 0.0,  # renamed from location
-        shape: float = 0.1,  # renamed from shape
-    ) -> Point[Natural, Self]:
-        """Initialize Normal parameters from sample data.
-
-        Computes mean and second moments from sample data, then adds regularizing
-        noise to avoid degenerate cases. The noise is scaled relative to the
-        observed variance to maintain reasonable parameter ranges.
-
-        Args:
-            key: Random key
-            sample: Sample data to initialize from
-            location: Scale for additive noise to mean (relative to observed std dev)
-            shape: Scale for multiplicative noise to covariance
-
-        Returns:
-            Point in natural coordinates
-        """
-        # Get average sufficient statistics (mean and second moment)
-        avg_stats = self.average_sufficient_statistic(sample)
-        mean, second_moment = self.split_mean_second_moment(avg_stats)
-
-        # Add noise to mean based on observed scale
-        key_mean, key_cov = jax.random.split(key)
-        observed_scale = jnp.sqrt(jnp.diag(self.cov_man.to_dense(second_moment)))
-        mean_noise = observed_scale * (
-            location + shape * jax.random.normal(key_mean, mean.params.shape)
-        )
-        mean: Point[Mean, Euclidean] = Point(mean.params + mean_noise)
-
-        # Add multiplicative noise to second moment
-        noise = shape * jax.random.normal(key_cov, (self.data_dim, self.data_dim))
-        noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
-        noise_matrix: Point[Mean, Covariance[Rep]] = self.cov_man.from_dense(noise)
-        second_moment: Point[Mean, Covariance[Rep]] = Point(
-            second_moment.params * noise_matrix.params
-        )
-
-        # Join parameters and convert to natural coordinates
-        mean_params = self.join_mean_second_moment(mean, second_moment)
-        return self.to_natural(mean_params)
-
-    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
-        """Check if natural parameters are valid.
-
-        Delegates to Covariance check after extracting precision component.
-        """
-        _, precision = self.split_location_precision(params)
-        return self.cov_man.check_natural_parameters(precision)
 
     def embed_rep[TargetRep: PositiveDefinite](
         self, target_man: Normal[TargetRep], p: Point[Natural, Self]
@@ -574,6 +446,138 @@ class Normal[Rep: PositiveDefinite](
             self.cov_man.from_dense(jnp.eye(self.data_dim)),
         )
 
+    @property
+    @override
+    def data_dim(self) -> int:
+        """Dimension of the data space."""
+        return self.fst_man.data_dim
+
+    # Core class methods
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
+        x = jnp.atleast_1d(x)
+
+        # Create point in StandardNormal
+        x_point: Point[Mean, Euclidean] = Point(x)
+
+        # Compute outer product with appropriate structure
+        second_moment: Point[Mean, Covariance[Rep]] = self.snd_man.outer_product(
+            x_point, x_point
+        )
+
+        # Concatenate components into parameter vector
+        return self.join_params(x_point, second_moment)
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
+
+    @override
+    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
+        loc, precision = self.split_location_precision(params)
+
+        covariance = self.snd_man.inverse(precision)
+        mean = self.snd_man(covariance, expand_dual(loc))
+
+        return 0.5 * (self.loc_man.dot(loc, mean) - self.snd_man.logdet(precision))
+
+    @override
+    def negative_entropy(self, means: Point[Mean, Self]) -> Array:
+        mean, second_moment = self.split_mean_second_moment(means)
+
+        # Compute covariance without forming full matrices
+        outer_mean = self.snd_man.outer_product(mean, mean)
+        covariance = second_moment - outer_mean
+        log_det = self.snd_man.logdet(covariance)
+
+        return -0.5 * (self.data_dim * (1 + jnp.log(2 * jnp.pi)) + log_det)
+
+    @override
+    def sample(
+        self,
+        key: Array,
+        params: Point[Natural, Self],
+        n: int = 1,
+    ) -> Array:
+        mean_point = self.to_mean(params)
+        mean, covariance = self.split_mean_covariance(mean_point)
+
+        # Draw standard normal samples
+        shape = (n, self.data_dim)
+        z = jax.random.normal(key, shape)
+
+        # Transform samples using Cholesky
+        samples = self.snd_man.rep.apply_cholesky(
+            self.snd_man.shape, covariance.array, z
+        )
+        return mean.array + samples
+
+    @override
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize means with normal and covariance matrix with random diagonal structure."""
+        mean = self.loc_man.initialize(key, location, shape)
+        cov = self.cov_man.initialize(key, location=location, shape=shape)
+        return self.join_location_precision(mean, cov)
+
+    @override
+    def initialize_from_sample(
+        self,
+        key: Array,
+        sample: Array,
+        location: float = 0.0,  # renamed from location
+        shape: float = 0.1,  # renamed from shape
+    ) -> Point[Natural, Self]:
+        """Initialize Normal parameters from sample data.
+
+        Computes mean and second moments from sample data, then adds regularizing
+        noise to avoid degenerate cases. The noise is scaled relative to the
+        observed variance to maintain reasonable parameter ranges.
+
+        Args:
+            key: Random key
+            sample: Sample data to initialize from
+            location: Scale for additive noise to mean (relative to observed std dev)
+            shape: Scale for multiplicative noise to covariance
+
+        Returns:
+            Point in natural coordinates
+        """
+        # Get average sufficient statistics (mean and second moment)
+        avg_stats = self.average_sufficient_statistic(sample)
+        mean, second_moment = self.split_mean_second_moment(avg_stats)
+
+        # Add noise to mean based on observed scale
+        key_mean, key_cov = jax.random.split(key)
+        observed_scale = jnp.sqrt(jnp.diag(self.cov_man.to_dense(second_moment)))
+        mean_noise = observed_scale * (
+            location + shape * jax.random.normal(key_mean, mean.array.shape)
+        )
+        mean: Point[Mean, Euclidean] = Point(mean.array + mean_noise)
+
+        # Add multiplicative noise to second moment
+        noise = shape * jax.random.normal(key_cov, (self.data_dim, self.data_dim))
+        noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
+        noise_matrix: Point[Mean, Covariance[Rep]] = self.cov_man.from_dense(noise)
+        second_moment: Point[Mean, Covariance[Rep]] = Point(
+            second_moment.array * noise_matrix.array
+        )
+
+        # Join parameters and convert to natural coordinates
+        mean_params = self.join_mean_second_moment(mean, second_moment)
+        return self.to_natural(mean_params)
+
+    @override
+    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
+        """Check if natural parameters are valid.
+
+        Delegates to Covariance check after extracting precision component.
+        """
+        _, precision = self.split_location_precision(params)
+        return self.cov_man.check_natural_parameters(precision)
+
 
 @dataclass(frozen=True)
 class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
@@ -604,6 +608,7 @@ class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
             )
         super().__init__(sup_man, sub_man)
 
+    @override
     def project(self, p: Point[Mean, Normal[SuperRep]]) -> Point[Mean, Normal[SubRep]]:
         """Project from super-manifold to sub-manifold.
 
@@ -617,6 +622,7 @@ class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
         """
         return self.sup_man.project_rep(self.sub_man, p)
 
+    @override
     def translate(
         self, p: Point[Natural, Normal[SuperRep]], q: Point[Natural, Normal[SubRep]]
     ) -> Point[Natural, Normal[SuperRep]]:
