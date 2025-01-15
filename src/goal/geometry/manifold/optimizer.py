@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NewType
 
-from optax import (  # type: ignore
+from optax import (  # pyright: ignore[reportMissingTypeStubs]
     GradientTransformation,
-    adam,  # type: ignore
-    apply_updates,  # type: ignore
-    sgd,  # type: ignore
+    adam,  # pyright: ignore[reportUnknownVariableType]
+    apply_updates,  # pyright: ignore[reportUnknownVariableType]
+    sgd,  # pyright: ignore[reportUnknownVariableType]
 )
 
 from .manifold import Coordinates, Dual, Manifold, Point
@@ -42,7 +42,7 @@ class Optimizer[C: Coordinates, M: Manifold]:
         return cls(sgd(learning_rate, momentum=momentum))
 
     def init(self, point: Point[Dual[C], M]) -> OptState:
-        return OptState(self.optimizer.init(point.params))  # type: ignore
+        return OptState(self.optimizer.init(point.array))
 
     def update(
         self,
@@ -50,10 +50,10 @@ class Optimizer[C: Coordinates, M: Manifold]:
         grads: Point[C, M],
         point: Point[Dual[C], M],
     ) -> tuple[OptState, Point[Dual[C], M]]:
-        updates, new_opt_state = self.optimizer.update(  # type: ignore
-            grads.params,
-            opt_state,  # type: ignore
-            point.params,
+        updates, new_opt_state = self.optimizer.update(  # pyright: ignore[reportUnknownVariableType]
+            grads.array,
+            opt_state,  # pyright: ignore[reportArgumentType]
+            point.array,
         )
-        new_params = apply_updates(point.params, updates)  # type: ignore
-        return OptState(new_opt_state), Point(new_params)  # type: ignore
+        new_params = apply_updates(point.array, updates)  # pyright: ignore[reportUnknownVariableType]
+        return OptState(new_opt_state), Point(new_params)  # pyright: ignore[reportUnknownVariableType, reportArgumentType]

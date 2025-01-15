@@ -36,14 +36,14 @@ goal = ["py.typed"]
 [tool.pyright]
 include = ["src/goal", "examples", "tests"]
 extraPaths = ["src"]
-typeCheckingMode = "strict"
+typeCheckingMode = "recommended"
 venvPath = "."
 venv = ".uvenv"
-# reportMissingTypeStubs = "warning"
-# reportUnknownVariableType = "none"
 reportUnknownParameterType = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
+reportAny = "none"
+reportExplicitAny = "none"
 
 [tool.ruff]
 src = ["src"]

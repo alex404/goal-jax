@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Self, TypeVar
+from typing import Any, Callable, Generic, Self, TypeVar, override
 
 from jax import Array
 
@@ -56,6 +56,7 @@ class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
     cod_man: Codomain
 
     @property
+    @override
     def dim(self) -> int:
         return self.rep.num_params(self.shape)
 
@@ -70,7 +71,7 @@ class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
         p: Point[Dual[C], Domain],
     ) -> Point[C, Codomain]:
         """Apply the linear map to transform a point."""
-        return Point(self.rep.matvec(self.shape, f.params, p.params))
+        return Point(self.rep.matvec(self.shape, f.array, p.array))
 
     def transpose_manifold(self) -> LinearMap[Rep, Codomain, Domain]:
         """Transpose the linear map."""
@@ -84,14 +85,14 @@ class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
         self, w: Point[C, Codomain], v: Point[C, Domain]
     ) -> Point[C, Self]:
         """Outer product of points."""
-        return Point(self.rep.outer_product(w.params, v.params))
+        return Point(self.rep.outer_product(w.array, v.array))
 
     def transpose[C: Coordinates](
         self: LinearMap[Rep, Domain, Codomain],
         f: Point[C, LinearMap[Rep, Domain, Codomain]],
     ) -> Point[C, LinearMap[Rep, Codomain, Domain]]:
         """Transpose of the linear map."""
-        return Point(self.rep.transpose(self.shape, f.params))
+        return Point(self.rep.transpose(self.shape, f.array))
 
     def transpose_apply[C: Coordinates](
         self: LinearMap[Rep, Domain, Codomain],
@@ -105,18 +106,18 @@ class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
 
     def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Convert to dense matrix representation."""
-        return self.rep.to_dense(self.shape, f.params)
+        return self.rep.to_dense(self.shape, f.array)
 
     def to_columns[C: Coordinates](self, f: Point[C, Self]) -> list[Point[C, Codomain]]:
         """Split linear map into list of column vectors as points in the codomain."""
-        cols = self.rep.to_cols(self.shape, f.params)
+        cols = self.rep.to_cols(self.shape, f.array)
         return [Point(col) for col in cols]
 
     def from_columns[C: Coordinates](
         self: LinearMap[Rep, Domain, Codomain], cols: list[Point[C, Codomain]]
     ) -> Point[C, LinearMap[Rep, Domain, Codomain]]:
         """Construct linear map from list of column vectors as points."""
-        col_arrays = [col.params for col in cols]
+        col_arrays = [col.array for col in cols]
         params = self.rep.from_cols(col_arrays)
         return Point(params)
 
@@ -132,7 +133,7 @@ class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
         Returns:
             New point with modified diagonal elements
         """
-        return Point(self.rep.map_diagonal(self.shape, f.params, diagonal_fn))
+        return Point(self.rep.map_diagonal(self.shape, f.array, diagonal_fn))
 
 
 @dataclass(frozen=True)
@@ -150,15 +151,15 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
     def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""
-        return Point(self.rep.inverse(self.shape, f.params))
+        return Point(self.rep.inverse(self.shape, f.array))
 
     def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Log determinant (requires square matrix)."""
-        return self.rep.logdet(self.shape, f.params)
+        return self.rep.logdet(self.shape, f.array)
 
     def is_positive_definite[C: Coordinates](self, p: Point[C, Self]) -> Array:
         """Check if matrix is positive definite."""
-        return self.rep.is_positive_definite(self.shape, p.params)
+        return self.rep.is_positive_definite(self.shape, p.array)
 
 
 ### Affine Maps ###

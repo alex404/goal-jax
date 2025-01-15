@@ -22,7 +22,7 @@ Identity        | $O(1)$     | $O(1)$    | $O(1)$
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Callable, override
 
 import jax
 import jax.numpy as jnp
@@ -174,46 +174,55 @@ class Rectangular(MatrixRep):
     """Full matrix representation with no special structure."""
 
     @classmethod
+    @override
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         matrix = cls.to_dense(shape, params)
         return jnp.dot(matrix, vector)
 
     @classmethod
+    @override
     def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_dense(shape, params).T
         return matrix.reshape(-1)
 
     @classmethod
+    @override
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         return params.reshape(shape)
 
     @classmethod
+    @override
     def to_cols(cls, shape: tuple[int, int], params: Array) -> list[Array]:
         matrix = cls.to_dense(shape, params)
         return [matrix[:, j] for j in range(shape[1])]
 
     @classmethod
+    @override
     def from_cols(cls, cols: list[Array]) -> Array:
         """Construct parameter vector from list of column vectors."""
         matrix = jnp.column_stack(cols)
         return cls.from_dense(matrix)
 
     @classmethod
+    @override
     def from_dense(cls, matrix: Array) -> Array:
         return matrix.reshape(-1)
 
     @classmethod
+    @override
     def num_params(cls, shape: tuple[int, int]) -> int:
         n, m = shape
         return n * m
 
     @classmethod
+    @override
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Create parameters from outer product."""
         matrix = jnp.outer(v1, v2)
         return cls.from_dense(matrix)
 
     @classmethod
+    @override
     def map_diagonal(
         cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
     ) -> Array:
@@ -237,19 +246,19 @@ class Square(Rectangular):
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Check if symmetric matrix is positive definite using eigenvalues."""
         matrix = cls.to_dense(shape, params)
-        eigenvals = jnp.linalg.eigvalsh(matrix)  # type: ignore
+        eigenvals = jnp.linalg.eigvalsh(matrix)  # pyright: ignore[reportUnknownVariableType]
         return jnp.all(eigenvals > 0)
 
     @classmethod
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_dense(shape, params)
-        inv = jnp.linalg.inv(matrix)  # type: ignore
+        inv = jnp.linalg.inv(matrix)  # pyright: ignore[reportUnknownVariableType]
         return cls.from_dense(inv)
 
     @classmethod
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_dense(shape, params)
-        return jnp.linalg.slogdet(matrix)[1]  # type: ignore
+        return jnp.linalg.slogdet(matrix)[1]  # pyright: ignore[reportUnknownVariableType]
 
 
 class Symmetric(Square):
@@ -262,11 +271,13 @@ class Symmetric(Square):
     """
 
     @classmethod
+    @override
     def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
         """Symmetric matrices are self-transpose."""
         return params
 
     @classmethod
+    @override
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         matrix = jnp.zeros((n, n))
@@ -275,12 +286,14 @@ class Symmetric(Square):
         return matrix + jnp.triu(matrix, k=1).T
 
     @classmethod
+    @override
     def from_dense(cls, matrix: Array) -> Array:
         n = matrix.shape[0]
         i_upper = jnp.triu_indices(n)
         return matrix[i_upper]
 
     @classmethod
+    @override
     def num_params(cls, shape: tuple[int, int]) -> int:
         n = shape[0]
         return (n * (n + 1)) // 2
@@ -303,6 +316,20 @@ class PositiveDefinite(Symmetric):
     """
 
     @classmethod
+    def cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Compute lower triangular Cholesky factor L where A = LL^T."""
+        matrix = cls.to_dense(shape, params)
+        return jnp.linalg.cholesky(matrix)  # pyright: ignore[reportUnknownVariableType]
+
+    @classmethod
+    def apply_cholesky(
+        cls, shape: tuple[int, int], params: Array, vector: Array
+    ) -> Array:
+        chol = cls.cholesky(shape, params)
+        return (chol @ vector.T).T
+
+    @classmethod
+    @override
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Check positive definiteness via Cholesky decomposition.
 
@@ -315,6 +342,7 @@ class PositiveDefinite(Symmetric):
         return jnp.all(jnp.isfinite(chol))
 
     @classmethod
+    @override
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         """Inverse via Cholesky decomposition."""
         chol = cls.cholesky(shape, params)
@@ -326,23 +354,11 @@ class PositiveDefinite(Symmetric):
         return cls.from_dense(inv)
 
     @classmethod
+    @override
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         """Log determinant via Cholesky."""
         chol = cls.cholesky(shape, params)
         return 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
-
-    @classmethod
-    def cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
-        """Compute lower triangular Cholesky factor L where A = LL^T."""
-        matrix = cls.to_dense(shape, params)
-        return jnp.linalg.cholesky(matrix)  # type: ignore
-
-    @classmethod
-    def apply_cholesky(
-        cls, shape: tuple[int, int], params: Array, vector: Array
-    ) -> Array:
-        chol = cls.cholesky(shape, params)
-        return (chol @ vector.T).T
 
 
 class Diagonal(PositiveDefinite):
@@ -355,56 +371,68 @@ class Diagonal(PositiveDefinite):
     """
 
     @classmethod
+    @override
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Check if all diagonal elements are positive."""
         return jnp.all(params > 0)
 
     @classmethod
+    @override
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return params * vector
 
     @classmethod
+    @override
     def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
         return params
 
     @classmethod
+    @override
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         matrix = jnp.zeros((n, n))
         return matrix.at[jnp.diag_indices(n)].set(params)
 
     @classmethod
+    @override
     def from_dense(cls, matrix: Array) -> Array:
         return jnp.diag(matrix)
 
     @classmethod
+    @override
     def num_params(cls, shape: tuple[int, int]) -> int:
         return shape[0]
 
     @classmethod
+    @override
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         return 1.0 / params
 
     @classmethod
+    @override
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         return jnp.sum(jnp.log(params))
 
     @classmethod
+    @override
     def cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
         return jnp.sqrt(params)
 
     @classmethod
+    @override
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Create parameters from outer product, keeping only diagonal."""
         return v1 * v2
 
     @classmethod
+    @override
     def apply_cholesky(
         cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
         return jnp.sqrt(params) * vector
 
     @classmethod
+    @override
     def map_diagonal(
         cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
     ) -> Array:
@@ -421,38 +449,46 @@ class Scale(Diagonal):
     """
 
     @classmethod
+    @override
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Check if scale factor is positive."""
         return params[0] > 0
 
     @classmethod
+    @override
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return params[0] * vector
 
     @classmethod
+    @override
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return params[0] * jnp.eye(n)
 
     @classmethod
+    @override
     def from_dense(cls, matrix: Array) -> Array:
         return jnp.array([jnp.mean(jnp.diag(matrix))])
 
     @classmethod
+    @override
     def num_params(cls, shape: tuple[int, int]) -> int:
         return 1
 
     @classmethod
+    @override
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return n * jnp.log(params[0])
 
     @classmethod
+    @override
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Average outer product to single scale parameter."""
         return jnp.array([jnp.mean(v1 * v2)])
 
     @classmethod
+    @override
     def map_diagonal(
         cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
     ) -> Array:
@@ -469,42 +505,51 @@ class Identity(Scale):
     """
 
     @classmethod
+    @override
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         return vector
 
     @classmethod
+    @override
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Identity is always positive definite."""
         return jnp.array(True)
 
     @classmethod
+    @override
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return jnp.eye(n)
 
     @classmethod
+    @override
     def from_dense(cls, matrix: Array) -> Array:
         _ = matrix
         return jnp.array([])
 
     @classmethod
+    @override
     def num_params(cls, shape: tuple[int, int]) -> int:
         return 0
 
     @classmethod
+    @override
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         return params
 
     @classmethod
+    @override
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         return jnp.array(0.0)
 
     @classmethod
+    @override
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Identity ignores input vectors."""
         return jnp.array([])
 
     @classmethod
+    @override
     def apply_cholesky(
         cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:

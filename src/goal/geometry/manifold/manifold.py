@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Self, TypeVar
+from typing import Any, Callable, Self, override
 
 import jax
 import jax.numpy as jnp
@@ -28,7 +28,7 @@ class Coordinates:
     ...
 
 
-class Dual[C: Coordinates](Coordinates, ABC):
+class Dual[C: Coordinates](Coordinates):
     """Dual coordinates to a given coordinate system.
 
     For a vector space $V$, its dual space $V^*$ consists of linear functionals $f: V \\to \\mathbb{R}$.
@@ -44,14 +44,14 @@ def reduce_dual[C: Coordinates, M: Manifold](
     p: Point[Dual[Dual[C]], M],
 ) -> Point[C, M]:
     """Takes a point in the dual of the dual space and returns a point in the original space."""
-    return Point(p.params)
+    return Point(p.array)
 
 
 def expand_dual[C: Coordinates, M: Manifold](
     p: Point[C, M],
 ) -> Point[Dual[Dual[C]], M]:
     """Takes a point in the original space and returns a point in the dual of the dual space."""
-    return Point(p.params)
+    return Point(p.array)
 
 
 @dataclass(frozen=True)
@@ -84,7 +84,7 @@ class Manifold(ABC):
         ...
 
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
-        return jnp.dot(p.params, q.params)
+        return jnp.dot(p.array, q.array)
 
     def value_and_grad[C: Coordinates](
         self,
@@ -120,13 +120,9 @@ class Manifold(ABC):
         return Point(params)
 
 
-C = TypeVar("C", bound=Coordinates)
-M = TypeVar("M", bound=Manifold, covariant=True)
-
-
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Point(Generic[C, M]):
+class Point[C: Coordinates, M: Manifold]:
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
     Type Parameters:
@@ -144,36 +140,36 @@ class Point(Generic[C, M]):
         params: Coordinate vector $x = \\phi(p) \\in \\mathbb{R}^n$
     """
 
-    params: Array
+    array: Array
 
     def __array__(self) -> Array:
         """Allow numpy to treat Points as arrays."""
-        return self.params
+        return self.array
 
     def __getitem__(self, idx: int) -> Array:
-        return self.params[idx]
+        return self.array[idx]
 
     @property
     def shape(self) -> tuple[int, ...]:
-        return self.params.shape
+        return self.array.shape
 
     def __len__(self) -> int:
-        return len(self.params)
+        return len(self.array)
 
     def __add__(self, other: Point[C, M]) -> Point[C, M]:
-        return Point(self.params + other.params)
+        return Point(self.array + other.array)
 
     def __sub__(self, other: Point[C, M]) -> Point[C, M]:
-        return Point(self.params - other.params)
+        return Point(self.array - other.array)
 
     def __mul__(self, scalar: float) -> Point[C, M]:
-        return Point(scalar * self.params)
+        return Point(scalar * self.array)
 
     def __rmul__(self, scalar: float) -> Point[C, M]:
         return self.__mul__(scalar)
 
     def __truediv__(self, other: float | Array) -> Point[C, M]:
-        return Point(self.params / other)
+        return Point(self.array / other)
 
 
 @dataclass(frozen=True)
@@ -187,6 +183,7 @@ class Pair[First: Manifold, Second: Manifold](Manifold):
     """Second component manifold."""
 
     @property
+    @override
     def dim(self) -> int:
         """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim
@@ -195,8 +192,8 @@ class Pair[First: Manifold, Second: Manifold](Manifold):
         self, p: Point[C, Self]
     ) -> tuple[Point[C, First], Point[C, Second]]:
         """Split parameters into first and second components."""
-        first_params = p.params[: self.fst_man.dim]
-        second_params = p.params[self.fst_man.dim :]
+        first_params = p.array[: self.fst_man.dim]
+        second_params = p.array[self.fst_man.dim :]
         return Point(first_params), Point(second_params)
 
     def join_params[C: Coordinates](
@@ -205,7 +202,7 @@ class Pair[First: Manifold, Second: Manifold](Manifold):
         second: Point[C, Second],
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
-        return Point(jnp.concatenate([first.params, second.params]))
+        return Point(jnp.concatenate([first.array, second.array]))
 
 
 @dataclass(frozen=True)
@@ -222,6 +219,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold):
     """Third component manifold."""
 
     @property
+    @override
     def dim(self) -> int:
         """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim + self.trd_man.dim
@@ -233,9 +231,9 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold):
         first_dim = self.fst_man.dim
         second_dim = self.snd_man.dim
 
-        first_params = p.params[:first_dim]
-        second_params = p.params[first_dim : first_dim + second_dim]
-        third_params = p.params[first_dim + second_dim :]
+        first_params = p.array[:first_dim]
+        second_params = p.array[first_dim : first_dim + second_dim]
+        third_params = p.array[first_dim + second_dim :]
 
         return Point(first_params), Point(second_params), Point(third_params)
 
@@ -246,4 +244,4 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold):
         third: Point[C, Third],
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
-        return Point(jnp.concatenate([first.params, second.params, third.params]))
+        return Point(jnp.concatenate([first.array, second.array, third.array]))

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, override
 
 import jax.numpy as jnp
 
@@ -81,9 +81,11 @@ class IdentitySubspace[M: Manifold](Subspace[M, M]):
     def __init__(self, man: M):
         super().__init__(man, man)
 
+    @override
     def project[C: Coordinates](self, p: Point[C, M]) -> Point[C, M]:
         return p
 
+    @override
     def translate[C: Coordinates](self, p: Point[C, M], q: Point[C, M]) -> Point[C, M]:
         return p + q
 
@@ -97,12 +99,14 @@ class PairSubspace[First: Manifold, Second: Manifold](
     def __init__(self, two_man: Pair[First, Second]):
         super().__init__(two_man, two_man.fst_man)
 
+    @override
     def project[C: Coordinates](
         self, p: Point[C, Pair[First, Second]]
     ) -> Point[C, First]:
         first, _ = self.sup_man.split_params(p)
         return first
 
+    @override
     def translate[C: Coordinates](
         self, p: Point[C, Pair[First, Second]], q: Point[C, First]
     ) -> Point[C, Pair[First, Second]]:
@@ -119,12 +123,14 @@ class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
     def __init__(self, thr_man: Triple[First, Second, Third]):
         super().__init__(thr_man, thr_man.fst_man)
 
+    @override
     def project[C: Coordinates](
         self, p: Point[C, Triple[First, Second, Third]]
     ) -> Point[C, First]:
         first, _, _ = self.sup_man.split_params(p)
         return first
 
+    @override
     def translate[C: Coordinates](
         self, p: Point[C, Triple[First, Second, Third]], q: Point[C, First]
     ) -> Point[C, Triple[First, Second, Third]]:
@@ -157,10 +163,12 @@ class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
         object.__setattr__(self, "sub_sub", sub_sub)
         super().__init__(sup_sub.sup_man, sub_sub.sub_man)
 
+    @override
     def project[C: Coordinates](self, p: Point[C, Super]) -> Point[C, Sub]:
         mid = self.sup_sub.project(p)
         return self.sub_sub.project(mid)
 
+    @override
     def translate[C: Coordinates](
         self, p: Point[C, Super], q: Point[C, Sub]
     ) -> Point[C, Super]:

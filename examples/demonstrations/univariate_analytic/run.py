@@ -27,7 +27,7 @@ from .types import (
 
 def compute_gaussian_results(
     key: Array,
-    man: FullNormal,
+    model: FullNormal,
     mu: Point[Mean, Euclidean],
     sigma: Point[Mean, FullCovariance],
     xs: Array,
@@ -39,23 +39,23 @@ def compute_gaussian_results(
         sample, true_densities, estimated_densities
     """
     # Create ground truth distribution
-    p_mean = man.join_mean_covariance(mu, sigma)
-    p_natural = man.to_natural(p_mean)
+    p_mean = model.join_mean_covariance(mu, sigma)
+    p_natural = model.to_natural(p_mean)
 
     # Sample and estimate
-    sample = man.sample(key, p_natural, sample_size)
-    p_mean_est = man.average_sufficient_statistic(sample)
-    p_natural_est = man.to_natural(p_mean_est)
+    sample = model.sample(key, p_natural, sample_size)
+    p_mean_est = model.average_sufficient_statistic(sample)
+    p_natural_est = model.to_natural(p_mean_est)
 
-    true_dens = jax.vmap(man.density, in_axes=(None, 0))(p_natural, xs)
-    est_dens = jax.vmap(man.density, in_axes=(None, 0))(p_natural_est, xs)
+    true_dens = jax.vmap(model.density, in_axes=(None, 0))(p_natural, xs)
+    est_dens = jax.vmap(model.density, in_axes=(None, 0))(p_natural_est, xs)
 
     return sample, true_dens, est_dens
 
 
 def compute_categorical_results(
     key: Array,
-    man: Categorical,
+    model: Categorical,
     probs: Array,
     sample_size: int,
 ) -> Tuple[Array, Array, Array]:
@@ -65,19 +65,19 @@ def compute_categorical_results(
         sample, true_probs, estimated_probs
     """
     # Create ground truth distribution
-    p_mean = man.from_probs(probs)
-    p_natural = man.to_natural(p_mean)
+    p_mean = model.from_probs(probs)
+    p_natural = model.to_natural(p_mean)
 
     # Sample and estimate
-    sample = man.sample(key, p_natural, sample_size)
-    p_mean_est = man.average_sufficient_statistic(sample)
-    p_natural_est = man.to_natural(p_mean_est)
+    sample = model.sample(key, p_natural, sample_size)
+    p_mean_est = model.average_sufficient_statistic(sample)
+    p_natural_est = model.to_natural(p_mean_est)
 
     # Compute densities using vmap
     categories = jnp.arange(probs.shape[0])
 
     def compute_prob(p: Point[Natural, Categorical], k: Array) -> Array:
-        return man.density(p, k)
+        return model.density(p, k)
 
     true_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural, categories)
     est_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural_est, categories)
@@ -87,7 +87,7 @@ def compute_categorical_results(
 
 def compute_poisson_results(
     key: Array,
-    manifold: Poisson,
+    model: Poisson,
     rate: float,
     ks: Array,
     sample_size: int,
@@ -99,16 +99,16 @@ def compute_poisson_results(
     """
     # Create ground truth distribution
 
-    p_mean = manifold.mean_point(jnp.atleast_1d(rate))
-    p_natural = manifold.to_natural(p_mean)
+    p_mean = model.mean_point(jnp.atleast_1d(rate))
+    p_natural = model.to_natural(p_mean)
 
     # Sample and estimate
-    sample = manifold.sample(key, p_natural, sample_size)
-    p_mean_est = manifold.average_sufficient_statistic(sample)
-    p_natural_est = manifold.to_natural(p_mean_est)
+    sample = model.sample(key, p_natural, sample_size)
+    p_mean_est = model.average_sufficient_statistic(sample)
+    p_natural_est = model.to_natural(p_mean_est)
 
     def compute_pmf(p: Point[Natural, Poisson], k: Array) -> Array:
-        return manifold.density(p, k)
+        return model.density(p, k)
 
     true_pmf = jax.vmap(compute_pmf, in_axes=(None, 0))(p_natural, ks)
     estimated_pmf = jax.vmap(compute_pmf, in_axes=(None, 0))(p_natural_est, ks)
