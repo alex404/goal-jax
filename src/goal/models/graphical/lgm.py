@@ -46,7 +46,6 @@ from ...geometry import (
     Diagonal,
     Dual,
     LinearMap,
-    LocationSubspace,
     MatrixRep,
     Mean,
     Natural,
@@ -54,6 +53,7 @@ from ...geometry import (
     PositiveDefinite,
     Rectangular,
     Scale,
+    Subspace,
     expand_dual,
     reduce_dual,
 )
@@ -67,23 +67,115 @@ from ..base.gaussian.normal import (
 ### Helper Functions ###
 
 
+# @dataclass(frozen=True)
+# class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
+#     Subspace[Normal[SuperRep], Normal[SubRep]]
+# ):
+#     """Subspace relationship between Normal distributions with different covariance structures.
+#
+#     This relationship defines how simpler normal distributions (e.g. DiagonalNormal) embed
+#     into more complex ones (e.g. FullNormal). The key operations are:
+#
+#     1. Projection: Extract diagonal/scaled components from a full distribution.
+#        Should be used with mean coordinates (expectations and covariances).
+#
+#     2. Translation: Embed simpler parameters into the full space.
+#        Should be used with natural coordinates (natural parameters and precisions).
+#
+#     For example, a DiagonalNormal can be seen as a submanifold of FullNormal where
+#     off-diagonal elements are zero.
+#
+#     Warning:
+#         This subspace relationship is sensitive to coordinate systems. Projection should only be used with mean coordinates, while translation should only be used with natural coordinates. Incorrect usage will lead to errors.
+#     """
+#
+#     def __init__(self, sup_man: Normal[SuperRep], sub_man: Normal[SubRep]):
+#         if not isinstance(sub_man.cov_man.rep, sup_man.cov_man.rep.__class__):
+#             raise TypeError(
+#                 f"Sub-manifold rep {sub_man.cov_man.rep} must be simpler than super-manifold rep {sup_man.cov_man.rep}"
+#             )
+#         super().__init__(sup_man, sub_man)
+#
+#     @override
+#     def project(self, p: Point[Mean, Normal[SuperRep]]) -> Point[Mean, Normal[SubRep]]:
+#         """Project from super-manifold to sub-manifold.
+#
+#         This operation is only valid in mean coordinates, where it corresponds to the information projection (moment matching).
+#
+#         Args:
+#             p: Point in super-manifold (must be in mean coordinates)
+#
+#         Returns:
+#             Projected point in sub-manifold
+#         """
+#         return self.sup_man.project_rep(self.sub_man, p)
+#
+#     @override
+#     def translate(
+#         self, p: Point[Natural, Normal[SuperRep]], q: Point[Natural, Normal[SubRep]]
+#     ) -> Point[Natural, Normal[SuperRep]]:
+#         """Translate a point in super-manifold by a point in sub-manifold.
+#
+#         This operation is only valid in natural coordinates, where it embeds the simpler structure into the more complex one before adding, effectively zero padding the missing elements of the point on the submanifold.
+#
+#         Args:
+#             p: Point in super-manifold (must be in natural coordinates)
+#             q: Point in sub-manifold to translate by
+#
+#         Returns:
+#             Translated point in super-manifold
+#         """
+#         embedded_q = self.sub_man.embed_rep(self.sup_man, q)
+#         return p + embedded_q
+
+
+@dataclass(frozen=True)
+class NormalLocationSubspace[Rep: PositiveDefinite](Subspace[Normal[Rep], Euclidean]):
+    """Subspace relationship for a product manifold $M \\times N$."""
+
+    nor_man: Normal[Rep]
+
+    @property
+    @override
+    def sup_man(self) -> Normal[Rep]:
+        return self.nor_man
+
+    @property
+    @override
+    def sub_man(self) -> Euclidean:
+        return self.nor_man.loc_man
+
+    @override
+    def project[C: Coordinates](self, p: Point[C, Normal[Rep]]) -> Point[C, Euclidean]:
+        first, _ = self.sup_man.split_params(p)
+        return first
+
+    @override
+    def translate[C: Coordinates](
+        self, p: Point[C, Normal[Rep]], q: Point[C, Euclidean]
+    ) -> Point[C, Normal[Rep]]:
+        first, second = self.sup_man.split_params(p)
+        return self.sup_man.join_params(first + q, second)
+
+
 ### Private Functions ###
 
 
 def _dual_composition[
     Coords: Coordinates,
-    OuterRep: MatrixRep,
-    InnerRep: MatrixRep,
+    HRep: MatrixRep,
+    GRep: MatrixRep,
+    FRep: MatrixRep,
 ](
-    h: LinearMap[OuterRep, Euclidean, Euclidean],
-    h_params: Point[Coords, LinearMap[OuterRep, Euclidean, Euclidean]],
-    g: LinearMap[InnerRep, Euclidean, Euclidean],
-    g_params: Point[Dual[Coords], LinearMap[InnerRep, Euclidean, Euclidean]],
-    f: LinearMap[OuterRep, Euclidean, Euclidean],
-    f_params: Point[Coords, LinearMap[OuterRep, Euclidean, Euclidean]],
+    h: LinearMap[HRep, Euclidean, Euclidean],
+    h_params: Point[Coords, LinearMap[HRep, Euclidean, Euclidean]],
+    g: LinearMap[GRep, Euclidean, Euclidean],
+    g_params: Point[Dual[Coords], LinearMap[GRep, Euclidean, Euclidean]],
+    f: LinearMap[FRep, Euclidean, Euclidean],
+    f_params: Point[Coords, LinearMap[FRep, Euclidean, Euclidean]],
 ) -> tuple[
     LinearMap[MatrixRep, Euclidean, Euclidean],
-    Point[Coords, LinearMap[PositiveDefinite, Euclidean, Euclidean]],
+    Point[Coords, LinearMap[Rectangular, Euclidean, Euclidean]],
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
 
@@ -109,8 +201,8 @@ def _change_of_basis[
 ](
     f: LinearMap[LinearRep, Euclidean, Euclidean],
     f_params: Point[Coords, LinearMap[LinearRep, Euclidean, Euclidean]],
-    g: Covariance[CovRep],
-    g_params: Point[Dual[Coords], Covariance[CovRep]],
+    g: LinearMap[CovRep, Euclidean, Euclidean],
+    g_params: Point[Dual[Coords], LinearMap[CovRep, Euclidean, Euclidean]],
 ) -> tuple[
     Covariance[PositiveDefinite],
     Point[Coords, Covariance[PositiveDefinite]],
@@ -130,15 +222,15 @@ def _change_of_basis[
         f_params,
     )
     cov_man = Covariance(fgf_man.shape[0], PositiveDefinite)
-    out_mat = cov_man.from_dense(fgf_man.to_dense(fgf_params))
+    out_mat = cov_man.from_dense(fgf_man.to_dense(fgf_params))  # pyright: ignore[reportArgumentType]
     return cov_man, out_mat
 
 
 @dataclass(frozen=True)
 class LinearGaussianModel[
-    Rep: PositiveDefinite,
+    ObsRep: PositiveDefinite,
 ](
-    AnalyticConjugated[Rectangular, Normal[Rep], Euclidean, Euclidean, FullNormal],
+    AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
 
@@ -174,30 +266,37 @@ class LinearGaussianModel[
     - $\\rho^m$ and $P^{\\sigma}$ are conjugation parameters for natural location and shape parameters
     """
 
-    def __init__(self, obs_dim: int, obs_rep: type[Rep], lat_dim: int):
-        """Initialize a linear Gaussian model."""
-        obs_man = Normal(obs_dim, obs_rep)
-        lat_man = Normal(lat_dim)
-        int_man = LinearMap(
-            Rectangular(),
-            lat_man.loc_man,
-            obs_man.loc_man,
-        )
-        obs_sub = LocationSubspace(obs_man)
-        lat_sub = LocationSubspace(lat_man)
-        super().__init__(
-            obs_man,
-            int_man,
-            lat_man,
-            obs_sub,
-            lat_sub,
-        )
+    # Fields
+
+    obs_dim: int
+    obs_rep: type[ObsRep]
+    lat_dim: int
+
+    # Overrides
+
+    @property
+    @override
+    def int_rep(self) -> Rectangular:
+        """Representation of interaction matrix."""
+        return Rectangular()
+
+    @property
+    @override
+    def obs_sub(self) -> NormalLocationSubspace[ObsRep]:
+        """Representation of interaction matrix."""
+        return NormalLocationSubspace(Normal(self.obs_dim, self.obs_rep))
+
+    @property
+    @override
+    def lat_sub(self) -> NormalLocationSubspace[PositiveDefinite]:
+        """Representation of interaction matrix."""
+        return NormalLocationSubspace(Normal(self.lat_dim, PositiveDefinite))
 
     @override
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[Rep]]
+            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]
         ],
     ) -> tuple[Array, Point[Natural, FullNormal]]:
         """Compute conjugation parameters for a linear model.
@@ -236,7 +335,7 @@ class LinearGaussianModel[
     @override
     def to_natural_likelihood(
         self, params: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[Rep]]]:
+    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]]:
         # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
@@ -308,20 +407,20 @@ class LinearGaussianModel[
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
-        nor_man = Normal(self.data_dim)
+        nor_man = Normal(self.data_dim, PositiveDefinite)
         return nor_man.join_location_precision(
             nor_loc, nor_man.cov_man.from_dense(joint_shape_array)
         )
 
 
-@dataclass(frozen=True)
-class LinearModel(LinearGaussianModel[PositiveDefinite]):
-    """A linear model with Gaussian latent variables."""
-
-    def __init__(self, obs_dim: int, lat_dim: int):
-        super().__init__(obs_dim, PositiveDefinite, lat_dim)
-
-
+# @dataclass(frozen=True)
+# class LinearModel(LinearGaussianModel[PositiveDefinite]):
+#     """A linear model with Gaussian latent variables."""
+#
+#     def __init__(self, obs_dim: int, lat_dim: int):
+#         super().__init__(obs_dim, PositiveDefinite, lat_dim)
+#
+#
 @dataclass(frozen=True)
 class FactorAnalysis(LinearGaussianModel[Diagonal]):
     """A factor analysis model with Gaussian latent variables."""
@@ -346,7 +445,7 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
         loadings: Array,
         means: Array,
         diags: Array,
-    ) -> Point[Natural, FactorAnalysis]:
+    ) -> Point[Natural, Self]:
         """Convert source parameters to natural parameters for factor analysis.
 
         For a factor analysis model with generative form:

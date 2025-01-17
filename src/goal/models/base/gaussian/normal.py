@@ -47,7 +47,6 @@ from ....geometry import (
     PositiveDefinite,
     Scale,
     SquareMap,
-    Subspace,
     expand_dual,
 )
 
@@ -218,25 +217,24 @@ class Normal[Rep: PositiveDefinite](
     Finally, we handle different covariance structures (full, diagonal, scalar) through the `LinearOperator` hierarchy, so that the sufficient statistics and parameters are lowerer-dimensional, and the given manifold is a submanifold of the unrestricted family of Normals.
     """
 
-    # Attributes
+    # Fields
 
-    def __init__(self, data_dim: int = 1, rep: type[Rep] = PositiveDefinite):
-        super().__init__(
-            Euclidean(data_dim),
-            Covariance(data_dim, rep),
-        )
+    _data_dim: int
+    rep: type[Rep]
+
+    # Properties
 
     @property
     def loc_man(self) -> Euclidean:
         """Location manifold."""
-        return self.fst_man
+        return Euclidean(self._data_dim)
 
     @property
     def cov_man(self) -> Covariance[Rep]:
         """Covariance manifold."""
-        return self.snd_man
+        return Covariance(self._data_dim, self.rep)
 
-    # Normal-specific methods
+    # Class methods
 
     def join_mean_covariance(
         self,
@@ -446,13 +444,17 @@ class Normal[Rep: PositiveDefinite](
             self.cov_man.from_dense(jnp.eye(self.data_dim)),
         )
 
+    # Core class methods
+
     @property
     @override
-    def data_dim(self) -> int:
-        """Dimension of the data space."""
-        return self.fst_man.data_dim
+    def fst_man(self) -> Euclidean:
+        return self.loc_man
 
-    # Core class methods
+    @property
+    @override
+    def snd_man(self) -> Covariance[Rep]:
+        return self.cov_man
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
@@ -577,65 +579,3 @@ class Normal[Rep: PositiveDefinite](
         """
         _, precision = self.split_location_precision(params)
         return self.cov_man.check_natural_parameters(precision)
-
-
-@dataclass(frozen=True)
-class NormalSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
-    Subspace[Normal[SuperRep], Normal[SubRep]]
-):
-    """Subspace relationship between Normal distributions with different covariance structures.
-
-    This relationship defines how simpler normal distributions (e.g. DiagonalNormal) embed
-    into more complex ones (e.g. FullNormal). The key operations are:
-
-    1. Projection: Extract diagonal/scaled components from a full distribution.
-       Should be used with mean coordinates (expectations and covariances).
-
-    2. Translation: Embed simpler parameters into the full space.
-       Should be used with natural coordinates (natural parameters and precisions).
-
-    For example, a DiagonalNormal can be seen as a submanifold of FullNormal where
-    off-diagonal elements are zero.
-
-    Warning:
-        This subspace relationship is sensitive to coordinate systems. Projection should only be used with mean coordinates, while translation should only be used with natural coordinates. Incorrect usage will lead to errors.
-    """
-
-    def __init__(self, sup_man: Normal[SuperRep], sub_man: Normal[SubRep]):
-        if not isinstance(sub_man.cov_man.rep, sup_man.cov_man.rep.__class__):
-            raise TypeError(
-                f"Sub-manifold rep {sub_man.cov_man.rep} must be simpler than super-manifold rep {sup_man.cov_man.rep}"
-            )
-        super().__init__(sup_man, sub_man)
-
-    @override
-    def project(self, p: Point[Mean, Normal[SuperRep]]) -> Point[Mean, Normal[SubRep]]:
-        """Project from super-manifold to sub-manifold.
-
-        This operation is only valid in mean coordinates, where it corresponds to the information projection (moment matching).
-
-        Args:
-            p: Point in super-manifold (must be in mean coordinates)
-
-        Returns:
-            Projected point in sub-manifold
-        """
-        return self.sup_man.project_rep(self.sub_man, p)
-
-    @override
-    def translate(
-        self, p: Point[Natural, Normal[SuperRep]], q: Point[Natural, Normal[SubRep]]
-    ) -> Point[Natural, Normal[SuperRep]]:
-        """Translate a point in super-manifold by a point in sub-manifold.
-
-        This operation is only valid in natural coordinates, where it embeds the simpler structure into the more complex one before adding, effectively zero padding the missing elements of the point on the submanifold.
-
-        Args:
-            p: Point in super-manifold (must be in natural coordinates)
-            q: Point in sub-manifold to translate by
-
-        Returns:
-            Translated point in super-manifold
-        """
-        embedded_q = self.sub_man.embed_rep(self.sup_man, q)
-        return p + embedded_q

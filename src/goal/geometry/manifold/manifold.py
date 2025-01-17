@@ -176,14 +176,18 @@ class Point(Generic[C, M]):
 
 
 @dataclass(frozen=True)
-class Pair[First: Manifold, Second: Manifold](Manifold):
+class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
     """The manifold given by the Cartesian product between the first and second manifold."""
 
-    fst_man: First
-    """First component manifold."""
+    @property
+    @abstractmethod
+    def fst_man(self) -> First:
+        """First component manifold."""
 
-    snd_man: Second
-    """Second component manifold."""
+    @property
+    @abstractmethod
+    def snd_man(self) -> Second:
+        """Second component manifold."""
 
     @property
     @override
@@ -209,17 +213,23 @@ class Pair[First: Manifold, Second: Manifold](Manifold):
 
 
 @dataclass(frozen=True)
-class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold):
+class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
     """A product manifold combining three component manifolds."""
 
-    fst_man: First
-    """First component manifold."""
+    @property
+    @abstractmethod
+    def fst_man(self) -> First:
+        """First component manifold."""
 
-    snd_man: Second
-    """Second component manifold."""
+    @property
+    @abstractmethod
+    def snd_man(self) -> Second:
+        """Second component manifold."""
 
-    trd_man: Third
-    """Third component manifold."""
+    @property
+    @abstractmethod
+    def trd_man(self) -> Third:
+        """Third component manifold."""
 
     @property
     @override

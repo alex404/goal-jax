@@ -19,6 +19,7 @@ Key Features:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import reduce
 from operator import add
 from typing import Self, override
@@ -35,7 +36,6 @@ from ...geometry import (
     ExponentialFamily,
     Harmonium,
     IdentitySubspace,
-    LinearMap,
     Mean,
     Natural,
     Point,
@@ -47,6 +47,7 @@ from ..base.categorical import (
 )
 
 
+@dataclass(frozen=True)
 class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     Harmonium[Rectangular, Observable, SubObservable, Categorical, Categorical],
 ):
@@ -58,22 +59,24 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         obs_sub: Subspace relationship for observable parameters (default: Identity)
     """
 
-    def __init__(
-        self,
-        obs_man: Observable,
-        n_categories: int,
-        obs_sub: Subspace[Observable, SubObservable],
-    ):
-        cat_man = Categorical(n_categories)
-        int_man = LinearMap(Rectangular(), cat_man, obs_sub.sub_man)
-        lat_sub = IdentitySubspace(cat_man)
-        super().__init__(
-            obs_man,
-            int_man,
-            cat_man,
-            obs_sub,
-            lat_sub,
-        )
+    _obs_man: Observable
+    n_categories: int
+    _obs_sub: Subspace[Observable, SubObservable]
+
+    @property
+    @override
+    def int_rep(self) -> Rectangular:
+        return Rectangular()
+
+    @property
+    @override
+    def obs_sub(self) -> Subspace[Observable, SubObservable]:
+        return self._obs_sub
+
+    @property
+    @override
+    def lat_sub(self) -> IdentitySubspace[Categorical]:
+        return IdentitySubspace(Categorical(self.n_categories))
 
     def join_mean_mixture(
         self,

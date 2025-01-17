@@ -45,14 +45,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Generic, Self, TypeVar, override
+from typing import Callable, Self, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.manifold import Coordinates, Dual, Manifold, Pair, Point, reduce_dual
-from ..manifold.subspace import Subspace
 
 ### Coordinate Systems ###
 
@@ -309,7 +308,7 @@ class Analytic(Differentiable, ABC):
 
 
 class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
-    Pair[Location, Shape], ExponentialFamily
+    Pair[Location, Shape], ExponentialFamily, ABC
 ):
     """A product exponential family with location and shape parameters.
 
@@ -349,13 +348,13 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.snd_man.log_base_measure(x)
 
 
-M = TypeVar("M", bound=ExponentialFamily, covariant=True)
-
-
 @dataclass(frozen=True)
-class Replicated(Generic[M], ExponentialFamily):
-    man: M
+class Replicated[M: ExponentialFamily](ExponentialFamily, ABC):
+    rep_man: M
+    """Base manifold to replicate."""
+
     n_repeats: int
+    """Number of replicated units."""
 
     def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
         """Split replicated parameters into individual components."""
@@ -385,24 +384,24 @@ class Replicated(Generic[M], ExponentialFamily):
     @property
     @override
     def dim(self) -> int:
-        return self.man.dim * self.n_repeats
+        return self.rep_man.dim * self.n_repeats
 
     @property
     @override
     def data_dim(self) -> int:
-        return self.man.data_dim * self.n_repeats
+        return self.rep_man.data_dim * self.n_repeats
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
         x_reshaped = x.reshape(self.n_repeats, -1)
-        stats = jax.vmap(self.man.sufficient_statistic)(x_reshaped)
+        stats = jax.vmap(self.rep_man.sufficient_statistic)(x_reshaped)
         return self.mean_point(stats.array.reshape(-1))
 
     @override
     def log_base_measure(self, x: Array) -> Array:
         x_reshaped = x.reshape(self.n_repeats, -1)
         # vmap the base measure computation
-        return jnp.sum(jax.vmap(self.man.log_base_measure)(x_reshaped))
+        return jnp.sum(jax.vmap(self.rep_man.log_base_measure)(x_reshaped))
 
     @override
     def initialize(
@@ -418,7 +417,7 @@ class Replicated(Generic[M], ExponentialFamily):
             shape: Shape parameter for random perturbations
         """
         keys = jax.random.split(key, self.n_repeats)
-        params = [self.man.initialize(k, location, shape) for k in keys]
+        params = [self.rep_man.initialize(k, location, shape) for k in keys]
         return self.join_params(params)
 
     @override
@@ -438,13 +437,13 @@ class Replicated(Generic[M], ExponentialFamily):
         """
         keys = jax.random.split(key, self.n_repeats)
         # Split samples into chunks for each replicate
-        samples = sample.reshape(-1, self.n_repeats, self.man.data_dim)
+        samples = sample.reshape(-1, self.n_repeats, self.rep_man.data_dim)
         samples = jnp.moveaxis(
             samples, 1, 0
         )  # Shape: (n_repeats, batch_size, data_dim)
 
         params = [
-            self.man.initialize_from_sample(k, s, location, shape)
+            self.rep_man.initialize_from_sample(k, s, location, shape)
             for k, s in zip(keys, samples)
         ]
         return self.join_params(params)
@@ -458,7 +457,7 @@ class GenerativeReplicated[M: Generative](Replicated[M], Generative):
         matrix = params.array.reshape(self.n_repeats, -1)
 
         def sample_replicate(key: Array, params: Array) -> Array:
-            return self.man.sample(key, Point(params), 1)
+            return self.rep_man.sample(key, Point(params), 1)
 
         def sample_once(key: Array) -> Array:
             rep_keys = jax.random.split(key, self.n_repeats)
@@ -475,90 +474,11 @@ class DifferentiableReplicated[M: Differentiable](
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         # Reshape instead of split
-        return jnp.sum(self.map_replicated(self.man.log_partition_function, params))
+        return jnp.sum(self.map_replicated(self.rep_man.log_partition_function, params))
 
 
 class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic):
     @override
     def negative_entropy(self, means: Point[Mean, Self]) -> Array:
         # Reshape instead of split
-        return jnp.sum(self.map_replicated(self.man.negative_entropy, means))
-
-
-class LocationSubspace[Location: ExponentialFamily, Shape: ExponentialFamily](
-    Subspace[LocationShape[Location, Shape], Location]
-):
-    """Subspace relationship for a product manifold $M \\times N$."""
-
-    def __init__(self, lsh_man: LocationShape[Location, Shape]):
-        super().__init__(lsh_man, lsh_man.fst_man)
-
-    @override
-    def project[C: Coordinates](
-        self, p: Point[C, LocationShape[Location, Shape]]
-    ) -> Point[C, Location]:
-        first, _ = self.sup_man.split_params(p)
-        return first
-
-    @override
-    def translate[C: Coordinates](
-        self, p: Point[C, LocationShape[Location, Shape]], q: Point[C, Location]
-    ) -> Point[C, LocationShape[Location, Shape]]:
-        first, second = self.sup_man.split_params(p)
-        return self.sup_man.join_params(first + q, second)
-
-
-class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily](
-    Subspace[Replicated[LocationShape[Loc, Shp]], Replicated[Loc]]
-):
-    """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
-
-    For a replicated location-shape manifold with parameters:
-    $((l_1,s_1),\\ldots,(l_n,s_n))$
-
-    Projects to just the location parameters:
-    $(l_1,\\ldots,l_n)$
-
-    This enables mixture models where components only affect location parameters while
-    sharing shape parameters across components.
-    """
-
-    def __init__(self, base_location: Loc, base_shape: Shp, n_neurons: int):
-        """Initialize subspace relationship.
-
-        Args:
-            base_location: Base location manifold
-            base_shape: Base shape manifold
-            n_neurons: Number of replicated units
-        """
-        ls_man = LocationShape(base_location, base_shape)
-        loc_man = Replicated(base_location, n_neurons)
-        sup_man = Replicated(ls_man, n_neurons)
-        super().__init__(sup_man, loc_man)
-
-    @override
-    def project[C: Coordinates](
-        self, p: Point[C, Replicated[LocationShape[Loc, Shp]]]
-    ) -> Point[C, Replicated[Loc]]:
-        """Project to location parameters $(l_1,\\ldots,l_n)$."""
-        matrix = p.array.reshape(self.sup_man.n_repeats, -1)
-        loc_dim = self.sub_man.man.dim
-        loc_params = matrix[:, :loc_dim]
-        return Point(loc_params.reshape(-1))
-
-    @override
-    def translate[C: Coordinates](
-        self,
-        p: Point[C, Replicated[LocationShape[Loc, Shp]]],
-        q: Point[C, Replicated[Loc]],
-    ) -> Point[C, Replicated[LocationShape[Loc, Shp]]]:
-        """Update location parameters while preserving shape parameters.
-
-        Given original parameters $((l_1,s_1),\\ldots,(l_n,s_n))$ and new locations
-        $(l_1',\\ldots,l_n')$, returns $((l_1',s_1),\\ldots,(l_n',s_n))$.
-        """
-        matrix = p.array.reshape(self.sup_man.n_repeats, -1)
-        loc_dim = self.sub_man.man.dim
-        q_matrix = q.array.reshape(self.sub_man.n_repeats, -1)
-        matrix = matrix.at[:, :loc_dim].add(q_matrix)
-        return Point(matrix.reshape(-1))
+        return jnp.sum(self.map_replicated(self.rep_man.negative_entropy, means))

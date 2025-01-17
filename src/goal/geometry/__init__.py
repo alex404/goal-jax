@@ -7,11 +7,9 @@ from .exponential_family.exponential_family import (
     Generative,
     GenerativeReplicated,
     LocationShape,
-    LocationSubspace,
     Mean,
     Natural,
     Replicated,
-    ReplicatedLocationSubspace,
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
@@ -52,11 +50,8 @@ from .manifold.matrix import (
 )
 from .manifold.optimizer import Optimizer, OptState
 from .manifold.subspace import (
-    ComposedSubspace,
     IdentitySubspace,
-    PairSubspace,
     Subspace,
-    TripleSubspace,
 )
 
 __all__ = [
@@ -66,7 +61,6 @@ __all__ = [
     "AnalyticHierarchical",
     "AnalyticLatent",
     "AnalyticReplicated",
-    "ComposedSubspace",
     "Conjugated",
     "Coordinates",
     "Diagonal",
@@ -84,7 +78,6 @@ __all__ = [
     "IdentitySubspace",
     "LinearMap",
     "LocationShape",
-    "LocationSubspace",
     "Manifold",
     "MatrixRep",
     "Mean",
@@ -92,19 +85,16 @@ __all__ = [
     "OptState",
     "Optimizer",
     "Pair",
-    "PairSubspace",
     "Point",
     "PositiveDefinite",
     "Rectangular",
     "Replicated",
-    "ReplicatedLocationSubspace",
     "Scale",
     "Square",
     "SquareMap",
     "Subspace",
     "Symmetric",
     "Triple",
-    "TripleSubspace",
     "expand_dual",
     "reduce_dual",
 ]

@@ -24,11 +24,75 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.linear import AffineMap
+from ..manifold.linear import AffineMap, LinearMap
 from ..manifold.manifold import Point
 from ..manifold.matrix import MatrixRep
+from ..manifold.subspace import Subspace
 from .exponential_family import ExponentialFamily, Generative, Mean, Natural
 from .harmonium import AnalyticConjugated, Conjugated, DifferentiableConjugated
+
+# @dataclass(frozen=True)
+# class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
+#     Subspace[Super, Sub]
+# ):
+#     """Composition of two subspace relationships.
+#     Given subspaces $S: \\mathcal{M} \\to \\mathcal{L}$ and $T: \\mathcal{L} \\to \\mathcal{N}$, forms their composition $(T \\circ S): \\mathcal{M} \\to \\mathcal{N}$ where:
+#
+#     - Projection: $\\pi_{T \\circ S}(p) = \\pi_T(\\pi_S(p))$
+#     - Translation: $\\tau_{T \\circ S}(p,q) = \\tau_S(p, \\tau_T(0,q))$
+#
+#     The variance requirements of Subspace (contravariant Super, covariant Sub) ensure that composition is well-typed when the middle types are compatible.
+#     """
+#
+#     sup_sub: Subspace[Super, Mid]
+#     sub_sub: Subspace[Mid, Sub]
+#
+#     @property
+#     @override
+#     def sup_man(self) -> Super:
+#         return self.sup_sub.sup_man
+#
+#     @property
+#     @override
+#     def sub_man(self) -> Sub:
+#         return self.sub_sub.sub_man
+#
+#     @override
+#     def project[C: Coordinates](self, p: Point[C, Super]) -> Point[C, Sub]:
+#         mid = self.sup_sub.project(p)
+#         return self.sub_sub.project(mid)
+#
+#     @override
+#     def translate[C: Coordinates](
+#         self, p: Point[C, Super], q: Point[C, Sub]
+#     ) -> Point[C, Super]:
+#         mid_zero: Point[C, Mid] = Point(jnp.zeros(self.sup_sub.sub_man.dim))
+#         mid = self.sub_sub.translate(mid_zero, q)
+#         return self.sup_sub.translate(p, mid)
+#
+#
+# @dataclass(frozen=True)
+# class TripleSubspace[First: Manifold, Second: Manifold, Third: Manifold](
+#     Subspace[Triple[First, Second, Third], First]
+# ):
+#     """Subspace relationship for a product manifold $\\mathcal M \\times \\mathcal N \\times \\mathcal O$."""
+#
+#     def __init__(self, thr_man: Triple[First, Second, Third]):
+#         super().__init__(thr_man, thr_man.fst_man)
+#
+#     @override
+#     def project[C: Coordinates](
+#         self, p: Point[C, Triple[First, Second, Third]]
+#     ) -> Point[C, First]:
+#         first, _, _ = self.sup_man.split_params(p)
+#         return first
+#
+#     @override
+#     def translate[C: Coordinates](
+#         self, p: Point[C, Triple[First, Second, Third]], q: Point[C, First]
+#     ) -> Point[C, Triple[First, Second, Third]]:
+#         first, second, third = self.sup_man.split_params(p)
+#         return self.sup_man.join_params(first + q, second, third)
 
 
 class DifferentiableHierarchical[
@@ -68,6 +132,8 @@ class DifferentiableHierarchical[
     """
 
     _lwr_man: Conjugated[Rep, Observable, SubObservable, SubLatent, Any]
+    upr_man: Latent
+    upr_obs_sub: Subspace[Latent, SubObservable]
 
     def __post_init__(self):
         # Check that the latent manifold is a DifferentiableConjugated
@@ -85,6 +151,31 @@ class DifferentiableHierarchical[
         self,
     ) -> DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Any]:
         return self._lwr_man  # pyright: ignore[reportReturnType]
+
+    @property
+    @override
+    def fst_man(self) -> Observable:
+        return self.lwr_man.obs_man
+
+    @property
+    @override
+    def snd_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
+        return self.lwr_man.int_man
+
+    @property
+    @override
+    def trd_man(self) -> Latent:
+        return self.upr_man
+
+    @property
+    @override
+    def obs_sub(self) -> Subspace[Observable, SubObservable]:
+        return self.lwr_man.obs_sub
+
+    @property
+    @override
+    def lat_sub(self) -> Subspace[Latent, SubLatent]:
+        return ComposedSubspace(TripleSubspace(self.upr_man), self.upr_obs_sub)
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:

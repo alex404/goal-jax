@@ -30,13 +30,68 @@ from goal.geometry import (
     Natural,
     Point,
     Replicated,
-    ReplicatedLocationSubspace,
 )
 from goal.models.base.poisson import CoMPoisson, CoMShape, Poisson
 from goal.models.graphical.mixture import DifferentiableMixture
 
 type PoissonPopulation = Replicated[Poisson]
 type PopulationShape = Replicated[CoMShape]
+
+
+# class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily](
+#     Subspace[Replicated[LocationShape[Loc, Shp]], Replicated[Loc]]
+# ):
+#     """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
+#
+#     For a replicated location-shape manifold with parameters:
+#     $((l_1,s_1),\\ldots,(l_n,s_n))$
+#
+#     Projects to just the location parameters:
+#     $(l_1,\\ldots,l_n)$
+#
+#     This enables mixture models where components only affect location parameters while
+#     sharing shape parameters across components.
+#     """
+#
+#     def __init__(self, los_man: LocationShape[Loc, Shp], n_neurons: int):
+#         """Initialize subspace relationship.
+#
+#         Args:
+#             base_location: Base location manifold
+#             base_shape: Base shape manifold
+#             n_neurons: Number of replicated units
+#         """
+#
+#         loc_man = Replicated(los_man.fst_man, n_neurons)
+#         sup_man = Replicated(los_man, n_neurons)
+#         super().__init__(sup_man, loc_man)
+#
+#     @override
+#     def project[C: Coordinates](
+#         self, p: Point[C, Replicated[LocationShape[Loc, Shp]]]
+#     ) -> Point[C, Replicated[Loc]]:
+#         """Project to location parameters $(l_1,\\ldots,l_n)$."""
+#         matrix = p.array.reshape(self.sup_man.n_repeats, -1)
+#         loc_dim = self.sub_man.rep_man.dim
+#         loc_params = matrix[:, :loc_dim]
+#         return Point(loc_params.reshape(-1))
+#
+#     @override
+#     def translate[C: Coordinates](
+#         self,
+#         p: Point[C, Replicated[LocationShape[Loc, Shp]]],
+#         q: Point[C, Replicated[Loc]],
+#     ) -> Point[C, Replicated[LocationShape[Loc, Shp]]]:
+#         """Update location parameters while preserving shape parameters.
+#
+#         Given original parameters $((l_1,s_1),\\ldots,(l_n,s_n))$ and new locations
+#         $(l_1',\\ldots,l_n')$, returns $((l_1',s_1),\\ldots,(l_n',s_n))$.
+#         """
+#         matrix = p.array.reshape(self.sup_man.n_repeats, -1)
+#         loc_dim = self.sub_man.rep_man.dim
+#         q_matrix = q.array.reshape(self.sub_man.n_repeats, -1)
+#         matrix = matrix.at[:, :loc_dim].add(q_matrix)
+#         return Point(matrix.reshape(-1))
 
 
 @dataclass(frozen=True)
@@ -171,7 +226,7 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
 
         # Compute statistics for each unit
         for unit_params in params_list:
-            mean, var = self.man.numerical_mean_variance(unit_params)
+            mean, var = self.rep_man.numerical_mean_variance(unit_params)
             means.append(mean)
             variances.append(var)
 

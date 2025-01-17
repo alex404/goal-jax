@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Self, TypeVar, override
+from typing import Any, Callable, Self, override
 
 from jax import Array
 
@@ -23,13 +23,9 @@ from .subspace import Subspace
 
 ### Linear Maps ###
 
-Rep = TypeVar("Rep", bound="MatrixRep", covariant=True)
-Domain = TypeVar("Domain", bound="Manifold", covariant=True)
-Codomain = TypeVar("Codomain", bound="Manifold", contravariant=True)
-
 
 @dataclass(frozen=True)
-class LinearMap(Generic[Rep, Domain, Codomain], Manifold):
+class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
     """Linear map between manifolds using a specific matrix representation.
 
     Type Parameters:
@@ -165,12 +161,13 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 ### Affine Maps ###
 
 
-SubCodomain = TypeVar("SubCodomain", bound="Manifold", contravariant=True)
-
-
 @dataclass(frozen=True)
-class AffineMap(
-    Generic[Rep, Domain, SubCodomain, Codomain],
+class AffineMap[
+    Rep: MatrixRep,
+    Domain: Manifold,
+    SubCodomain: Manifold,
+    Codomain: Manifold,
+](
     Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]],
 ):
     """Affine transformation targeting a subspace of the codomain.
@@ -182,13 +179,19 @@ class AffineMap(
 
     """
 
+    rep: Rep
+    dom_man: Domain
     cod_sub: Subspace[Codomain, SubCodomain]
 
-    def __init__(
-        self, rep: Rep, dom_man: Domain, cod_sub: Subspace[Codomain, SubCodomain]
-    ):
-        super().__init__(cod_sub.sup_man, LinearMap(rep, dom_man, cod_sub.sub_man))
-        object.__setattr__(self, "cod_sub", cod_sub)
+    @property
+    @override
+    def fst_man(self) -> Codomain:
+        return self.cod_sub.sup_man
+
+    @property
+    @override
+    def snd_man(self) -> LinearMap[Rep, Domain, SubCodomain]:
+        return LinearMap(self.rep, self.dom_man, self.cod_sub.sub_man)
 
     def __call__[C: Coordinates](
         self,

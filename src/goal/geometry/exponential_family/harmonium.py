@@ -53,7 +53,6 @@ from .exponential_family import (
 )
 
 
-# NB: this dataclass decorator breaks pyreverse resolution - deleting it allows things to work
 @dataclass(frozen=True)
 class Harmonium[
     Rep: MatrixRep,
@@ -88,29 +87,39 @@ class Harmonium[
         lat_sub: Interactive subspace of observable sufficient statistics
     """
 
-    obs_sub: Subspace[Observable, SubObservable]
-    lat_sub: Subspace[Latent, SubLatent]
+    # Abstract Methods
 
     @property
-    @override
-    def data_dim(self) -> int:
-        """Data dimension includes observable and latent variables."""
-        return self.obs_man.data_dim + self.lat_man.data_dim
+    @abstractmethod
+    def int_rep(self) -> Rep:
+        """Interactive subspace of observable sufficient statistics."""
+
+    @property
+    @abstractmethod
+    def obs_sub(self) -> Subspace[Observable, SubObservable]:
+        """Interactive subspace of observable sufficient statistics."""
+
+    @property
+    @abstractmethod
+    def lat_sub(self) -> Subspace[Latent, SubLatent]:
+        """Interactive subspace of latent sufficient statistics."""
+
+    # Template Methods
 
     @property
     def obs_man(self) -> Observable:
         """Manifold of observable biases."""
-        return self.fst_man
+        return self.obs_sub.sup_man
 
     @property
     def lat_man(self) -> Latent:
         """Manifold of latent biases."""
-        return self.trd_man
+        return self.lat_sub.sup_man
 
     @property
     def int_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
         """Manifold of interaction matrices."""
-        return self.snd_man
+        return LinearMap(self.int_rep, self.lat_sub.sub_man, self.obs_sub.sub_man)
 
     @property
     def lkl_man(self) -> AffineMap[Rep, SubLatent, SubObservable, Observable]:
@@ -167,6 +176,32 @@ class Harmonium[
         """
         mx = self.obs_sub.sub_man.sufficient_statistic(x)
         return self.pst_man(self.posterior_function(params), mx)
+
+    # Override Methods
+
+    @property
+    @override
+    def fst_man(self) -> Observable:
+        """First component manifold."""
+        return self.obs_man
+
+    @property
+    @override
+    def snd_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
+        """First component manifold."""
+        return self.int_man
+
+    @property
+    @override
+    def trd_man(self) -> Latent:
+        """First component manifold."""
+        return self.lat_man
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        """Data dimension includes observable and latent variables."""
+        return self.obs_man.data_dim + self.lat_man.data_dim
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
@@ -283,7 +318,7 @@ class AnalyticLatent[
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
     Latent: Analytic,
-](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]):
+](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
     """A harmonium with differentiable latent exponential family."""
 
     def infer_missing_expectations(

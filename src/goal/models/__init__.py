@@ -39,45 +39,40 @@ from .base.gaussian.normal import (
     IsotropicCovariance,
     IsotropicNormal,
     Normal,
-    NormalSubspace,
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson
 from .base.von_mises import VonMises
 from .graphical.com_mixture import CoMMixture, CoMPoissonPopulation
-from .graphical.hmog import AnalyticHMoG, DifferentiableHMoG
+from .graphical.hmog import DifferentiableHMoG
 from .graphical.lgm import (
     FactorAnalysis,
     LinearGaussianModel,
-    LinearModel,
     PrincipalComponentAnalysis,
 )
 from .graphical.mixture import AnalyticMixture, DifferentiableMixture, Mixture
 
 __all__ = [
-    "LinearGaussianModel",
-    "LinearModel",
-    "DifferentiableHMoG",
-    "AnalyticHMoG",
-    "FactorAnalysis",
-    "PrincipalComponentAnalysis",
-    "Mixture",
-    "DifferentiableMixture",
     "AnalyticMixture",
-    "Poisson",
     "Categorical",
-    "VonMises",
-    "CoMPoisson",
-    "CoMShape",
     "CoMMixture",
+    "CoMPoisson",
     "CoMPoissonPopulation",
-    "Normal",
-    "FullNormal",
-    "DiagonalNormal",
-    "IsotropicNormal",
-    "Euclidean",
+    "CoMShape",
     "Covariance",
-    "FullCovariance",
     "DiagonalCovariance",
+    "DiagonalNormal",
+    "DifferentiableHMoG",
+    "DifferentiableMixture",
+    "Euclidean",
+    "FactorAnalysis",
+    "FullCovariance",
+    "FullNormal",
     "IsotropicCovariance",
-    "NormalSubspace",
+    "IsotropicNormal",
+    "LinearGaussianModel",
+    "Mixture",
+    "Normal",
+    "Poisson",
+    "PrincipalComponentAnalysis",
+    "VonMises",
 ]

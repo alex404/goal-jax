@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from ...geometry import (
-    ComposedSubspace,
     DifferentiableHierarchical,
     LinearMap,
-    LocationSubspace,
     PositiveDefinite,
     Rectangular,
-    TripleSubspace,
 )
-from ..base.gaussian.normal import Euclidean, FullNormal, Normal, NormalSubspace
+from ..base.gaussian.normal import Euclidean, FullNormal, Normal
 from .lgm import LinearGaussianModel
 from .mixture import DifferentiableMixture
 
