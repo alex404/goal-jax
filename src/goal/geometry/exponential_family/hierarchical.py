@@ -18,7 +18,6 @@ Key algorithms (conjugation, natural parameters, sampling) are implemented recur
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any, Self, override
 
 import jax
@@ -29,7 +28,7 @@ from ..manifold.linear import AffineMap
 from ..manifold.manifold import Point
 from ..manifold.matrix import MatrixRep
 from .exponential_family import ExponentialFamily, Generative, Mean, Natural
-from .harmonium import AnalyticConjugated, DifferentiableConjugated
+from .harmonium import AnalyticConjugated, Conjugated, DifferentiableConjugated
 
 
 class DifferentiableHierarchical[
@@ -38,7 +37,7 @@ class DifferentiableHierarchical[
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
     Latent: Any,
-](DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
+](DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent]):
     """Class for hierarchical harmoniums with deep conjugate structure.
 
     This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses DifferentiableConjugated to maintain the exponential family structure while adding hierarchical capabilities.
@@ -68,18 +67,24 @@ class DifferentiableHierarchical[
     While the Latent type parameter is Any for typing flexibility, at runtime we verify that it is actually a DifferentiableConjugated through __post_init__. This ensures proper hierarchical structure while avoiding complex generic typing.
     """
 
+    _lwr_man: Conjugated[Rep, Observable, SubObservable, SubLatent, Any]
+
     def __post_init__(self):
         # Check that the latent manifold is a DifferentiableConjugated
         if not isinstance(self.lat_man, DifferentiableConjugated):
             raise TypeError(
                 f"Latent manifold must be a DifferentiableConjugated, got {type(self.lat_man)}"
             )
+        if not isinstance(self._lwr_man, DifferentiableConjugated):
+            raise TypeError(
+                f"Bottom layer must be a DifferentiableConjugated, got {type(self._lwr_man)}"
+            )
 
     @property
-    @abstractmethod
     def lwr_man(
         self,
-    ) -> DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
+    ) -> DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Any]:
+        return self._lwr_man  # pyright: ignore[reportReturnType]
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
@@ -137,7 +142,6 @@ class AnalyticHierarchical[
 ](
     AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
     DifferentiableHierarchical[Rep, Observable, SubObservable, SubLatent, Latent],
-    ABC,
 ):
     """Class for hierarchical harmoniums with deep conjugate structure.
 
@@ -176,11 +180,11 @@ class AnalyticHierarchical[
             )
 
     @property
-    @abstractmethod
     @override
     def lwr_man(
         self,
-    ) -> AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Any]: ...
+    ) -> AnalyticConjugated[Rep, Observable, SubObservable, SubLatent, Any]:
+        return self._lwr_man  # pyright: ignore[reportReturnType]
 
     @override
     def to_natural_likelihood(

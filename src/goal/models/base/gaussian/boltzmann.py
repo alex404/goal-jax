@@ -1,28 +1,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ....geometry import (
-    ExponentialFamily,
-    Natural,
-    Point,
-)
+from ....geometry import ExponentialFamily, Manifold, Natural, Point
+from .generalized import GeneralizedGaussian
 
 
 @dataclass(frozen=True)
-class InteractionMatrix:
+class InteractionMatrix(Manifold):
     """Shape component of a Boltzmann machine.
 
     For n neurons, stores n(n-1)/2 interaction parameters
     (lower triangular without diagonal).
     """
 
-    dim: int  # Number of neurons
+    _dim: int  # Number of neurons
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Number of neurons."""
+        return self._dim
 
     @property
     def param_dim(self) -> int:
@@ -38,7 +41,7 @@ class InteractionMatrix:
         matrix = jnp.zeros((n, n))
         # Fill lower triangle
         indices = jnp.tril_indices(n, k=-1)
-        matrix = matrix.at[indices].set(params.params)
+        matrix = matrix.at[indices].set(params.array)
         # Make symmetric
         return matrix + matrix.T
 
@@ -52,7 +55,7 @@ class InteractionMatrix:
 
 
 @dataclass(frozen=True)
-class Boltzmann(GeneralizedGaussianBase[InteractionMatrix], ExponentialFamily):
+class Boltzmann(GeneralizedGaussian[InteractionMatrix], ExponentialFamily):
     """Boltzmann machine distribution for small networks.
 
     Optimized for exact computation with ~10 neurons.
