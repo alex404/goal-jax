@@ -79,15 +79,9 @@ class Harmonium[
     - $\\theta_Z$ are the latent biases,
     - $\\Theta_{XZ}$ is the interaction matrix, and
     - $\\mathbf s_X(x)$ and $\\mathbf s_Z(z)$ are sufficient statistics of the observable and latent exponential families, respectively.
-
-    Args:
-        fst_man: The observable exponential family
-        snd_man: The latent exponential family
-        obs_sub: Interactive subspace of observable sufficient statistics
-        lat_sub: Interactive subspace of observable sufficient statistics
     """
 
-    # Abstract Methods
+    # Contract
 
     @property
     @abstractmethod
@@ -104,103 +98,27 @@ class Harmonium[
     def lat_sub(self) -> Subspace[Latent, SubLatent]:
         """Interactive subspace of latent sufficient statistics."""
 
-    # Template Methods
-
-    @property
-    def obs_man(self) -> Observable:
-        """Manifold of observable biases."""
-        return self.obs_sub.sup_man
-
-    @property
-    def lat_man(self) -> Latent:
-        """Manifold of latent biases."""
-        return self.lat_sub.sup_man
-
-    @property
-    def int_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
-        """Manifold of interaction matrices."""
-        return LinearMap(self.int_rep, self.lat_sub.sub_man, self.obs_sub.sub_man)
-
-    @property
-    def lkl_man(self) -> AffineMap[Rep, SubLatent, SubObservable, Observable]:
-        """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.int_man.rep, self.lat_sub.sub_man, self.obs_sub)
-
-    @property
-    def pst_man(self) -> AffineMap[Rep, SubObservable, SubLatent, Latent]:
-        """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.int_man.rep, self.obs_sub.sub_man, self.lat_sub)
-
-    def likelihood_function(
-        self, params: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]]:
-        """Natural parameters of the likelihood distribution as an affine function.
-
-        The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
-        """
-        obs_params, int_params, _ = self.split_params(params)
-        return self.lkl_man.join_params(obs_params, int_params)
-
-    def posterior_function(
-        self, params: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[Rep, SubObservable, SubLatent, Latent]]:
-        """Natural parameters of the posterior distribution as an affine function.
-
-        The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}$.
-        """
-        _, int_params, lat_params = self.split_params(params)
-        int_mat_t = self.int_man.transpose(int_params)
-        return self.pst_man.join_params(lat_params, int_mat_t)
-
-    def likelihood_at(
-        self, params: Point[Natural, Self], z: Array
-    ) -> Point[Natural, Observable]:
-        """Compute natural parameters of likelihood distribution $p(x \\mid z)$ at a given $z$.
-
-        Given a latent state $z$ with sufficient statistics $s(z)$, computes natural parameters $\\theta_X$ of the conditional distribution:
-
-        $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
-        """
-        mz = self.lat_sub.sub_man.sufficient_statistic(z)
-        return self.lkl_man(self.likelihood_function(params), mz)
-
-    def posterior_at(
-        self, params: Point[Natural, Self], x: Array
-    ) -> Point[Natural, Latent]:
-        """Compute natural parameters of posterior distribution $p(z \\mid x)$.
-
-        Given an observation $x$ with sufficient statistics $s(x)$, computes natural
-        parameters $\\theta_Z$ of the conditional distribution:
-
-        $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
-        """
-        mx = self.obs_sub.sub_man.sufficient_statistic(x)
-        return self.pst_man(self.posterior_function(params), mx)
-
-    # Override Methods
+    # Overrides
 
     @property
     @override
     def fst_man(self) -> Observable:
-        """First component manifold."""
         return self.obs_man
 
     @property
     @override
     def snd_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
-        """First component manifold."""
         return self.int_man
 
     @property
     @override
     def trd_man(self) -> Latent:
-        """First component manifold."""
         return self.lat_man
 
     @property
     @override
     def data_dim(self) -> int:
-        """Data dimension includes observable and latent variables."""
+        """Total dimension of data points."""
         return self.obs_man.data_dim + self.lat_man.data_dim
 
     @override
@@ -311,6 +229,79 @@ class Harmonium[
 
         return self.join_params(obs_params, int_params, lat_params)
 
+    # Templates
+
+    @property
+    def obs_man(self) -> Observable:
+        """Manifold of observable biases."""
+        return self.obs_sub.sup_man
+
+    @property
+    def lat_man(self) -> Latent:
+        """Manifold of latent biases."""
+        return self.lat_sub.sup_man
+
+    @property
+    def int_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
+        """Manifold of interaction matrices."""
+        return LinearMap(self.int_rep, self.lat_sub.sub_man, self.obs_sub.sub_man)
+
+    @property
+    def lkl_man(self) -> AffineMap[Rep, SubLatent, SubObservable, Observable]:
+        """Manifold of conditional posterior distributions $p(z \\mid x)$."""
+        return AffineMap(self.int_man.rep, self.lat_sub.sub_man, self.obs_sub)
+
+    @property
+    def pst_man(self) -> AffineMap[Rep, SubObservable, SubLatent, Latent]:
+        """Manifold of conditional posterior distributions $p(z \\mid x)$."""
+        return AffineMap(self.int_man.rep, self.obs_sub.sub_man, self.lat_sub)
+
+    def likelihood_function(
+        self, params: Point[Natural, Self]
+    ) -> Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]]:
+        """Natural parameters of the likelihood distribution as an affine function.
+
+        The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
+        """
+        obs_params, int_params, _ = self.split_params(params)
+        return self.lkl_man.join_params(obs_params, int_params)
+
+    def posterior_function(
+        self, params: Point[Natural, Self]
+    ) -> Point[Natural, AffineMap[Rep, SubObservable, SubLatent, Latent]]:
+        """Natural parameters of the posterior distribution as an affine function.
+
+        The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}$.
+        """
+        _, int_params, lat_params = self.split_params(params)
+        int_mat_t = self.int_man.transpose(int_params)
+        return self.pst_man.join_params(lat_params, int_mat_t)
+
+    def likelihood_at(
+        self, params: Point[Natural, Self], z: Array
+    ) -> Point[Natural, Observable]:
+        """Compute natural parameters of likelihood distribution $p(x \\mid z)$ at a given $z$.
+
+        Given a latent state $z$ with sufficient statistics $s(z)$, computes natural parameters $\\theta_X$ of the conditional distribution:
+
+        $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        """
+        mz = self.lat_sub.sub_man.sufficient_statistic(z)
+        return self.lkl_man(self.likelihood_function(params), mz)
+
+    def posterior_at(
+        self, params: Point[Natural, Self], x: Array
+    ) -> Point[Natural, Latent]:
+        """Compute natural parameters of posterior distribution $p(z \\mid x)$.
+
+        Given an observation $x$ with sufficient statistics $s(x)$, computes natural
+        parameters $\\theta_Z$ of the conditional distribution:
+
+        $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        """
+        mx = self.obs_sub.sub_man.sufficient_statistic(x)
+        return self.pst_man(self.posterior_function(params), mx)
+
 
 class AnalyticLatent[
     Rep: MatrixRep,
@@ -320,6 +311,8 @@ class AnalyticLatent[
     Latent: Analytic,
 ](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
     """A harmonium with differentiable latent exponential family."""
+
+    # Templates
 
     def infer_missing_expectations(
         self,
@@ -396,6 +389,8 @@ class Conjugated[
 ](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
     """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
 
+    # Contract
+
     @abstractmethod
     def conjugation_parameters(
         self,
@@ -404,7 +399,8 @@ class Conjugated[
         ],
     ) -> tuple[Array, Point[Natural, Latent]]:
         """Compute conjugation parameters for the harmonium."""
-        ...
+
+    # Templates
 
     def prior(self, params: Point[Natural, Self]) -> Point[Natural, Latent]:
         """Natural parameters of the prior distribution $p(z)$."""
@@ -454,6 +450,8 @@ class GenerativeConjugated[
     2. Sampling from the conditional likelihood $p(x \\mid z)$.
     """
 
+    # Overrides
+
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
         """Generate samples from the harmonium distribution.
@@ -484,6 +482,8 @@ class GenerativeConjugated[
         # Concatenate samples along data dimension
         return jnp.concatenate([x_sample, z_sample], axis=-1)
 
+    # Templates
+
     def observable_sample(
         self, key: Array, params: Point[Natural, Self], n: int = 1
     ) -> Array:
@@ -503,6 +503,8 @@ class DifferentiableConjugated[
     ABC,
 ):
     """A conjugated harmonium with an analytical log-partition function."""
+
+    # Overrides
 
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
@@ -527,6 +529,7 @@ class DifferentiableConjugated[
         # Use latent family's partition function
         return self.lat_man.log_partition_function(adjusted_lat) + chi
 
+    # Templates
     def log_observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
         """Compute log density of the observable distribution $p(x)$.
 
@@ -595,12 +598,15 @@ class AnalyticConjugated[
     3. Analytic structure (analytical entropy).
     """
 
+    # Contract
+
     @abstractmethod
     def to_natural_likelihood(
         self, params: Point[Mean, Self]
     ) -> Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]]:
         """Given a harmonium density in mean coordinates, returns the natural parameters of the likelihood."""
-        ...
+
+    # Overrides
 
     @override
     def to_natural(self, means: Point[Mean, Self]) -> Point[Natural, Self]:
@@ -624,6 +630,8 @@ class AnalyticConjugated[
 
         log_partition = self.log_partition_function(params)
         return self.dot(params, means) - log_partition
+
+    # Templates
 
     def expectation_maximization(
         self, params: Point[Natural, Self], xs: Array

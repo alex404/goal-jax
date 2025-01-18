@@ -44,7 +44,6 @@ This module implements this structure through a hierarchy of classes:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Callable, Self, override
 
 import jax
@@ -96,6 +95,8 @@ class ExponentialFamily(Manifold, ABC):
     The base `ExponentialFamily` class includes methods that fundamentally define an exponential family, namely the base measure and sufficient statistic.
     """
 
+    # Contract
+
     @property
     @abstractmethod
     def data_dim(self) -> int:
@@ -116,6 +117,13 @@ class ExponentialFamily(Manifold, ABC):
             Mean coordinates of the sufficient statistics
         """
 
+    @abstractmethod
+    def log_base_measure(self, x: Array) -> Array:
+        """Compute log of base measure $\\mu(x)$."""
+        ...
+
+    # Templates
+
     def average_sufficient_statistic(self, xs: Array) -> Point[Mean, Self]:
         """Average sufficient statistics of a batch of observations.
 
@@ -127,11 +135,6 @@ class ExponentialFamily(Manifold, ABC):
         """
         suff_stats = jax.vmap(self.sufficient_statistic)(xs)
         return self.mean_point(jnp.mean(suff_stats.array, axis=0))
-
-    @abstractmethod
-    def log_base_measure(self, x: Array) -> Array:
-        """Compute log of base measure $\\mu(x)$."""
-        ...
 
     def mean_point(self, params: Array) -> Point[Mean, Self]:
         """Construct a point in mean coordinates."""
@@ -173,6 +176,8 @@ class Generative(ExponentialFamily, ABC):
     Sampling is performed on distributions in natural coordinates. This enables estimation of mean parameters even when closed-form expressions for the log partition function are unavailable.
     """
 
+    # Contract
+
     @abstractmethod
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
         """Generate random samples from the distribution.
@@ -185,6 +190,8 @@ class Generative(ExponentialFamily, ABC):
             Array of shape (n, *data_dims) containing samples
         """
         ...
+
+    # Templates
 
     def stochastic_to_mean(
         self, key: Array, params: Point[Natural, Self], n: int
@@ -210,9 +217,13 @@ class Differentiable(Generative, ABC):
     $$
     """
 
+    # Contract
+
     @abstractmethod
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         """Compute log partition function $\\psi(\\theta)$."""
+
+    # Templates
 
     def to_mean(self, params: Point[Natural, Self]) -> Point[Mean, Self]:
         """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
@@ -232,6 +243,15 @@ class Differentiable(Generative, ABC):
             - self.log_partition_function(params)
         )
 
+    def density(self, params: Point[Natural, Self], x: Array) -> Array:
+        """Compute density at x.
+
+        $$
+        p(x;\\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
+        $$
+        """
+        return jnp.exp(self.log_density(params, x))
+
     def average_log_density(self, p: Point[Natural, Self], xs: Array) -> Array:
         """Compute average log density over a batch of observations.
 
@@ -243,15 +263,6 @@ class Differentiable(Generative, ABC):
             Array of shape (batch_size,) containing average log densities
         """
         return jnp.mean(jax.vmap(self.log_density, in_axes=(None, 0))(p, xs))
-
-    def density(self, params: Point[Natural, Self], x: Array) -> Array:
-        """Compute density at x.
-
-        $$
-        p(x;\\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
-        $$
-        """
-        return jnp.exp(self.log_density(params, x))
 
 
 class Analytic(Differentiable, ABC):
@@ -266,9 +277,31 @@ class Analytic(Differentiable, ABC):
      **NB:** This form of the negative entropy is the convex conjugate of the log-partition function, and does not factor in the base measure of the distribution. It may thus differ from the entropy as traditionally defined.
     """
 
+    # Contract
+
     @abstractmethod
     def negative_entropy(self, means: Point[Mean, Self]) -> Array:
         """Compute negative entropy $\\phi(\\eta)$."""
+
+    # Overrides
+
+    @override
+    def initialize_from_sample(
+        self,
+        key: Array,
+        sample: Array,
+        location: float = 0.0,
+        shape: float = 0.1,
+    ) -> Point[Natural, Self]:
+        """Initialize a model based on the noisy average sufficient statistics."""
+        avg_suff_stat = self.average_sufficient_statistic(sample)
+        # add gaussian noise
+        noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
+        avg_suff_stat = avg_suff_stat + Point(noise)
+        params = self.to_natural(avg_suff_stat)
+        return self.natural_point(params.array)
+
+    # Templates
 
     def to_natural(self, means: Point[Mean, Self]) -> Point[Natural, Self]:
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
@@ -290,22 +323,6 @@ class Analytic(Differentiable, ABC):
             - self.dot(q_params, p_means)
         )
 
-    @override
-    def initialize_from_sample(
-        self,
-        key: Array,
-        sample: Array,
-        location: float = 0.0,
-        shape: float = 0.1,
-    ) -> Point[Natural, Self]:
-        """Initialize a model based on the noisy average sufficient statistics."""
-        avg_suff_stat = self.average_sufficient_statistic(sample)
-        # add gaussian noise
-        noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
-        avg_suff_stat = avg_suff_stat + Point(noise)
-        params = self.to_natural(avg_suff_stat)
-        return self.natural_point(params.array)
-
 
 class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
     Pair[Location, Shape], ExponentialFamily, ABC
@@ -319,6 +336,8 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
     - The log-base measure by default is the log-base measure of the shape component.
     """
 
+    # Overrides
+
     @property
     @override
     def data_dim(self) -> int:
@@ -328,6 +347,7 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
+        """Sufficient statistic is the concatenation of component sufficient statistics."""
         loc_stats = self.fst_man.sufficient_statistic(x)
         shape_stats = self.snd_man.sufficient_statistic(x)
         return self.join_params(loc_stats, shape_stats)
@@ -348,57 +368,45 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.snd_man.log_base_measure(x)
 
 
-@dataclass(frozen=True)
 class Replicated[M: ExponentialFamily](ExponentialFamily, ABC):
-    rep_man: M
-    """Base manifold to replicate."""
+    """Replicated manifold for exponential families."""
 
-    n_repeats: int
-    """Number of replicated units."""
+    # Contract
 
-    def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
-        """Split replicated parameters into individual components."""
-        # Use reshape instead of array_split
-        matrix = p.array.reshape(self.n_repeats, -1)
-        return [Point(row) for row in matrix]
+    @property
+    @abstractmethod
+    def rep_man(self) -> M:
+        """Base manifold to replicate."""
 
-    def join_params[C: Coordinates](self, ps: list[Point[C, M]]) -> Point[C, Self]:
-        """Join individual components into replicated parameters."""
-        if len(ps) != self.n_repeats:
-            raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
-        # Stack instead of concatenate
-        return Point(jnp.stack([p.array for p in ps]).reshape(-1))
+    @property
+    @abstractmethod
+    def n_repeats(self) -> int:
+        """Number of replicated units."""
 
-    def map_replicated[C: Coordinates](
-        self, f: Callable[[Point[C, M]], Array], p: Point[C, Self]
-    ) -> Array:
-        # Reshape instead of split
-        matrix = p.array.reshape(self.n_repeats, -1)
-
-        def g(row: Array) -> Array:
-            return f(Point(row))
-
-        # vmap the partition function computation
-        return jax.vmap(g)(matrix)
+    # Overrides
 
     @property
     @override
     def dim(self) -> int:
+        """Total dimension is the product of component dimensions."""
         return self.rep_man.dim * self.n_repeats
 
     @property
     @override
     def data_dim(self) -> int:
+        """Data dimension is the product of component data dimensions."""
         return self.rep_man.data_dim * self.n_repeats
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
+        """Sufficient statistic is the concatenation of replicated component sufficient statistics."""
         x_reshaped = x.reshape(self.n_repeats, -1)
         stats = jax.vmap(self.rep_man.sufficient_statistic)(x_reshaped)
         return self.mean_point(stats.array.reshape(-1))
 
     @override
     def log_base_measure(self, x: Array) -> Array:
+        """Base measure is the sum of replicated component base measures."""
         x_reshaped = x.reshape(self.n_repeats, -1)
         # vmap the base measure computation
         return jnp.sum(jax.vmap(self.rep_man.log_base_measure)(x_reshaped))
@@ -448,9 +456,38 @@ class Replicated[M: ExponentialFamily](ExponentialFamily, ABC):
         ]
         return self.join_params(params)
 
+    # Templates
 
-class GenerativeReplicated[M: Generative](Replicated[M], Generative):
+    def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
+        """Split replicated parameters into individual components."""
+        # Use reshape instead of array_split
+        matrix = p.array.reshape(self.n_repeats, -1)
+        return [Point(row) for row in matrix]
+
+    def join_params[C: Coordinates](self, ps: list[Point[C, M]]) -> Point[C, Self]:
+        """Join individual components into replicated parameters."""
+        if len(ps) != self.n_repeats:
+            raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
+        # Stack instead of concatenate
+        return Point(jnp.stack([p.array for p in ps]).reshape(-1))
+
+    def map_replicated[C: Coordinates](
+        self, f: Callable[[Point[C, M]], Array], p: Point[C, Self]
+    ) -> Array:
+        # Reshape instead of split
+        matrix = p.array.reshape(self.n_repeats, -1)
+
+        def g(row: Array) -> Array:
+            return f(Point(row))
+
+        # vmap the partition function computation
+        return jax.vmap(g)(matrix)
+
+
+class GenerativeReplicated[M: Generative](Replicated[M], Generative, ABC):
     """Replicated manifold for generative exponential families."""
+
+    # Overrides
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
@@ -469,15 +506,23 @@ class GenerativeReplicated[M: Generative](Replicated[M], Generative):
 
 
 class DifferentiableReplicated[M: Differentiable](
-    Differentiable, GenerativeReplicated[M]
+    Differentiable, GenerativeReplicated[M], ABC
 ):
+    """Replicated manifold for differentiable exponential families."""
+
+    # Overrides
+
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         # Reshape instead of split
         return jnp.sum(self.map_replicated(self.rep_man.log_partition_function, params))
 
 
-class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic):
+class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic, ABC):
+    """Replicated manifold for analytic exponential families."""
+
+    # Overrides
+
     @override
     def negative_entropy(self, means: Point[Mean, Self]) -> Array:
         # Reshape instead of split

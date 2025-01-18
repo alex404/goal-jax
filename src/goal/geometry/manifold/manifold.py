@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Self, TypeVar, override
+from typing import Any, Callable, Self, override
 
 import jax
 import jax.numpy as jnp
@@ -65,6 +65,8 @@ class Manifold(ABC):
     In our implementation, a `Manifold` defines operations on `Point`s rather than containing `Point`s itself - it also acts as a "Point factory", and should be used to create points rather than the `Point` constructor itself.
     """
 
+    # Simple context manager
+
     def __enter__(self):
         return self
 
@@ -76,11 +78,15 @@ class Manifold(ABC):
     ) -> None:
         pass
 
+    # Abstract methods
+
     @property
     @abstractmethod
     def dim(self) -> int:
         """The dimension of the manifold."""
         ...
+
+    # Templates
 
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.array, q.array)
@@ -119,19 +125,10 @@ class Manifold(ABC):
         return Point(params)
 
 
-C = TypeVar("C", bound=Coordinates)
-M = TypeVar("M", bound=Manifold, covariant=True)
-
-
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Point(Generic[C, M]):
+class Point[C: Coordinates, M: Manifold]:
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
-
-    Type Parameters:
-        C: The coordinate system type (invariant). Coordinate systems are fixed structural elements that define how points are represented.
-
-        M: The manifold type (covariant). Points on a more specific manifold can be used wherever points on a more general manifold are expected. For example, a Point[C, Circle] can be used where a Point[C, Shape] is expected because a Circle is-a Shape.
 
     Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
 
@@ -179,6 +176,8 @@ class Point(Generic[C, M]):
 class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
     """The manifold given by the Cartesian product between the first and second manifold."""
 
+    # Contract
+
     @property
     @abstractmethod
     def fst_man(self) -> First:
@@ -189,11 +188,15 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
     def snd_man(self) -> Second:
         """Second component manifold."""
 
+    # Overrides
+
     @property
     @override
     def dim(self) -> int:
         """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim
+
+    # Templates
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
@@ -216,6 +219,8 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
 class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
     """A product manifold combining three component manifolds."""
 
+    # Contract
+
     @property
     @abstractmethod
     def fst_man(self) -> First:
@@ -231,11 +236,15 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
     def trd_man(self) -> Third:
         """Third component manifold."""
 
+    # Overrides
+
     @property
     @override
     def dim(self) -> int:
         """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim + self.trd_man.dim
+
+    # Templates
 
     def split_params[C: Coordinates](
         self, p: Point[C, Self]
