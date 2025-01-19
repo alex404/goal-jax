@@ -22,6 +22,7 @@ from .exponential_family.harmonium import (
 from .exponential_family.hierarchical import (
     AnalyticHierarchical,
     DifferentiableHierarchical,
+    ObservableSubspace,
 )
 from .manifold.linear import (
     AffineMap,
@@ -82,6 +83,7 @@ __all__ = [
     "MatrixRep",
     "Mean",
     "Natural",
+    "ObservableSubspace",
     "OptState",
     "Optimizer",
     "Pair",

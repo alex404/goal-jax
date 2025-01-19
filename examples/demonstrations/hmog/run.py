@@ -19,6 +19,7 @@ from goal.models import (
     Categorical,
     Covariance,
     Euclidean,
+    analytic_hmog,
 )
 
 from ...shared import initialize_jax, initialize_paths, save_results
@@ -34,14 +35,12 @@ SEP = 3.0  # Separation parameter
 ### Ground Truth ###
 
 
-def create_ground_truth_model() -> (
-    tuple[
-        AnalyticHMoG[Diagonal],
-        Point[Natural, AnalyticHMoG[Diagonal]],
-    ]
-):
+def create_ground_truth_model() -> tuple[
+    AnalyticHMoG[Diagonal],
+    Point[Natural, AnalyticHMoG[Diagonal]],
+]:
     """Create ground truth hierarchical mixture of Gaussians model."""
-    hmog = AnalyticHMoG(
+    hmog = analytic_hmog(
         obs_dim=2,
         obs_rep=Diagonal,
         lat_dim=1,
@@ -134,8 +133,8 @@ def compute_hmog_results(
     sample = gt_hmog.observable_sample(key_sample, gt_hmog_params, sample_size)
 
     # Create HMoG model
-    iso_hmog = AnalyticHMoG(2, Scale, 1, 2)
-    dia_hmog = AnalyticHMoG(2, Diagonal, 1, 2)
+    iso_hmog = analytic_hmog(2, Scale, 1, 2)
+    dia_hmog = analytic_hmog(2, Diagonal, 1, 2)
 
     # Train model
     iso_lls, init_iso_params, final_iso_params = fit_hmog(

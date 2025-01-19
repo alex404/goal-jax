@@ -154,11 +154,23 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         window_size: Fixed number of terms to evaluate in series expansions (default: 200)
     """
 
+    # Fields
+
     window_size: int = 200
 
-    def __init__(self, window_size: int = 200):
-        super().__init__(Poisson(), CoMShape())
-        object.__setattr__(self, "window_size", window_size)
+    # Override
+
+    @property
+    @override
+    def fst_man(self) -> Poisson:
+        return Poisson()
+
+    @property
+    @override
+    def snd_man(self) -> CoMShape:
+        return CoMShape()
+
+    # Methods
 
     def split_mode_dispersion(
         self, natural_params: Point[Natural, Self]

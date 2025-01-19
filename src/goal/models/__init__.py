@@ -43,7 +43,12 @@ from .base.gaussian.normal import (
 from .base.poisson import CoMPoisson, CoMShape, Poisson
 from .base.von_mises import VonMises
 from .graphical.com_mixture import CoMMixture, CoMPoissonPopulation
-from .graphical.hmog import DifferentiableHMoG
+from .graphical.hmog import (
+    AnalyticHMoG,
+    DifferentiableHMoG,
+    analytic_hmog,
+    differentiable_hmog,
+)
 from .graphical.lgm import (
     FactorAnalysis,
     LinearGaussianModel,
@@ -52,6 +57,7 @@ from .graphical.lgm import (
 from .graphical.mixture import AnalyticMixture, DifferentiableMixture, Mixture
 
 __all__ = [
+    "AnalyticHMoG",
     "AnalyticMixture",
     "Categorical",
     "CoMMixture",
@@ -75,4 +81,6 @@ __all__ = [
     "Poisson",
     "PrincipalComponentAnalysis",
     "VonMises",
+    "analytic_hmog",
+    "differentiable_hmog",
 ]

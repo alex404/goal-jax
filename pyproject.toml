@@ -44,6 +44,7 @@ reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
 reportAny = "none"
 reportExplicitAny = "none"
+reportMissingSuperCall = "none"
 
 [tool.ruff]
 src = ["src"]

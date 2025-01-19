@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Mean, Natural, Point
+from goal.geometry import Mean, Natural, Point, PositiveDefinite
 from goal.models import (
     Categorical,
     Euclidean,
@@ -132,7 +132,7 @@ def main():
     # # Normal test
     print("\nTesting Normal Distribution...")
 
-    normal = Normal()
+    normal = Normal(1, PositiveDefinite)
     mu0 = 2.0
     sigma = 1.5
     mu: Point[Mean, Euclidean] = Point(jnp.atleast_1d(mu0))
