@@ -54,14 +54,18 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     """Mixture models with exponential family observations.
 
     Parameters:
-        obs_man: Base exponential family for observations
+        _obs_man: Base exponential family for observations
         n_categories: Number of mixture components
-        obs_sub: Subspace relationship for observable parameters (default: Identity)
+        _obs_sub: Subspace relationship for observable parameters (default: Identity)
     """
+
+    # Fields
 
     _obs_man: Observable
     n_categories: int
     _obs_sub: Subspace[Observable, SubObservable]
+
+    # Overrides
 
     @property
     @override
@@ -77,6 +81,8 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     @override
     def lat_sub(self) -> IdentitySubspace[Categorical]:
         return IdentitySubspace(Categorical(self.n_categories))
+
+    # Methods
 
     def join_mean_mixture(
         self,
@@ -98,6 +104,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         return self.join_params(obs_means, int_means, weights)
 
 
+@dataclass(frozen=True)
 class DifferentiableMixture[
     Observable: Differentiable,
     SubObservable: ExponentialFamily,
@@ -107,25 +114,7 @@ class DifferentiableMixture[
         Rectangular, Observable, SubObservable, Categorical, Categorical
     ],
 ):
-    # Mixture methods
-
-    def split_natural_mixture(
-        self, p: Point[Natural, Self]
-    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
-        """Split a mixture model in natural coordinates into components and prior."""
-
-        lkl_params, prr_params = self.split_conjugated(p)
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
-        int_cols = self.int_man.to_columns(int_mat)
-        components = [obs_bias]  # First component
-
-        for col in int_cols:
-            comp = self.obs_sub.translate(obs_bias, col)
-            components.append(comp)
-
-        return components, prr_params
-
-    # Exponential family methods
+    # Overrides
 
     @override
     def conjugation_parameters(
@@ -159,7 +148,26 @@ class DifferentiableMixture[
 
         return rho_0, Point(jnp.array(rho_z_components))
 
+    # Methods
 
+    def split_natural_mixture(
+        self, p: Point[Natural, Self]
+    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
+        """Split a mixture model in natural coordinates into components and prior."""
+
+        lkl_params, prr_params = self.split_conjugated(p)
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        int_cols = self.int_man.to_columns(int_mat)
+        components = [obs_bias]  # First component
+
+        for col in int_cols:
+            comp = self.obs_sub.translate(obs_bias, col)
+            components.append(comp)
+
+        return components, prr_params
+
+
+@dataclass(frozen=True)
 class AnalyticMixture[Observable: Analytic](
     DifferentiableMixture[Observable, Observable],
     AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
@@ -174,8 +182,12 @@ class AnalyticMixture[Observable: Analytic](
         n_categories: Number of mixture components
     """
 
+    # Constructor
+
     def __init__(self, obs_man: Observable, n_categories: int):
         super().__init__(obs_man, n_categories, IdentitySubspace(obs_man))
+
+    # Overrides
 
     @override
     def to_natural_likelihood(
@@ -195,6 +207,8 @@ class AnalyticMixture[Observable: Analytic](
         int_mat = self.int_man.from_columns(int_cols)
 
         return self.lkl_man.join_params(obs_bias, int_mat)
+
+    # Methods
 
     def split_mean_mixture(
         self, p: Point[Mean, Self]

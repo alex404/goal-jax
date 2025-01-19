@@ -129,6 +129,13 @@ from ..base.gaussian.normal import (
 #         return p + embedded_q
 
 
+def _cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
+    p: Point[C, Covariance[Rep]],
+) -> Point[C, LinearMap[Rep, Euclidean, Euclidean]]:
+    """Convert a covariance to a linear map."""
+    return Point(p.array)
+
+
 @dataclass(frozen=True)
 class NormalLocationSubspace[Rep: PositiveDefinite](Subspace[Normal[Rep], Euclidean]):
     """Subspace relationship for a product manifold $M \\times N$."""
@@ -290,7 +297,7 @@ class LinearGaussianModel[
     @override
     def lat_sub(self) -> NormalLocationSubspace[PositiveDefinite]:
         """Representation of interaction matrix."""
-        return NormalLocationSubspace(Normal(self.lat_dim, PositiveDefinite))
+        return NormalLocationSubspace(Normal(self.obs_dim, PositiveDefinite))
 
     @override
     def conjugation_parameters(
@@ -324,7 +331,9 @@ class LinearGaussianModel[
         )
         chi += 0.5 * log_det
         rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
-        _, rho_shape = _change_of_basis(self.int_man, int_mat, obs_cov_man, obs_sigma)
+        _, rho_shape = _change_of_basis(
+            self.int_man, int_mat, obs_cov_man, _cov_to_lin(obs_sigma)
+        )
         rho_shape *= -1
 
         # Join parameters into moment parameters
@@ -348,16 +357,18 @@ class LinearGaussianModel[
         lat_prs = lat_cov_man.inverse(lat_cov)
         int_man_t = self.int_man.transpose_manifold()
         int_cov_t = self.int_man.transpose(int_cov)
-        cob_man, cob = _change_of_basis(int_man_t, int_cov_t, lat_cov_man, lat_prs)
+        cob_man, cob = _change_of_basis(
+            int_man_t, int_cov_t, lat_cov_man, _cov_to_lin(lat_prs)
+        )
         shaped_cob = obs_cov_man.from_dense(cob_man.to_dense(cob))
         obs_prs = obs_cov_man.inverse(obs_cov - shaped_cob)
         _, int_params = _dual_composition(
             obs_cov_man,
-            obs_prs,
+            _cov_to_lin(obs_prs),
             self.int_man,
             expand_dual(int_cov),
             lat_cov_man,
-            lat_prs,
+            _cov_to_lin(lat_prs),
         )
         # Construct observable location params
         obs_loc0 = obs_cov_man(obs_prs, expand_dual(obs_mean))

@@ -47,14 +47,20 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         cod_man: The target/codomain manifold $W$
     """
 
+    # Fields
+
     rep: Rep
     dom_man: Domain
     cod_man: Codomain
+
+    # Overrides
 
     @property
     @override
     def dim(self) -> int:
         return self.rep.num_params(self.shape)
+
+    # Methods
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -142,8 +148,12 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
     """
 
+    # Constructor
+
     def __init__(self, rep: R, dom_man: M):
         super().__init__(rep, dom_man, dom_man)
+
+    # Methods
 
     def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""
@@ -179,9 +189,13 @@ class AffineMap[
 
     """
 
+    # Fields
+
     rep: Rep
     dom_man: Domain
     cod_sub: Subspace[Codomain, SubCodomain]
+
+    # Overrides
 
     @property
     @override
@@ -192,6 +206,8 @@ class AffineMap[
     @override
     def snd_man(self) -> LinearMap[Rep, Domain, SubCodomain]:
         return LinearMap(self.rep, self.dom_man, self.cod_sub.sub_man)
+
+    # Methods
 
     def __call__[C: Coordinates](
         self,
