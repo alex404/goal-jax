@@ -18,7 +18,7 @@ xz = jnp.concatenate([x, z])  # shape: (5,)
 The module provides a hierarchy of harmonium models with increasing structure:
 
 - `Harmonium`: Core exponential family structure with observable and latent variables.
-- `AnalyticLatent`: Supports differentiation of latent variables.
+- `DifferentiableLatent`: Supports differentiation of latent variables.
 - `Conjugated`: Enables analytical computation of marginals $p(x)$ and $p(z)$ of $p(x, z)$.
 - `GenerativeConjugated`: Harmoniums that can be sampled from.
 - `DifferentiableConjugated`: Harmoniums with an analytical log-partition function.
@@ -303,13 +303,125 @@ class Harmonium[
         return self.pst_man(self.posterior_function(params), mx)
 
 
-class AnalyticLatent[
+class Conjugated[
     Rep: MatrixRep,
     Observable: ExponentialFamily,
     SubObservable: ExponentialFamily,
     SubLatent: ExponentialFamily,
-    Latent: Analytic,
+    Latent: ExponentialFamily,
 ](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
+    """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
+
+    # Contract
+
+    @abstractmethod
+    def conjugation_parameters(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]
+        ],
+    ) -> tuple[Array, Point[Natural, Latent]]:
+        """Compute conjugation parameters for the harmonium."""
+
+    # Templates
+
+    def prior(self, params: Point[Natural, Self]) -> Point[Natural, Latent]:
+        """Natural parameters of the prior distribution $p(z)$."""
+        obs_params, int_params, lat_params = self.split_params(params)
+        lkl_params = self.lkl_man.join_params(obs_params, int_params)
+        _, rho = self.conjugation_parameters(lkl_params)
+        return lat_params + rho
+
+    def split_conjugated(
+        self, params: Point[Natural, Self]
+    ) -> tuple[
+        Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]],
+        Point[Natural, Latent],
+    ]:
+        """Split conjugated harmonium into likelihood and prior."""
+        obs_params, int_params, lat_params = self.split_params(params)
+        lkl_params = self.lkl_man.join_params(obs_params, int_params)
+        _, rho = self.conjugation_parameters(lkl_params)
+        return lkl_params, lat_params + rho
+
+    def join_conjugated(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]
+        ],
+        prior_params: Point[Natural, Latent],
+    ) -> Point[Natural, Self]:
+        """Join likelihood and prior parameters into a conjugated harmonium."""
+        _, rho = self.conjugation_parameters(lkl_params)
+        lat_params = prior_params - rho
+        obs_params, int_params = self.lkl_man.split_params(lkl_params)
+        return self.join_params(obs_params, int_params, lat_params)
+
+
+# TODO: Add stochastic expectation step
+class GenerativeConjugated[
+    Rep: MatrixRep,
+    Observable: Generative,
+    SubObservable: ExponentialFamily,
+    SubLatent: ExponentialFamily,
+    Latent: Generative,
+](Conjugated[Rep, Observable, SubObservable, SubLatent, Latent], Generative, ABC):
+    """A conjugated harmonium that supports sampling.
+
+    Sampling from a conjugated harmonium reduces to
+
+    1. Sampling from the marginal latent distribution $p(z)$, and then
+    2. Sampling from the conditional likelihood $p(x \\mid z)$.
+    """
+
+    # Overrides
+
+    @override
+    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
+        """Generate samples from the harmonium distribution.
+
+        Args:
+            key: PRNG key for sampling
+            params: Parameters in natural coordinates
+            n: Number of samples to generate
+
+        Returns:
+            Array of shape (n, data_dim) containing concatenated observable and latent states
+        """
+        # Split up the sampling key
+        key1, key2 = jax.random.split(key)
+
+        # Sample from adjusted latent distribution p(z)
+        nat_prior = self.prior(params)
+        z_sample = self.lat_man.sample(key1, nat_prior, n)
+
+        # Vectorize sampling from conditional distributions
+        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z_sample)
+
+        # Sample from conditionals p(x|z) in parallel
+        x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
+            jax.random.split(key2, n), x_params, 1
+        ).reshape((n, -1))
+
+        # Concatenate samples along data dimension
+        return jnp.concatenate([x_sample, z_sample], axis=-1)
+
+    # Templates
+
+    def observable_sample(
+        self, key: Array, params: Point[Natural, Self], n: int = 1
+    ) -> Array:
+        xzs = self.sample(key, params, n)
+        return xzs[:, : self.obs_man.data_dim]
+
+
+class DifferentiableLatent[
+    Rep: MatrixRep,
+    Observable: Generative,
+    SubObservable: ExponentialFamily,
+    SubLatent: ExponentialFamily,
+    Latent: Differentiable,
+](GenerativeConjugated[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
     """A harmonium with differentiable latent exponential family."""
 
     # Templates
@@ -380,117 +492,6 @@ class AnalyticLatent[
         return Point(jnp.mean(batch_expectations.array, axis=0))
 
 
-class Conjugated[
-    Rep: MatrixRep,
-    Observable: ExponentialFamily,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
-    Latent: ExponentialFamily,
-](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
-    """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
-
-    # Contract
-
-    @abstractmethod
-    def conjugation_parameters(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]
-        ],
-    ) -> tuple[Array, Point[Natural, Latent]]:
-        """Compute conjugation parameters for the harmonium."""
-
-    # Templates
-
-    def prior(self, params: Point[Natural, Self]) -> Point[Natural, Latent]:
-        """Natural parameters of the prior distribution $p(z)$."""
-        obs_params, int_params, lat_params = self.split_params(params)
-        lkl_params = self.lkl_man.join_params(obs_params, int_params)
-        _, rho = self.conjugation_parameters(lkl_params)
-        return lat_params + rho
-
-    def split_conjugated(
-        self, params: Point[Natural, Self]
-    ) -> tuple[
-        Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]],
-        Point[Natural, Latent],
-    ]:
-        """Split conjugated harmonium into likelihood and prior."""
-        obs_params, int_params, lat_params = self.split_params(params)
-        lkl_params = self.lkl_man.join_params(obs_params, int_params)
-        _, rho = self.conjugation_parameters(lkl_params)
-        return lkl_params, lat_params + rho
-
-    def join_conjugated(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]
-        ],
-        prior_params: Point[Natural, Latent],
-    ) -> Point[Natural, Self]:
-        """Join likelihood and prior parameters into a conjugated harmonium."""
-        _, rho = self.conjugation_parameters(lkl_params)
-        lat_params = prior_params - rho
-        obs_params, int_params = self.lkl_man.split_params(lkl_params)
-        return self.join_params(obs_params, int_params, lat_params)
-
-
-class GenerativeConjugated[
-    Rep: MatrixRep,
-    Observable: Generative,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
-    Latent: Generative,
-](Conjugated[Rep, Observable, SubObservable, SubLatent, Latent], Generative, ABC):
-    """A conjugated harmonium that supports sampling.
-
-    Sampling from a conjugated harmonium reduces to
-
-    1. Sampling from the marginal latent distribution $p(z)$, and then
-    2. Sampling from the conditional likelihood $p(x \\mid z)$.
-    """
-
-    # Overrides
-
-    @override
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate samples from the harmonium distribution.
-
-        Args:
-            key: PRNG key for sampling
-            params: Parameters in natural coordinates
-            n: Number of samples to generate
-
-        Returns:
-            Array of shape (n, data_dim) containing concatenated observable and latent states
-        """
-        # Split up the sampling key
-        key1, key2 = jax.random.split(key)
-
-        # Sample from adjusted latent distribution p(z)
-        nat_prior = self.prior(params)
-        z_sample = self.lat_man.sample(key1, nat_prior, n)
-
-        # Vectorize sampling from conditional distributions
-        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z_sample)
-
-        # Sample from conditionals p(x|z) in parallel
-        x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
-            jax.random.split(key2, n), x_params, 1
-        ).reshape((n, -1))
-
-        # Concatenate samples along data dimension
-        return jnp.concatenate([x_sample, z_sample], axis=-1)
-
-    # Templates
-
-    def observable_sample(
-        self, key: Array, params: Point[Natural, Self], n: int = 1
-    ) -> Array:
-        xzs = self.sample(key, params, n)
-        return xzs[:, : self.obs_man.data_dim]
-
-
 class DifferentiableConjugated[
     Rep: MatrixRep,
     Observable: Generative,
@@ -498,7 +499,7 @@ class DifferentiableConjugated[
     SubLatent: ExponentialFamily,
     Latent: Differentiable,
 ](
-    GenerativeConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
+    DifferentiableLatent[Rep, Observable, SubObservable, SubLatent, Latent],
     Differentiable,
     ABC,
 ):
@@ -585,7 +586,6 @@ class AnalyticConjugated[
     Latent: Analytic,
 ](
     DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
-    AnalyticLatent[Rep, Observable, SubObservable, SubLatent, Latent],
     Analytic,
     ABC,
 ):

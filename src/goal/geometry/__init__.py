@@ -13,9 +13,9 @@ from .exponential_family.exponential_family import (
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
-    AnalyticLatent,
     Conjugated,
     DifferentiableConjugated,
+    DifferentiableLatent,
     GenerativeConjugated,
     Harmonium,
 )
@@ -60,7 +60,6 @@ __all__ = [
     "Analytic",
     "AnalyticConjugated",
     "AnalyticHierarchical",
-    "AnalyticLatent",
     "AnalyticReplicated",
     "Conjugated",
     "Coordinates",
@@ -68,6 +67,7 @@ __all__ = [
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiableHierarchical",
+    "DifferentiableLatent",
     "DifferentiableReplicated",
     "Dual",
     "ExponentialFamily",
