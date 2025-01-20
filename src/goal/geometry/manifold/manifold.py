@@ -162,6 +162,9 @@ class Point[C: Coordinates, M: Manifold]:
     def __sub__(self, other: Point[C, M]) -> Point[C, M]:
         return Point(self.array - other.array)
 
+    def __neg__(self) -> Point[C, M]:
+        return Point(-self.array)
+
     def __mul__(self, scalar: float) -> Point[C, M]:
         return Point(scalar * self.array)
 

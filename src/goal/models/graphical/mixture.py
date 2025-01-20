@@ -166,6 +166,44 @@ class DifferentiableMixture[
 
         return components, prr_params
 
+    def join_natural_mixture(
+        self,
+        components: list[Point[Natural, Observable]],
+        prior: Point[Natural, Categorical],
+    ) -> Point[Natural, Self]:
+        """Create a mixture model in natural coordinates from components and prior.
+
+        Parameters in the mixing subspace use the first component as reference
+        and store differences in the interaction matrix. Parameters outside the
+        mixing subspace use the weighted average of all components.
+        """
+        # Get probabilities for weighting
+        probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
+        anchor = components[0]
+        anchor_sub = self.obs_sub.project(anchor)
+
+        # Create obs_bias:
+        # - For parameters in subspace, use first component
+        # - For parameters outside subspace, use weighted average
+        comps_array = jnp.array([comp.array for comp in components])
+        avg_params: Point[Natural, Observable] = Point(
+            jnp.sum(comps_array * probs[:, None], axis=0)
+        )
+        anchor_out = self.obs_sub.translate(
+            avg_params, -self.obs_sub.project(avg_params)
+        )
+        anchor_in = self.obs_sub.translate(
+            Point(jnp.zeros_like(anchor.array)), anchor_sub
+        )
+        obs_bias = anchor_in + anchor_out
+
+        int_cols = [self.obs_sub.project(comp) - anchor_sub for comp in components[1:]]
+
+        int_mat = self.int_man.from_columns(int_cols)
+        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
+
+        return self.join_conjugated(lkl_params, prior)
+
 
 @dataclass(frozen=True)
 class AnalyticMixture[Observable: Analytic](
@@ -228,17 +266,3 @@ class AnalyticMixture[Observable: Analytic](
             components.append(comp_mean)
 
         return components, cat_means
-
-    def join_natural_mixture(
-        self,
-        components: list[Point[Natural, Observable]],
-        prior: Point[Natural, Categorical],
-    ) -> Point[Natural, Self]:
-        """Create a mixture model in natural coordinates from components and prior."""
-
-        obs_bias = components[0]
-        int_cols = [comp - obs_bias for comp in components[1:]]
-        int_mat = self.int_man.from_columns(int_cols)
-        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
-
-        return self.join_conjugated(lkl_params, prior)
