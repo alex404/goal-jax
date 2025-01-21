@@ -6,14 +6,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
-from torchvision import datasets, transforms  # type: ignore
+from torchvision import datasets, transforms
 
 from goal.geometry import Diagonal
-from goal.models import HierarchicalMixtureOfGaussians
+from goal.models import differentiable_hmog
 
 from ...shared import ExamplePaths, initialize_jax, initialize_paths, save_results
 from .common import MNISTData
-from .models import PCAGMM, HMoG
+from .models import PCAGMM, NewHMoG
 
 
 def create_parser() -> ArgumentParser:
@@ -21,19 +21,19 @@ def create_parser() -> ArgumentParser:
     parser = ArgumentParser(description="Run MNIST benchmarking experiments")
 
     model_group = parser.add_argument_group("Model Configuration")
-    model_group.add_argument(
+    _ = model_group.add_argument(
         "--model",
-        choices=["pcagmm", "hmog"],
-        default="hmog",
+        choices=["pcagmm", "diff_hmog"],
+        default="diff_hmog",
         help="Model architecture to evaluate",
     )
-    model_group.add_argument(
+    _ = model_group.add_argument(
         "--latent-dim",
         type=int,
         default=10,
         help="Dimensionality of latent space",
     )
-    model_group.add_argument(
+    _ = model_group.add_argument(
         "--n-clusters",
         type=int,
         default=10,
@@ -41,20 +41,20 @@ def create_parser() -> ArgumentParser:
     )
 
     training_group = parser.add_argument_group("Training Configuration")
-    training_group.add_argument(
+    _ = training_group.add_argument(
         "--n-epochs",
         type=int,
-        default=100,
+        default=10000,
         help="Number of training epochs",
     )
-    training_group.add_argument(
+    _ = training_group.add_argument(
         "--device",
         choices=["cpu", "gpu"],
         default="cpu",
         help="Device to run computations on",
     )
     # Jit disabled by default, flag for true
-    training_group.add_argument(
+    _ = training_group.add_argument(
         "--jit",
         action="store_true",
         help="Enable JIT compilation for JAX functions",
@@ -99,16 +99,19 @@ def create_model(
     """Create model instance based on configuration."""
     if model_name == "pcagmm":
         return PCAGMM(latent_dim, n_clusters)
-    if model_name == "hmog":
-        return HMoG(
-            stage1_epochs=20,
-            stage2_epochs=20,
+    if model_name == "diff_hmog":
+        return NewHMoG(
+            stage1_epochs=100,
+            stage2_epochs=1000,
             n_epochs=n_epochs,
-            model=HierarchicalMixtureOfGaussians(
+            stage2_learning_rate=1e-3,
+            stage3_learning_rate=3e-4,
+            model=differentiable_hmog(
                 obs_dim=data_dim,
                 obs_rep=Diagonal,
                 lat_dim=latent_dim,
                 n_components=n_clusters,
+                lat_rep=Diagonal,
             ),
         )
     raise ValueError(f"Unknown model: {model_name}")
@@ -120,10 +123,7 @@ def main() -> None:
 
     # Save results with configuration in filename
     experiment = (
-        f"model_{args.model}_"
-        f"ld{args.latent_dim}_"
-        f"nc{args.n_clusters}_"
-        f"e{args.n_epochs}"
+        f"model_{args.model}_ld{args.latent_dim}_nc{args.n_clusters}_e{args.n_epochs}"
     )
 
     print(f"Running experiment: {experiment}")

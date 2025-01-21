@@ -1,5 +1,7 @@
 """Model implementations for MNIST benchmarks."""
 
+import json
+import pathlib
 from dataclasses import dataclass
 from functools import partial
 from time import time
@@ -9,13 +11,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, debug
+from jax.experimental import io_callback
 from sklearn.decomposition import PCA
-from sklearn.metrics import accuracy_score  # type: ignore
+from sklearn.metrics import accuracy_score
 from sklearn.mixture import GaussianMixture
 
-from goal.geometry import Mean, Natural, Point, PositiveDefinite
+from goal.geometry import Mean, Natural, Optimizer, OptState, Point, PositiveDefinite
 from goal.models import (
-    AnalyticHMoG,
     AnalyticMixture,
     DifferentiableHMoG,
     DifferentiableMixture,
@@ -96,7 +98,7 @@ class PCAGMM:
     ) -> tuple[tuple[PCA, GaussianMixture], Array]:
         pca, gmm = params0
         data_np = np.array(data, dtype=np.float64)
-        latents = pca.transform(data_np)  # type: ignore
+        latents = pca.transform(data_np)
         gmm.fit(latents)
 
         reconstruction_errors = self.reconstruction_error(params0, data)
@@ -123,7 +125,7 @@ class PCAGMM:
         self, params: tuple[PCA, GaussianMixture], key: Array, n_samples: int
     ) -> Array:
         _, gmm = params
-        latent_samples = gmm.sample(n_samples)[0]  # type: ignore
+        latent_samples = gmm.sample(n_samples)[0]
         return self.decode(params, jnp.array(latent_samples))
 
     def cluster_assignments(
@@ -131,7 +133,7 @@ class PCAGMM:
     ) -> Array:
         pca, gmm = params
         data_np = np.array(data, dtype=np.float64)
-        latents = pca.transform(data_np)  # type: ignore
+        latents = pca.transform(data_np)
         return jnp.array(gmm.predict(latents))
 
     def evaluate(
@@ -142,7 +144,7 @@ class PCAGMM:
         """Evaluate two-stage model performance."""
         start_time = time()
         params = self.initialize(key, data.train_images)
-        final_params, _ = self.fit(params, data.train_images)  # type: ignore
+        final_params, _ = self.fit(params, data.train_images)
 
         train_clusters = self.cluster_assignments(final_params, data.train_images)
         test_clusters = self.cluster_assignments(final_params, data.test_images)
@@ -166,13 +168,27 @@ class PCAGMM:
         )
 
 
+# Helpers
+
+
 @dataclass(frozen=True)
 class NewHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite]:
     model: DifferentiableHMoG[ObsRep, LatRep]
     n_epochs: int
     stage1_epochs: int
     stage2_epochs: int
+    stage2_learning_rate: float
+    stage3_learning_rate: float
 
+    # def bound_probs(self, params: Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]]) -> Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]]:
+    #     """Bound probabilities to avoid numerical instability."""
+    #     lkl_params, mix_params = self.model.split_conjugated(params)
+    #     comps, cat_params = self.model.split_natural_mixture(mix_params)
+    #     with self.model.upr_hrm.lat_man as lm:
+    #         probs = lm.to_probs(lm.to_mean(cat_params))
+    #         probs = jnp.clip(probs, 1e-10, 1 - 1e-10)
+    #         cat_params = lm.to_natural(lm.to_mean(lm.to_probs(probs)))
+    #
     def initialize(
         self, key: Array, data: Array
     ) -> Point[Natural, DifferentiableHMoG[ObsRep, LatRep]]:
@@ -187,19 +203,14 @@ class NewHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite]:
         obs_params = self.model.obs_man.to_natural(obs_means)
 
         # Create latent categorical prior with slight symmetry breaking
-        cat_params = self.model.lat_man.lat_man.initialize(key_cat)
-        cat_means = self.model.lat_man.lat_man.to_mean(cat_params)
 
         # Initialize separated components in latent space
-        with self.model.lat_man as um:
+        with self.model.upr_hrm as uh:
+            cat_params = uh.lat_man.initialize(key_cat)
             key_comps = jax.random.split(key_comp, self.n_clusters)
-            components = []
-            for key_compi in key_comps:
-                comp_params = um.obs_man.initialize(key_compi)
-                components.append(um.obs_man.to_mean(comp_params))
+            components = [uh.obs_man.initialize(key_compi) for key_compi in key_comps]
 
-            mix_means = um.join_mean_mixture(components, cat_means)
-            mix_params = um.to_natural(mix_means)
+            mix_params = uh.join_natural_mixture(components, cat_params)
 
         int_noise = 0.1 * jax.random.normal(key_int, self.model.int_man.shape)
 
@@ -212,7 +223,7 @@ class NewHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite]:
     def fit(
         self,
         params0: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
-        data: Array,
+        sample: Array,
     ) -> tuple[Point[Natural, DifferentiableHMoG[ObsRep, LatRep]], Array]:
         lkl_params0, mix_params0 = self.model.split_conjugated(params0)
 
@@ -220,11 +231,11 @@ class NewHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite]:
             z = lh.lat_man.standard_normal()
             lgm_params0 = lh.join_conjugated(lkl_params0, lh.lat_man.to_natural(z))
 
-            def em_step1(
+            def stage1_step(
                 params: Point[Natural, LinearGaussianModel[ObsRep]], _: Any
             ) -> tuple[Point[Natural, LinearGaussianModel[ObsRep]], Array]:
-                ll = lh.average_log_observable_density(params, data)
-                means = lh.expectation_step(params, data)
+                ll = lh.average_log_observable_density(params, sample)
+                means = lh.expectation_step(params, sample)
                 obs_means, int_means, lat_means = lh.split_params(means)
                 obs_means = lh.obs_man.regularize_covariance(
                     obs_means, OBS_JITTER, OBS_MIN_VAR
@@ -238,47 +249,183 @@ class NewHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite]:
                 return next_params, ll
 
             lgm_params1, lls1 = jax.lax.scan(
-                em_step1, lgm_params0, None, length=self.stage1_epochs
+                stage1_step, lgm_params0, None, length=self.stage1_epochs
             )
             lkl_params1 = lh.likelihood_function(lgm_params1)
 
-        def em_step2(
+        def stage2_diagnostics(
             params: Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
-            _: Any,
-        ) -> tuple[
-            Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]], Array
-        ]:
-            hmog_params = self.model.join_conjugated(lkl_params1, params)
-            ll = self.model.average_log_observable_density(hmog_params, data)
-            hmog_means = self.model.expectation_step(hmog_params, data)
-            mix_means = self.model.split_params(hmog_means)[2]
-            mix_means = set_min_component_variance(self.model.lat_man, mix_means)
-            next_params = self.model.lat_man.to_natural(mix_means)
-            debug.print("Stage 2 LL: {}", ll)
-            return next_params, ll
+        ):
+            # Get components and probs
+            comps, prior = self.model.upr_hrm.split_natural_mixture(params)
+            probs = self.model.upr_hrm.lat_man.to_probs(
+                self.model.upr_hrm.lat_man.to_mean(prior)
+            )
 
-        mix_params1, lls2 = jax.lax.scan(
-            em_step2, mix_params0, None, length=self.stage2_epochs
+            # Component statistics
+            comp_norms = jnp.array([jnp.linalg.norm(c.array) for c in comps])
+            comp_max = jnp.max(jnp.abs(jnp.array([c.array for c in comps])))
+            comp_min = jnp.min(jnp.abs(jnp.array([c.array for c in comps])))
+
+            # Prior statistics
+            prob_max = jnp.max(probs)
+            prob_min = jnp.min(probs)
+            prior_max = jnp.max(prior.array)
+            prior_min = jnp.min(prior.array)
+
+            debug.print(
+                "Stage 2 diagnostics:\n"
+                + "Component norms: {}\n"
+                + "Component max/min magnitude: {}, {}\n"
+                + "Prob max/min: {}, {}\n"
+                + "Prior max/min: {}, {}\n"
+                + "All params: {}\n",
+                comp_norms,
+                comp_max,
+                comp_min,
+                prob_max,
+                prob_min,
+                prior_max,
+                prior_min,
+                params,
+            )
+
+        def log_observable_density_diagnostic(
+            params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+            x: Array,
+        ) -> None:
+            """Compute log density with diagnostics for each term."""
+            obs_params, int_params, lat_bias = self.model.split_params(params)
+            lkl_params = self.model.lkl_man.join_params(obs_params, int_params)
+
+            # Term 1: θ_X · s_X(x)
+            obs_stats = self.model.obs_man.sufficient_statistic(x)
+            term1 = self.model.obs_man.dot(obs_params, obs_stats)
+
+            # Term 2: ψ_Z(θ_Z + s_X(x)·Θ_XZ)
+            posterior_params = self.model.posterior_at(params, x)
+            term2 = self.model.lat_man.log_partition_function(posterior_params)
+
+            # Term 3: -(ψ_Z(θ_Z + ρ) + χ)
+            chi, rho = self.model.conjugation_parameters(lkl_params)
+            term3 = -(self.model.lat_man.log_partition_function(lat_bias + rho) + chi)
+
+            # Term 4: log μ_X(x)
+            term4 = self.model.obs_man.log_base_measure(x)
+
+            debug.print(
+                "Log density components:\n"
+                + "Observable dot product: {}\n"
+                + "Posterior partition: {}\n"
+                + "Prior adjustment: {}\n"
+                + "Base measure: {}\n"
+                + "Total: {}\n",
+                term1,
+                term2,
+                term3,
+                term4,
+                term1 + term2 + term3 + term4,
+            )
+
+        def dump_state(
+            step: Array,
+            params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+        ):
+            def _dump(step, params_array):
+                state = {
+                    "step": int(step),
+                    "params": params_array.tolist(),
+                }
+                pathlib.Path("tmp").mkdir(parents=True, exist_ok=True)
+                logfile = f"tmp/hmog_state_{int(step)}.json"
+                with open(logfile, "w") as f:
+                    json.dump(state, f)
+
+            io_callback(
+                _dump,
+                None,  # result shape is None since we're just doing I/O
+                step,
+                params.array,
+                ordered=True,  # ensure dumps happen in order
+            )
+
+        stage2_optimizer: Optimizer[
+            Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]
+        ] = Optimizer.adam(learning_rate=self.stage2_learning_rate)
+        stage2_opt_state = stage2_optimizer.init(mix_params0)
+
+        def stage2_loss(
+            params: Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+        ) -> Array:
+            hmog_params = self.model.join_conjugated(lkl_params1, params)
+            return -self.model.average_log_observable_density(hmog_params, sample)
+
+        def stage2_step(
+            opt_state_and_params: tuple[
+                OptState,
+                Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+            ],
+            step: Array,
+        ) -> tuple[
+            tuple[
+                OptState,
+                Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+            ],
+            Array,
+        ]:
+            opt_state, params = opt_state_and_params
+            ll, grads = self.model.upr_hrm.value_and_grad(stage2_loss, params)
+            opt_state, params = stage2_optimizer.update(opt_state, grads, params)
+
+            debug.print("Stage 2 Step: {}\n", step)
+            stage2_diagnostics(params)
+            hmog_params = self.model.join_conjugated(lkl_params1, params)
+            log_observable_density_diagnostic(hmog_params, sample[0])
+            dump_state(step, hmog_params)
+            return (opt_state, params), -ll  # Return log likelihood
+
+        (_, mix_params1), lls2 = jax.lax.scan(
+            stage2_step,
+            (stage2_opt_state, mix_params0),
+            jnp.arange(self.stage2_epochs),
+            length=self.stage2_epochs,
         )
 
-        def em_step3(
-            params: Point[Natural, AnalyticHMoG[ObsRep]], _: Any
-        ) -> tuple[Point[Natural, AnalyticHMoG[ObsRep]], Array]:
-            ll = self.model.average_log_observable_density(params, data)
-            means = self.model.expectation_step(params, data)
-            obs_means, int_means, mix_means = self.model.split_params(means)
-            obs_means = lh.obs_man.regularize_covariance(
-                obs_means, OBS_JITTER, OBS_MIN_VAR
-            )
-            mix_means = set_min_component_variance(self.model.lat_man, mix_means)
-            means = self.model.join_params(obs_means, int_means, mix_means)
-            next_params = self.model.to_natural(means)
-            debug.print("Stage 3 LL: {}", ll)
-            return next_params, ll
-
         params1 = self.model.join_conjugated(lkl_params1, mix_params1)
+        stage3_optimizer: Optimizer[Natural, DifferentiableHMoG[ObsRep, LatRep]] = (
+            Optimizer.adam(learning_rate=self.stage3_learning_rate)
+        )
+        stage3_opt_state = stage3_optimizer.init(params1)
+
+        def stage3_loss(
+            params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+        ) -> Array:
+            return -self.model.average_log_observable_density(params, sample)
+
+        def stage3_step(
+            opt_state_and_params: tuple[
+                OptState,
+                Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+            ],
+            _: Any,
+        ) -> tuple[
+            tuple[
+                OptState,
+                Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+            ],
+            Array,
+        ]:
+            opt_state, params = opt_state_and_params
+            ll, grads = self.model.value_and_grad(stage3_loss, params)
+            opt_state, params = stage3_optimizer.update(opt_state, grads, params)
+            debug.print("Stage 3 LL: {}", -ll)
+
+            return (opt_state, params), -ll  # Return log likelihood
+
         stage3_epochs = self.n_epochs - self.stage1_epochs - self.stage2_epochs
-        final_params, lls3 = jax.lax.scan(em_step3, params1, None, length=stage3_epochs)
+        (_, final_params), lls3 = jax.lax.scan(
+            stage3_step, (stage3_opt_state, params1), None, length=stage3_epochs
+        )
         # concatenate log-likelihoods from all stages
         lls = jnp.concatenate([lls1, lls2, lls3])
         return final_params, lls.ravel()
@@ -292,20 +439,20 @@ class NewHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite]:
         return self.model.lat_man.lat_man.dim + 1
 
     def log_likelihood(
-        self, params: Point[Natural, AnalyticHMoG[ObsRep]], data: Array
+        self, params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]], data: Array
     ) -> Array:
         return self.model.average_log_observable_density(params, data)
 
     def generate(
         self,
-        params: Point[Natural, AnalyticHMoG[ObsRep]],
+        params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
         key: Array,
         n_samples: int,
     ) -> Array:
         return self.model.observable_sample(key, params, n_samples)
 
     def cluster_assignments(
-        self, params: Point[Natural, AnalyticHMoG[ObsRep]], data: Array
+        self, params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]], data: Array
     ) -> Array:
         def data_point_cluster(x: Array) -> Array:
             with self.model as m:
@@ -325,7 +472,7 @@ class NewHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite]:
         """Evaluate probabilistic model performance."""
         start_time = time()
         params = self.initialize(key, data.train_images)
-        final_params, train_lls = self.fit(params, data.train_images)  # type: ignore
+        final_params, train_lls = self.fit(params, data.train_images)
 
         train_clusters = self.cluster_assignments(final_params, data.train_images)
         test_clusters = self.cluster_assignments(final_params, data.test_images)

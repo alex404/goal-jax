@@ -7,7 +7,7 @@ from typing import NewType
 
 from optax import (  # pyright: ignore[reportMissingTypeStubs]
     GradientTransformation,
-    adam,  # pyright: ignore[reportUnknownVariableType]
+    adamw,  # pyright: ignore[reportUnknownVariableType]
     apply_updates,  # pyright: ignore[reportUnknownVariableType]
     sgd,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -31,7 +31,7 @@ class Optimizer[C: Coordinates, M: Manifold]:
         b1: float = 0.9,
         b2: float = 0.999,
     ) -> Optimizer[C, M]:
-        return cls(adam(learning_rate, b1=b1, b2=b2))
+        return cls(adamw(learning_rate, b1=b1, b2=b2))
 
     @classmethod
     def sgd(
