@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import Analytic, Differentiable, Natural, Point
+from goal.geometry import Analytic, Differentiable, Natural, Point, PositiveDefinite
 from goal.models import (
     Categorical,
     CoMPoisson,
@@ -294,7 +294,7 @@ def test_poisson(caplog: pytest.LogCaptureFixture) -> None:
 def test_normal(caplog: pytest.LogCaptureFixture) -> None:
     """Test normal distribution."""
     caplog.set_level(logging.INFO)
-    model = Normal()
+    model = Normal(1, PositiveDefinite)
     test = NormalTest(model)
     stats = test.run_all_trials()
     analyze_stats(stats)
