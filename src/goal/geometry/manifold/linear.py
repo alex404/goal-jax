@@ -137,6 +137,32 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         """
         return Point(self.rep.map_diagonal(self.shape, f.array, diagonal_fn))
 
+    def embed_rep[C: Coordinates, NewRep: MatrixRep](
+        self,
+        f: Point[C, Self],
+        target_rep: type[NewRep],
+    ) -> tuple[
+        LinearMap[NewRep, Domain, Codomain],
+        Point[C, LinearMap[NewRep, Domain, Codomain]],
+    ]:
+        """Embed linear map into more complex representation."""
+        target_man = LinearMap(target_rep(), self.dom_man, self.cod_man)
+        params = self.rep.embed_params(self.shape, f.array, target_rep)
+        return target_man, Point(params)
+
+    def project_rep[C: Coordinates, NewRep: MatrixRep](
+        self,
+        f: Point[C, Self],
+        target_rep: type[NewRep],
+    ) -> tuple[
+        LinearMap[NewRep, Domain, Codomain],
+        Point[C, LinearMap[NewRep, Domain, Codomain]],
+    ]:
+        """Project linear map to simpler representation."""
+        target_man = LinearMap(target_rep(), self.dom_man, self.cod_man)
+        params = self.rep.project_params(self.shape, f.array, target_rep)
+        return target_man, Point(params)
+
 
 @dataclass(frozen=True)
 class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
