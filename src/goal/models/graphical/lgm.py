@@ -62,16 +62,10 @@ from ..base.gaussian.normal import (
     Euclidean,
     FullNormal,
     Normal,
+    cov_to_lin,
 )
 
 ### Helper Functions ###
-
-
-def _cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
-    p: Point[C, Covariance[Rep]],
-) -> Point[C, LinearMap[Rep, Euclidean, Euclidean]]:
-    """Convert a covariance to a linear map."""
-    return Point(p.array)
 
 
 @dataclass(frozen=True)
@@ -270,7 +264,7 @@ class LinearGaussianModel[
         chi += 0.5 * log_det
         rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
         _, rho_shape = _change_of_basis(
-            self.int_man, int_mat, obs_cov_man, _cov_to_lin(obs_sigma)
+            self.int_man, int_mat, obs_cov_man, cov_to_lin(obs_sigma)
         )
         rho_shape *= -1
 
@@ -296,17 +290,17 @@ class LinearGaussianModel[
         int_man_t = self.int_man.transpose_manifold()
         int_cov_t = self.int_man.transpose(int_cov)
         cob_man, cob = _change_of_basis(
-            int_man_t, int_cov_t, lat_cov_man, _cov_to_lin(lat_prs)
+            int_man_t, int_cov_t, lat_cov_man, cov_to_lin(lat_prs)
         )
         shaped_cob = obs_cov_man.from_dense(cob_man.to_dense(cob))
         obs_prs = obs_cov_man.inverse(obs_cov - shaped_cob)
         _, int_params = _dual_composition(
             obs_cov_man,
-            _cov_to_lin(obs_prs),
+            cov_to_lin(obs_prs),
             self.int_man,
             expand_dual(int_cov),
             lat_cov_man,
-            _cov_to_lin(lat_prs),
+            cov_to_lin(lat_prs),
         )
         # Construct observable location params
         obs_loc0 = obs_cov_man(obs_prs, expand_dual(obs_mean))

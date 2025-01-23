@@ -37,9 +37,11 @@ from jax import Array
 
 from ....geometry import (
     Analytic,
+    Coordinates,
     Diagonal,
     ExponentialFamily,
     Identity,
+    LinearMap,
     LocationShape,
     Mean,
     Natural,
@@ -58,6 +60,26 @@ type StandardNormal = Normal[Identity]
 type FullCovariance = Covariance[PositiveDefinite]
 type DiagonalCovariance = Covariance[Diagonal]
 type IsotropicCovariance = Covariance[Scale]
+
+
+# Type Hacks
+
+
+def cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
+    p: Point[C, Covariance[Rep]],
+) -> Point[C, LinearMap[Rep, Euclidean, Euclidean]]:
+    """Convert a covariance to a linear map."""
+    return Point(p.array)
+
+
+def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
+    p: Point[C, LinearMap[Rep, Euclidean, Euclidean]],
+) -> Point[C, Covariance[Rep]]:
+    """Convert a linear map to a covariance."""
+    return Point(p.array)
+
+
+# Component Classes
 
 
 @dataclass(frozen=True)
@@ -487,7 +509,7 @@ class Normal[Rep: PositiveDefinite](
         return self.join_params(loc, Point(theta2))
 
     def embed_rep[TargetRep: PositiveDefinite](
-        self, target_man: Normal[TargetRep], p: Point[Natural, Self]
+        self, trg_man: Normal[TargetRep], p: Point[Natural, Self]
     ) -> Point[Natural, Normal[TargetRep]]:
         """Embed natural parameters into a more complex representation.
 
@@ -503,20 +525,13 @@ class Normal[Rep: PositiveDefinite](
         Raises:
             TypeError: If trying to embed into a simpler representation
         """
-        # Check we're going from simpler to more complex
-        if not isinstance(self.cov_man.rep, target_man.cov_man.rep.__class__):
-            raise TypeError(
-                f"Cannot embed {self.cov_man.rep} into {target_man.cov_man.rep}"
-            )
-
         # Embedding in natural coordinates means embedding precision matrix
-        loc, precision = self.split_location_precision(p)
-        dense_prec = self.cov_man.to_dense(precision)
-        target_prec = target_man.cov_man.from_dense(dense_prec)
-        return target_man.join_location_precision(loc, target_prec)
+        loc, prs = self.split_location_precision(p)
+        _, trg_prs = self.cov_man.embed_rep(prs, type(trg_man.cov_man.rep))
+        return trg_man.join_location_precision(loc, lin_to_cov(trg_prs))
 
     def project_rep[TargetRep: PositiveDefinite](
-        self, target_man: Normal[TargetRep], p: Point[Mean, Self]
+        self, trg_man: Normal[TargetRep], p: Point[Mean, Self]
     ) -> Point[Mean, Normal[TargetRep]]:
         """Project mean parameters to a simpler representation.
 
@@ -534,17 +549,11 @@ class Normal[Rep: PositiveDefinite](
         Raises:
             TypeError: If trying to project to a more complex representation
         """
-        # Check we're going from more complex to simpler
-
-        if not isinstance(target_man.cov_man.rep, self.cov_man.rep.__class__):
-            raise TypeError(
-                f"Cannot project {self.cov_man.rep} into {target_man.cov_man.rep}"
-            )
-        # Projection in mean coordinates means projecting covariance matrix
         mean, second_moment = self.split_mean_second_moment(p)
-        dense_second_moment = self.cov_man.to_dense(second_moment)
-        target_second_moment = target_man.cov_man.from_dense(dense_second_moment)
-        return target_man.join_mean_second_moment(mean, target_second_moment)
+        _, target_second = self.cov_man.project_rep(
+            second_moment, type(trg_man.cov_man.rep)
+        )
+        return trg_man.join_mean_second_moment(mean, lin_to_cov(target_second))
 
     def regularize_covariance(
         self, p: Point[Mean, Self], jitter: float = 0, min_var: float = 0
