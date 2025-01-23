@@ -78,7 +78,14 @@ def _matmat(
     return out_rep, out_shape, out_params
 
 
-### Matrix Representations ###
+def _diag_indices_in_triangular(n: int) -> Array:
+    """Return indices of diagonal elements in upper triangular storage.
+
+    For an $n \times n$ matrix stored in upper triangular format $(n(n+1)/2)$,
+    returns the indices where diagonal elements are stored.
+    """
+    i_diag = jnp.arange(n)
+    return i_diag * (2 * n - i_diag + 1) // 2
 
 
 class MatrixRep(ABC):
@@ -540,20 +547,17 @@ class Diagonal(PositiveDefinite):
         """Put diagonal elements into upper triangular format."""
         n = shape[0]
         out_params = jnp.zeros(PositiveDefinite.num_params(shape))
-        i, j = jnp.triu_indices(n)
-        diag_mask = i == j
-        diag_triu = jnp.where(diag_mask)[0]
-        return out_params.at[diag_triu].set(params)
+        diag_indices = _diag_indices_in_triangular(n)
+        return out_params.at[diag_indices].set(params)
 
     @classmethod
     @override
     def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Extract diagonal elements from upper triangular format."""
         n = shape[0]
-        i, j = jnp.triu_indices(n)
-        diag_mask = i == j
-        diag_triu = jnp.where(diag_mask)[0]
-        return params[diag_triu]
+        # Use our num_params to verify we're getting correct number of diagonal elements
+        diag_indices = _diag_indices_in_triangular(n)
+        return params[diag_indices]
 
 
 class Scale(Diagonal):
