@@ -78,16 +78,6 @@ def _matmat(
     return out_rep, out_shape, out_params
 
 
-def _diag_indices_in_triangular(n: int) -> Array:
-    """Return indices of diagonal elements in upper triangular storage.
-
-    For an $n \times n$ matrix stored in upper triangular format $(n(n+1)/2)$,
-    returns the indices where diagonal elements are stored.
-    """
-    i_diag = jnp.arange(n)
-    return (i_diag * (i_diag + 1)) // 2 + i_diag
-
-
 ### Matrix Representations ###
 
 
@@ -184,13 +174,13 @@ class MatrixRep(ABC):
         cls, shape: tuple[int, int], params: Array, target_rep: type[MatrixRep]
     ) -> Array:
         """Recursively embed params into more complex representation."""
-        if not issubclass(target_rep, cls):
+        if not issubclass(cls, target_rep):
             raise TypeError(f"Cannot embed {cls} into {target_rep}")
 
         cur_rep = cls
         cur_params = params
         while cur_rep is not target_rep:
-            cur_params = cur_rep.embed_to_next(shape, cur_params)
+            cur_params = cur_rep.embed_in_super(shape, cur_params)
             cur_rep: type[MatrixRep] = cur_rep.__base__  # pyright: ignore[reportAssignmentType]
         return cur_params
 
@@ -199,25 +189,32 @@ class MatrixRep(ABC):
         cls, shape: tuple[int, int], params: Array, target_rep: type[MatrixRep]
     ) -> Array:
         """Recursively project params to simpler representation."""
-        if not issubclass(cls, target_rep):
+        if not issubclass(target_rep, cls):
             raise TypeError(f"Cannot project {cls} to {target_rep}")
 
-        cur_rep = cls
+        # Build path of representations from target up to cls
+        path: list[type[MatrixRep]] = []
+        cur_rep: type[MatrixRep] = target_rep
+        while cur_rep != cls:
+            path.append(cur_rep)
+            cur_rep = cur_rep.__base__  # pyright: ignore[reportAssignmentType]
+        path = list(reversed(path))
+
+        # Project through path
         cur_params = params
-        while cur_rep is not target_rep:
-            cur_params = cur_rep.project_from_next(shape, cur_params)
-            cur_rep: type[MatrixRep] = cur_rep.__base__  # pyright: ignore[reportAssignmentType]
+        for sub_rep in path:
+            cur_params = sub_rep.project_from_super(shape, cur_params)
         return cur_params
 
     @classmethod
     @abstractmethod
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Embed parameters into immediate parent representation."""
         ...
 
     @classmethod
     @abstractmethod
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Project parameters from immediate parent representation."""
         ...
 
@@ -287,12 +284,12 @@ class Rectangular(MatrixRep):
 
     @classmethod
     @override
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         raise TypeError("Rectangular is most complex representation")
 
     @classmethod
     @override
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         raise TypeError("No more complex rep to project from")
 
 
@@ -324,12 +321,12 @@ class Square(Rectangular):
 
     @classmethod
     @override
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         return params  # Square to Rectangular is identity
 
     @classmethod
     @override
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return params.reshape(n, n).reshape(-1)
 
@@ -373,7 +370,7 @@ class Symmetric(Square):
 
     @classmethod
     @override
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Convert upper triangular parameters to full square matrix parameters."""
         # To Square means including each off-diagonal element twice
         matrix = cls.to_dense(shape, params)
@@ -381,12 +378,11 @@ class Symmetric(Square):
 
     @classmethod
     @override
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Extract upper triangular parameters from full square matrix parameters."""
         n = shape[0]
         matrix = params.reshape(n, n)
-        i_upper = jnp.triu_indices(n)
-        return matrix[i_upper]
+        return cls.from_dense(matrix)
 
 
 class PositiveDefinite(Symmetric):
@@ -452,12 +448,12 @@ class PositiveDefinite(Symmetric):
 
     @classmethod
     @override
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         return params
 
     @classmethod
     @override
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         return params
 
 
@@ -540,21 +536,24 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     @override
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Put diagonal elements into upper triangular format."""
         n = shape[0]
         out_params = jnp.zeros(PositiveDefinite.num_params(shape))
-        diag_indices = _diag_indices_in_triangular(n)
-        return out_params.at[diag_indices].set(params)
+        i, j = jnp.triu_indices(n)
+        diag_mask = i == j
+        diag_triu = jnp.where(diag_mask)[0]
+        return out_params.at[diag_triu].set(params)
 
     @classmethod
     @override
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Extract diagonal elements from upper triangular format."""
         n = shape[0]
-        # Use our num_params to verify we're getting correct number of diagonal elements
-        diag_indices = _diag_indices_in_triangular(n)
-        return params[diag_indices]
+        i, j = jnp.triu_indices(n)
+        diag_mask = i == j
+        diag_triu = jnp.where(diag_mask)[0]
+        return params[diag_triu]
 
 
 class Scale(Diagonal):
@@ -614,14 +613,14 @@ class Scale(Diagonal):
 
     @classmethod
     @override
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Expand scalar to diagonal vector."""
         n = shape[0]
         return jnp.full(n, params[0])
 
     @classmethod
     @override
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Average diagonal elements to scalar."""
         return jnp.array([jnp.mean(params)])
 
@@ -688,12 +687,12 @@ class Identity(Scale):
 
     @classmethod
     @override
-    def embed_to_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Empty params to unit scalar."""
         return jnp.array([1.0])
 
     @classmethod
     @override
-    def project_from_next(cls, shape: tuple[int, int], params: Array) -> Array:
+    def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Scalar to empty params."""
         return jnp.array([])

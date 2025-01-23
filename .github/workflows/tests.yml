@@ -23,3 +23,5 @@ jobs:
         run: |
           python -m pytest tests/linear_gaussian_model.py
           python -m pytest tests/normal.py
+          python -m pytest tests/univariate.py
+          python -m pytest tests/matrix.py
