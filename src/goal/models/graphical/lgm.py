@@ -313,6 +313,32 @@ class LinearGaussianModel[
         )
         return self.lkl_man.join_params(obs_params, reduce_dual(int_params))
 
+    def observable_distribution(
+        self, params: Point[Natural, Self]
+    ) -> tuple[FullNormal, Point[Natural, FullNormal]]:
+        """Returns the marginal normal distribution over observable variables."""
+        # Build transposed LGM with full covariance observable variables
+        transposed_lgm = LinearGaussianModel(
+            obs_dim=self.lat_dim,  # Original latent becomes observable
+            obs_rep=PositiveDefinite,
+            lat_dim=self.obs_dim,  # Original observable becomes latent
+        )
+
+        # Construct parameters for transposed model
+        obs_params, int_params, lat_params = self.split_params(params)
+        nor_man = transposed_lgm.lat_man
+        obs_params_emb = self.obs_man.embed_rep(nor_man, obs_params)
+
+        # Join parameters with interaction matrix transposed
+        transposed_params = transposed_lgm.join_params(
+            lat_params,  # Original latent becomes observable
+            transposed_lgm.int_man.transpose(int_params),
+            obs_params_emb,
+        )
+
+        # Use harmonium prior to get marginal distribution
+        return nor_man, transposed_lgm.prior(transposed_params)
+
     def transform_observable_rep[TargetRep: PositiveDefinite](
         self,
         trg_man: LinearGaussianModel[TargetRep],

@@ -98,6 +98,37 @@ def scipy_log_likelihood(x: Array, mean: Array, cov: Array) -> Array:
     )
 
 
+def test_observable_distributions(
+    sample_data: Array, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test equivalence between observable_density and the density of observable_distribution."""
+    caplog.set_level(logging.INFO)
+    logger.info("\nTesting observable distribution consistency")
+
+    # Create model
+    obs_dim = obs_mean.shape[0]
+    lat_dim = lat_mean.shape[0]
+    lgm = LinearGaussianModel(obs_dim, Diagonal, lat_dim)
+
+    # Get model parameters
+    means = lgm.average_sufficient_statistic(sample_data)
+    params = lgm.to_natural(means)
+
+    # Compare densities
+    obs_data = sample_data[:, :obs_dim]  # Extract observable components
+    direct_ll = lgm.average_log_observable_density(params, obs_data)
+
+    nor_man, marginal = lgm.observable_distribution(params)
+    marginal_ll = nor_man.average_log_density(marginal, obs_data)
+
+    logger.info(f"Direct observable log-density: {direct_ll}")
+    logger.info(f"Marginal distribution log-density: {marginal_ll}")
+
+    assert jnp.allclose(direct_ll, marginal_ll, rtol=1e-2, atol=1e-2), (
+        "Log-density differs between direct computation and marginal distribution"
+    )
+
+
 @pytest.mark.parametrize("rep", [Scale, Diagonal, PositiveDefinite])
 def test_single_model(
     rep: type[Scale | Diagonal | PositiveDefinite],
