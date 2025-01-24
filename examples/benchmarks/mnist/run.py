@@ -12,8 +12,9 @@ from goal.geometry import Diagonal
 from goal.models import differentiable_hmog
 
 from ...shared import ExamplePaths, initialize_jax, initialize_paths, save_results
-from .common import MNISTData
-from .models import PCAGMM, NewHMoG
+from .hmog_alg import GradientDescentHMoG
+from .scipy_alg import PCAGMM
+from .types import MNISTData
 
 
 def create_parser() -> ArgumentParser:
@@ -100,7 +101,7 @@ def create_model(
     if model_name == "pcagmm":
         return PCAGMM(latent_dim, n_clusters)
     if model_name == "diff_hmog":
-        return NewHMoG(
+        return GradientDescentHMoG(
             stage1_epochs=100,
             stage2_epochs=1000,
             n_epochs=n_epochs,

@@ -20,6 +20,10 @@ benchmark = [
     "torchvision",
 ]
 
+gpu = [
+    "jax[cuda12]",
+]
+
 [build-system]
 # These are standard for modern Python projects:
 requires = ["setuptools>=61.0"]
