@@ -268,3 +268,211 @@ class GradientDescentHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
 
         lls = jnp.concatenate([lls1, lls2, lls3])
         return final_params, lls.ravel()
+
+
+@dataclass(frozen=True)
+class MinibatchHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
+    HMoGBase[ObsRep, LatRep]
+):
+    """Minibatch training implementation of HMoG."""
+
+    stage1_epochs: int
+    stage2_epochs: int
+    stage2_batch_size: int
+    stage3_batch_size: int
+    stage2_learning_rate: float
+    stage3_learning_rate: float
+
+    @property
+    def stage3_epochs(self) -> int:
+        return self.n_epochs - self.stage1_epochs - self.stage2_epochs
+
+    @partial(jax.jit, static_argnums=(0,))
+    @override
+    def fit(
+        self,
+        params0: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+        sample: Array,
+    ) -> tuple[Point[Natural, DifferentiableHMoG[ObsRep, LatRep]], Array]:
+        """Three-stage minibatch training process."""
+        lkl_params0, mix_params0 = self.model.split_conjugated(params0)
+        key = jax.random.PRNGKey(0)
+
+        # Stage 1: Full-batch EM for LinearGaussianModel
+        with self.model.lwr_hrm as lh:
+            z = lh.lat_man.standard_normal()
+            lgm_params0 = lh.join_conjugated(lkl_params0, lh.lat_man.to_natural(z))
+
+            def stage1_step(
+                params: Point[Natural, LinearGaussianModel[ObsRep]], _: Any
+            ) -> tuple[Point[Natural, LinearGaussianModel[ObsRep]], Array]:
+                ll = lh.average_log_observable_density(params, sample)
+                means = lh.expectation_step(params, sample)
+                obs_means, int_means, lat_means = lh.split_params(means)
+                obs_means = lh.obs_man.regularize_covariance(
+                    obs_means, OBS_JITTER, OBS_MIN_VAR
+                )
+                means = lh.join_params(obs_means, int_means, lat_means)
+                params1 = lh.to_natural(means)
+                lkl_params = lh.likelihood_function(params1)
+                z = lh.lat_man.to_natural(lh.lat_man.standard_normal())
+                next_params = lh.join_conjugated(lkl_params, z)
+                debug.print("Stage 1 LL: {}", ll)
+                return next_params, ll
+
+            lgm_params1, lls1 = jax.lax.scan(
+                stage1_step, lgm_params0, None, length=self.stage1_epochs
+            )
+            lkl_params1 = lh.likelihood_function(lgm_params1)
+
+        # Stage 2: Gradient descent for mixture components
+        stage2_optimizer: Optimizer[
+            Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]
+        ] = Optimizer.adam(learning_rate=self.stage2_learning_rate)
+        stage2_opt_state = stage2_optimizer.init(mix_params0)
+
+        def stage2_loss(
+            params: Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+            batch: Array,
+        ) -> Array:
+            hmog_params = self.model.join_conjugated(lkl_params1, params)
+            return -self.model.average_log_observable_density(hmog_params, batch)
+
+        def stage2_minibatch_step(
+            carry: tuple[
+                OptState,
+                Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+            ],
+            batch: Array,
+        ) -> tuple[
+            tuple[
+                OptState,
+                Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+            ],
+            None,
+        ]:
+            opt_state, params = carry
+            grad = self.model.upr_hrm.grad(lambda p: stage2_loss(p, batch), params)
+            opt_state, params = stage2_optimizer.update(opt_state, grad, params)
+            return ((opt_state, params), None)
+
+        def stage2_epoch(
+            carry: tuple[
+                OptState,
+                Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+                Array,
+            ],
+            _: Any,
+        ) -> tuple[
+            tuple[
+                OptState,
+                Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]],
+                Array,
+            ],
+            Array,
+        ]:
+            opt_state, params, key = carry
+
+            # Shuffle data and truncate to fit batches evenly
+            return_key, shuffle_key = jax.random.split(key)
+            n_complete_batches = sample.shape[0] // self.stage2_batch_size
+            n_samples_to_use = n_complete_batches * self.stage2_batch_size
+
+            shuffled_indices = jax.random.permutation(shuffle_key, sample.shape[0])[
+                :n_samples_to_use
+            ]
+            batched_data = sample[shuffled_indices].reshape(
+                (n_complete_batches, self.stage2_batch_size, -1)
+            )
+
+            # Process batches
+            (opt_state, params), _ = jax.lax.scan(
+                stage2_minibatch_step,
+                (opt_state, params),
+                batched_data,
+                None,
+            )
+
+            # Compute full dataset likelihood
+            hmog_params = self.model.join_conjugated(lkl_params1, params)
+            epoch_ll = self.model.average_log_observable_density(hmog_params, sample)
+            debug.print("Stage 2 epoch LL: {}", epoch_ll)
+
+            return (opt_state, params, return_key), epoch_ll
+
+        (_, mix_params1, key), lls2 = jax.lax.scan(
+            stage2_epoch,
+            (stage2_opt_state, mix_params0, key),
+            None,
+            length=self.stage2_epochs,
+        )
+
+        # Stage 3: Similar structure to stage 2
+        params1 = self.model.join_conjugated(lkl_params1, mix_params1)
+        stage3_optimizer: Optimizer[Natural, DifferentiableHMoG[ObsRep, LatRep]] = (
+            Optimizer.adam(learning_rate=self.stage3_learning_rate)
+        )
+        stage3_opt_state = stage3_optimizer.init(params1)
+
+        def stage3_loss(
+            params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+            batch: Array,
+        ) -> Array:
+            return -self.model.average_log_observable_density(params, batch)
+
+        def stage3_minibatch_step(
+            carry: tuple[OptState, Point[Natural, DifferentiableHMoG[ObsRep, LatRep]]],
+            batch: Array,
+        ) -> tuple[
+            tuple[OptState, Point[Natural, DifferentiableHMoG[ObsRep, LatRep]]], None
+        ]:
+            opt_state, params = carry
+            grad = self.model.grad(lambda p: stage3_loss(p, batch), params)
+            opt_state, params = stage3_optimizer.update(opt_state, grad, params)
+            return (opt_state, params), None
+
+        def stage3_epoch(
+            carry: tuple[
+                OptState, Point[Natural, DifferentiableHMoG[ObsRep, LatRep]], Array
+            ],
+            _: Any,
+        ) -> tuple[
+            tuple[OptState, Point[Natural, DifferentiableHMoG[ObsRep, LatRep]], Array],
+            Array,
+        ]:
+            opt_state, params, key = carry
+
+            # Shuffle and batch data
+            return_key, shuffle_key = jax.random.split(key)
+            n_complete_batches = sample.shape[0] // self.stage3_batch_size
+            n_samples_to_use = n_complete_batches * self.stage3_batch_size
+
+            shuffled_indices = jax.random.permutation(shuffle_key, sample.shape[0])[
+                :n_samples_to_use
+            ]
+            batched_data = sample[shuffled_indices].reshape(
+                (n_complete_batches, self.stage3_batch_size, -1)
+            )
+
+            # Process batches
+            (opt_state, params), _ = jax.lax.scan(
+                stage3_minibatch_step,
+                (opt_state, params),
+                batched_data,
+            )
+
+            # Compute likelihood
+            epoch_ll = self.model.average_log_observable_density(params, sample)
+            debug.print("Stage 3 epoch LL: {}", epoch_ll)
+
+            return (opt_state, params, return_key), epoch_ll
+
+        (_, final_params, _), lls3 = jax.lax.scan(
+            stage3_epoch,
+            (stage3_opt_state, params1, key),
+            None,
+            length=self.stage3_epochs,
+        )
+
+        lls = jnp.concatenate([lls1, lls2, lls3])
+        return final_params, lls.ravel()
