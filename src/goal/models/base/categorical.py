@@ -75,7 +75,10 @@ class Categorical(Analytic):
 
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
-        return jnp.log1p(jnp.sum(jnp.exp(params.array)))
+        # Extract maximum value first
+        max_val = jnp.max(params.array)
+        # Subtract max before exp and add it back after log
+        return max_val + jnp.log1p(jnp.sum(jnp.exp(params.array - max_val)))
 
     @override
     def negative_entropy(self, means: Point[Mean, Self]) -> Array:
