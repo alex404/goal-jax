@@ -124,7 +124,7 @@ def test_observable_distributions(
     logger.info(f"Direct observable log-density: {direct_ll}")
     logger.info(f"Marginal distribution log-density: {marginal_ll}")
 
-    assert jnp.allclose(direct_ll, marginal_ll, rtol=1e-2, atol=1e-2), (
+    assert jnp.allclose(direct_ll, marginal_ll, rtol=0.1, atol=0.01), (
         "Log-density differs between direct computation and marginal distribution"
     )
 

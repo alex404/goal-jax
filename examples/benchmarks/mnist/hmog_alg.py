@@ -10,7 +10,13 @@ import jax
 import jax.numpy as jnp
 from jax import Array, debug
 
-from goal.geometry import Natural, Optimizer, OptState, Point, PositiveDefinite
+from goal.geometry import (
+    Natural,
+    Optimizer,
+    OptState,
+    Point,
+    PositiveDefinite,
+)
 from goal.models import (
     DifferentiableHMoG,
     DifferentiableMixture,
@@ -22,10 +28,77 @@ from goal.models import (
 from .common import evaluate_clustering
 from .types import MNISTData, ProbabilisticResults
 
-OBS_JITTER = 1e-6
-OBS_MIN_VAR = 1e-5
-LAT_JITTER = 1e-5
-LAT_MIN_VAR = 1e-3
+OBS_JITTER = 1e-7
+OBS_MIN_VAR = 1e-6
+LAT_JITTER = 1e-6
+LAT_MIN_VAR = 1e-4
+
+
+### Helper routines ###
+
+
+def bound_mixture_probabilities[Rep: PositiveDefinite](
+    model: DifferentiableMixture[FullNormal, Normal[Rep]],
+    params: Point[Natural, DifferentiableMixture[FullNormal, Normal[Rep]]],
+    min_prob: float = 1e-3,
+) -> Point[Natural, DifferentiableMixture[FullNormal, Normal[Rep]]]:
+    """Bound mixture probabilities away from 0."""
+    comps, cat_params = model.split_natural_mixture(params)
+
+    with model.lat_man as lm:
+        cat_means = lm.to_mean(cat_params)
+        probs = lm.to_probs(cat_means)
+        bounded_probs = jnp.clip(probs, min_prob, 1.0)
+        bounded_probs = bounded_probs / jnp.sum(bounded_probs)
+        bounded_cat_params = lm.to_natural(lm.from_probs(bounded_probs))
+
+    return model.join_natural_mixture(comps, bounded_cat_params)
+
+
+def debug_observable_conditioning[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
+    model: DifferentiableHMoG[ObsRep, LatRep],
+    params: Point[Natural, DifferentiableHMoG[ObsRep, LatRep]],
+) -> None:
+    """Analyze conditioning of observable distributions for HMoG components."""
+    # Extract mixture components
+    lkl_params, mix_params = model.split_conjugated(params)
+    comps, _ = model.upr_hrm.split_natural_mixture(mix_params)
+
+    # Create LGM manifold for each component
+    lgm = model.lwr_hrm
+
+    debug.print("\nAnalyzing observable distributions:")
+    for i, comp in enumerate(comps):
+        # Create component HMoG
+        comp_params = lgm.join_conjugated(lkl_params, comp)
+
+        debug_lgm_conditioning(lgm, comp_params)
+
+
+def debug_lgm_conditioning[Rep: PositiveDefinite](
+    lgm: LinearGaussianModel[Rep],
+    comp_params: Point[Natural, LinearGaussianModel[Rep]],
+) -> None:
+    # Get observable distribution
+    nor_man, obs_dist = lgm.observable_distribution(comp_params)
+
+    # Convert to mean parameters for analysis
+    mean_params = nor_man.to_mean(obs_dist)
+    mean, cov = nor_man.split_mean_covariance(mean_params)
+
+    # Analyze conditioning
+    cov_dense = nor_man.cov_man.to_dense(cov)
+    eigenvals = jnp.linalg.eigvalsh(cov_dense)
+    condition = jnp.max(eigenvals) / jnp.min(eigenvals)
+
+    debug.print(
+        "condition={}, max_eig={}, min_eig={}, mean_norm={}",
+        condition,
+        jnp.max(eigenvals),
+        jnp.min(eigenvals),
+        jnp.linalg.norm(mean.array),
+    )
+
 
 ### ABC ###
 
@@ -353,7 +426,33 @@ class MinibatchHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
         ]:
             opt_state, params = carry
             grad = self.model.upr_hrm.grad(lambda p: stage2_loss(p, batch), params)
+
+            # def _save_state(
+            #     params_array: Array, batch_data: Array, has_nans: bool
+            # ) -> None:
+            #     if has_nans:
+            #         diagnostic_data = {
+            #             "parameters": params_array.tolist(),
+            #             "batch_data": batch_data.tolist(),
+            #         }
+            #         pathlib.Path("diagnostics").mkdir(parents=True, exist_ok=True)
+            #         with open("diagnostics/hmog_failure.json", "w") as f:
+            #             json.dump(diagnostic_data, f)
+            #         raise ValueError(
+            #             "Non-finite gradients detected - terminating training"
+            #         )
+
+            # has_bad_grads = ~jnp.all(jnp.isfinite(grad.array))
+            # hmog_params = self.model.join_conjugated(lkl_params1, params)
+            # io_callback(
+            #     _save_state,
+            #     None,
+            #     hmog_params.array,
+            #     batch,
+            #     has_bad_grads,
+            # )
             opt_state, params = stage2_optimizer.update(opt_state, grad, params)
+            params = bound_mixture_probabilities(self.model.upr_hrm, params)
             return ((opt_state, params), None)
 
         def stage2_epoch(
