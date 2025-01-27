@@ -1,5 +1,5 @@
 [project]
-name = "goal"
+name = "goal-jax"
 version="0.0.1"
 description = "(G)eometric (O)ptimiz(A)tion (L)ibraries"
 dependencies = [
@@ -38,7 +38,7 @@ include = ["src/goal", "examples", "tests"]
 extraPaths = ["src"]
 typeCheckingMode = "recommended"
 venvPath = "."
-venv = ".uvenv"
+venv = ".venv-jax"
 reportUnknownParameterType = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
