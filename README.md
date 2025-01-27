@@ -1,5 +1,5 @@
 ![Tests](https://github.com/alex404/goal-jax/actions/workflows/tests.yml/badge.svg)
-![Demonstrations](https://github.com/alex404/goal-jax/actions/workflows/demonstrations.yml/badge.svg)
+![Demonstrations](https://github.com/alex404/goal-jax/actions/workflows/examples.yml/badge.svg)
 
 # goal-jax: Geometric OptimizAtion Libraries (in JAX!)
 
