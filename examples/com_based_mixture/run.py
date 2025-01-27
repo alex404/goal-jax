@@ -31,7 +31,7 @@ from goal.models import (
     FactorAnalysis,
 )
 
-from ...shared import initialize_jax, initialize_paths, save_results
+from ..shared import initialize_jax, initialize_paths, save_results
 from .types import ComAnalysisResults, CovarianceStatistics
 
 # Constants

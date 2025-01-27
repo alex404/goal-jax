@@ -15,6 +15,10 @@ Bounds2D: TypeAlias = tuple[float, float, float, float]  # (x_min, x_max, y_min,
 
 ### Initialization and Path Management ###
 
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+
 
 @dataclass(frozen=True)
 class ExamplePaths:
@@ -22,43 +26,33 @@ class ExamplePaths:
     results_dir: Path
     analysis_path: Path
     style_path: Path
-    cache_dir: Path
 
     @classmethod
-    def from_module(
-        cls, module_path: str | Path, experiment: str | None
-    ) -> "ExamplePaths":
+    def from_module(cls, module_path: str | Path) -> "ExamplePaths":
         module_path = Path(module_path)
         example_dir = module_path.parent
-        results_dir = example_dir / "results"
-        style_path = example_dir.parent.parent / "default.mplstyle"
-        project_root = example_dir.parent.parent
-        cache_dir = project_root / ".cache"
-
-        if experiment is not None:
-            analysis_path = results_dir / f"{experiment}.json"
-        else:
-            analysis_path = results_dir / "analysis.json"
+        example_name = example_dir.name
+        examples_root = example_dir.parent
+        project_root = examples_root.parent
+        style_path = examples_root / "default.mplstyle"
+        results_dir = project_root / "results" / example_name
+        analysis_path = results_dir / "analysis.json"
         # Ensure results directory exists
-        results_dir.mkdir(exist_ok=True)
-        cache_dir.mkdir(exist_ok=True)
+        results_dir.mkdir(exist_ok=True, parents=True)
 
         return cls(
             example_dir=example_dir,
             results_dir=results_dir,
             analysis_path=analysis_path,
             style_path=style_path,
-            cache_dir=cache_dir,
         )
 
     def setup_plotting(self) -> None:
         plt.style.use(str(self.style_path))
 
 
-def initialize_paths(
-    module_path: str | Path, experiment: str | None = None
-) -> ExamplePaths:
-    paths = ExamplePaths.from_module(module_path, experiment)
+def initialize_paths(module_path: str | Path) -> ExamplePaths:
+    paths = ExamplePaths.from_module(module_path)
     paths.setup_plotting()
     return paths
 

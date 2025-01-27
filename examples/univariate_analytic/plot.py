@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from scipy import stats
 from scipy.special import factorial
 
-from ...shared import initialize_paths
+from ..shared import initialize_paths
 from .types import (
     CategoricalResults,
     NormalResults,

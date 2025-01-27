@@ -12,7 +12,7 @@ from matplotlib.image import AxesImage
 from numpy.typing import NDArray
 from scipy.cluster.hierarchy import dendrogram, leaves_list, linkage
 
-from ...shared import initialize_paths
+from ..shared import initialize_paths
 from .types import ComAnalysisResults
 
 # Color schemes

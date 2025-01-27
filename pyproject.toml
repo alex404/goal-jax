@@ -16,10 +16,6 @@ test = [
     "pytest-cov>=4.0",  # For coverage reporting
 ]
 
-benchmark = [
-    "torchvision",
-]
-
 gpu = [
     "jax[cuda12]",
 ]

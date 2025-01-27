@@ -1,6 +1,9 @@
 # Documentation
 site/
 
+# Local debug
+debug/
+
 # Python
 __pycache__/
 *.py[cod]
