@@ -15,10 +15,6 @@ Bounds2D: TypeAlias = tuple[float, float, float, float]  # (x_min, x_max, y_min,
 
 ### Initialization and Path Management ###
 
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
-
 
 @dataclass(frozen=True)
 class ExamplePaths:
@@ -37,7 +33,6 @@ class ExamplePaths:
         style_path = examples_root / "default.mplstyle"
         results_dir = project_root / "results" / example_name
         analysis_path = results_dir / "analysis.json"
-        # Ensure results directory exists
         results_dir.mkdir(exist_ok=True, parents=True)
 
         return cls(

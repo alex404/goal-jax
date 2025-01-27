@@ -1,8 +1,6 @@
-# Documentation
-site/
+# Local results
+results/
 
-# Local debug
-debug/
 
 # Python
 __pycache__/
