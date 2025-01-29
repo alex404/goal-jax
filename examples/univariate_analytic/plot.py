@@ -1,6 +1,5 @@
 """Test script for univariate auistributions in the exponential family."""
 
-import json
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -10,7 +9,7 @@ from numpy.typing import NDArray
 from scipy import stats
 from scipy.special import factorial
 
-from ..shared import initialize_paths
+from ..shared import example_paths
 from .types import (
     CategoricalResults,
     NormalResults,
@@ -124,21 +123,19 @@ def plot_poisson_results(
 def main():
     """Run all distribution tests and plots."""
     # Load results
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
-    with open(paths.analysis_path) as f:
-        results = cast(UnivariateResults, json.load(f))
+    analysis = cast(UnivariateResults, paths.load_analysis())
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
-    plot_gaussian_results(axes[0], results["gaussian"])
+    plot_gaussian_results(axes[0], analysis["gaussian"])
 
-    plot_categorical_results(axes[1], results["categorical"])
+    plot_categorical_results(axes[1], analysis["categorical"])
 
     # Plot and save Poisson
-    plot_poisson_results(axes[2], results["poisson"])
-    fig.savefig(paths.results_dir / "univariate.png")
-    plt.close(fig)
+    plot_poisson_results(axes[2], analysis["poisson"])
+    paths.save_plot(fig)
 
 
 if __name__ == "__main__":

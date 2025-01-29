@@ -19,19 +19,17 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    Mean,
     Natural,
     Optimizer,
     OptState,
     Point,
-    reduce_dual,
 )
 from goal.models import (
     CoMMixture,
     FactorAnalysis,
 )
 
-from ..shared import initialize_jax, initialize_paths, save_results
+from ..shared import example_paths, initialize_jax
 from .types import ComAnalysisResults, CovarianceStatistics
 
 # Constants
@@ -153,7 +151,9 @@ def fit_com_mixture(
     com_mix = CoMMixture(N_NEURONS, N_COMPONENTS)
     init_params = com_mix.initialize(key, shape=0.01)
 
-    optimizer: Optimizer[Mean, CoMMixture] = Optimizer.adam(learning_rate=learning_rate)
+    optimizer: Optimizer[Natural, CoMMixture] = Optimizer.adam(
+        learning_rate=learning_rate
+    )
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, CoMMixture]) -> Array:
@@ -164,7 +164,7 @@ def fit_com_mixture(
     ) -> tuple[tuple[OptState, Point[Natural, CoMMixture]], Array]:
         opt_state, params = opt_state_and_params
         loss_val, grads = com_mix.value_and_grad(cross_entropy_loss, params)
-        opt_state, params = optimizer.update(opt_state, reduce_dual(grads), params)
+        opt_state, params = optimizer.update(opt_state, grads, params)
         return (opt_state, params), -loss_val  # Return log likelihood
 
     (_, final_params), lls = jax.lax.scan(
@@ -180,7 +180,7 @@ fit_com_mixture = jax.jit(fit_com_mixture, static_argnames=["n_steps", "learning
 def main() -> None:
     """Run COM-Poisson mixture model analysis."""
     initialize_jax(disable_jit=True)
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
     # Create models and generate data
     key = jax.random.PRNGKey(0)
@@ -219,7 +219,7 @@ def main() -> None:
         sample_stats=discrete_stats,
         training_lls=training_lls,
     )
-    save_results(results, paths)
+    paths.save_analysis(results)
 
 
 if __name__ == "__main__":

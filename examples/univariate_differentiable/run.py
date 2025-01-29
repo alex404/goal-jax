@@ -9,7 +9,7 @@ from jax import Array
 from goal.geometry import Natural, Optimizer, OptState, Point
 from goal.models import CoMPoisson, VonMises
 
-from ..shared import initialize_jax, initialize_paths, save_results
+from ..shared import example_paths, initialize_jax
 from .types import CoMPoissonResults, DifferentiableUnivariateResults, VonMisesResults
 
 
@@ -145,7 +145,7 @@ def fit_com_poisson(
 def main():
     """Run numerical optimization tests."""
     initialize_jax()
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
     key = jax.random.PRNGKey(0)
     von_man = VonMises()
@@ -174,9 +174,8 @@ def main():
         learning_rate=0.1,
     )
 
-    save_results(
+    paths.save_analysis(
         DifferentiableUnivariateResults(von_mises=von_results, com_poisson=con_results),
-        paths,
     )
 
 

@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from jax import Array
+from matplotlib.figure import Figure
 
 # Custom type aliases
 Bounds2D: TypeAlias = tuple[float, float, float, float]  # (x_min, x_max, y_min, y_max)
@@ -18,49 +19,48 @@ Bounds2D: TypeAlias = tuple[float, float, float, float]  # (x_min, x_max, y_min,
 
 @dataclass(frozen=True)
 class ExamplePaths:
-    example_dir: Path
+    example_name: str
     results_dir: Path
-    analysis_path: Path
     style_path: Path
 
-    @classmethod
-    def from_module(cls, module_path: str | Path) -> "ExamplePaths":
-        module_path = Path(module_path)
-        example_dir = module_path.parent
-        example_name = example_dir.name
-        examples_root = example_dir.parent
-        project_root = examples_root.parent
-        style_path = examples_root / "default.mplstyle"
-        results_dir = project_root / "results" / example_name
-        analysis_path = results_dir / "analysis.json"
-        results_dir.mkdir(exist_ok=True, parents=True)
+    @property
+    def analysis_path(self) -> Path:
+        return self.results_dir / "analysis.json"
 
-        return cls(
-            example_dir=example_dir,
-            results_dir=results_dir,
-            analysis_path=analysis_path,
-            style_path=style_path,
-        )
+    @property
+    def plot_path(self) -> Path:
+        return self.results_dir / "plot.png"
 
-    def setup_plotting(self) -> None:
-        plt.style.use(str(self.style_path))
+    def save_analysis(self, results: Any) -> None:
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.analysis_path, "w") as f:
+            json.dump(results, f, indent=2)
+
+    def load_analysis(self) -> Any:
+        with open(self.analysis_path) as f:
+            return json.load(f)
+
+    def save_plot(self, fig: Figure) -> None:
+        fig.savefig(self.plot_path, bbox_inches="tight")
+        plt.close(fig)
 
 
-def initialize_paths(module_path: str | Path) -> ExamplePaths:
-    paths = ExamplePaths.from_module(module_path)
-    paths.setup_plotting()
-    return paths
+def example_paths(module_path: str | Path) -> ExamplePaths:
+    module_path = Path(module_path)
+    example_name = module_path.parent.name
+    project_root = module_path.parents[2]
+    results_dir = project_root / "results" / example_name
+    return ExamplePaths(
+        example_name=example_name,
+        results_dir=results_dir,
+        style_path=project_root / "examples" / "default.mplstyle",
+    )
 
 
 def initialize_jax(device: str = "cpu", disable_jit: bool = False) -> None:
     jax.config.update("jax_platform_name", device)
     if disable_jit:
         jax.config.update("jax_disable_jit", True)
-
-
-def save_results(results: Any, paths: ExamplePaths) -> None:
-    with open(paths.analysis_path, "w") as f:
-        json.dump(results, f, indent=2)
 
 
 ### Grid Creation ###

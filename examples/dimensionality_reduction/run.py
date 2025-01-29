@@ -21,10 +21,9 @@ from goal.models import (
 
 from ..shared import (
     create_grid,
+    example_paths,
     get_plot_bounds,
     initialize_jax,
-    initialize_paths,
-    save_results,
 )
 from .types import LGMResults
 
@@ -170,7 +169,7 @@ def main() -> None:
     """Run LGM comparison tests."""
     # Configure JAX
     initialize_jax()
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
     # Set random seed
     key = jax.random.PRNGKey(0)
@@ -183,7 +182,7 @@ def main() -> None:
     )
 
     # Save results
-    save_results(results, paths)
+    paths.save_analysis(results)
 
 
 if __name__ == "__main__":

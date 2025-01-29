@@ -13,10 +13,9 @@ from goal.models import (
 
 from ..shared import (
     create_grid,
+    example_paths,
     get_normal_bounds,
     initialize_jax,
-    initialize_paths,
-    save_results,
 )
 from .types import BivariateResults
 
@@ -94,7 +93,7 @@ def compute_gaussian_results(
 
 def main():
     initialize_jax()
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
     """Run bivariate Normal tests."""
     key = jax.random.PRNGKey(0)
 
@@ -111,7 +110,7 @@ def main():
     )
 
     # Save results
-    save_results(results, paths)
+    paths.save_analysis(results)
 
 
 if __name__ == "__main__":

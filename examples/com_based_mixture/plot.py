@@ -1,6 +1,5 @@
 """Plotting code for COM-Poisson mixture model analysis."""
 
-import json
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -12,7 +11,7 @@ from matplotlib.image import AxesImage
 from numpy.typing import NDArray
 from scipy.cluster.hierarchy import dendrogram, leaves_list, linkage
 
-from ..shared import initialize_paths
+from ..shared import example_paths
 from .types import ComAnalysisResults
 
 # Color schemes
@@ -137,25 +136,21 @@ def create_com_mixture_plots(results: ComAnalysisResults) -> Figure:
 
 def main() -> None:
     """Load results and create plots."""
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
     # Load results
-    with open(paths.analysis_path) as f:
-        results = cast(ComAnalysisResults, json.load(f))
+    analysis = cast(ComAnalysisResults, paths.load_analysis())
 
     # sort
     print("Sorted FA Covariances:")
-    print(np.sort(np.array(results["fa_stats"]["covariances"])))
+    print(np.sort(np.array(analysis["fa_stats"]["covariances"])))
     print("Sorted Discrete Covariances:")
-    print(np.sort(np.array(results["sample_stats"]["covariances"])))
+    print(np.sort(np.array(analysis["sample_stats"]["covariances"])))
     print("Sorted CBM Covariances:")
-    print(np.sort(np.array(results["cbm_stats"]["covariances"])))
+    print(np.sort(np.array(analysis["cbm_stats"]["covariances"])))
     # Create and save figure
-    fig = create_com_mixture_plots(results)
-    fig.savefig(
-        paths.results_dir / "com_mixture_analysis.png", dpi=300, bbox_inches="tight"
-    )
-    plt.close(fig)
+    fig = create_com_mixture_plots(analysis)
+    paths.save_plot(fig)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 # plot.py
 """Plotting code for LGM analysis."""
 
-import json
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -10,7 +9,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from ..shared import initialize_paths
+from ..shared import example_paths
 from .types import LGMResults
 
 # Default colors for consistent styling
@@ -163,14 +162,12 @@ def create_lgm_plots(results: LGMResults) -> Figure:
 def main() -> None:
     """Generate all plots from analysis results."""
     # Load results
-    paths = initialize_paths(__file__)
-    with open(paths.analysis_path) as f:
-        results = cast(LGMResults, json.load(f))
+    paths = example_paths(__file__)
+    analysis = cast(LGMResults, paths.load_analysis())
 
     # Create and save figure
-    fig = create_lgm_plots(results)
-    fig.savefig(paths.results_dir / "lgm_analysis.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    fig = create_lgm_plots(analysis)
+    paths.save_plot(fig)
 
 
 if __name__ == "__main__":

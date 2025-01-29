@@ -17,7 +17,7 @@ from goal.models import (
     Normal,
 )
 
-from ..shared import create_grid, initialize_jax, initialize_paths, save_results
+from ..shared import create_grid, example_paths, initialize_jax
 from .types import MixtureResults
 
 ### Constructors ###
@@ -234,7 +234,7 @@ jax.config.update("jax_disable_jit", False)
 def main():
     """Run mixture model tests."""
     initialize_jax()
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
     key = jax.random.PRNGKey(0)
 
@@ -249,7 +249,7 @@ def main():
         bounds=bounds,
     )
 
-    save_results(results, paths)
+    paths.save_analysis(results)
 
 
 if __name__ == "__main__":

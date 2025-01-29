@@ -5,9 +5,6 @@ description = "(G)eometric (O)ptimiz(A)tion (L)ibraries"
 dependencies = [
     "jax",
     "optax",
-    "matplotlib",
-    "scipy",
-    "scikit-learn",
 ]
 
 [project.optional-dependencies]
@@ -15,6 +12,14 @@ test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",  # For coverage reporting
 ]
+
+examples = [
+    "matplotlib",
+    "scipy",
+    "scikit-learn",
+    "scipy-stubs",
+    "seaborn",
+    ]
 
 gpu = [
     "jax[cuda12]",
@@ -45,6 +50,7 @@ reportUnknownArgumentType = "none"
 reportAny = "none"
 reportExplicitAny = "none"
 reportMissingSuperCall = "none"
+reportUnusedCallResult = "none"
 
 [tool.ruff]
 src = ["src"]

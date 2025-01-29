@@ -1,6 +1,5 @@
 """Plotting script for numerically optimized univariate distributions."""
 
-import json
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -8,7 +7,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
 
-from ..shared import initialize_paths
+from ..shared import example_paths
 from .types import CoMPoissonResults, DifferentiableUnivariateResults, VonMisesResults
 
 
@@ -66,21 +65,19 @@ def plot_com_poisson_pmf(ax: Axes, results: CoMPoissonResults) -> None:
 
 def main():
     """Create plots for numerical optimization results."""
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
-    with open(paths.analysis_path) as f:
-        results = cast(DifferentiableUnivariateResults, json.load(f))
+    analysis = cast(DifferentiableUnivariateResults, paths.load_analysis())
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
-    plot_von_mises_density(axes[0, 0], results["von_mises"])
-    plot_training_history(axes[0, 1], results["von_mises"]["training_history"])
-    plot_com_poisson_pmf(axes[1, 0], results["com_poisson"])
-    plot_training_history(axes[1, 1], results["com_poisson"]["training_history"])
+    plot_von_mises_density(axes[0, 0], analysis["von_mises"])
+    plot_training_history(axes[0, 1], analysis["von_mises"]["training_history"])
+    plot_com_poisson_pmf(axes[1, 0], analysis["com_poisson"])
+    plot_training_history(axes[1, 1], analysis["com_poisson"]["training_history"])
 
     plt.tight_layout()
-    fig.savefig(paths.results_dir / "univariate_differentiable.png")
-    plt.close(fig)
+    paths.save_plot(fig)
 
 
 if __name__ == "__main__":

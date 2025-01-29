@@ -22,7 +22,7 @@ from goal.models import (
     analytic_hmog,
 )
 
-from ..shared import initialize_jax, initialize_paths, save_results
+from ..shared import example_paths, initialize_jax
 from .types import HMoGResults
 
 ### Constants ###
@@ -212,14 +212,14 @@ def compute_hmog_results(
 def main():
     """Run hierarchical mixture of Gaussians tests."""
     initialize_jax()
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
     key = jax.random.PRNGKey(0)
 
     # Run analysis
     results = compute_hmog_results(key)
 
     # Save results
-    save_results(results, paths)
+    paths.save_analysis(results)
 
 
 if __name__ == "__main__":

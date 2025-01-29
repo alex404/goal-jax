@@ -14,7 +14,7 @@ from goal.models import (
     Poisson,
 )
 
-from ..shared import initialize_jax, initialize_paths, save_results
+from ..shared import example_paths, initialize_jax
 from .types import (
     CategoricalResults,
     NormalResults,
@@ -119,7 +119,7 @@ def compute_poisson_results(
 
 def main():
     initialize_jax()
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
     """Run all distribution tests and plots."""
     # Create figure
@@ -199,7 +199,7 @@ def main():
         poisson=poisson_results,
     )
 
-    save_results(results, paths)
+    paths.save_analysis(results)
 
 
 if __name__ == "__main__":

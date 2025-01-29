@@ -1,6 +1,5 @@
 """Test script for bivariate Normal distributions with different covariance structures."""
 
-import json
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -8,7 +7,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
 
-from ..shared import initialize_paths
+from ..shared import example_paths
 from .types import BivariateResults
 
 
@@ -63,21 +62,20 @@ def plot_gaussian_comparison(
 
 
 def main():
-    paths = initialize_paths(__file__)
+    paths = example_paths(__file__)
 
-    with open(paths.analysis_path) as f:
-        results = cast(BivariateResults, json.load(f))
+    analysis = cast(BivariateResults, paths.load_analysis())
 
     # Plot and save Normal
     fig, ax = plt.subplots(2, 2, figsize=(10, 10))
-    sample = np.array(results["sample"])
-    xs = np.array(results["plot_xs"])
-    ys = np.array(results["plot_ys"])
-    sp_dens = np.array(results["scipy_densities"])
-    gt_dens = np.array(results["ground_truth_densities"])
-    pd_dens = np.array(results["positive_definite_densities"])
-    dia_dens = np.array(results["diagonal_densities"])
-    scl_dens = np.array(results["scale_densities"])
+    sample = np.array(analysis["sample"])
+    xs = np.array(analysis["plot_xs"])
+    ys = np.array(analysis["plot_ys"])
+    sp_dens = np.array(analysis["scipy_densities"])
+    gt_dens = np.array(analysis["ground_truth_densities"])
+    pd_dens = np.array(analysis["positive_definite_densities"])
+    dia_dens = np.array(analysis["diagonal_densities"])
+    scl_dens = np.array(analysis["scale_densities"])
 
     plot_gaussian_comparison(
         "Scipy Ground Truth",
@@ -119,8 +117,7 @@ def main():
         gt_dens,
         scl_dens,
     )
-    fig.savefig(paths.results_dir / "gaussian.png")
-    plt.close(fig)
+    paths.save_plot(fig)
 
 
 if __name__ == "__main__":

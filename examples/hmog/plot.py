@@ -1,6 +1,5 @@
 """Plotting code for hierarchical mixture of Gaussians analysis."""
 
-import json
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -9,7 +8,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from ..shared import initialize_paths
+from ..shared import example_paths
 from .types import HMoGResults
 
 # black red for comparing true vs model
@@ -213,14 +212,12 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
 def main() -> None:
     """Load results and create plots."""
     # Load results
-    paths = initialize_paths(__file__)
-    with open(paths.analysis_path) as f:
-        results = cast(HMoGResults, json.load(f))
+    paths = example_paths(__file__)
+    analysis = cast(HMoGResults, paths.load_analysis())
 
     # Create and save figure
-    fig = create_hmog_plots(results)
-    fig.savefig(paths.results_dir / "hmog_analysis.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    fig = create_hmog_plots(analysis)
+    paths.save_plot(fig)
 
 
 if __name__ == "__main__":
