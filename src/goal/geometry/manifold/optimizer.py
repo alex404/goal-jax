@@ -23,23 +23,26 @@ class Optimizer[C: Coordinates, M: Manifold]:
     """Handles parameter updates using gradients in dual coordinates."""
 
     optimizer: GradientTransformation
+    opt_man: M
 
     @classmethod
     def adam(
         cls,
+        man: M,
         learning_rate: float = 0.1,
         b1: float = 0.9,
         b2: float = 0.999,
     ) -> Optimizer[C, M]:
-        return cls(adamw(learning_rate, b1=b1, b2=b2))
+        return cls(adamw(learning_rate, b1=b1, b2=b2), man)
 
     @classmethod
     def sgd(
         cls,
+        man: M,
         learning_rate: float = 0.1,
         momentum: float = 0.0,
     ) -> Optimizer[C, M]:
-        return cls(sgd(learning_rate, momentum=momentum))
+        return cls(sgd(learning_rate, momentum=momentum), man)
 
     def init(self, point: Point[C, M]) -> OptState:
         return OptState(self.optimizer.init(point.array))
@@ -56,4 +59,4 @@ class Optimizer[C: Coordinates, M: Manifold]:
             point.array,
         )
         new_params = apply_updates(point.array, updates)  # pyright: ignore[reportUnknownVariableType]
-        return OptState(new_opt_state), Point(new_params)  # pyright: ignore[reportUnknownVariableType, reportArgumentType]
+        return OptState(new_opt_state), self.opt_man.point(new_params)  # pyright: ignore[reportUnknownVariableType, reportArgumentType]

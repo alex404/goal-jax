@@ -25,8 +25,6 @@ class Coordinates:
     In theory, a coordinate system (or chart) $(U, \\phi)$ consists of an open set $U \\subset \\mathcal{M}$ and a homeomorphism $\\phi: U \\to \\mathbb{R}^n$ mapping points to their coordinate representation. In practice, `Coordinates` do not exist at runtime and only help type checking.
     """
 
-    ...
-
 
 class Dual[C: Coordinates](Coordinates):
     """Dual coordinates to a given coordinate system.
@@ -44,14 +42,14 @@ def reduce_dual[C: Coordinates, M: Manifold](
     p: Point[Dual[Dual[C]], M],
 ) -> Point[C, M]:
     """Takes a point in the dual of the dual space and returns a point in the original space."""
-    return Point(p.array)
+    return _Point(p.array)
 
 
 def expand_dual[C: Coordinates, M: Manifold](
     p: Point[C, M],
 ) -> Point[Dual[Dual[C]], M]:
     """Takes a point in the original space and returns a point in the dual of the dual space."""
-    return Point(p.array)
+    return _Point(p.array)
 
 
 class Manifold(ABC):
@@ -88,6 +86,11 @@ class Manifold(ABC):
 
     # Templates
 
+    def point[Coords: Coordinates](self, array: Array) -> Point[Coords, Self]:
+        """Create a point on the manifold from a coordinate array."""
+        # flatten array
+        return _Point(jnp.ravel(jnp.atleast_1d(array)))
+
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.array, q.array)
 
@@ -122,12 +125,12 @@ class Manifold(ABC):
     ) -> Point[Any, Self]:
         """Initialize a point from a uniformly distributed, bounded square in parameter space."""
         params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
-        return Point(params)
+        return _Point(params)
 
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Point[C: Coordinates, M: Manifold]:
+class _Point[C: Coordinates, M: Manifold]:
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
     Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
@@ -135,6 +138,8 @@ class Point[C: Coordinates, M: Manifold]:
     - Addition: $\\phi(p) + \\phi(q)$
     - Scalar multiplication: $\\alpha\\phi(p)$
     - Vector subtraction: $\\phi(p) - \\phi(q)$
+
+    The constructor is private to prevent direct instantiation of points. Use the `Manifold` to create points instead.
 
     Args:
         array: Coordinate vector $x = \\phi(p) \\in \\mathbb{R}^n$
@@ -157,22 +162,26 @@ class Point[C: Coordinates, M: Manifold]:
         return len(self.array)
 
     def __add__(self, other: Point[C, M]) -> Point[C, M]:
-        return Point(self.array + other.array)
+        return _Point(self.array + other.array)
 
     def __sub__(self, other: Point[C, M]) -> Point[C, M]:
-        return Point(self.array - other.array)
+        return _Point(self.array - other.array)
 
     def __neg__(self) -> Point[C, M]:
-        return Point(-self.array)
+        return _Point(-self.array)
 
     def __mul__(self, scalar: float) -> Point[C, M]:
-        return Point(scalar * self.array)
+        return _Point(scalar * self.array)
 
     def __rmul__(self, scalar: float) -> Point[C, M]:
         return self.__mul__(scalar)
 
     def __truediv__(self, other: float | Array) -> Point[C, M]:
-        return Point(self.array / other)
+        return _Point(self.array / other)
+
+
+type Point[C: Coordinates, M: Manifold] = _Point[C, M]
+"""A point on a manifold in a given coordinate system."""
 
 
 @dataclass(frozen=True)
@@ -207,15 +216,17 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
         """Split parameters into first and second components."""
         first_params = p.array[: self.fst_man.dim]
         second_params = p.array[self.fst_man.dim :]
-        return Point(first_params), Point(second_params)
+        return self.fst_man.point(first_params), self.snd_man.point(second_params)
 
     def join_params[C: Coordinates](
         self,
         first: Point[C, First],
         second: Point[C, Second],
     ) -> Point[C, Self]:
-        """Join component parameters into a single point."""
-        return Point(jnp.concatenate([first.array, second.array]))
+        """Join component_Point parameters into a single point."""
+        return self.point(
+            jnp.concatenate([jnp.ravel(first.array), jnp.ravel(second.array)])
+        )
 
 
 @dataclass(frozen=True)
@@ -260,7 +271,11 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
         second_params = p.array[first_dim : first_dim + second_dim]
         third_params = p.array[first_dim + second_dim :]
 
-        return Point(first_params), Point(second_params), Point(third_params)
+        return (
+            self.fst_man.point(first_params),
+            self.snd_man.point(second_params),
+            self.trd_man.point(third_params),
+        )
 
     def join_params[C: Coordinates](
         self,
@@ -269,4 +284,71 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
         third: Point[C, Third],
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
-        return Point(jnp.concatenate([first.array, second.array, third.array]))
+        return self.point(
+            jnp.concatenate(
+                [
+                    jnp.ravel(first.array),
+                    jnp.ravel(second.array),
+                    jnp.ravel(third.array),
+                ]
+            )
+        )
+
+
+@dataclass(frozen=True)
+class Replicated[M: Manifold](Manifold):
+    """Manifold representing multiple copies of a base manifold."""
+
+    rep_man: M
+    """The base manifold being replicated."""
+    n_reps: int
+    """Number of copies of the base manifold."""
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Total dimension is product of base dimension and number of copies."""
+        return self.rep_man.dim * self.n_reps
+
+    @override
+    def point[Coords: Coordinates](self, array: Array) -> Point[Coords, Self]:
+        """Create point with correct shape for replicated manifold.
+
+        Reshapes flat array into (n_copies, base_dim) matrix.
+        """
+        return _Point(jnp.reshape(array, (self.n_reps, -1)))
+
+    def get_replicate[C: Coordinates](self, p: Point[C, Self], idx: int) -> Point[C, M]:
+        """Get parameters for a specific copy."""
+        return self.rep_man.point(p.array[idx])
+
+    def map[C: Coordinates](
+        self, f: Callable[[Point[C, M]], Array], p: Point[C, Self]
+    ) -> Array:
+        """Map a function across replicates, returning stacked array results."""
+
+        def array_f(row: Array) -> Array:
+            return f(self.rep_man.point(row))
+
+        return jax.vmap(array_f)(p.array)
+
+    def man_map[C: Coordinates, D: Coordinates, N: Manifold](
+        self,
+        codomain: N,
+        f: Callable[[Point[C, M]], Point[D, N]],
+        p: Point[C, Self],
+    ) -> tuple[Replicated[N], Point[D, Replicated[N]]]:
+        """Map a function across replicates, returning point in replicated codomain.
+
+        Args:
+            f: Function mapping points in base manifold to points in codomain
+            codomain: Target manifold for each replicate
+            p: Point to map over
+        """
+
+        def array_f(row: Array) -> Array:
+            return f(self.rep_man.point(row)).array
+
+        mapped = jax.vmap(array_f)(p.array)
+        cod_man = Replicated(codomain, self.n_reps)
+        return cod_man, cod_man.point(mapped)

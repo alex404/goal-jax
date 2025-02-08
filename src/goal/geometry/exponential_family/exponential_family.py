@@ -44,13 +44,21 @@ This module implements this structure through a hierarchy of classes:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable, Self, override
+from typing import Self, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.manifold import Coordinates, Dual, Manifold, Pair, Point, reduce_dual
+from ..manifold.manifold import (
+    Coordinates,
+    Dual,
+    Manifold,
+    Pair,
+    Point,
+    Replicated,
+    reduce_dual,
+)
 
 ### Coordinate Systems ###
 
@@ -138,7 +146,7 @@ class ExponentialFamily(Manifold, ABC):
 
     def mean_point(self, params: Array) -> Point[Mean, Self]:
         """Construct a point in mean coordinates."""
-        return Point[Mean, Self](jnp.atleast_1d(params))
+        return self.point(params)
 
     def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
         """Check if parameters are valid for this exponential family."""
@@ -146,7 +154,7 @@ class ExponentialFamily(Manifold, ABC):
 
     def natural_point(self, params: Array) -> Point[Natural, Self]:
         """Construct a point in natural coordinates."""
-        return Point[Natural, Self](jnp.atleast_1d(params))
+        return self.point(params)
 
     def initialize(
         self,
@@ -297,7 +305,7 @@ class Analytic(Differentiable, ABC):
         avg_suff_stat = self.average_sufficient_statistic(sample)
         # add gaussian noise
         noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
-        avg_suff_stat = avg_suff_stat + Point(noise)
+        avg_suff_stat = avg_suff_stat + self.point(noise)
         params = self.to_natural(avg_suff_stat)
         return self.natural_point(params.array)
 
@@ -368,46 +376,28 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.snd_man.log_base_measure(x)
 
 
-class Replicated[M: ExponentialFamily](ExponentialFamily, ABC):
-    """Replicated manifold for exponential families."""
-
-    # Contract
-
-    @property
-    @abstractmethod
-    def rep_man(self) -> M:
-        """Base manifold to replicate."""
-
-    @property
-    @abstractmethod
-    def n_repeats(self) -> int:
-        """Number of replicated units."""
+class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
+    """Replicated manifold for exponential families, representing the product distribution over `n_reps` independent random variables."""
 
     # Overrides
 
     @property
     @override
-    def dim(self) -> int:
-        """Total dimension is the product of component dimensions."""
-        return self.rep_man.dim * self.n_repeats
-
-    @property
-    @override
     def data_dim(self) -> int:
         """Data dimension is the product of component data dimensions."""
-        return self.rep_man.data_dim * self.n_repeats
+        return self.rep_man.data_dim * self.n_reps
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
         """Sufficient statistic is the concatenation of replicated component sufficient statistics."""
-        x_reshaped = x.reshape(self.n_repeats, -1)
+        x_reshaped = x.reshape(self.n_reps, -1)
         stats = jax.vmap(self.rep_man.sufficient_statistic)(x_reshaped)
         return self.mean_point(stats.array.reshape(-1))
 
     @override
     def log_base_measure(self, x: Array) -> Array:
         """Base measure is the sum of replicated component base measures."""
-        x_reshaped = x.reshape(self.n_repeats, -1)
+        x_reshaped = x.reshape(self.n_reps, -1)
         # vmap the base measure computation
         return jnp.sum(jax.vmap(self.rep_man.log_base_measure)(x_reshaped))
 
@@ -417,71 +407,39 @@ class Replicated[M: ExponentialFamily](ExponentialFamily, ABC):
     ) -> Point[Natural, Self]:
         """Initialize replicated parameters.
 
-        Generates n_repeats independent initializations of the base manifold.
-
-        Args:
-            key: Random key
-            location: Location parameter for initialization
-            shape: Shape parameter for random perturbations
+        Generates n_reps independent initializations of the base manifold.
         """
-        keys = jax.random.split(key, self.n_repeats)
-        params = [self.rep_man.initialize(k, location, shape) for k in keys]
-        return self.join_params(params)
+        keys = jax.random.split(key, self.n_reps)
 
+        def init_one(k: Array) -> Array:
+            return self.rep_man.initialize(k, location, shape).array
+
+        init_params = jax.vmap(init_one)(keys)
+        return self.natural_point(init_params)
+
+    # TODO: Verify the reshaping logic
     @override
     def initialize_from_sample(
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
     ) -> Point[Natural, Self]:
         """Initialize replicated parameters from sample.
 
-        Splits sample data into n_repeats chunks and initializes each component
+        Splits sample data into n_reps chunks and initializes each component
         using its corresponding chunk of data.
-
-        Args:
-            key: Random key
-            sample: Sample array of shape (batch_size, data_dim)
-            location: Location parameter for initialization
-            shape: Shape parameter for random perturbations
         """
-        keys = jax.random.split(key, self.n_repeats)
-        # Split samples into chunks for each replicate
-        samples = sample.reshape(-1, self.n_repeats, self.rep_man.data_dim)
-        samples = jnp.moveaxis(
-            samples, 1, 0
-        )  # Shape: (n_repeats, batch_size, data_dim)
+        keys = jax.random.split(key, self.n_reps)
+        # rep_datas dimensions: (n_reps, data_dim, len(sample))
+        rep_datas = sample.T.reshape(self.n_reps, self.rep_man.data_dim, -1)
 
-        params = [
-            self.rep_man.initialize_from_sample(k, s, location, shape)
-            for k, s in zip(keys, samples)
-        ]
-        return self.join_params(params)
+        def init_one(rep_key: Array, rep_data: Array) -> Array:
+            # rep_sample dimensions: (len(sample), data_dim)
+            rep_sample = rep_data.T
+            return self.rep_man.initialize_from_sample(
+                rep_key, rep_sample, location, shape
+            ).array
 
-    # Templates
-
-    def split_params[C: Coordinates](self, p: Point[C, Self]) -> list[Point[C, M]]:
-        """Split replicated parameters into individual components."""
-        # Use reshape instead of array_split
-        matrix = p.array.reshape(self.n_repeats, -1)
-        return [Point(row) for row in matrix]
-
-    def join_params[C: Coordinates](self, ps: list[Point[C, M]]) -> Point[C, Self]:
-        """Join individual components into replicated parameters."""
-        if len(ps) != self.n_repeats:
-            raise ValueError(f"Expected {self.n_repeats} points, got {len(ps)}")
-        # Stack instead of concatenate
-        return Point(jnp.stack([p.array for p in ps]).reshape(-1))
-
-    def map_replicated[C: Coordinates](
-        self, f: Callable[[Point[C, M]], Array], p: Point[C, Self]
-    ) -> Array:
-        # Reshape instead of split
-        matrix = p.array.reshape(self.n_repeats, -1)
-
-        def g(row: Array) -> Array:
-            return f(Point(row))
-
-        # vmap the partition function computation
-        return jax.vmap(g)(matrix)
+        init_params = jax.vmap(init_one)(keys, rep_datas)
+        return self.natural_point(init_params)
 
 
 class GenerativeReplicated[M: Generative](Replicated[M], Generative, ABC):
@@ -491,18 +449,16 @@ class GenerativeReplicated[M: Generative](Replicated[M], Generative, ABC):
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        matrix = params.array.reshape(self.n_repeats, -1)
+        """Generate n samples from the product distribution."""
+        rep_keys = jax.random.split(key, self.n_reps)
 
-        def sample_replicate(key: Array, params: Array) -> Array:
-            return self.rep_man.sample(key, Point(params), 1)
+        def sample_rep(rep_key: Array, rep_params: Array) -> Array:
+            with self.rep_man as rm:
+                return rm.sample(rep_key, rm.natural_point(rep_params), n)
 
-        def sample_once(key: Array) -> Array:
-            rep_keys = jax.random.split(key, self.n_repeats)
-            samples = jax.vmap(sample_replicate, in_axes=(0, 0))(rep_keys, matrix)
-            return samples.reshape(-1)
-
-        sam_keys = jax.random.split(key, n)
-        return jax.vmap(sample_once, in_axes=0)(sam_keys)
+        # Dimensions: (n_reps, n, data_dim)
+        samples = jax.vmap(sample_rep)(rep_keys, params.array)
+        return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 
 
 class DifferentiableReplicated[M: Differentiable](
@@ -515,7 +471,7 @@ class DifferentiableReplicated[M: Differentiable](
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         # Reshape instead of split
-        return jnp.sum(self.map_replicated(self.rep_man.log_partition_function, params))
+        return jnp.sum(self.map(self.rep_man.log_partition_function, params))
 
 
 class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic, ABC):
@@ -526,4 +482,4 @@ class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic, ABC
     @override
     def negative_entropy(self, means: Point[Mean, Self]) -> Array:
         # Reshape instead of split
-        return jnp.sum(self.map_replicated(self.rep_man.negative_entropy, means))
+        return jnp.sum(self.map(self.rep_man.negative_entropy, means))

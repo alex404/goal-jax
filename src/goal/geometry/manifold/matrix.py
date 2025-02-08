@@ -98,7 +98,6 @@ class MatrixRep(ABC):
     @abstractmethod
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
         """Matrix-vector multiplication."""
-        ...
 
     @classmethod
     def matmat(
@@ -130,43 +129,26 @@ class MatrixRep(ABC):
     @abstractmethod
     def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
         """Transform parameters to represent the transposed matrix."""
-        ...
 
     @classmethod
     @abstractmethod
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         """Convert 1D parameters to dense matrix form."""
-        ...
-
-    @classmethod
-    @abstractmethod
-    def to_cols(cls, shape: tuple[int, int], params: Array) -> list[Array]:
-        """Convert parameter vector to list of column vectors."""
-        ...
 
     @classmethod
     @abstractmethod
     def num_params(cls, shape: tuple[int, int]) -> int:
         """Shape of 1D parameter array needed for matrix dimensions."""
-        ...
-
-    @classmethod
-    @abstractmethod
-    def from_cols(cls, cols: list[Array]) -> Array:
-        """Construct parameter vector from list of column vectors."""
-        ...
 
     @classmethod
     @abstractmethod
     def from_dense(cls, matrix: Array) -> Array:
         """Convert dense matrix to 1D parameters."""
-        ...
 
     @classmethod
     @abstractmethod
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Construct parameters from outer product $v_1 \\otimes v_2$."""
-        ...
 
     @classmethod
     @abstractmethod
@@ -174,7 +156,6 @@ class MatrixRep(ABC):
         cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
     ) -> Array:
         """Apply function f to diagonal elements while preserving matrix structure."""
-        ...
 
     @classmethod
     def embed_params(
@@ -217,13 +198,11 @@ class MatrixRep(ABC):
     @abstractmethod
     def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Embed parameters into immediate parent representation."""
-        ...
 
     @classmethod
     @abstractmethod
     def project_from_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Project parameters from immediate parent representation."""
-        ...
 
 
 class Rectangular(MatrixRep):
@@ -245,19 +224,6 @@ class Rectangular(MatrixRep):
     @override
     def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
         return params.reshape(shape)
-
-    @classmethod
-    @override
-    def to_cols(cls, shape: tuple[int, int], params: Array) -> list[Array]:
-        matrix = cls.to_dense(shape, params)
-        return [matrix[:, j] for j in range(shape[1])]
-
-    @classmethod
-    @override
-    def from_cols(cls, cols: list[Array]) -> Array:
-        """Construct parameter vector from list of column vectors."""
-        matrix = jnp.column_stack(cols)
-        return cls.from_dense(matrix)
 
     @classmethod
     @override
@@ -465,7 +431,7 @@ class PositiveDefinite(Symmetric):
 
 
 class Diagonal(PositiveDefinite):
-    """Diagonal matrix representation $A = \\text{diag}(a_1, ..., a_n)$.
+    """Diagonal matrix representation $A = \\text{diag}(a_1, , a_n)$.
 
     Properties:
         - Only diagonal elements stored, zero elsewhere

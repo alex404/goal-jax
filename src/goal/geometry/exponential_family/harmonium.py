@@ -187,8 +187,8 @@ class Harmonium[
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
-        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = Point(
-            self.int_man.rep.from_dense(noise)
+        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = (
+            self.int_man.point(self.int_man.rep.from_dense(noise))
         )
 
         return self.join_params(obs_params, int_params, lat_params)
@@ -223,8 +223,8 @@ class Harmonium[
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
-        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = Point(
-            self.int_man.rep.from_dense(noise)
+        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = (
+            self.int_man.point(self.int_man.rep.from_dense(noise))
         )
 
         return self.join_params(obs_params, int_params, lat_params)
@@ -489,7 +489,7 @@ class DifferentiableLatent[
         )(params, xs)
 
         # Take mean of the underlying parameter arrays and wrap in a Point
-        return Point(jnp.mean(batch_expectations.array, axis=0))
+        return self.mean_point(jnp.mean(batch_expectations.array, axis=0))
 
 
 class DifferentiableConjugated[

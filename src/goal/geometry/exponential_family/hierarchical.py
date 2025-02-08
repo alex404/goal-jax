@@ -69,6 +69,10 @@ class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
         return self.sup_sub.sup_man
 
     @property
+    def mid_man(self) -> Mid:
+        return self.sup_sub.sub_man
+
+    @property
     @override
     def sub_man(self) -> Sub:
         return self.sub_sub.sub_man
@@ -82,7 +86,9 @@ class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
     def translate[C: Coordinates](
         self, p: Point[C, Super], q: Point[C, Sub]
     ) -> Point[C, Super]:
-        mid_zero: Point[C, Mid] = Point(jnp.zeros(self.sup_sub.sub_man.dim))
+        mid_zero: Point[C, Mid] = self.mid_man.point(
+            jnp.zeros(self.sup_sub.sub_man.dim)
+        )
         mid = self.sub_sub.translate(mid_zero, q)
         return self.sup_sub.translate(p, mid)
 
