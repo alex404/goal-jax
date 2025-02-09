@@ -18,7 +18,7 @@ from jax import Array
 from jax.scipy import stats
 
 from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale
-from goal.models import Euclidean, LinearGaussianModel, Normal
+from goal.models import Covariance, LinearGaussianModel, Normal
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -73,8 +73,10 @@ def ground_truth_params(
         ]
     )
 
-    mu: Point[Mean, Euclidean] = Point(joint_mean)
-    cov = ground_truth_normal.cov_man.from_dense(joint_cov)
+    mu = ground_truth_normal.loc_man.mean_point(joint_mean)
+    cov: Point[Mean, Covariance[PositiveDefinite]] = (
+        ground_truth_normal.cov_man.from_dense(joint_cov)
+    )
     return ground_truth_normal.join_mean_covariance(mu, cov)
 
 

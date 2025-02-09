@@ -8,7 +8,6 @@ from jax import Array
 
 from goal.geometry import (
     Diagonal,
-    Mean,
     Natural,
     Point,
     PositiveDefinite,
@@ -16,9 +15,6 @@ from goal.geometry import (
 )
 from goal.models import (
     AnalyticHMoG,
-    Categorical,
-    Covariance,
-    Euclidean,
     analytic_hmog,
 )
 
@@ -46,31 +42,36 @@ def create_ground_truth_model() -> tuple[
         lat_dim=1,
         n_components=2,
     )
-
-    # Create latent categorical prior
-    cat_nat = Point[Natural, Categorical](jnp.array([0.5]))
-    cat_means = hmog.lat_man.lat_man.to_mean(cat_nat)
+    with hmog.lat_man.lat_man as cm:
+        # Create latent categorical prior
+        cat_params = cm.natural_point(jnp.array([0.5]))
+        cat_means = cm.to_mean(cat_params)
 
     # Create latent Gaussian components
     with hmog.lat_man as um:
-        y0_means = um.obs_man.join_mean_covariance(
-            Point[Mean, Euclidean](jnp.array([-SEP / 2])),
-            Point[Mean, Covariance[PositiveDefinite]](jnp.array([1.0])),
-        )
-        y1_means = um.obs_man.join_mean_covariance(
-            Point[Mean, Euclidean](jnp.array([SEP / 2])),
-            Point[Mean, Covariance[PositiveDefinite]](jnp.array([1.0])),
-        )
+        with um.obs_man as om:
+            y0_means = om.join_mean_covariance(
+                om.loc_man.mean_point(jnp.array([-SEP / 2])),
+                om.cov_man.mean_point(jnp.array([1.0])),
+            )
+            y1_means = om.join_mean_covariance(
+                om.loc_man.mean_point(jnp.array([SEP / 2])),
+                om.cov_man.mean_point(jnp.array([1.0])),
+            )
 
-        mix_means = um.join_mean_mixture([y0_means, y1_means], cat_means)
-        mix_params = um.to_natural(mix_means)
+            # components = mix_man.comp_man.mean_point(jnp.stack(component_list))
+            components = um.comp_man.mean_point(
+                jnp.stack([y0_means.array, y1_means.array])
+            )
+            mix_means = um.join_mean_mixture(components, cat_means)
+            mix_params = um.to_natural(mix_means)
 
-    # Create observable normal with diagonal covariance
-    obs_means = hmog.obs_man.join_mean_covariance(
-        Point[Mean, Euclidean](jnp.array([0.0, 0.0])),
-        Point[Mean, Covariance[Diagonal]](jnp.array([WIDTH, HEIGHT])),
-    )
-    obs_params = hmog.obs_man.to_natural(obs_means)
+        # Create observable normal with diagonal covariance
+        obs_means = hmog.obs_man.join_mean_covariance(
+            om.loc_man.mean_point(jnp.array([0.0, 0.0])),
+            om.cov_man.mean_point(jnp.array([WIDTH, HEIGHT])),
+        )
+        obs_params = hmog.obs_man.to_natural(obs_means)
 
     # NB: Multiplying the interaction parameters by the observable precision makes them scale more intuitively
     int_mat0 = jnp.array([1.0, 0.0])

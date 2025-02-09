@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Self, TypeVar, override
+from typing import Any, Callable, Self, override
 
 import jax
 import jax.numpy as jnp
@@ -128,13 +128,9 @@ class Manifold(ABC):
         return _Point(params)
 
 
-C = TypeVar("C", bound=Coordinates)
-M = TypeVar("M", bound=Manifold, covariant=True)
-
-
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class _Point(Generic[C, M]):
+class _Point[C: Coordinates, M: Manifold]:
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
     Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:

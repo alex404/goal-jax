@@ -23,7 +23,7 @@ from goal.geometry import (
     PositiveDefinite,
     Scale,
 )
-from goal.models import Euclidean, Normal
+from goal.models import Covariance, Normal
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -50,8 +50,10 @@ def ground_truth_params(
     ground_truth_normal: Normal[PositiveDefinite],
 ) -> Point[Mean, Normal[PositiveDefinite]]:
     """Create ground truth parameters in mean coordinates."""
-    gt_cov = ground_truth_normal.cov_man.from_dense(sampling_covariance)
-    mu: Point[Mean, Euclidean] = Point(sampling_mean)
+    gt_cov: Point[Mean, Covariance[PositiveDefinite]] = (
+        ground_truth_normal.cov_man.from_dense(sampling_covariance)
+    )
+    mu = ground_truth_normal.loc_man.mean_point(sampling_mean)
     return ground_truth_normal.join_mean_covariance(mu, gt_cov)
 
 

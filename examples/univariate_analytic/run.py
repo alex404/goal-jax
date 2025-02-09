@@ -135,8 +135,8 @@ def main():
     normal = Normal(1, PositiveDefinite)
     mu0 = 2.0
     sigma = 1.5
-    mu: Point[Mean, Euclidean] = Point(jnp.atleast_1d(mu0))
-    cov: Point[Mean, FullCovariance] = Point(jnp.atleast_1d(sigma**2))
+    mu = normal.loc_man.mean_point(jnp.atleast_1d(mu0))
+    cov = normal.cov_man.mean_point(jnp.atleast_1d(sigma**2))
     xs = jnp.linspace(mu0 - 4 * sigma, mu0 + 4 * sigma, 200)
 
     sample, true_dens, est_dens = compute_gaussian_results(

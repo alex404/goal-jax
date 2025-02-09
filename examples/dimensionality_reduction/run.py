@@ -49,8 +49,8 @@ def ground_truth(
 
     prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
 
-    int_params: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = Point(
-        jnp.asarray([1.0, 0.5])
+    int_params: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = (
+        fan_man.int_man.point(jnp.asarray([1.0, 0.5]))
     )
     lkl_params = fan_man.lkl_man.join_params(obs_params, int_params)
     fan_params = fan_man.join_conjugated(lkl_params, prr_params)

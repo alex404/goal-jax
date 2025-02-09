@@ -31,7 +31,7 @@ def fit_von_mises(
 
     # Setup optimizer
     optimizer: Optimizer[Natural, VonMises] = Optimizer.adam(
-        learning_rate=learning_rate
+        von_man, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_params)
 
@@ -107,7 +107,7 @@ def fit_com_poisson(
 
     # Setup optimizer
     optimizer: Optimizer[Natural, CoMPoisson] = Optimizer.adam(
-        learning_rate=learning_rate
+        com_man, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_params)
 
