@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Self, override
+from typing import Any, Callable, Generic, Self, TypeVar, override
 
 import jax
 import jax.numpy as jnp
@@ -128,9 +128,13 @@ class Manifold(ABC):
         return _Point(params)
 
 
+C = TypeVar("C", bound=Coordinates)
+M = TypeVar("M", bound=Manifold, covariant=True)
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class _Point[C: Coordinates, M: Manifold]:
+class _Point(Generic[C, M]):
     """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
 
     Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
@@ -299,10 +303,14 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
 class Replicated[M: Manifold](Manifold):
     """Manifold representing multiple copies of a base manifold."""
 
+    # Fields
+
     rep_man: M
     """The base manifold being replicated."""
     n_reps: int
     """Number of copies of the base manifold."""
+
+    # Overrides
 
     @property
     @override
@@ -317,6 +325,8 @@ class Replicated[M: Manifold](Manifold):
         Reshapes flat array into (n_copies, base_dim) matrix.
         """
         return _Point(jnp.reshape(array, (self.n_reps, -1)))
+
+    # Templates
 
     def get_replicate[C: Coordinates](self, p: Point[C, Self], idx: int) -> Point[C, M]:
         """Get parameters for a specific copy."""
@@ -334,15 +344,13 @@ class Replicated[M: Manifold](Manifold):
 
     def man_map[C: Coordinates, D: Coordinates, N: Manifold](
         self,
-        codomain: N,
         f: Callable[[Point[C, M]], Point[D, N]],
         p: Point[C, Self],
-    ) -> tuple[Replicated[N], Point[D, Replicated[N]]]:
+    ) -> Point[D, Replicated[N]]:
         """Map a function across replicates, returning point in replicated codomain.
 
         Args:
             f: Function mapping points in base manifold to points in codomain
-            codomain: Target manifold for each replicate
             p: Point to map over
         """
 
@@ -350,5 +358,4 @@ class Replicated[M: Manifold](Manifold):
             return f(self.rep_man.point(row)).array
 
         mapped = jax.vmap(array_f)(p.array)
-        cod_man = Replicated(codomain, self.n_reps)
-        return cod_man, cod_man.point(mapped)
+        return _Point(jnp.reshape(mapped, (self.n_reps, -1)))

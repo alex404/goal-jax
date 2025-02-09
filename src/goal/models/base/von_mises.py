@@ -44,7 +44,7 @@ class VonMises(Differentiable):
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        return Point(jnp.array([jnp.cos(x), jnp.sin(x)]).ravel())
+        return self.mean_point(jnp.array([jnp.cos(x), jnp.sin(x)]).ravel())
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -107,4 +107,4 @@ class VonMises(Differentiable):
         mu = jnp.atleast_1d(mu0)
         kappa = jnp.atleast_1d(kappa0)
         theta = kappa * jnp.concatenate([jnp.cos(mu), jnp.sin(mu)])
-        return Point(theta)
+        return self.natural_point(theta)

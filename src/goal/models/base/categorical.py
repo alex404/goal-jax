@@ -55,7 +55,7 @@ class Categorical(Analytic):
 
     def from_probs(self, probs: Array) -> Point[Mean, Self]:
         """Construct the mean parameters from the complete probabilities, dropping the first element."""
-        return Point(probs[1:])
+        return self.mean_point(probs[1:])
 
     def to_probs(self, p: Point[Mean, Self]) -> Array:
         """Return the probabilities of all labels."""
@@ -67,7 +67,7 @@ class Categorical(Analytic):
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        return Point(jax.nn.one_hot(x - 1, self.n_categories - 1).reshape(-1))
+        return self.mean_point(jax.nn.one_hot(x - 1, self.n_categories - 1).reshape(-1))
 
     @override
     def log_base_measure(self, x: Array) -> Array:

@@ -11,8 +11,7 @@ from sklearn.mixture import GaussianMixture
 from goal.geometry import Diagonal, Mean, Natural, Point, PositiveDefinite, Scale
 from goal.models import (
     AnalyticMixture,
-    Categorical,
-    Euclidean,
+    Covariance,
     FullNormal,
     Normal,
 )
@@ -44,15 +43,20 @@ def create_ground_truth_parameters(
     ]
 
     # Create component parameters
-    components: list[Point[Mean, Normal[PositiveDefinite]]] = []
+    component_list: list[Array] = []
     for mean, cov in zip(means, covs):
         with mix_man.obs_man as nm:
-            cov_mat = nm.cov_man.from_dense(cov)
-            mean_point: Point[Mean, Euclidean] = Point(mean)
+            cov_mat: Point[Mean, Covariance[PositiveDefinite]] = nm.cov_man.from_dense(
+                cov
+            )
+            mean_point = nm.loc_man.mean_point(mean)
             mean_params = nm.join_mean_covariance(mean_point, cov_mat)
-            components.append(mean_params)
+            component_list.append(mean_params.array)
 
-    weights: Point[Mean, Categorical] = Point(jnp.array([0.35, 0.25]))
+    # Stack rows
+    components = mix_man.comp_man.mean_point(jnp.stack(component_list))
+
+    weights = mix_man.lat_man.mean_point(jnp.array([0.35, 0.25]))
 
     mean_mix: Point[Mean, AnalyticMixture[FullNormal]] = mix_man.join_mean_mixture(
         components, weights
@@ -73,7 +77,8 @@ def goal_to_sklearn_mixture(
     # Get component means and covariances
     means = []
     covariances: list[Array] = []
-    for comp in components:
+    for i in range(components.shape[0]):
+        comp = mix_man.comp_man.get_replicate(components, i)
         mean, cov = mix_man.obs_man.split_mean_covariance(comp)
         means.append(mean.array)
         covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
@@ -205,7 +210,7 @@ def compute_mixture_results(
     )
 
     # Compute scipy density
-    sklearn_dens = np.exp(sklearn_mixture.score_samples(grid_points)).reshape(xs.shape)  # pyright: ignore[reportCallIssue,reportArgumentType,reportUnknownVariableType]
+    sklearn_dens = np.exp(sklearn_mixture.score_samples(grid_points)).reshape(xs.shape)
 
     return MixtureResults(
         sample=sample.tolist(),

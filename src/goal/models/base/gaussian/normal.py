@@ -51,6 +51,7 @@ from ....geometry import (
     SquareMap,
     expand_dual,
 )
+from ....geometry.manifold.manifold import _Point  # pyright: ignore[reportPrivateUsage]
 
 type FullNormal = Normal[PositiveDefinite]
 type DiagonalNormal = Normal[Diagonal]
@@ -69,14 +70,14 @@ def cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
     p: Point[C, Covariance[Rep]],
 ) -> Point[C, LinearMap[Rep, Euclidean, Euclidean]]:
     """Convert a covariance to a linear map."""
-    return Point(p.array)
+    return _Point(p.array)
 
 
 def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
     p: Point[C, LinearMap[Rep, Euclidean, Euclidean]],
 ) -> Point[C, Covariance[Rep]]:
     """Convert a linear map to a covariance."""
-    return Point(p.array)
+    return _Point(p.array)
 
 
 # Component Classes
@@ -116,7 +117,7 @@ class Euclidean(ExponentialFamily):
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
         """Identity map on the data."""
-        return Point(jnp.atleast_1d(x))
+        return self.mean_point(x)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -155,8 +156,8 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
         """Outer product with appropriate covariance structure."""
-        x = jnp.atleast_1d(x)
-        x_point: Point[Mean, Euclidean] = Point(x)
+        euclidean = Euclidean(self.data_dim)
+        x_point: Point[Mean, Euclidean] = euclidean.mean_point(x)
         return self.outer_product(x_point, x_point)
 
     @override
@@ -267,7 +268,7 @@ class Normal[Rep: PositiveDefinite](
         x = jnp.atleast_1d(x)
 
         # Create point in StandardNormal
-        x_point: Point[Mean, Euclidean] = Point(x)
+        x_point: Point[Mean, Euclidean] = self.loc_man.mean_point(x)
 
         # Compute outer product with appropriate structure
         second_moment: Point[Mean, Covariance[Rep]] = self.snd_man.outer_product(
@@ -363,13 +364,13 @@ class Normal[Rep: PositiveDefinite](
         mean_noise = observed_scale * (
             location + shape * jax.random.normal(key_mean, mean.array.shape)
         )
-        mean: Point[Mean, Euclidean] = Point(mean.array + mean_noise)
+        mean: Point[Mean, Euclidean] = self.loc_man.mean_point(mean.array + mean_noise)
 
         # Add multiplicative noise to second moment
         noise = shape * jax.random.normal(key_cov, (self.data_dim, self.data_dim))
         noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
         noise_matrix: Point[Mean, Covariance[Rep]] = self.cov_man.from_dense(noise)
-        second_moment: Point[Mean, Covariance[Rep]] = Point(
+        second_moment = self.cov_man.mean_point(
             second_moment.array * noise_matrix.array
         )
 
@@ -474,7 +475,9 @@ class Normal[Rep: PositiveDefinite](
 
             scaled_params = precision_params / 2
             scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
-            theta2: Point[Natural, Covariance[Rep]] = Point(scaled_params)
+            theta2: Point[Natural, Covariance[Rep]] = self.cov_man.natural_point(
+                scaled_params
+            )
 
         scl = -2
 
@@ -506,7 +509,7 @@ class Normal[Rep: PositiveDefinite](
             scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
             theta2 = scaled_params
 
-        return self.join_params(loc, Point(theta2))
+        return self.join_params(loc, self.cov_man.natural_point(theta2))
 
     def embed_rep[TargetRep: PositiveDefinite](
         self, trg_man: Normal[TargetRep], p: Point[Natural, Self]
@@ -589,6 +592,6 @@ class Normal[Rep: PositiveDefinite](
     def standard_normal(self) -> Point[Mean, Self]:
         """Return the standard normal distribution."""
         return self.join_mean_covariance(
-            Point(jnp.zeros(self.data_dim)),
+            self.loc_man.mean_point(jnp.zeros(self.data_dim)),
             self.cov_man.from_dense(jnp.eye(self.data_dim)),
         )

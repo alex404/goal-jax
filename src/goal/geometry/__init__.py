@@ -9,7 +9,7 @@ from .exponential_family.exponential_family import (
     LocationShape,
     Mean,
     Natural,
-    Replicated,
+    Product,
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
@@ -35,6 +35,7 @@ from .manifold.manifold import (
     Manifold,
     Pair,
     Point,
+    Replicated,
     Triple,
     expand_dual,
     reduce_dual,
@@ -89,6 +90,7 @@ __all__ = [
     "Pair",
     "Point",
     "PositiveDefinite",
+    "Product",
     "Rectangular",
     "Replicated",
     "Scale",

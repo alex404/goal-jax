@@ -85,7 +85,7 @@ class Poisson(Analytic):
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        return Point(jnp.atleast_1d(x))
+        return self.mean_point(jnp.atleast_1d(x))
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -132,7 +132,7 @@ class CoMShape(ExponentialFamily):
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        return Point(jnp.atleast_1d(_log_factorial(x)))
+        return self.mean_point(jnp.atleast_1d(_log_factorial(x)))
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -212,7 +212,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         """
         theta1 = nu * jnp.log(mu)
         theta2 = -nu
-        return Point(jnp.array([theta1, theta2]).ravel())
+        return self.natural_point(jnp.array([theta1, theta2]).ravel())
 
     @override
     def log_base_measure(self, x: Array) -> Array:

@@ -113,7 +113,7 @@ def _dual_composition[
     f: LinearMap[FRep, Euclidean, Euclidean],
     f_params: Point[Coords, LinearMap[FRep, Euclidean, Euclidean]],
 ) -> tuple[
-    LinearMap[MatrixRep, Euclidean, Euclidean],
+    LinearMap[Rectangular, Euclidean, Euclidean],
     Point[Coords, LinearMap[Rectangular, Euclidean, Euclidean]],
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
@@ -130,7 +130,7 @@ def _dual_composition[
         h.shape, h_params.array, rep_gf, shape_gf, params_gf
     )
     out_man = LinearMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
-    return out_man, Point(params_hgf)
+    return out_man, out_man.point(params_hgf)
 
 
 def _change_of_basis[
@@ -150,7 +150,7 @@ def _change_of_basis[
 
     Computes f.T @ g @ f where g is in dual coordinates.
     """
-    f_trans = f.transpose_manifold()
+    f_trans = f.trn_man
     f_trans_params = f.transpose(f_params)
     fgf_man, fgf_params = _dual_composition(
         f_trans,
@@ -287,7 +287,7 @@ class LinearGaussianModel[
 
         # Construct precisions
         lat_prs = lat_cov_man.inverse(lat_cov)
-        int_man_t = self.int_man.transpose_manifold()
+        int_man_t = self.int_man.trn_man
         int_cov_t = self.int_man.transpose(int_cov)
         cob_man, cob = _change_of_basis(
             int_man_t, int_cov_t, lat_cov_man, cov_to_lin(lat_prs)
@@ -367,7 +367,8 @@ class LinearGaussianModel[
         obs_params, int_params, lat_params = new_man.split_params(p_embedded)
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(obs_params)
         lat_loc, lat_prs = new_man.lat_man.split_location_precision(lat_params)
-        nor_loc: Point[Natural, Euclidean] = Point(
+        nor_man = Normal(self.data_dim, PositiveDefinite)
+        nor_loc: Point[Natural, Euclidean] = nor_man.loc_man.point(
             jnp.concatenate([obs_loc.array, lat_loc.array])
         )
         obs_prs_array = new_man.obs_man.cov_man.to_dense(obs_prs)
@@ -376,7 +377,6 @@ class LinearGaussianModel[
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
-        nor_man = Normal(self.data_dim, PositiveDefinite)
         return nor_man.join_location_precision(
             nor_loc, nor_man.cov_man.from_dense(joint_shape_array)
         )

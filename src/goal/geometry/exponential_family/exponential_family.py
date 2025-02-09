@@ -417,7 +417,6 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
         init_params = jax.vmap(init_one)(keys)
         return self.natural_point(init_params)
 
-    # TODO: Verify the reshaping logic
     @override
     def initialize_from_sample(
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
@@ -428,11 +427,14 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
         using its corresponding chunk of data.
         """
         keys = jax.random.split(key, self.n_reps)
-        # rep_datas dimensions: (n_reps, data_dim, len(sample))
-        rep_datas = sample.T.reshape(self.n_reps, self.rep_man.data_dim, -1)
+        # sample dimensions: (n_batch, rep_dim)
+        # datas dimensions: (n_reps * rep_dim, n_batch)
+        datas = sample.T
+        # rep_datas dimensions: (n_reps, rep_dim, n_batch)
+        rep_datas = datas.reshape(self.n_reps, self.rep_man.data_dim, -1)
 
         def init_one(rep_key: Array, rep_data: Array) -> Array:
-            # rep_sample dimensions: (len(sample), data_dim)
+            # rep_sample dimensions: (n_batch, data_dim)
             rep_sample = rep_data.T
             return self.rep_man.initialize_from_sample(
                 rep_key, rep_sample, location, shape
@@ -456,8 +458,9 @@ class GenerativeReplicated[M: Generative](Replicated[M], Generative, ABC):
             with self.rep_man as rm:
                 return rm.sample(rep_key, rm.natural_point(rep_params), n)
 
-        # Dimensions: (n_reps, n, data_dim)
+        # samples dimensions: (n_reps, n_batch, data_dim)
         samples = jax.vmap(sample_rep)(rep_keys, params.array)
+        # return dimensions: (n_batch, n_reps * data_dim)
         return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 
 

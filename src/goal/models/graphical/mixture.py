@@ -19,9 +19,7 @@ Key Features:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from functools import reduce
-from operator import add
+from dataclasses import dataclass, replace
 from typing import Self, override
 
 import jax.numpy as jnp
@@ -39,6 +37,7 @@ from ...geometry import (
     Mean,
     Natural,
     Point,
+    Product,
     Rectangular,
     Subspace,
 )
@@ -82,24 +81,41 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     def lat_sub(self) -> IdentitySubspace[Categorical]:
         return IdentitySubspace(Categorical(self.n_categories))
 
+    @property
+
     # Methods
+
+    def comp_man(self) -> Product[Observable]:
+        """Manifold for all components of mixture."""
+        return Product(self.obs_man, self.n_categories)
 
     def join_mean_mixture(
         self,
-        components: list[Point[Mean, Observable]],
+        components: Point[Mean, Product[Observable]],
         weights: Point[Mean, Categorical],
     ) -> Point[Mean, Self]:
-        """Create a mixture model in mean coordinates from components and weights. Note that if only a submanifold of interactions on the observables are considered (i.e. obs_sub is not the IdentitySubspace), then information in the components list will be discarded."""
+        """Create a mixture model in mean coordinates from components and weights.
+
+        Note: if only a submanifold of interactions on the observables are considered
+        (i.e. obs_sub is not the IdentitySubspace), then information in the components
+        will be discarded.
+        """
         probs = self.lat_man.to_probs(weights)
 
-        weighted_comps: list[Point[Mean, Observable]] = [
-            p * comp for p, comp in zip(probs, components)
-        ]
+        # Scale components - shape: (n_categories, obs_dim)
+        weighted_comps = components.array * probs.reshape(-1, 1)
 
-        obs_means: Point[Mean, Observable] = reduce(add, weighted_comps)
-        int_means = self.int_man.from_columns(
-            [self.obs_sub.project(comp) for comp in weighted_comps[1:]]
+        # Sum for observable means - shape: (obs_dim,)
+        obs_means = self.obs_man.mean_point(jnp.sum(weighted_comps, axis=0))
+
+        comp_man_minus = replace(self.comp_man, n_reps=self.n_categories - 1)
+        # projected_comps shape: (n_categories-1, sub_obs_dim)
+        projected_comps = comp_man_minus.man_map(
+            self.obs_sub.project,
+            comp_man_minus.mean_point(weighted_comps[1:]),
         )
+        # int_means shape: (sub_obs_dim, n_categories-1)
+        int_means = self.int_man.from_columns(projected_comps)
 
         return self.join_params(obs_means, int_means, weights)
 
@@ -134,72 +150,86 @@ class DifferentiableMixture[
         obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
         rho_0 = self.obs_man.log_partition_function(obs_bias)
 
-        # Get component parameter vectors as columns of interaction matrix
-        int_cols = self.int_man.to_columns(int_mat)
+        # int_comps shape: (n_categories - 1, sub_obs_dim)
+        int_comps = self.int_man.to_columns(int_mat)
 
-        # Compute adjusted partition function for each component
-        rho_z_components = []
-        for comp_params in int_cols:
-            # For each component k, compute psi(theta_x + theta_xz_k)
-            # adjusted_obs = obs_bias + comp_params
+        def compute_rho(comp_params: Point[Natural, SubObservable]) -> Array:
             adjusted_obs = self.obs_sub.translate(obs_bias, comp_params)
-            comp_term = self.obs_man.log_partition_function(adjusted_obs) - rho_0
-            rho_z_components.append(comp_term)
+            return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
-        return rho_0, Point(jnp.array(rho_z_components))
+        # rho_z shape: (n_categories - 1,)
+        rho_z = self.int_man.col_man.map(compute_rho, int_comps)
+
+        return rho_0, self.lat_man.natural_point(rho_z)
 
     # Methods
 
     def split_natural_mixture(
         self, p: Point[Natural, Self]
-    ) -> tuple[list[Point[Natural, Observable]], Point[Natural, Categorical]]:
+    ) -> tuple[Point[Natural, Product[Observable]], Point[Natural, Categorical]]:
         """Split a mixture model in natural coordinates into components and prior."""
 
         lkl_params, prr_params = self.split_conjugated(p)
         obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+
+        # into_cols shape: (n_categories - 1, sub_obs_dim)
         int_cols = self.int_man.to_columns(int_mat)
-        components = [obs_bias]  # First component
 
-        for col in int_cols:
-            comp = self.obs_sub.translate(obs_bias, col)
-            components.append(comp)
+        def translate_col(
+            col: Point[Natural, SubObservable],
+        ) -> Point[Natural, Observable]:
+            return self.obs_sub.translate(obs_bias, col)
 
-        return components, prr_params
+        # translated shape: (n_categories - 1, obs_dim)
+        translated = self.int_man.col_man.man_map(translate_col, int_cols)
+        # components shape: (n_categories, obs_dim)
+        components = jnp.vstack([obs_bias.array.reshape(1, -1), translated.array])
+
+        return self.comp_man.natural_point(components), prr_params
 
     def join_natural_mixture(
         self,
-        components: list[Point[Natural, Observable]],
+        components: Point[Natural, Product[Observable]],
         prior: Point[Natural, Categorical],
     ) -> Point[Natural, Self]:
         """Create a mixture model in natural coordinates from components and prior.
 
-        Parameters in the mixing subspace use the first component as reference
-        and store differences in the interaction matrix. Parameters outside the
-        mixing subspace use the weighted average of all components.
+        Parameters in the mixing subspace use the first component as reference/anchor and store differences in the interaction matrix. Parameters outside the mixing subspace use the weighted average of all components.
         """
-        # Get probabilities for weighting
+        # Get probabilities for weighting - shape: (n_categories,)
         probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
-        anchor = components[0]
-        anchor_sub = self.obs_sub.project(anchor)
 
-        # Create obs_bias:
-        # - For parameters in subspace, use first component
-        # - For parameters outside subspace, use weighted average
-        comps_array = jnp.array([comp.array for comp in components])
-        avg_params: Point[Natural, Observable] = Point(
-            jnp.sum(comps_array * probs[:, None], axis=0)
+        # Get anchor (first component) - shape: (obs_dim,)
+        anchor = self.comp_man.get_replicate(components, 0)
+        anchor_sub = self.obs_sub.project(anchor)  # shape: (sub_obs_dim,)
+
+        # Compute weighted average - shape: (obs_dim,)
+        avg_params = self.obs_man.natural_point(
+            jnp.sum(components.array * probs.reshape(-1, 1), axis=0)
         )
-        anchor_out = self.obs_sub.translate(
+
+        # Create obs_bas combining in/out of subspace parameters
+        anchor_out_sub = self.obs_sub.translate(
             avg_params, -self.obs_sub.project(avg_params)
         )
-        anchor_in = self.obs_sub.translate(
-            Point(jnp.zeros_like(anchor.array)), anchor_sub
+        anchor_in_sub = self.obs_sub.translate(
+            self.obs_man.natural_point(jnp.zeros_like(anchor.array)), anchor_sub
         )
-        obs_bias = anchor_in + anchor_out
+        obs_bias = anchor_in_sub + anchor_out_sub  # shape: (obs_dim,)
 
-        int_cols = [self.obs_sub.project(comp) - anchor_sub for comp in components[1:]]
+        def to_interaction(
+            comp: Point[Natural, Observable],
+        ) -> Point[Natural, SubObservable]:
+            return self.obs_sub.project(comp) - anchor_sub
 
-        int_mat = self.int_man.from_columns(int_cols)
+        comp_man_minus = replace(self.comp_man, n_reps=self.n_categories - 1)
+        # projected_comps shape: (n_categories-1, sub_obs_dim)
+        projected_comps = comp_man_minus.man_map(
+            to_interaction, comp_man_minus.natural_point(components.array[1:])
+        )
+
+        # int_mat shape: (sub_obs_dim, n_categories-1)
+        int_mat = self.int_man.from_columns(projected_comps)
         lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
@@ -238,31 +268,60 @@ class AnalyticMixture[Observable: Analytic](
         2. Convert each component mean parameter to natural parameters
         3. Extract base and interaction terms
         """
+        # Get component means - shape: (n_categories, obs_dim)
         comp_means, _ = self.split_mean_mixture(params)
-        nat_comps = [self.obs_man.to_natural(comp) for comp in comp_means]
-        obs_bias = nat_comps[0]
-        int_cols = [comp - obs_bias for comp in nat_comps[1:]]
+
+        # Convert each component to natural parameters
+        def to_natural(mean: Point[Mean, Observable]) -> Array:
+            return self.obs_man.to_natural(mean).array
+
+        # nat_comps shape: (n_categories, obs_dim)
+        nat_comps = self.comp_man.natural_point(
+            self.comp_man.map(to_natural, comp_means)
+        )
+
+        # Get anchor (first component) - shape: (obs_dim,)
+        obs_bias = self.comp_man.get_replicate(nat_comps, 0)
+
+        def to_interaction(
+            nat: Point[Natural, Observable],
+        ) -> Point[Natural, Observable]:
+            return nat - obs_bias
+
+        # Convert remaining components to interactions
+        comp_man1 = replace(self.comp_man, n_reps=self.n_categories - 1)
+        # int_cols shape: (n_categories-1, obs_dim)
+        int_cols = comp_man1.man_map(
+            to_interaction, comp_man1.natural_point(nat_comps.array[1:])
+        )
+
+        # int_mat shape: (obs_dim, n_categories-1)
         int_mat = self.int_man.from_columns(int_cols)
 
-        return self.lkl_man.join_params(obs_bias, int_mat)
+        return self.lkl_man.join_params(obs_bias, int_mat)  # Methods
 
-    # Methods
+    # Template Methods
 
     def split_mean_mixture(
         self, p: Point[Mean, Self]
-    ) -> tuple[list[Point[Mean, Observable]], Point[Mean, Categorical]]:
+    ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
         """Split a mixture model in mean coordinates into components and weights."""
         obs_means, int_means, cat_means = self.split_params(p)
+        probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
-        probs = self.lat_man.to_probs(cat_means)
+        # Get interaction columns - shape: (n_categories-1, obs_dim)
         int_cols = self.int_man.to_columns(int_means)
 
-        components: list[Point[Mean, Observable]] = [
-            (obs_means - reduce(add, int_cols)) / probs[0]
-        ]
+        # Compute first component
+        # Sum interaction columns - shape: (obs_dim,)
+        sum_interactions = self.obs_man.mean_point(jnp.sum(int_cols.array, axis=0))
+        first_comp = (obs_means - sum_interactions) / probs[0]
 
-        for i, col in enumerate(int_cols):
-            comp_mean = col / probs[i + 1]
-            components.append(comp_mean)
+        # Scale remaining components by their probabilities
+        # shape: (n_categories-1, obs_dim)
+        other_comps = int_cols.array / probs[1:].reshape(-1, 1)
 
-        return components, cat_means
+        # Combine components - shape: (n_categories, obs_dim)
+        components = jnp.vstack([first_comp.array.reshape(1, -1), other_comps])
+
+        return self.comp_man.mean_point(components), cat_means
