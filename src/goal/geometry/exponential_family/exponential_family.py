@@ -141,8 +141,19 @@ class ExponentialFamily(Manifold, ABC):
         Returns:
             Mean coordinates of average sufficient statistics
         """
-        suff_stats = jax.vmap(self.sufficient_statistic)(xs)
-        return self.mean_point(jnp.mean(suff_stats.array, axis=0))
+        stats = jax.lax.map(self.sufficient_statistic, xs, batch_size=2048)
+        return self.mean_point(jnp.mean(stats.array, axis=0))
+        # suff_stats = jax.vmap(self.sufficient_statistic)(xs)
+        # return self.mean_point(jnp.mean(suff_stats.array, axis=0))
+
+        # first_stat = self.sufficient_statistic(xs[0])
+        #
+        # def step(carry: Array, x: Array) -> tuple[Array, None]:
+        #     suff_stat = self.sufficient_statistic(x)
+        #     return carry + suff_stat.array, None
+        #
+        # total, _ = jax.lax.scan(step, jnp.zeros_like(first_stat.array), xs)
+        # return self.mean_point(total / xs.shape[0])
 
     def mean_point(self, params: Array) -> Point[Mean, Self]:
         """Construct a point in mean coordinates."""
@@ -270,7 +281,18 @@ class Differentiable(Generative, ABC):
         Returns:
             Array of shape (batch_size,) containing average log densities
         """
-        return jnp.mean(jax.vmap(self.log_density, in_axes=(None, 0))(p, xs))
+        log_densities = jax.lax.map(
+            lambda x: self.log_density(p, x), xs, batch_size=2048
+        )
+        return jnp.mean(log_densities)
+
+        # return jnp.mean(jax.vmap(self.log_density, in_axes=(None, 0))(p, xs))
+
+        # def step(carry: Array, x: Array) -> tuple[Array, None]:
+        #     return carry + self.log_density(p, x), None  # Accumulate sum
+        #
+        # total_log_likelihood, _ = jax.lax.scan(step, jnp.asarray(0.0), xs)
+        # return total_log_likelihood / xs.shape[0]
 
 
 class Analytic(Differentiable, ABC):

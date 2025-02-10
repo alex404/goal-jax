@@ -483,13 +483,31 @@ class DifferentiableLatent[
         Returns:
             Average joint expectations in mean coordinates
         """
-        # Apply vmap to get batch of expectations
-        batch_expectations = jax.vmap(
-            self.infer_missing_expectations, in_axes=(None, 0)
-        )(params, xs)
+        batch_expectations = jax.lax.map(
+            lambda x: self.infer_missing_expectations(params, x), xs, batch_size=2048
+        )
 
         # Take mean of the underlying parameter arrays and wrap in a Point
         return self.mean_point(jnp.mean(batch_expectations.array, axis=0))
+        # Apply vmap to get batch of expectations
+        # batch_expectations = jax.vmap(
+        #     self.infer_missing_expectations, in_axes=(None, 0)
+        # )(params, xs)
+        #
+        # # Take mean of the underlying parameter arrays and wrap in a Point
+        # return self.mean_point(jnp.mean(batch_expectations.array, axis=0))
+
+        # def body_fun(
+        #     carry: tuple[Array, int], x: Array
+        # ) -> tuple[tuple[Array, int], None]:
+        #     total, count = carry
+        #     expectations = self.infer_missing_expectations(params, x)
+        #     return (total + expectations.array, count + 1), None
+        #
+        # init_carry: tuple[Array, int] = (jnp.zeros(self.dim), 0)
+        # (total, count), _ = jax.lax.scan(body_fun, init_carry, xs)
+        #
+        # return self.mean_point(total / count)
 
 
 class DifferentiableConjugated[
@@ -569,9 +587,25 @@ class DifferentiableConjugated[
         self, params: Point[Natural, Self], xs: Array
     ) -> Array:
         """Compute average log density over a batch of observations."""
-        return jnp.mean(
-            jax.vmap(self.log_observable_density, in_axes=(None, 0))(params, xs), axis=0
+        log_densities = jax.lax.map(
+            lambda x: self.log_observable_density(params, x), xs, batch_size=2048
         )
+        return jnp.mean(log_densities)
+        # return jnp.mean(
+        #     jax.vmap(self.log_observable_density, in_axes=(None, 0))(params, xs), axis=0
+        # )
+
+        # def body_fun(
+        #     carry: tuple[Array, int], x: Array
+        # ) -> tuple[tuple[Array, int], None]:
+        #     total, count = carry
+        #     log_density = self.log_observable_density(params, x)
+        #     return (total + log_density, count + 1), None
+        #
+        # init_carry: tuple[Array, int] = (jnp.array(0.0, dtype=xs.dtype), 0)
+        # (total, count), _ = jax.lax.scan(body_fun, init_carry, xs)
+        #
+        # return total / count
 
     def observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
         """Compute density of the observable distribution $p(x)$."""
