@@ -484,7 +484,7 @@ class DifferentiableLatent[
             Average joint expectations in mean coordinates
         """
         batch_expectations = jax.lax.map(
-            lambda x: self.infer_missing_expectations(params, x), xs, batch_size=2048
+            lambda x: self.infer_missing_expectations(params, x), xs, batch_size=1024
         )
 
         # Take mean of the underlying parameter arrays and wrap in a Point
@@ -588,7 +588,7 @@ class DifferentiableConjugated[
     ) -> Array:
         """Compute average log density over a batch of observations."""
         log_densities = jax.lax.map(
-            lambda x: self.log_observable_density(params, x), xs, batch_size=2048
+            lambda x: self.log_observable_density(params, x), xs, batch_size=1024
         )
         return jnp.mean(log_densities)
         # return jnp.mean(
