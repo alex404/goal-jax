@@ -141,8 +141,13 @@ class ExponentialFamily(Manifold, ABC):
         Returns:
             Mean coordinates of average sufficient statistics
         """
-        stats = jax.lax.map(self.sufficient_statistic, xs, batch_size=1024)
-        return self.mean_point(jnp.mean(stats.array, axis=0))
+
+        def _sufficient_statistic(x: Array) -> Array:
+            return self.sufficient_statistic(x).array
+
+        return self.mean_point(self.batched_point_mean(_sufficient_statistic, xs))
+        # stats = jax.lax.map(self.sufficient_statistic, xs, batch_size=128)
+        # return self.mean_point(jnp.mean(stats.array, axis=0))
         # suff_stats = jax.vmap(self.sufficient_statistic)(xs)
         # return self.mean_point(jnp.mean(suff_stats.array, axis=0))
 
@@ -282,7 +287,7 @@ class Differentiable(Generative, ABC):
             Array of shape (batch_size,) containing average log densities
         """
         log_densities = jax.lax.map(
-            lambda x: self.log_density(p, x), xs, batch_size=1024
+            lambda x: self.log_density(p, x), xs, batch_size=256
         )
         return jnp.mean(log_densities)
 

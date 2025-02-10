@@ -127,6 +127,30 @@ class Manifold(ABC):
         params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
         return _Point(params)
 
+    def batched_point_mean(
+        self,
+        f: Callable[[Array], Array],  # Mapping from data to manifold point
+        xs: Array,
+        batch_size: int = 128,
+    ) -> Array:
+        """Compute mean of mapped values over a dataset in a memory-efficient way."""
+        n_samples = xs.shape[0]
+        remainder = n_samples % batch_size
+        pad_size = (batch_size - remainder) if remainder > 0 else 0
+
+        xs_padded = jnp.pad(xs, ((0, pad_size), (0, 0))) if pad_size > 0 else xs
+        num_batches = xs_padded.shape[0] // batch_size  # Guaranteed to be divisible
+
+        xs_batched = xs_padded.reshape(num_batches, batch_size, *xs.shape[1:])
+
+        def inner_fn(batch: Array):
+            return jnp.sum(jax.vmap(f)(batch), axis=0)  # Reduce after `vmap`
+
+        batch_sums = jax.lax.map(inner_fn, xs_batched)
+
+        total = jnp.sum(batch_sums, axis=0)  # Sum over batches
+        return total / n_samples  # Normalize by original count
+
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
