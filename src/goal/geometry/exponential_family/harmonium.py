@@ -43,6 +43,7 @@ from ..manifold.linear import AffineMap, LinearMap
 from ..manifold.manifold import Point, Triple
 from ..manifold.matrix import MatrixRep
 from ..manifold.subspace import Subspace
+from ..manifold.util import batched_mean
 from .exponential_family import (
     Analytic,
     Differentiable,
@@ -473,6 +474,7 @@ class DifferentiableLatent[
         self: Self,
         params: Point[Natural, Self],
         xs: Array,
+        batch_size: int = 256,
     ) -> Point[Mean, Self]:
         """Compute average joint expectations over a batch of observations.
 
@@ -487,32 +489,9 @@ class DifferentiableLatent[
         def _infer_missing_expectations(x: Array) -> Array:
             return self.infer_missing_expectations(params, x).array
 
-        return self.mean_point(self.batched_point_mean(_infer_missing_expectations, xs))
-        # batch_expectations = jax.lax.map(
-        #     lambda x: self.infer_missing_expectations(params, x), xs, batch_size=128
-        # )
-        #
-        # # Take mean of the underlying parameter arrays and wrap in a Point
-        # return self.mean_point(jnp.mean(batch_expectations.array, axis=0))
-        # Apply vmap to get batch of expectations
-        # batch_expectations = jax.vmap(
-        #     self.infer_missing_expectations, in_axes=(None, 0)
-        # )(params, xs)
-        #
-        # # Take mean of the underlying parameter arrays and wrap in a Point
-        # return self.mean_point(jnp.mean(batch_expectations.array, axis=0))
-
-        # def body_fun(
-        #     carry: tuple[Array, int], x: Array
-        # ) -> tuple[tuple[Array, int], None]:
-        #     total, count = carry
-        #     expectations = self.infer_missing_expectations(params, x)
-        #     return (total + expectations.array, count + 1), None
-        #
-        # init_carry: tuple[Array, int] = (jnp.zeros(self.dim), 0)
-        # (total, count), _ = jax.lax.scan(body_fun, init_carry, xs)
-        #
-        # return self.mean_point(total / count)
+        return self.mean_point(
+            batched_mean(_infer_missing_expectations, xs, batch_size)
+        )
 
 
 class DifferentiableConjugated[
@@ -589,28 +568,14 @@ class DifferentiableConjugated[
         return log_density + self.obs_man.log_base_measure(x)
 
     def average_log_observable_density(
-        self, params: Point[Natural, Self], xs: Array
+        self, params: Point[Natural, Self], xs: Array, batch_size: int = 2048
     ) -> Array:
         """Compute average log density over a batch of observations."""
-        log_densities = jax.lax.map(
-            lambda x: self.log_observable_density(params, x), xs, batch_size=256
-        )
-        return jnp.mean(log_densities)
-        # return jnp.mean(
-        #     jax.vmap(self.log_observable_density, in_axes=(None, 0))(params, xs), axis=0
-        # )
 
-        # def body_fun(
-        #     carry: tuple[Array, int], x: Array
-        # ) -> tuple[tuple[Array, int], None]:
-        #     total, count = carry
-        #     log_density = self.log_observable_density(params, x)
-        #     return (total + log_density, count + 1), None
-        #
-        # init_carry: tuple[Array, int] = (jnp.array(0.0, dtype=xs.dtype), 0)
-        # (total, count), _ = jax.lax.scan(body_fun, init_carry, xs)
-        #
-        # return total / count
+        def _log_density(x: Array) -> Array:
+            return self.log_observable_density(params, x)
+
+        return batched_mean(_log_density, xs, batch_size)
 
     def observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
         """Compute density of the observable distribution $p(x)$."""

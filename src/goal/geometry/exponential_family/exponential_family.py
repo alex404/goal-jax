@@ -59,6 +59,7 @@ from ..manifold.manifold import (
     Replicated,
     reduce_dual,
 )
+from ..manifold.util import batched_mean
 
 ### Coordinate Systems ###
 
@@ -132,7 +133,9 @@ class ExponentialFamily(Manifold, ABC):
 
     # Templates
 
-    def average_sufficient_statistic(self, xs: Array) -> Point[Mean, Self]:
+    def average_sufficient_statistic(
+        self, xs: Array, batch_size: int = 256
+    ) -> Point[Mean, Self]:
         """Average sufficient statistics of a batch of observations.
 
         Args:
@@ -145,20 +148,7 @@ class ExponentialFamily(Manifold, ABC):
         def _sufficient_statistic(x: Array) -> Array:
             return self.sufficient_statistic(x).array
 
-        return self.mean_point(self.batched_point_mean(_sufficient_statistic, xs))
-        # stats = jax.lax.map(self.sufficient_statistic, xs, batch_size=128)
-        # return self.mean_point(jnp.mean(stats.array, axis=0))
-        # suff_stats = jax.vmap(self.sufficient_statistic)(xs)
-        # return self.mean_point(jnp.mean(suff_stats.array, axis=0))
-
-        # first_stat = self.sufficient_statistic(xs[0])
-        #
-        # def step(carry: Array, x: Array) -> tuple[Array, None]:
-        #     suff_stat = self.sufficient_statistic(x)
-        #     return carry + suff_stat.array, None
-        #
-        # total, _ = jax.lax.scan(step, jnp.zeros_like(first_stat.array), xs)
-        # return self.mean_point(total / xs.shape[0])
+        return self.mean_point(batched_mean(_sufficient_statistic, xs, batch_size))
 
     def mean_point(self, params: Array) -> Point[Mean, Self]:
         """Construct a point in mean coordinates."""
@@ -276,7 +266,9 @@ class Differentiable(Generative, ABC):
         """
         return jnp.exp(self.log_density(params, x))
 
-    def average_log_density(self, p: Point[Natural, Self], xs: Array) -> Array:
+    def average_log_density(
+        self, p: Point[Natural, Self], xs: Array, batch_size: int = 2048
+    ) -> Array:
         """Compute average log density over a batch of observations.
 
         Args:
@@ -286,18 +278,11 @@ class Differentiable(Generative, ABC):
         Returns:
             Array of shape (batch_size,) containing average log densities
         """
-        log_densities = jax.lax.map(
-            lambda x: self.log_density(p, x), xs, batch_size=256
-        )
-        return jnp.mean(log_densities)
 
-        # return jnp.mean(jax.vmap(self.log_density, in_axes=(None, 0))(p, xs))
+        def _log_density(x: Array) -> Array:
+            return self.log_density(p, x)
 
-        # def step(carry: Array, x: Array) -> tuple[Array, None]:
-        #     return carry + self.log_density(p, x), None  # Accumulate sum
-        #
-        # total_log_likelihood, _ = jax.lax.scan(step, jnp.asarray(0.0), xs)
-        # return total_log_likelihood / xs.shape[0]
+        return batched_mean(_log_density, xs, batch_size)
 
 
 class Analytic(Differentiable, ABC):
