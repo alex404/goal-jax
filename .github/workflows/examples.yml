@@ -42,7 +42,7 @@ jobs:
           python -m examples.univariate_differentiable.run
           python -m examples.univariate_differentiable.plot
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: examples-results
           path: |
