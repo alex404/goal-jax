@@ -200,7 +200,7 @@ class DifferentiableMixture[
         probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
 
         # Get anchor (first component) - shape: (obs_dim,)
-        anchor = self.comp_man.get_replicate(components, 0)
+        anchor = self.comp_man.get_replicate(components, jnp.asarray(0))
         anchor_sub = self.obs_sub.project(anchor)  # shape: (sub_obs_dim,)
 
         # Compute weighted average - shape: (obs_dim,)
@@ -281,7 +281,7 @@ class AnalyticMixture[Observable: Analytic](
         )
 
         # Get anchor (first component) - shape: (obs_dim,)
-        obs_bias = self.comp_man.get_replicate(nat_comps, 0)
+        obs_bias = self.comp_man.get_replicate(nat_comps, jnp.asarray(0))
 
         def to_interaction(
             nat: Point[Natural, Observable],

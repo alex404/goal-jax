@@ -324,7 +324,9 @@ class Replicated[M: Manifold](Manifold):
 
     # Templates
 
-    def get_replicate[C: Coordinates](self, p: Point[C, Self], idx: int) -> Point[C, M]:
+    def get_replicate[C: Coordinates](
+        self, p: Point[C, Self], idx: Array
+    ) -> Point[C, M]:
         """Get parameters for a specific copy."""
         return self.rep_man.point(p.array[idx])
 
