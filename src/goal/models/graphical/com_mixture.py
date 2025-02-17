@@ -29,6 +29,7 @@ from goal.geometry import (
     AnalyticProduct,
     DifferentiableProduct,
     LocationShape,
+    LocationSubspace,
     Natural,
     Point,
     Product,
@@ -38,58 +39,6 @@ from goal.models.graphical.mixture import DifferentiableMixture
 
 type PoissonPopulation = AnalyticProduct[Poisson]
 type PopulationShape = Product[CoMShape]
-
-
-# class ProductLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily](
-#     Subspace[Product[LocationShape[Loc, Shp]], Product[Loc]]
-# ):
-#     """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
-#
-#     For a replicated location-shape manifold with parameters:
-#     $((l_1,s_1),\\ldots,(l_n,s_n))$
-#
-#     Projects to just the location parameters:
-#     $(l_1,\\ldots,l_n)$
-#
-#     This enables mixture models where components only affect location parameters while
-#     sharing shape parameters across components.
-#     """
-#     rep_sup_man: LocationShape[Loc, Shp]
-#     rep_loc_man: LocationShape[Loc, Shp]
-#     n_reps: int
-#
-#     @property
-#     @override
-#     def loc_man(self) -> Product[Loc]:
-#         return self.rep_loc_man
-#
-#     @override
-#     def project[C: Coordinates](
-#         self, p: Point[C, Product[LocationShape[Loc, Shp]]]
-#     ) -> Point[C, Product[Loc]]:
-#         """Project to location parameters $(l_1,\\ldots,l_n)$."""
-#         matrix = p.array.reshape(self.sup_man.n_repeats, -1)
-#         loc_dim = self.sub_man.rep_man.dim
-#         loc_params = matrix[:, :loc_dim]
-#         return Point(loc_params.reshape(-1))
-#
-#     @override
-#     def translate[C: Coordinates](
-#         self,
-#         p: Point[C, Product[LocationShape[Loc, Shp]]],
-#         q: Point[C, Product[Loc]],
-#     ) -> Point[C, Product[LocationShape[Loc, Shp]]]:
-#         """Update location parameters while preserving shape parameters.
-#
-#         Given original parameters $((l_1,s_1),\\ldots,(l_n,s_n))$ and new locations
-#         $(l_1',\\ldots,l_n')$, returns $((l_1',s_1),\\ldots,(l_n',s_n))$.
-#         """
-#         matrix = p.array.reshape(self.sup_man.n_repeats, -1)
-#         loc_dim = self.sub_man.rep_man.dim
-#         q_matrix = q.array.reshape(self.sub_man.n_repeats, -1)
-#         matrix = matrix.at[:, :loc_dim].add(q_matrix)
-#         return Point(matrix.reshape(-1))
-#
 
 
 @dataclass(frozen=True)
@@ -112,7 +61,7 @@ class CoMPoissonPopulation(
         """Initialize COM-Poisson population.
 
         Args:
-            n_repeats: Number of neurons in the population
+            n_reps: Number of neurons in the population
         """
         super().__init__(CoMPoisson(), n_reps)
 
@@ -236,6 +185,38 @@ class CoMPoissonPopulation(
         return jax.vmap(rep_fun)(params.array)
 
 
+class PopulationLocationSubspace(
+    LocationSubspace[
+        CoMPoissonPopulation,
+        PoissonPopulation,
+        PopulationShape,
+    ]
+):
+    """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
+
+    For a replicated location-shape manifold with parameters:
+    $((l_1,s_1),\\ldots,(l_n,s_n))$
+
+    Projects to just the location parameters:
+    $(l_1,\\ldots,l_n)$
+
+    This enables mixture models where components only affect location parameters while
+    sharing shape parameters across components.
+    """
+
+    n_reps: int
+
+    @property
+    @override
+    def sup_man(self) -> CoMPoissonPopulation:
+        return CoMPoissonPopulation(self.n_reps)
+
+    @property
+    @override
+    def sub_man(self) -> PoissonPopulation:
+        return AnalyticProduct(Poisson(), n_reps=self.n_reps)
+
+
 @dataclass(frozen=True)
 class CoMMixture(DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation]):
     """Mixture model for COM-Poisson populations where components affect only rate parameters.
@@ -265,9 +246,7 @@ class CoMMixture(DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation])
         pop_man = CoMPoissonPopulation(n_neurons)
 
         # Create subspace relationship for rate-only components
-        subspace = ProductLocationSubspace(
-            base_location=Poisson(), base_shape=CoMShape(), n_neurons=n_neurons
-        )
+        subspace = PopulationLocationSubspace(n_reps=n_neurons)
 
         super().__init__(obs_man=pop_man, n_categories=n_components, obs_sub=subspace)
 
