@@ -456,7 +456,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
         return self.natural_point(init_params)
 
 
-class GenerativeReplicated[M: Generative](Replicated[M], Generative, ABC):
+class GenerativeProduct[M: Generative](Product[M], Generative, ABC):
     """Replicated manifold for generative exponential families."""
 
     # Overrides
@@ -476,8 +476,8 @@ class GenerativeReplicated[M: Generative](Replicated[M], Generative, ABC):
         return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 
 
-class DifferentiableReplicated[M: Differentiable](
-    Differentiable, GenerativeReplicated[M], ABC
+class DifferentiableProduct[M: Differentiable](
+    Differentiable, GenerativeProduct[M], ABC
 ):
     """Replicated manifold for differentiable exponential families."""
 
@@ -489,7 +489,7 @@ class DifferentiableReplicated[M: Differentiable](
         return jnp.sum(self.map(self.rep_man.log_partition_function, params))
 
 
-class AnalyticReplicated[M: Analytic](DifferentiableReplicated[M], Analytic, ABC):
+class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
     """Replicated manifold for analytic exponential families."""
 
     # Overrides
