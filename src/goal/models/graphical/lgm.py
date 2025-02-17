@@ -46,6 +46,7 @@ from ...geometry import (
     Diagonal,
     Dual,
     LinearMap,
+    LocationSubspace,
     MatrixRep,
     Mean,
     Natural,
@@ -53,7 +54,6 @@ from ...geometry import (
     PositiveDefinite,
     Rectangular,
     Scale,
-    Subspace,
     expand_dual,
     reduce_dual,
 )
@@ -69,7 +69,9 @@ from ..base.gaussian.normal import (
 
 
 @dataclass(frozen=True)
-class NormalLocationSubspace[Rep: PositiveDefinite](Subspace[Normal[Rep], Euclidean]):
+class NormalLocationSubspace[Rep: PositiveDefinite](
+    LocationSubspace[Normal[Rep], Euclidean, Covariance[Rep]],
+):
     """Subspace relationship for a product manifold $M \\times N$."""
 
     nor_man: Normal[Rep]
@@ -83,18 +85,6 @@ class NormalLocationSubspace[Rep: PositiveDefinite](Subspace[Normal[Rep], Euclid
     @override
     def sub_man(self) -> Euclidean:
         return self.nor_man.loc_man
-
-    @override
-    def project[C: Coordinates](self, p: Point[C, Normal[Rep]]) -> Point[C, Euclidean]:
-        first, _ = self.sup_man.split_params(p)
-        return first
-
-    @override
-    def translate[C: Coordinates](
-        self, p: Point[C, Normal[Rep]], q: Point[C, Euclidean]
-    ) -> Point[C, Normal[Rep]]:
-        first, second = self.sup_man.split_params(p)
-        return self.sup_man.join_params(first + q, second)
 
 
 ### Private Functions ###

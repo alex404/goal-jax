@@ -3,6 +3,7 @@ from .exponential_family.combinators import (
     DifferentiableProduct,
     GenerativeProduct,
     LocationShape,
+    LocationSubspace,
     Product,
 )
 from .exponential_family.exponential_family import (
@@ -82,6 +83,7 @@ __all__ = [
     "IdentitySubspace",
     "LinearMap",
     "LocationShape",
+    "LocationSubspace",
     "Manifold",
     "MatrixRep",
     "Mean",

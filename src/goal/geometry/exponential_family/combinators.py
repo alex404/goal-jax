@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Self, override
+from dataclasses import dataclass
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.manifold import (
+    Coordinates,
     Pair,
     Point,
     Replicated,
 )
+from ..manifold.subspace import Subspace
 from .exponential_family import (
     Analytic,
     Differentiable,
@@ -66,6 +69,38 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
     def log_base_measure(self, x: Array) -> Array:
         """Base measure is sum of component base measures."""
         return self.snd_man.log_base_measure(x)
+
+
+@dataclass(frozen=True)
+class LocationSubspace[
+    LS: Any,
+    L: ExponentialFamily,
+    S: ExponentialFamily,
+](
+    Subspace[LS, L],  # Note: we specify LS directly in Subspace
+    ABC,
+):
+    """Subspace relationship for a product manifold $M \\times N$.
+
+    Type Parameters:
+
+    - `LS`: The combined manifold type. Should be a subclass of `LocationShape[L, S]`.
+    - `L`: The location manifold type.
+    - `S`: The shape manifold type.
+
+    """
+
+    @override
+    def project[C: Coordinates](self, p: Point[C, LS]) -> Point[C, L]:
+        first, _ = self.sup_man.split_params(p)
+        return first
+
+    @override
+    def translate[C: Coordinates](
+        self, p: Point[C, LS], q: Point[C, L]
+    ) -> Point[C, LS]:
+        first, second = self.sup_man.split_params(p)
+        return self.sup_man.join_params(first + q, second)
 
 
 class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
