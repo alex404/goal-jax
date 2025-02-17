@@ -85,7 +85,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     # Methods
 
-    def comp_man(self) -> Product[Observable]:
+    def cmp_man(self) -> Product[Observable]:
         """Manifold for all components of mixture."""
         return Product(self.obs_man, self.n_categories)
 
@@ -108,11 +108,11 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         # Sum for observable means - shape: (obs_dim,)
         obs_means = self.obs_man.mean_point(jnp.sum(weighted_comps, axis=0))
 
-        comp_man_minus = replace(self.comp_man, n_reps=self.n_categories - 1)
+        cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)
-        projected_comps = comp_man_minus.man_map(
+        projected_comps = cmp_man_minus.man_map(
             self.obs_sub.project,
-            comp_man_minus.mean_point(weighted_comps[1:]),
+            cmp_man_minus.mean_point(weighted_comps[1:]),
         )
         # int_means shape: (sub_obs_dim, n_categories-1)
         int_means = self.int_man.from_columns(projected_comps)
@@ -185,7 +185,7 @@ class DifferentiableMixture[
         # components shape: (n_categories, obs_dim)
         components = jnp.vstack([obs_bias.array.reshape(1, -1), translated.array])
 
-        return self.comp_man.natural_point(components), prr_params
+        return self.cmp_man.natural_point(components), prr_params
 
     def join_natural_mixture(
         self,
@@ -200,7 +200,7 @@ class DifferentiableMixture[
         probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
 
         # Get anchor (first component) - shape: (obs_dim,)
-        anchor = self.comp_man.get_replicate(components, jnp.asarray(0))
+        anchor = self.cmp_man.get_replicate(components, jnp.asarray(0))
         anchor_sub = self.obs_sub.project(anchor)  # shape: (sub_obs_dim,)
 
         # Compute weighted average - shape: (obs_dim,)
@@ -222,10 +222,10 @@ class DifferentiableMixture[
         ) -> Point[Natural, SubObservable]:
             return self.obs_sub.project(comp) - anchor_sub
 
-        comp_man_minus = replace(self.comp_man, n_reps=self.n_categories - 1)
+        cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)
-        projected_comps = comp_man_minus.man_map(
-            to_interaction, comp_man_minus.natural_point(components.array[1:])
+        projected_comps = cmp_man_minus.man_map(
+            to_interaction, cmp_man_minus.natural_point(components.array[1:])
         )
 
         # int_mat shape: (sub_obs_dim, n_categories-1)
@@ -276,12 +276,10 @@ class AnalyticMixture[Observable: Analytic](
             return self.obs_man.to_natural(mean).array
 
         # nat_comps shape: (n_categories, obs_dim)
-        nat_comps = self.comp_man.natural_point(
-            self.comp_man.map(to_natural, comp_means)
-        )
+        nat_comps = self.cmp_man.natural_point(self.cmp_man.map(to_natural, comp_means))
 
         # Get anchor (first component) - shape: (obs_dim,)
-        obs_bias = self.comp_man.get_replicate(nat_comps, jnp.asarray(0))
+        obs_bias = self.cmp_man.get_replicate(nat_comps, jnp.asarray(0))
 
         def to_interaction(
             nat: Point[Natural, Observable],
@@ -289,10 +287,10 @@ class AnalyticMixture[Observable: Analytic](
             return nat - obs_bias
 
         # Convert remaining components to interactions
-        comp_man1 = replace(self.comp_man, n_reps=self.n_categories - 1)
+        cmp_man1 = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # int_cols shape: (n_categories-1, obs_dim)
-        int_cols = comp_man1.man_map(
-            to_interaction, comp_man1.natural_point(nat_comps.array[1:])
+        int_cols = cmp_man1.man_map(
+            to_interaction, cmp_man1.natural_point(nat_comps.array[1:])
         )
 
         # int_mat shape: (obs_dim, n_categories-1)
@@ -324,4 +322,4 @@ class AnalyticMixture[Observable: Analytic](
         # Combine components - shape: (n_categories, obs_dim)
         components = jnp.vstack([first_comp.array.reshape(1, -1), other_comps])
 
-        return self.comp_man.mean_point(components), cat_means
+        return self.cmp_man.mean_point(components), cat_means

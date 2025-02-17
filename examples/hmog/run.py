@@ -59,8 +59,8 @@ def create_ground_truth_model() -> tuple[
                 om.cov_man.mean_point(jnp.array([1.0])),
             )
 
-            # components = mix_man.comp_man.mean_point(jnp.stack(component_list))
-            components = um.comp_man.mean_point(
+            # components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
+            components = um.cmp_man.mean_point(
                 jnp.stack([y0_means.array, y1_means.array])
             )
             mix_means = um.join_mean_mixture(components, cat_means)

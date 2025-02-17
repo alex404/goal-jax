@@ -54,7 +54,7 @@ def create_ground_truth_parameters(
             component_list.append(mean_params.array)
 
     # Stack rows
-    components = mix_man.comp_man.mean_point(jnp.stack(component_list))
+    components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
 
     weights = mix_man.lat_man.mean_point(jnp.array([0.35, 0.25]))
 
@@ -78,7 +78,7 @@ def goal_to_sklearn_mixture(
     means = []
     covariances: list[Array] = []
     for i in range(components.shape[0]):
-        comp = mix_man.comp_man.get_replicate(components, jnp.asarray(i))
+        comp = mix_man.cmp_man.get_replicate(components, jnp.asarray(i))
         mean, cov = mix_man.obs_man.split_mean_covariance(comp)
         means.append(mean.array)
         covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
