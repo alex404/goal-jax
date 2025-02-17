@@ -19,27 +19,29 @@ where:
 """
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, override
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    AnalyticReplicated,
-    DifferentiableReplicated,
+    AnalyticProduct,
+    DifferentiableProduct,
+    LocationShape,
     Natural,
     Point,
-    Replicated,
+    Product,
 )
 from goal.models.base.poisson import CoMPoisson, CoMShape, Poisson
 from goal.models.graphical.mixture import DifferentiableMixture
 
-type PoissonPopulation = Replicated[Poisson]
-type PopulationShape = Replicated[CoMShape]
+type PoissonPopulation = AnalyticProduct[Poisson]
+type PopulationShape = Product[CoMShape]
 
 
-# class ReplicatedLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily](
-#     Subspace[Replicated[LocationShape[Loc, Shp]], Replicated[Loc]]
+# class ProductLocationSubspace[Loc: ExponentialFamily, Shp: ExponentialFamily](
+#     Subspace[Product[LocationShape[Loc, Shp]], Product[Loc]]
 # ):
 #     """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
 #
@@ -52,24 +54,19 @@ type PopulationShape = Replicated[CoMShape]
 #     This enables mixture models where components only affect location parameters while
 #     sharing shape parameters across components.
 #     """
+#     rep_sup_man: LocationShape[Loc, Shp]
+#     rep_loc_man: LocationShape[Loc, Shp]
+#     n_reps: int
 #
-#     def __init__(self, los_man: LocationShape[Loc, Shp], n_neurons: int):
-#         """Initialize subspace relationship.
-#
-#         Args:
-#             base_location: Base location manifold
-#             base_shape: Base shape manifold
-#             n_neurons: Number of replicated units
-#         """
-#
-#         loc_man = Replicated(los_man.fst_man, n_neurons)
-#         sup_man = Replicated(los_man, n_neurons)
-#         super().__init__(sup_man, loc_man)
+#     @property
+#     @override
+#     def loc_man(self) -> Product[Loc]:
+#         return self.rep_loc_man
 #
 #     @override
 #     def project[C: Coordinates](
-#         self, p: Point[C, Replicated[LocationShape[Loc, Shp]]]
-#     ) -> Point[C, Replicated[Loc]]:
+#         self, p: Point[C, Product[LocationShape[Loc, Shp]]]
+#     ) -> Point[C, Product[Loc]]:
 #         """Project to location parameters $(l_1,\\ldots,l_n)$."""
 #         matrix = p.array.reshape(self.sup_man.n_repeats, -1)
 #         loc_dim = self.sub_man.rep_man.dim
@@ -79,9 +76,9 @@ type PopulationShape = Replicated[CoMShape]
 #     @override
 #     def translate[C: Coordinates](
 #         self,
-#         p: Point[C, Replicated[LocationShape[Loc, Shp]]],
-#         q: Point[C, Replicated[Loc]],
-#     ) -> Point[C, Replicated[LocationShape[Loc, Shp]]]:
+#         p: Point[C, Product[LocationShape[Loc, Shp]]],
+#         q: Point[C, Product[Loc]],
+#     ) -> Point[C, Product[LocationShape[Loc, Shp]]]:
 #         """Update location parameters while preserving shape parameters.
 #
 #         Given original parameters $((l_1,s_1),\\ldots,(l_n,s_n))$ and new locations
@@ -92,10 +89,13 @@ type PopulationShape = Replicated[CoMShape]
 #         q_matrix = q.array.reshape(self.sub_man.n_repeats, -1)
 #         matrix = matrix.at[:, :loc_dim].add(q_matrix)
 #         return Point(matrix.reshape(-1))
+#
 
 
 @dataclass(frozen=True)
-class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
+class CoMPoissonPopulation(
+    DifferentiableProduct[CoMPoisson], LocationShape[PoissonPopulation, PopulationShape]
+):
     """A population of independent COM-Poisson units.
 
     For $n$ independent COM-Poisson units, the joint density takes the form:
@@ -108,26 +108,29 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
     - $Z(\\mu, \\nu)$ is the normalizing constant
     """
 
-    def __init__(self, n_repeats: int):
+    def __init__(self, n_reps: int):
         """Initialize COM-Poisson population.
 
         Args:
             n_repeats: Number of neurons in the population
         """
-        super().__init__(CoMPoisson(), n_repeats)
+        super().__init__(CoMPoisson(), n_reps)
 
     @property
-    def loc_man(self) -> PoissonPopulation:
-        return AnalyticReplicated(Poisson(), n_repeats=self.n_repeats)
+    @override
+    def fst_man(self) -> PoissonPopulation:
+        return AnalyticProduct(Poisson(), n_reps=self.n_reps)
 
     @property
-    def shp_man(self) -> PopulationShape:
-        return Replicated(CoMShape(), n_repeats=self.n_repeats)
+    @override
+    def snd_man(self) -> PopulationShape:
+        return Product(CoMShape(), n_reps=self.n_reps)
 
-    def join_population_parameters(
+    @override
+    def join_params(
         self,
-        modes: Point[Natural, PoissonPopulation],
-        dispersions: Point[Natural, PopulationShape],
+        first: Point[Natural, PoissonPopulation],
+        second: Point[Natural, PopulationShape],
     ) -> Point[Natural, Self]:
         """Construct population from mode and dispersion parameters.
 
@@ -144,12 +147,13 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
         Returns:
             Natural parameters for the full population
         """
-        params_matrix = jnp.stack([modes.params, dispersions.params])
-        return Point(params_matrix.T.reshape(-1))
+        params_matrix = jnp.stack([first.array, second.array])
+        return self.natural_point(params_matrix.T.reshape(-1))
 
-    def split_population_parameters(
+    @override
+    def split_params(
         self,
-        p: Point[Natural, Self],
+        params: Point[Natural, Self],
     ) -> tuple[Point[Natural, PoissonPopulation], Point[Natural, PopulationShape]]:
         """Split population parameters into modes and dispersions.
 
@@ -163,8 +167,10 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
         Returns:
             Tuple of (modes, dispersions) for the population
         """
-        params_matrix = p.params.reshape(self.n_repeats, 2)
-        return Point(params_matrix[:, 0]), Point(params_matrix[:, 1])
+        matrix = params.array.reshape(self.n_reps, 2).T
+        loc_params = self.fst_man.natural_point(matrix[0])
+        shp_params = self.snd_man.natural_point(matrix[1])
+        return loc_params, shp_params
 
     def join_mode_dispersion(
         self,
@@ -181,15 +187,14 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
             Natural parameters for the population
         """
         # Convert modes and dispersions to natural parameters
-        theta1 = dispersions * jnp.log(modes)
-        theta2 = -dispersions
+        loc_params = self.fst_man.natural_point(dispersions * jnp.log(modes))
+        shp_params = self.snd_man.natural_point(-dispersions)
 
-        params_matrix = jnp.stack([theta1, theta2])
-        return Point(params_matrix.T.reshape(-1))
+        return self.join_params(loc_params, shp_params)
 
     def split_mode_dispersion(
         self,
-        p: Point[Natural, Self],
+        params: Point[Natural, Self],
     ) -> tuple[Array, Array]:
         """Extract mode and dispersion values from population parameters.
 
@@ -199,10 +204,12 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
         Returns:
             Tuple of (modes, dispersions) arrays with standard parameters
         """
-        theta1, theta2 = self.split_population_parameters(p)
+        loc_params, shp_params = self.split_params(params)
+        loc_array = loc_params.array
+        shp_array = shp_params.array
 
-        dispersions = -theta2.params
-        modes = jnp.exp(-theta1.params / theta2.params)  # μ = exp(-θ₁/θ₂)
+        dispersions = -shp_array
+        modes = jnp.exp(-loc_array / shp_array)
 
         return modes, dispersions
 
@@ -220,17 +227,13 @@ class CoMPoissonPopulation(DifferentiableReplicated[CoMPoisson]):
         Returns:
             Tuple of (mean vector, variance vector)
         """
-        params_list = self.split_params(params)
-        means = []
-        variances = []
 
         # Compute statistics for each unit
-        for unit_params in params_list:
-            mean, var = self.rep_man.numerical_mean_variance(unit_params)
-            means.append(mean)
-            variances.append(var)
+        def rep_fun(array: Array) -> tuple[Array, Array]:
+            params = self.rep_man.natural_point(array)
+            return self.rep_man.numerical_mean_variance(params)
 
-        return jnp.array(means), jnp.array(variances)
+        return jax.vmap(rep_fun)(params.array)
 
 
 @dataclass(frozen=True)
@@ -262,7 +265,7 @@ class CoMMixture(DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation])
         pop_man = CoMPoissonPopulation(n_neurons)
 
         # Create subspace relationship for rate-only components
-        subspace = ReplicatedLocationSubspace(
+        subspace = ProductLocationSubspace(
             base_location=Poisson(), base_shape=CoMShape(), n_neurons=n_neurons
         )
 

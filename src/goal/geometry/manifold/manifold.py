@@ -211,11 +211,11 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
     # Templates
 
     def split_params[C: Coordinates](
-        self, p: Point[C, Self]
+        self, params: Point[C, Self]
     ) -> tuple[Point[C, First], Point[C, Second]]:
         """Split parameters into first and second components."""
-        first_params = p.array[: self.fst_man.dim]
-        second_params = p.array[self.fst_man.dim :]
+        first_params = params.array[: self.fst_man.dim]
+        second_params = params.array[self.fst_man.dim :]
         return self.fst_man.point(first_params), self.snd_man.point(second_params)
 
     def join_params[C: Coordinates](
@@ -261,15 +261,15 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
     # Templates
 
     def split_params[C: Coordinates](
-        self, p: Point[C, Self]
+        self, params: Point[C, Self]
     ) -> tuple[Point[C, First], Point[C, Second], Point[C, Third]]:
         """Split parameters into first, second, and third components."""
         first_dim = self.fst_man.dim
         second_dim = self.snd_man.dim
 
-        first_params = p.array[:first_dim]
-        second_params = p.array[first_dim : first_dim + second_dim]
-        third_params = p.array[first_dim + second_dim :]
+        first_params = params.array[:first_dim]
+        second_params = params.array[first_dim : first_dim + second_dim]
+        third_params = params.array[first_dim + second_dim :]
 
         return (
             self.fst_man.point(first_params),

@@ -1,15 +1,17 @@
-from .exponential_family.exponential_family import (
-    Analytic,
+from .exponential_family.combinators import (
     AnalyticProduct,
-    Differentiable,
     DifferentiableProduct,
-    ExponentialFamily,
-    Generative,
     GenerativeProduct,
     LocationShape,
+    Product,
+)
+from .exponential_family.exponential_family import (
+    Analytic,
+    Differentiable,
+    ExponentialFamily,
+    Generative,
     Mean,
     Natural,
-    Product,
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
