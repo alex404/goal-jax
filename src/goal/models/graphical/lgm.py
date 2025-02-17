@@ -129,8 +129,14 @@ def _dual_composition[
     rep_hgf, shape_hgf, params_hgf = h.rep.matmat(
         h.shape, h_params.array, rep_gf, shape_gf, params_gf
     )
-    out_man = LinearMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
-    return out_man, out_man.point(params_hgf)
+    dense_params_hgf = rep_hgf.to_dense(shape_hgf, params_hgf)
+    dense_rep_hgf = Rectangular()
+    params_hgf1 = dense_rep_hgf.from_dense(dense_params_hgf)
+    out_man = LinearMap(dense_rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
+    out_mat: Point[Coords, LinearMap[Rectangular, Euclidean, Euclidean]] = (
+        out_man.point(params_hgf1)
+    )
+    return out_man, out_mat
 
 
 def _change_of_basis[
@@ -161,7 +167,9 @@ def _change_of_basis[
         f_params,
     )
     cov_man = Covariance(fgf_man.shape[0], PositiveDefinite)
-    out_mat = cov_man.from_dense(fgf_man.to_dense(fgf_params))  # pyright: ignore[reportArgumentType]
+    out_mat: Point[Coords, Covariance[PositiveDefinite]] = cov_man.from_dense(
+        fgf_man.to_dense(fgf_params)
+    )
     return cov_man, out_mat
 
 
@@ -292,7 +300,9 @@ class LinearGaussianModel[
         cob_man, cob = _change_of_basis(
             int_man_t, int_cov_t, lat_cov_man, cov_to_lin(lat_prs)
         )
-        shaped_cob = obs_cov_man.from_dense(cob_man.to_dense(cob))
+        shaped_cob: Point[Mean, Covariance[ObsRep]] = obs_cov_man.from_dense(
+            cob_man.to_dense(cob)
+        )
         obs_prs = obs_cov_man.inverse(obs_cov - shaped_cob)
         _, int_params = _dual_composition(
             obs_cov_man,
@@ -449,7 +459,9 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
             obs_prs = om.split_location_precision(obs_params)[1]
             dns_prs = om.cov_man.to_dense(obs_prs)
 
-        int_mat = self.int_man.from_dense(dns_prs @ loadings)
+        int_mat: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = (
+            self.int_man.from_dense(dns_prs @ loadings)
+        )
 
         # Combine parameters
         lkl_params = self.lkl_man.join_params(obs_params, int_mat)
