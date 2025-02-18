@@ -1,3 +1,11 @@
+from .exponential_family.base import (
+    Analytic,
+    Differentiable,
+    ExponentialFamily,
+    Generative,
+    Mean,
+    Natural,
+)
 from .exponential_family.combinators import (
     AnalyticProduct,
     DifferentiableProduct,
@@ -5,14 +13,6 @@ from .exponential_family.combinators import (
     LocationShape,
     LocationSubspace,
     Product,
-)
-from .exponential_family.exponential_family import (
-    Analytic,
-    Differentiable,
-    ExponentialFamily,
-    Generative,
-    Mean,
-    Natural,
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
@@ -27,21 +27,23 @@ from .exponential_family.hierarchical import (
     DifferentiableHierarchical,
     ObservableSubspace,
 )
+from .manifold.base import (
+    Coordinates,
+    Dual,
+    Manifold,
+    Point,
+    expand_dual,
+    reduce_dual,
+)
+from .manifold.combinators import (
+    Pair,
+    Replicated,
+    Triple,
+)
 from .manifold.linear import (
     AffineMap,
     LinearMap,
     SquareMap,
-)
-from .manifold.manifold import (
-    Coordinates,
-    Dual,
-    Manifold,
-    Pair,
-    Point,
-    Replicated,
-    Triple,
-    expand_dual,
-    reduce_dual,
 )
 from .manifold.matrix import (
     Diagonal,

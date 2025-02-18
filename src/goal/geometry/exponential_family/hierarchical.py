@@ -26,11 +26,11 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..manifold.base import Coordinates, Manifold, Point
 from ..manifold.linear import AffineMap
-from ..manifold.manifold import Coordinates, Manifold, Point
 from ..manifold.matrix import MatrixRep
 from ..manifold.subspace import Subspace
-from .exponential_family import (
+from .base import (
     Analytic,
     Differentiable,
     ExponentialFamily,

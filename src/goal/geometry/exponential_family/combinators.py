@@ -10,14 +10,16 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.manifold import (
+from ..manifold.base import (
     Coordinates,
-    Pair,
     Point,
+)
+from ..manifold.combinators import (
+    Pair,
     Replicated,
 )
 from ..manifold.subspace import Subspace
-from .exponential_family import (
+from .base import (
     Analytic,
     Differentiable,
     ExponentialFamily,
@@ -75,7 +77,6 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 class LocationSubspace[
     LS: Any,
     L: ExponentialFamily,
-    S: ExponentialFamily,
 ](
     Subspace[LS, L],  # Note: we specify LS directly in Subspace
     ABC,

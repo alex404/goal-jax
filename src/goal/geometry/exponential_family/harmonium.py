@@ -39,12 +39,13 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..manifold.base import Point
+from ..manifold.combinators import Triple
 from ..manifold.linear import AffineMap, LinearMap
-from ..manifold.manifold import Point, Triple
 from ..manifold.matrix import MatrixRep
 from ..manifold.subspace import Subspace
 from ..manifold.util import batched_mean
-from .exponential_family import (
+from .base import (
     Analytic,
     Differentiable,
     ExponentialFamily,

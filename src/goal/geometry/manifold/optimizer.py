@@ -12,7 +12,7 @@ from optax import (  # pyright: ignore[reportMissingTypeStubs]
     sgd,  # pyright: ignore[reportUnknownVariableType]
 )
 
-from .manifold import Coordinates, Dual, Manifold, Point
+from .base import Coordinates, Dual, Manifold, Point
 
 # Create an opaque type for optimizer state
 OptState = NewType("OptState", object)

@@ -185,11 +185,11 @@ class CoMPoissonPopulation(
         return jax.vmap(rep_fun)(params.array)
 
 
+@dataclass(frozen=True)
 class PopulationLocationSubspace(
     LocationSubspace[
         CoMPoissonPopulation,
         PoissonPopulation,
-        PopulationShape,
     ]
 ):
     """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
@@ -248,7 +248,7 @@ class CoMMixture(DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation])
         # Create subspace relationship for rate-only components
         subspace = PopulationLocationSubspace(n_reps=n_neurons)
 
-        super().__init__(obs_man=pop_man, n_categories=n_components, obs_sub=subspace)
+        super().__init__(pop_man, n_components, subspace)
 
     def numerical_mean_covariance(
         self,

@@ -17,7 +17,8 @@ from typing import Callable, Self, override
 
 from jax import Array
 
-from .manifold import Coordinates, Dual, Manifold, Pair, Point, Replicated
+from .base import Coordinates, Dual, Manifold, Point
+from .combinators import Pair, Replicated
 from .matrix import MatrixRep, Square
 from .subspace import Subspace
 

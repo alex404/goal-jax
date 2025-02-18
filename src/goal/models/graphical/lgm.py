@@ -70,7 +70,7 @@ from ..base.gaussian.normal import (
 
 @dataclass(frozen=True)
 class NormalLocationSubspace[Rep: PositiveDefinite](
-    LocationSubspace[Normal[Rep], Euclidean, Covariance[Rep]],
+    LocationSubspace[Normal[Rep], Euclidean],
 ):
     """Subspace relationship for a product manifold $M \\times N$."""
 

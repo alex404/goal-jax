@@ -24,7 +24,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import override
 
-from .manifold import Coordinates, Manifold, Point
+from .base import Coordinates, Manifold, Point
 
 ### Linear Subspaces ###
 

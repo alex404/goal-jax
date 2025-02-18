@@ -50,7 +50,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.manifold import (
+from ..manifold.base import (
     Coordinates,
     Dual,
     Manifold,
