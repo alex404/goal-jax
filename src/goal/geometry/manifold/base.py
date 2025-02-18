@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Self, override
+from typing import Any, Callable, Self
 
 import jax
 import jax.numpy as jnp
@@ -92,7 +92,7 @@ class Manifold(ABC):
         return _Point(jnp.ravel(jnp.atleast_1d(array)))
 
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
-        return jnp.dot(p.array, q.array)
+        return jnp.dot(p.array.ravel(), q.array.ravel())
 
     def value_and_grad[C: Coordinates](
         self,

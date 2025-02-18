@@ -152,11 +152,12 @@ def fit_com_mixture(
     init_params = com_mix.initialize(key, shape=0.01)
 
     optimizer: Optimizer[Natural, CoMMixture] = Optimizer.adam(
-        learning_rate=learning_rate
+        man=com_mix, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, CoMMixture]) -> Array:
+        print(params.array.shape)
         return -com_mix.average_log_observable_density(params, sample)
 
     def grad_step(

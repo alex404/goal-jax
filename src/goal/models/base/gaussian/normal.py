@@ -51,7 +51,7 @@ from ....geometry import (
     SquareMap,
     expand_dual,
 )
-from ....geometry.manifold.manifold import _Point  # pyright: ignore[reportPrivateUsage]
+from ....geometry.manifold.base import _Point  # pyright: ignore[reportPrivateUsage]
 
 type FullNormal = Normal[PositiveDefinite]
 type DiagonalNormal = Normal[Diagonal]

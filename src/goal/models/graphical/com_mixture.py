@@ -276,26 +276,23 @@ class CoMMixture(DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation])
         weights = self.lat_man.to_probs(mix_means)
 
         # Compute component means and variances
-        comp_means = []
-        comp_vars = []
-        for comp_params in components:
-            mean, var = self.obs_man.numerical_mean_variance(comp_params)
-            comp_means.append(mean)
-            comp_vars.append(var)
 
-        comp_means = jnp.stack(comp_means)  # Shape: (n_components, n_neurons)
-        comp_vars = jnp.stack(comp_vars)  # Shape: (n_components, n_neurons)
+        def cmp_fun(array: Array) -> tuple[Array, Array]:
+            params = self.obs_man.natural_point(array)
+            return self.obs_man.numerical_mean_variance(params)
+
+        cmp_means, cmp_vars = jax.vmap(cmp_fun)(components.array)
 
         # Compute mixture mean
-        mean = jnp.einsum("k,ki->i", weights, comp_means)
+        mean = jnp.einsum("k,ki->i", weights, cmp_means)
 
         # Compute mixture covariance
         # First term: weighted sum of diagonal component covariances
-        cov = jnp.einsum("k,ki->i", weights, comp_vars)
+        cov = jnp.einsum("k,ki->i", weights, cmp_vars)
         cov = jnp.diag(cov)
 
         # Second term: weighted sum of outer products of component means
-        mean_outer = jnp.einsum("ki,kj->kij", comp_means, comp_means)
+        mean_outer = jnp.einsum("ki,kj->kij", cmp_means, cmp_means)
         cov += jnp.einsum("k,kij->ij", weights, mean_outer)
 
         # Third term: subtract outer product of mixture mean
