@@ -36,9 +36,9 @@ from .types import ComAnalysisResults, CovarianceStatistics
 N_NEURONS = 10  # Observable dimension
 N_FACTORS = 3  # Latent dimension
 SAMPLE_SIZE = 1000  # Number of samples
-N_STEPS = 1  # Training steps
+N_STEPS = 100000  # Training steps
 N_COMPONENTS = 3  # Number of mixture components
-LEARNING_RATE = 0.1
+LEARNING_RATE = 3e-4
 
 
 def create_ground_truth_loadings() -> Array:
@@ -149,7 +149,7 @@ def fit_com_mixture(
         lls: Training log likelihoods
     """
     com_mix = CoMMixture(N_NEURONS, N_COMPONENTS)
-    init_params = com_mix.initialize(key, shape=0.01)
+    init_params = com_mix.initialize(key, shape=1)
 
     optimizer: Optimizer[Natural, CoMMixture] = Optimizer.adam(
         man=com_mix, learning_rate=learning_rate
@@ -157,7 +157,6 @@ def fit_com_mixture(
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, CoMMixture]) -> Array:
-        print(params.array.shape)
         return -com_mix.average_log_observable_density(params, sample)
 
     def grad_step(
@@ -175,12 +174,9 @@ def fit_com_mixture(
     return com_mix, final_params, lls.tolist()
 
 
-fit_com_mixture = jax.jit(fit_com_mixture, static_argnames=["n_steps", "learning_rate"])
-
-
 def main() -> None:
     """Run COM-Poisson mixture model analysis."""
-    initialize_jax(disable_jit=True)
+    initialize_jax(disable_jit=False)
     paths = example_paths(__file__)
 
     # Create models and generate data

@@ -168,9 +168,9 @@ def main():
         key=com_key,
         com_man=com_man,
         true_mu=10.0,
-        true_nu=0.5,
+        true_nu=2,
         n_samples=100,
-        n_steps=200,
+        n_steps=1000,
         learning_rate=0.1,
     )
 

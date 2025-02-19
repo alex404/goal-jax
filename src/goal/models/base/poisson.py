@@ -396,9 +396,11 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         """Initialize COM-Poisson parameters."""
         key_mu, key_nu = jax.random.split(key)
 
-        mu_init = 1.0 + jax.random.normal(key_mu) * shape + location
+        # Ensure mu stays positive by using exp
+        mu_init = jnp.exp(jax.random.normal(key_mu) * shape + location)
 
-        nu_init = 1.0 + jnp.abs(jax.random.normal(key_nu) * shape)
+        # Keep nu in a reasonable range
+        nu_init = 1.0 + jnp.abs(jax.random.normal(key_nu)) * shape
 
         return self.join_mode_dispersion(mu_init, nu_init)
 
