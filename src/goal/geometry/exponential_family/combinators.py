@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Any, Self, override
+from typing import Any, Protocol, Self, override, runtime_checkable
 
 import jax
 import jax.numpy as jnp
@@ -214,3 +214,23 @@ class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
     def negative_entropy(self, means: Point[Mean, Self]) -> Array:
         # Reshape instead of split
         return jnp.sum(self.map(self.rep_man.negative_entropy, means))
+
+
+@runtime_checkable
+class StatisticalMoments(Protocol):
+    """Protocol for distributions that can compute statistical moments.
+
+    This is a temporary solution until Python supports proper intersection types that would allow us to express this as ExponentialFamily & StatisticalMoments.
+    """
+
+    def statistical_mean[M: ExponentialFamily](
+        self: M, params: Point[Natural, M]
+    ) -> Array:
+        """Compute the mean/expected value of the distribution."""
+        ...
+
+    def statistical_covariance[M: ExponentialFamily](
+        self: M, params: Point[Natural, M]
+    ) -> Array:
+        """Compute the covariance matrix of the distribution."""
+        ...

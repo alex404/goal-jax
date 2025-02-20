@@ -39,6 +39,7 @@ from ...geometry import (
     Point,
     Product,
     Rectangular,
+    StatisticalMoments,
     Subspace,
 )
 from ..base.categorical import (
@@ -53,14 +54,12 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     """Mixture models with exponential family observations.
 
     Parameters:
-        _obs_man: Base exponential family for observations
         n_categories: Number of mixture components
         _obs_sub: Subspace relationship for observable parameters (default: Identity)
     """
 
     # Fields
 
-    _obs_man: Observable
     n_categories: int
     _obs_sub: Subspace[Observable, SubObservable]
 
@@ -81,10 +80,9 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     def lat_sub(self) -> IdentitySubspace[Categorical]:
         return IdentitySubspace(Categorical(self.n_categories))
 
+    # Template Methods
+
     @property
-
-    # Methods
-
     def cmp_man(self) -> Product[Observable]:
         """Manifold for all components of mixture."""
         return Product(self.obs_man, self.n_categories)
@@ -118,6 +116,30 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         int_means = self.int_man.from_columns(projected_comps)
 
         return self.join_params(obs_means, int_means, weights)
+
+    def split_mean_mixture(
+        self, p: Point[Mean, Self]
+    ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
+        """Split a mixture model in mean coordinates into components and weights."""
+        obs_means, int_means, cat_means = self.split_params(p)
+        probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
+
+        # Get interaction columns - shape: (n_categories-1, obs_dim)
+        int_cols = self.int_man.to_columns(int_means)
+
+        # Compute first component
+        # Sum interaction columns - shape: (obs_dim,)
+        sum_interactions = self.obs_man.mean_point(jnp.sum(int_cols.array, axis=0))
+        first_comp = (obs_means - sum_interactions) / probs[0]
+
+        # Scale remaining components by their probabilities
+        # shape: (n_categories-1, obs_dim)
+        other_comps = int_cols.array / probs[1:].reshape(-1, 1)
+
+        # Combine components - shape: (n_categories, obs_dim)
+        components = jnp.vstack([first_comp.array.reshape(1, -1), other_comps])
+
+        return self.cmp_man.mean_point(components), cat_means
 
 
 @dataclass(frozen=True)
@@ -234,6 +256,49 @@ class DifferentiableMixture[
 
         return self.join_conjugated(lkl_params, prior)
 
+    def observable_mean_covariance(
+        self, params: Point[Natural, Self]
+    ) -> tuple[Array, Array]:
+        """Compute mean and covariance of the observable variables.
+
+        Requires the observable manifold to implement StatisticalMoments.
+
+        Args:
+            params: Parameters in natural coordinates
+
+        Returns:
+            Tuple of (mean array, covariance array)
+
+        Raises:
+            TypeError: If observable manifold doesn't support moment computation
+        """
+        if not isinstance(self.obs_man, StatisticalMoments):
+            raise TypeError(
+                f"Observable manifold {type(self.obs_man)} does not support statistical moment computation"
+            )
+
+        components, weights = self.split_natural_mixture(params)
+
+        # Use statistical_mean/covariance instead of points to avoid type issues
+        cmp_means = self.cmp_man.map(self.obs_man.statistical_mean, components)  # pyright: ignore[reportArgumentType]
+        cmp_covs = self.cmp_man.map(self.obs_man.statistical_covariance, components)  # pyright: ignore[reportArgumentType]
+
+        # Compute mixture mean
+        mean = jnp.einsum("k,ki->i", weights, cmp_means)
+
+        # Compute mixture covariance using law of total variance
+        # First term: weighted sum of component covariances
+        cov = jnp.einsum("k,kij->ij", weights, cmp_covs)
+
+        # Second term: weighted sum of outer products of component means
+        mean_outer = jnp.einsum("ki,kj->kij", cmp_means, cmp_means)
+        cov += jnp.einsum("k,kij->ij", weights, mean_outer)
+
+        # Third term: subtract outer product of mixture mean
+        cov -= jnp.outer(mean, mean)
+
+        return mean, cov
+
 
 @dataclass(frozen=True)
 class AnalyticMixture[Observable: Analytic](
@@ -253,7 +318,7 @@ class AnalyticMixture[Observable: Analytic](
     # Constructor
 
     def __init__(self, obs_man: Observable, n_categories: int):
-        super().__init__(obs_man, n_categories, IdentitySubspace(obs_man))
+        super().__init__(n_categories, IdentitySubspace(obs_man))
 
     # Overrides
 
@@ -297,29 +362,3 @@ class AnalyticMixture[Observable: Analytic](
         int_mat = self.int_man.from_columns(int_cols)
 
         return self.lkl_man.join_params(obs_bias, int_mat)  # Methods
-
-    # Template Methods
-
-    def split_mean_mixture(
-        self, p: Point[Mean, Self]
-    ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
-        """Split a mixture model in mean coordinates into components and weights."""
-        obs_means, int_means, cat_means = self.split_params(p)
-        probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
-
-        # Get interaction columns - shape: (n_categories-1, obs_dim)
-        int_cols = self.int_man.to_columns(int_means)
-
-        # Compute first component
-        # Sum interaction columns - shape: (obs_dim,)
-        sum_interactions = self.obs_man.mean_point(jnp.sum(int_cols.array, axis=0))
-        first_comp = (obs_means - sum_interactions) / probs[0]
-
-        # Scale remaining components by their probabilities
-        # shape: (n_categories-1, obs_dim)
-        other_comps = int_cols.array / probs[1:].reshape(-1, 1)
-
-        # Combine components - shape: (n_categories, obs_dim)
-        components = jnp.vstack([first_comp.array.reshape(1, -1), other_comps])
-
-        return self.cmp_man.mean_point(components), cat_means

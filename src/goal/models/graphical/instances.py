@@ -7,7 +7,10 @@ from typing import override
 
 from ...geometry import (
     AnalyticHierarchical,
+    AnalyticProduct,
     DifferentiableHierarchical,
+    DifferentiableProduct,
+    LocationSubspace,
     Mean,
     Natural,
     Point,
@@ -15,6 +18,7 @@ from ...geometry import (
     Subspace,
 )
 from ..base.gaussian.normal import FullNormal, Normal
+from ..base.poisson import CoMPoisson, Poisson
 from .lgm import LinearGaussianModel
 from .mixture import AnalyticMixture, DifferentiableMixture
 
@@ -120,7 +124,7 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     sub_lat_man = Normal(lat_dim, lat_rep)
     mix_sub = NormalCovarianceSubspace(mid_lat_man, sub_lat_man)
     lwr_hrm = LinearGaussianModel(obs_dim, obs_rep, lat_dim)
-    upr_hrm = DifferentiableMixture(mid_lat_man, n_components, mix_sub)
+    upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
     return DifferentiableHierarchical(
         lwr_hrm,
@@ -142,3 +146,55 @@ def analytic_hmog[ObsRep: PositiveDefinite](
         lwr_hrm,
         upr_hrm,
     )
+
+
+# Type synonyms for common models
+type PoissonPopulation = AnalyticProduct[Poisson]
+type CoMPoissonPopulation = DifferentiableProduct[CoMPoisson]
+type PoissonMixture = AnalyticMixture[PoissonPopulation]
+type CoMPoissonMixture = DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation]
+
+
+@dataclass(frozen=True)
+class PopulationLocationSubspace(
+    LocationSubspace[
+        CoMPoissonPopulation,
+        PoissonPopulation,
+    ]
+):
+    """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
+
+    For a replicated location-shape manifold with parameters:
+    $((l_1,s_1),\\ldots,(l_n,s_n))$
+
+    Projects to just the location parameters:
+    $(l_1,\\ldots,l_n)$
+
+    This enables mixture models where components only affect location parameters while
+    sharing shape parameters across components.
+    """
+
+    n_neurons: int
+
+    @property
+    @override
+    def sup_man(self) -> CoMPoissonPopulation:
+        return DifferentiableProduct(CoMPoisson(), n_reps=self.n_neurons)
+
+    @property
+    @override
+    def sub_man(self) -> PoissonPopulation:
+        return AnalyticProduct(Poisson(), n_reps=self.n_neurons)
+
+
+# Constructors for common instances
+def poisson_mixture(n_neurons: int, n_components: int) -> PoissonMixture:
+    """Create a mixture of independent Poisson populations."""
+    pop_man = AnalyticProduct(Poisson(), n_reps=n_neurons)
+    return AnalyticMixture(pop_man, n_components)
+
+
+def com_poisson_mixture(n_neurons: int, n_components: int) -> CoMPoissonMixture:
+    """Create a COM-Poisson mixture with shared dispersion parameters."""
+    subspace = PopulationLocationSubspace(n_neurons)
+    return DifferentiableMixture(n_components, subspace)

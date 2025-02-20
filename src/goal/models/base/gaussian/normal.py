@@ -595,3 +595,11 @@ class Normal[Rep: PositiveDefinite](
             self.loc_man.mean_point(jnp.zeros(self.data_dim)),
             self.cov_man.from_dense(jnp.eye(self.data_dim)),
         )
+
+    def statistical_mean(self, params: Point[Natural, Self]) -> Array:
+        mean, _ = self.split_mean_covariance(self.to_mean(params))
+        return mean.array
+
+    def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
+        _, cov = self.split_mean_covariance(self.to_mean(params))
+        return self.snd_man.to_dense(cov)

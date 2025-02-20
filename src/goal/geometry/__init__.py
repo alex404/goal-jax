@@ -13,6 +13,7 @@ from .exponential_family.combinators import (
     LocationShape,
     LocationSubspace,
     Product,
+    StatisticalMoments,
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
@@ -102,6 +103,7 @@ __all__ = [
     "Scale",
     "Square",
     "SquareMap",
+    "StatisticalMoments",
     "Subspace",
     "Symmetric",
     "Triple",

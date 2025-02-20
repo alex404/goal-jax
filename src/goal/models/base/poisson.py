@@ -109,6 +109,14 @@ class Poisson(Analytic):
         # JAX's Poisson sampler expects rate parameter
         return jax.random.poisson(key, rate, shape=(n,))[..., None]
 
+    # Methods
+
+    def statistical_mean(self, params: Point[Natural, Self]) -> Array:
+        return self.to_mean(params).array
+
+    def statistical_variance(self, params: Point[Natural, Self]) -> Array:
+        return self.to_mean(params).array
+
 
 @dataclass(frozen=True)
 class CoMShape(ExponentialFamily):
@@ -169,50 +177,6 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
     @override
     def snd_man(self) -> CoMShape:
         return CoMShape()
-
-    # Methods
-
-    def split_mode_dispersion(
-        self, natural_params: Point[Natural, Self]
-    ) -> tuple[Array, Array]:
-        """Convert from natural parameters to mode-shape parameters.
-
-        The COM-Poisson distribution can be parameterized by either natural parameters $(\\theta_1, \\theta_2)$ or by mode-shape parameters $(\\mu, \\nu)$. The conversion
-        is given by:
-
-        $$\\nu = -\\theta_2$$
-        $$\\mu = \\exp(-\\theta_1/\\theta_2)$$
-
-        Args:
-            natural_params: Natural parameters $(\\theta_1, \\theta_2)$
-
-        Returns:
-            Tuple of mode parameter $\\mu$ and shape parameter $\\nu$
-        """
-        theta1, theta2 = natural_params[0], natural_params[1]
-        nu = -theta2
-        mu = jnp.exp(-theta1 / theta2)
-        return mu, nu
-
-    def join_mode_dispersion(self, mu: Array, nu: Array) -> Point[Natural, Self]:
-        """Convert from mode-shape parameters to natural parameters.
-
-        The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
-        is given by:
-
-        - $\\theta_1 = \\nu\\log(\\mu)$
-        - $\\theta_2 = -\\nu$
-
-        Args:
-            mu: Mode parameter $\\mu > 0$
-            nu: Shape parameter $\\nu > 0$
-
-        Returns:
-            Natural parameters $(\\theta_1, \\theta_2)$ as a Point
-        """
-        theta1 = nu * jnp.log(mu)
-        theta2 = -nu
-        return self.natural_point(jnp.array([theta1, theta2]).ravel())
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -314,6 +278,107 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         samples = jax.vmap(sample_one)(keys)
         return samples[..., None]
 
+    @override
+    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
+        """Check if natural parameters are valid for COM-Poisson.
+
+        For parameters $(\\theta_1, \\theta_2)$, the following conditions must hold:
+        - $\\theta_1$ is finite, $\\theta_2 < 0$
+        """
+        finite = super().check_natural_parameters(params)
+        theta2_valid = params[1] < 0
+        return finite & theta2_valid
+
+    @override
+    def initialize(
+        self,
+        key: Array,
+        location: float = 0.0,
+        shape: float = 0.1,
+    ) -> Point[Natural, Self]:
+        """Initialize COM-Poisson parameters."""
+        key_mu, key_nu = jax.random.split(key)
+
+        # Ensure mu stays positive by using exp
+        mu_init = jnp.exp(jax.random.normal(key_mu) * shape + location)
+
+        # Keep nu in a reasonable range
+        nu_init = 1.0 + jnp.abs(jax.random.normal(key_nu)) * shape
+
+        return self.join_mode_dispersion(mu_init, nu_init)
+
+    @override
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize COM-Poisson parameters from sample.
+
+        Estimates mode and shape parameters using method of moments based on sample mean and variance, with added noise for regularization.
+        """
+        # Compute sample statistics
+        mean = jnp.mean(sample)
+        var = jnp.var(sample)
+
+        # Add noise for regularization
+        noise = jax.random.normal(key, shape=(2,)) * shape + location
+        mean = mean + noise[0]
+        var = var + noise[1]
+
+        a = var
+        b = -(mean + 0.5)
+        c = 0.5
+
+        nu = (-b + jnp.sqrt(b**2 - 4 * a * c)) / (2 * a)
+
+        mu = var * nu
+
+        # Convert to natural parameters
+        return self.join_mode_dispersion(mu, nu)
+
+    # Methods
+
+    def split_mode_dispersion(
+        self, natural_params: Point[Natural, Self]
+    ) -> tuple[Array, Array]:
+        """Convert from natural parameters to mode-shape parameters.
+
+        The COM-Poisson distribution can be parameterized by either natural parameters $(\\theta_1, \\theta_2)$ or by mode-shape parameters $(\\mu, \\nu)$. The conversion
+        is given by:
+
+        $$\\nu = -\\theta_2$$
+        $$\\mu = \\exp(-\\theta_1/\\theta_2)$$
+
+        Args:
+            natural_params: Natural parameters $(\\theta_1, \\theta_2)$
+
+        Returns:
+            Tuple of mode parameter $\\mu$ and shape parameter $\\nu$
+        """
+        theta1, theta2 = natural_params[0], natural_params[1]
+        nu = -theta2
+        mu = jnp.exp(-theta1 / theta2)
+        return mu, nu
+
+    def join_mode_dispersion(self, mu: Array, nu: Array) -> Point[Natural, Self]:
+        """Convert from mode-shape parameters to natural parameters.
+
+        The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
+        is given by:
+
+        - $\\theta_1 = \\nu\\log(\\mu)$
+        - $\\theta_2 = -\\nu$
+
+        Args:
+            mu: Mode parameter $\\mu > 0$
+            nu: Shape parameter $\\nu > 0$
+
+        Returns:
+            Natural parameters $(\\theta_1, \\theta_2)$ as a Point
+        """
+        theta1 = nu * jnp.log(mu)
+        theta2 = -nu
+        return self.natural_point(jnp.array([theta1, theta2]).ravel())
+
     def approximate_mean_variance(
         self, natural_params: Point[Natural, Self]
     ) -> tuple[Array, Array]:
@@ -375,62 +440,13 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
         return mean, variance
 
-    @override
-    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
-        """Check if natural parameters are valid for COM-Poisson.
+    def statistical_mean(self, params: Point[Natural, Self]) -> Array:
+        mean, _ = self.numerical_mean_variance(params)
+        return mean
 
-        For parameters $(\\theta_1, \\theta_2)$, the following conditions must hold:
-        - $\\theta_1$ is finite, $\\theta_2 < 0$
-        """
-        finite = super().check_natural_parameters(params)
-        theta2_valid = params[1] < 0
-        return finite & theta2_valid
-
-    @override
-    def initialize(
-        self,
-        key: Array,
-        location: float = 0.0,
-        shape: float = 0.1,
-    ) -> Point[Natural, Self]:
-        """Initialize COM-Poisson parameters."""
-        key_mu, key_nu = jax.random.split(key)
-
-        # Ensure mu stays positive by using exp
-        mu_init = jnp.exp(jax.random.normal(key_mu) * shape + location)
-
-        # Keep nu in a reasonable range
-        nu_init = 1.0 + jnp.abs(jax.random.normal(key_nu)) * shape
-
-        return self.join_mode_dispersion(mu_init, nu_init)
-
-    @override
-    def initialize_from_sample(
-        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
-        """Initialize COM-Poisson parameters from sample.
-
-        Estimates mode and shape parameters using method of moments based on sample mean and variance, with added noise for regularization.
-        """
-        # Compute sample statistics
-        mean = jnp.mean(sample)
-        var = jnp.var(sample)
-
-        # Add noise for regularization
-        noise = jax.random.normal(key, shape=(2,)) * shape + location
-        mean = mean + noise[0]
-        var = var + noise[1]
-
-        a = var
-        b = -(mean + 0.5)
-        c = 0.5
-
-        nu = (-b + jnp.sqrt(b**2 - 4 * a * c)) / (2 * a)
-
-        mu = var * nu
-
-        # Convert to natural parameters
-        return self.join_mode_dispersion(mu, nu)
+    def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
+        _, var = self.numerical_mean_variance(params)
+        return var
 
 
 def _log_factorial(k: Array) -> Array:

@@ -89,12 +89,16 @@ def plot_correlation_matrix(
     return heatmap
 
 
-def plot_training_history(ax: Axes, lls: list[float]) -> None:
+def plot_training_history(
+    ax: Axes, keys: list[str], results: ComAnalysisResults
+) -> None:
     """Plot training history of log likelihoods."""
-    steps = np.arange(len(lls))
-    ax.plot(steps, lls)
+
     ax.set_xlabel("Training Step")
     ax.set_ylabel("Log Likelihood")
+    for key in keys:
+        lls = cast(list[float], results[key])
+        ax.plot(lls, label=key)
     ax.grid(True)
 
 
@@ -113,13 +117,13 @@ def create_com_mixture_plots(results: ComAnalysisResults) -> Figure:
     # Plot comparisons
     plot_mean_scatter(
         ax_means,
-        np.array(results["fa_stats"]["means"], dtype=np.float64),
+        np.array(results["grt_stats"]["means"], dtype=np.float64),
         np.array(results["cbm_stats"]["means"], dtype=np.float64),
     )
 
     plot_covariance_scatter(
         ax_covs,
-        np.array(results["fa_stats"]["covariances"], dtype=np.float64),
+        np.array(results["grt_stats"]["covariances"], dtype=np.float64),
         np.array(results["cbm_stats"]["covariances"], dtype=np.float64),
     )
 
@@ -128,7 +132,9 @@ def create_com_mixture_plots(results: ComAnalysisResults) -> Figure:
     )
     fig.colorbar(heatmap, ax=ax_corr)
 
-    plot_training_history(ax_train, results["training_lls"])
+    keys = ["fan_lls", "com_lls"]
+
+    plot_training_history(ax_train, keys, results)
 
     fig.tight_layout()
     return fig
@@ -141,13 +147,6 @@ def main() -> None:
     # Load results
     analysis = cast(ComAnalysisResults, paths.load_analysis())
 
-    # sort
-    print("Sorted FA Covariances:")
-    print(np.sort(np.array(analysis["fa_stats"]["covariances"])))
-    print("Sorted Discrete Covariances:")
-    print(np.sort(np.array(analysis["sample_stats"]["covariances"])))
-    print("Sorted CBM Covariances:")
-    print(np.sort(np.array(analysis["cbm_stats"]["covariances"])))
     # Create and save figure
     fig = create_com_mixture_plots(analysis)
     paths.save_plot(fig)

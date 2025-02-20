@@ -22,8 +22,10 @@ class ComAnalysisResults(TypedDict):
     4. Training history
     """
 
-    fa_stats: CovarianceStatistics  # Ground truth factor analysis
+    grt_stats: CovarianceStatistics  # Ground truth factor analysis
+    fan_stats: CovarianceStatistics  # Fitted factor analysis
     cbm_stats: CovarianceStatistics  # Fitted COM-Poisson mixture
     sample_stats: CovarianceStatistics  # Empirical statistics
 
-    training_lls: list[float]  # Training log-likelihoods
+    fan_lls: list[float]  # Factor analysis log-likelihoods
+    com_lls: list[float]  # Training log-likelihoods
