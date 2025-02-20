@@ -18,7 +18,7 @@ from jax import Array
 from jax.scipy import stats
 
 from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale
-from goal.models import Covariance, LinearGaussianModel, Normal
+from goal.models import Covariance, FactorAnalysis, LinearGaussianModel, Normal
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -100,6 +100,60 @@ def scipy_log_likelihood(x: Array, mean: Array, cov: Array) -> Array:
     )
 
 
+def test_factor_analysis_loadings(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that factor analysis model correctly handles loadings parameterization."""
+    caplog.set_level(logging.INFO)
+    logger.info("\nTesting factor analysis loadings parameterization")
+
+    # Create simple ground truth parameters
+    obs_dim = 3
+    lat_dim = 2
+    loadings = jnp.array(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ]
+    )
+    means = jnp.array([1.0, 2.0, 3.0])
+    diags = jnp.array([0.1, 0.1, 0.1])  # Small diagonal noise
+
+    # Create factor analysis model
+    fa_model = FactorAnalysis(obs_dim, lat_dim)
+
+    # Convert to natural parameters
+    fa_params = fa_model.from_loadings(loadings, means, diags)
+
+    # Get the equivalent normal distribution
+    nor_man, nor_params = fa_model.observable_distribution(fa_params)
+
+    # Convert to mean parameters to check the result
+    nor_means = nor_man.to_mean(nor_params)
+    mean, cov = nor_man.split_mean_covariance(nor_means)
+
+    # Check that we get expected results
+
+    # 1. Mean should match input means
+    assert jnp.allclose(mean.array, means, rtol=1e-4, atol=1e-4), "Means don't match"
+
+    # 2. Covariance should be LLᵀ + D
+    expected_cov = loadings @ loadings.T + jnp.diag(diags)
+    actual_cov = nor_man.cov_man.to_dense(cov)
+    assert jnp.allclose(actual_cov, expected_cov, rtol=1e-4, atol=1e-4), (
+        "Covariance doesn't match LLᵀ + D"
+    )
+
+    # 3. Log density at mean should be finite
+    sample = means[None, :]  # Single sample at the mean
+    ll = nor_man.log_density(nor_params, sample)
+    assert jnp.isfinite(ll), "Log density at mean is not finite"
+
+    logger.info(f"Mean: {mean.array}")
+    logger.info(f"Expected covariance:\n{expected_cov}")
+    logger.info(f"Actual covariance:\n{actual_cov}")
+    logger.info(f"Log density at mean: {ll}")
+
+
 def test_observable_distributions(
     sample_data: Array, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -126,7 +180,7 @@ def test_observable_distributions(
     logger.info(f"Direct observable log-density: {direct_ll}")
     logger.info(f"Marginal distribution log-density: {marginal_ll}")
 
-    assert jnp.allclose(direct_ll, marginal_ll, rtol=0.1, atol=0.01), (
+    assert jnp.allclose(direct_ll, marginal_ll, rtol=relative_tol, atol=absolute_tol), (
         "Log-density differs between direct computation and marginal distribution"
     )
 

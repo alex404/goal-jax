@@ -332,7 +332,7 @@ class LinearGaussianModel[
         # Join parameters with interaction matrix transposed
         transposed_params = transposed_lgm.join_params(
             lat_params,  # Original latent becomes observable
-            transposed_lgm.int_man.transpose(int_params),
+            self.int_man.transpose(int_params),
             obs_params_emb,
         )
 
@@ -382,14 +382,6 @@ class LinearGaussianModel[
         )
 
 
-# @dataclass(frozen=True)
-# class LinearModel(LinearGaussianModel[PositiveDefinite]):
-#     """A linear model with Gaussian latent variables."""
-#
-#     def __init__(self, obs_dim: int, lat_dim: int):
-#         super().__init__(obs_dim, PositiveDefinite, lat_dim)
-#
-#
 @dataclass(frozen=True)
 class FactorAnalysis(LinearGaussianModel[Diagonal]):
     """A factor analysis model with Gaussian latent variables."""
@@ -409,37 +401,31 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
-    def to_natural_from_loadings(
+    def from_loadings(
         self,
         loadings: Array,
         means: Array,
         diags: Array,
     ) -> Point[Natural, Self]:
-        """Convert source parameters to natural parameters for factor analysis.
+        """Convert standard factor analysis parameters to natural parameters.
 
-        For a factor analysis model with generative form:
-        $$p(x \\mid z) = \\mathcal{N}(Az + \\mu, D)$$
-
-        where:
-        - $A$ is the loading matrix
-        - $\\mu$ is the mean vector
-        - $D$ is a diagonal covariance matrix
-        - $z \\sim \\mathcal{N}(0, I)$
-
-        This method converts these source parameters to natural parameters
-        $$p(x \\mid z) \\propto \\exp(\\theta_x \\cdot s_x(x) + s_x(x) \\cdot \\Theta_{xz} \\cdot z)$$
+        The factor analysis model is:
+            x = Az + μ + ε, where ε ~ N(0, D)
+            z ~ N(0, I)
 
         where:
-        - $\\theta_x$ are observable natural parameters derived from $\\mu$ and $D$
-        - $\\Theta_{xz} = D^{-1}A$ is the precision-scaled loading matrix
+        - z is a lat_dim dimensional latent variable
+        - A is a obs_dim x lat_dim loading matrix mapping latent to observed space
+        - D is a diagonal obs_dim x obs_dim noise covariance matrix
+        - μ is the obs_dim mean vector
 
         Args:
-            loadings: Loading matrix $A$ of shape (obs_dim, lat_dim)
-            means: Mean vector $\\mu$ for observable variables
-            diags: Diagonal entries of $D$
+            loadings: obs_dim x lat_dim matrix A mapping latent to observed space
+            means: obs_dim mean vector μ
+            diags: obs_dim diagonal elements of noise covariance D
 
         Returns:
-            Natural parameters for factor analysis model
+            Factor analysis model in natural parameters
         """
         # Initialize interaction matrix scaled by precision
         with self.obs_man as om:
