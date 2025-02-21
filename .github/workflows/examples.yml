@@ -41,6 +41,8 @@ jobs:
           python -m examples.univariate_analytic.plot
           python -m examples.univariate_differentiable.run
           python -m examples.univariate_differentiable.plot
+          python -m examples.poisson_mixture.run
+          python -m examples.poisson_mixture.plot
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
