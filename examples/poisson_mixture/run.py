@@ -12,6 +12,7 @@ The script:
 4. Computes comparative statistics
 """
 
+import os
 from typing import Any
 
 import jax
@@ -44,9 +45,9 @@ N_NEURONS = 10  # Observable dimension
 N_FACTORS = 3  # Latent dimension
 SAMPLE_SIZE = 1000  # Number of samples
 N_EM_STEPS = 100  # EM steps
-SGD_FACTOR = 100
+SGD_FACTOR = 1000
 N_SGD_STEPS = N_EM_STEPS * SGD_FACTOR
-N_COMPONENTS = 3  # Number of mixture components
+N_COMPONENTS = 5  # Number of mixture components
 LEARNING_RATE = 3e-3
 
 PSN_MIX_MAN = poisson_mixture(N_NEURONS, N_COMPONENTS)
@@ -114,17 +115,17 @@ def compute_dense_statistics(mean: Array, covariance: Array) -> CovarianceStatis
 
 def fit_factor_analysis(
     key_fit: Array,
-    discrete_sample: Array,
+    sample: Array,
 ) -> tuple[Point[Natural, FactorAnalysis], list[float]]:
     # Fit Factor Analysis to discrete data
     fa_discrete = FactorAnalysis(N_NEURONS, N_FACTORS)
-    fa_params_discrete = fa_discrete.initialize(key_fit)
+    fa_params_discrete = fa_discrete.initialize_from_sample(key_fit, sample)
 
     def em_step(
         params: Point[Natural, FactorAnalysis], _: Any
     ) -> tuple[Point[Natural, FactorAnalysis], Array]:
-        ll = fa_discrete.average_log_observable_density(params, discrete_sample)
-        next_params = fa_discrete.expectation_maximization(params, discrete_sample)
+        ll = fa_discrete.average_log_observable_density(params, sample)
+        next_params = fa_discrete.expectation_maximization(params, sample)
         return next_params, ll
 
     fa_params_final, fa_lls = jax.lax.scan(
@@ -138,7 +139,7 @@ def fit_poisson_mixture(
     key: Array,
     sample: Array,
 ) -> tuple[Point[Natural, PoissonMixture], list[float]]:
-    init_params = PSN_MIX_MAN.initialize(key, shape=1)
+    init_params = PSN_MIX_MAN.initialize_from_sample(key, sample)
 
     def em_step(
         carry: Point[Natural, PoissonMixture], _: Any
@@ -157,7 +158,7 @@ def fit_com_mixture(
     key: Array,
     sample: Array,
 ) -> tuple[Point[Natural, CoMPoissonMixture], list[float]]:
-    init_params = COM_MIX_MAN.initialize(key, shape=1)
+    init_params = COM_MIX_MAN.initialize_from_sample(key, sample)
 
     optimizer: Optimizer[Natural, CoMPoissonMixture] = Optimizer.adam(
         man=COM_MIX_MAN, learning_rate=LEARNING_RATE
@@ -184,11 +185,11 @@ def fit_com_mixture(
 
 def main() -> None:
     """Run COM-Poisson mixture model analysis."""
-    initialize_jax(disable_jit=False)
+    initialize_jax(device="gpu")
     paths = example_paths(__file__)
 
     # Create models and generate data
-    key = jax.random.PRNGKey(0)
+    key = jax.random.PRNGKey(int.from_bytes(os.urandom(4), byteorder="big"))
     key_sample, key_fit = jax.random.split(key, 2)
     psn_key, com_key, fan_key = jax.random.split(key_fit, 3)
 
