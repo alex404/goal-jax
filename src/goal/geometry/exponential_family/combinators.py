@@ -41,13 +41,13 @@ class StatisticalMoments(Protocol):
     def statistical_mean[M: ExponentialFamily](
         self: M, params: Point[Natural, M]
     ) -> Array:
-        """Compute the mean/expected value of the distribution."""
+        """Compute the mean/expected value of the distribution as a 1D Array."""
         ...
 
     def statistical_covariance[M: ExponentialFamily](
         self: M, params: Point[Natural, M]
     ) -> Array:
-        """Compute the covariance matrix of the distribution."""
+        """Compute the covariance matrix of the distribution as a 2D Array."""
         ...
 
 
@@ -208,7 +208,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
 
         # Map the mean computation across all replicates
 
-        return self.map(self.rep_man.statistical_mean, params)  # pyright: ignore[reportArgumentType]
+        return self.map(self.rep_man.statistical_mean, params).ravel()  # pyright: ignore[reportArgumentType]
 
     def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
         """Compute covariance for product distribution."""
@@ -221,9 +221,9 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
         component_covs = self.map(self.rep_man.statistical_covariance, params)  # pyright: ignore[reportArgumentType]
 
         # Check if components return scalar variances
-        if len(component_covs.shape) == 1:
+        if component_covs.size == self.n_reps:
             # For scalar variances, return diagonal matrix
-            return jnp.diag(component_covs)
+            return jnp.diag(component_covs.ravel())
         # Build block diagonal matrix for matrix covariances
         rep_dim = self.rep_man.data_dim
         full_dim = self.data_dim

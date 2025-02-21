@@ -112,10 +112,10 @@ class Poisson(Analytic):
     # Methods
 
     def statistical_mean(self, params: Point[Natural, Self]) -> Array:
-        return self.to_mean(params).array
+        return self.to_mean(params).array.reshape([1])
 
     def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
-        return self.to_mean(params).array
+        return self.to_mean(params).array.reshape([1, 1])
 
 
 @dataclass(frozen=True)
@@ -442,11 +442,11 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
     def statistical_mean(self, params: Point[Natural, Self]) -> Array:
         mean, _ = self.numerical_mean_variance(params)
-        return mean
+        return mean.reshape([1])
 
     def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
         _, var = self.numerical_mean_variance(params)
-        return var
+        return var.reshape([1, 1])
 
 
 def _log_factorial(k: Array) -> Array:

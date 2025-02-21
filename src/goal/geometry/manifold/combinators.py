@@ -194,5 +194,4 @@ class Replicated[M: Manifold](Manifold):
         def array_f(row: Array) -> Array:
             return f(self.rep_man.point(row)).array
 
-        mapped = jax.vmap(array_f)(p.array)
-        return _Point(jnp.reshape(mapped, (self.n_reps, -1)))
+        return _Point(jax.vmap(array_f)(p.array))

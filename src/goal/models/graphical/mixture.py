@@ -99,9 +99,11 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         will be discarded.
         """
         probs = self.lat_man.to_probs(weights)
+        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
+        probs = probs.reshape(probs_shape)
 
         # Scale components - shape: (n_categories, obs_dim)
-        weighted_comps = components.array * probs.reshape(-1, 1)
+        weighted_comps = components.array * probs
 
         # Sum for observable means - shape: (obs_dim,)
         obs_means = self.obs_man.mean_point(jnp.sum(weighted_comps, axis=0))
@@ -134,10 +136,12 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
         # Scale remaining components by their probabilities
         # shape: (n_categories-1, obs_dim)
-        other_comps = int_cols.array / probs[1:].reshape(-1, 1)
+
+        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
+        other_comps = int_cols.array / probs[1:].reshape(probs_shape)
 
         # Combine components - shape: (n_categories, obs_dim)
-        components = jnp.vstack([first_comp.array.reshape(1, -1), other_comps])
+        components = jnp.vstack([first_comp.array[None, :], other_comps])
 
         return self.cmp_man.mean_point(components), cat_means
 
@@ -205,7 +209,7 @@ class DifferentiableMixture[
         # translated shape: (n_categories - 1, obs_dim)
         translated = self.int_man.col_man.man_map(translate_col, int_cols)
         # components shape: (n_categories, obs_dim)
-        components = jnp.vstack([obs_bias.array.reshape(1, -1), translated.array])
+        components = jnp.vstack([obs_bias.array[None, :], translated.array])
 
         return self.cmp_man.natural_point(components), prr_params
 
@@ -220,6 +224,7 @@ class DifferentiableMixture[
         """
         # Get probabilities for weighting - shape: (n_categories,)
         probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
+        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
 
         # Get anchor (first component) - shape: (obs_dim,)
         anchor = self.cmp_man.get_replicate(components, jnp.asarray(0))
@@ -227,7 +232,7 @@ class DifferentiableMixture[
 
         # Compute weighted average - shape: (obs_dim,)
         avg_params = self.obs_man.natural_point(
-            jnp.sum(components.array * probs.reshape(-1, 1), axis=0)
+            jnp.sum(components.array * probs.reshape(probs_shape), axis=0)
         )
 
         # Create obs_bas combining in/out of subspace parameters
@@ -277,11 +282,12 @@ class DifferentiableMixture[
                 f"Observable manifold {type(self.obs_man)} does not support statistical moment computation"
             )
 
-        components, weights = self.split_natural_mixture(params)
+        comp_params, cat_params = self.split_natural_mixture(params)
+        weights = self.lat_man.to_probs(self.lat_man.to_mean(cat_params))
 
         # Use statistical_mean/covariance instead of points to avoid type issues
-        cmp_means = self.cmp_man.map(self.obs_man.statistical_mean, components)  # pyright: ignore[reportArgumentType]
-        cmp_covs = self.cmp_man.map(self.obs_man.statistical_covariance, components)  # pyright: ignore[reportArgumentType]
+        cmp_means = self.cmp_man.map(self.obs_man.statistical_mean, comp_params)  # pyright: ignore[reportArgumentType]
+        cmp_covs = self.cmp_man.map(self.obs_man.statistical_covariance, comp_params)  # pyright: ignore[reportArgumentType]
 
         # Compute mixture mean
         mean = jnp.einsum("k,ki->i", weights, cmp_means)

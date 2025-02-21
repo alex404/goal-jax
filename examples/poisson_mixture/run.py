@@ -159,9 +159,6 @@ def fit_com_mixture(
 ) -> tuple[Point[Natural, CoMPoissonMixture], list[float]]:
     init_params = COM_MIX_MAN.initialize(key, shape=1)
 
-    components, weights = COM_MIX_MAN.split_natural_mixture(init_params)
-    print("Components shape:", components.array.shape)
-
     optimizer: Optimizer[Natural, CoMPoissonMixture] = Optimizer.adam(
         man=COM_MIX_MAN, learning_rate=LEARNING_RATE
     )
@@ -210,17 +207,17 @@ def main() -> None:
     _, fan_obs_params = FAN_MAN.observable_distribution(fan_params)
     fan_stats = compute_normal_statistics(NOR_MAN.to_mean(fan_obs_params))
 
+    # Fit Poisson mixture and compute its statistics
+    psn_params, psn_lls = fit_poisson_mixture(psn_key, discrete_sample)
+    psn_mean, psn_cov = PSN_MIX_MAN.observable_mean_covariance(psn_params)
+    psn_stats = compute_dense_statistics(psn_mean, psn_cov)
+
     # Fit COM mixture and compute its statistics
     com_params, com_lls = fit_com_mixture(com_key, discrete_sample)
     cbm_mean, cbm_cov = COM_MIX_MAN.observable_mean_covariance(com_params)
     cbm_stats = compute_dense_statistics(cbm_mean, cbm_cov)
     # take only every SGD_FACTOR-th log likelihood
     com_lls = com_lls[::SGD_FACTOR]
-
-    # Fit Poisson mixture and compute its statistics
-    psn_params, psn_lls = fit_poisson_mixture(psn_key, discrete_sample)
-    psn_mean, psn_cov = PSN_MIX_MAN.observable_mean_covariance(psn_params)
-    psn_stats = compute_dense_statistics(psn_mean, psn_cov)
 
     # Save results
     results = PoissonAnalysisResults(
