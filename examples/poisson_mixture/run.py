@@ -185,7 +185,7 @@ def fit_com_mixture(
 
 def main() -> None:
     """Run COM-Poisson mixture model analysis."""
-    initialize_jax(device="gpu")
+    initialize_jax()
     paths = example_paths(__file__)
 
     # Create models and generate data
