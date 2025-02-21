@@ -1,6 +1,6 @@
 """Plotting code for COM-Poisson mixture model analysis."""
 
-from typing import Literal, TypeAlias, cast
+from typing import Literal, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,7 +14,7 @@ from ..shared import example_paths
 from .types import CovarianceStatistics, PoissonAnalysisResults
 
 # Type aliases for clarity
-ModelType: TypeAlias = Literal["fan", "psn", "com", "grt", "sample"]
+ModelType = Literal["fan", "psn", "com", "grt", "sample"]
 
 # Color schemes
 MODEL_COLORS = {
@@ -291,23 +291,21 @@ def main() -> None:
     ax_corr_psn = fig.add_subplot(gs[1, 1])
     ax_corr_com = fig.add_subplot(gs[1, 2])
 
-    # Plot scatter comparisons with all models in the same plot
-    # Means comparison
-    for model_type, model_stats in [
+    # Define model types and their corresponding statistics
+    model_pairs: list[tuple[ModelType, CovarianceStatistics]] = [
         ("fan", results["fan_stats"]),
         ("psn", results["psn_stats"]),
         ("com", results["com_stats"]),
-    ]:
+    ]
+
+    # Means comparison
+    for model_type, model_stats in model_pairs:
         plot_means_comparison(
             ax_means, results["sample_stats"], model_stats, model_type
         )
 
     # Covariance comparison
-    for model_type, model_stats in [
-        ("fan", results["fan_stats"]),
-        ("psn", results["psn_stats"]),
-        ("com", results["com_stats"]),
-    ]:
+    for model_type, model_stats in model_pairs:
         plot_covariance_comparison(
             ax_covs, results["sample_stats"], model_stats, model_type
         )
