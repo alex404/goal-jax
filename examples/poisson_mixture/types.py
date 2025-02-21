@@ -12,7 +12,7 @@ class CovarianceStatistics(TypedDict):
     correlation_matrix: list[list[float]]  # Full correlation matrices
 
 
-class ComAnalysisResults(TypedDict):
+class PoissonAnalysisResults(TypedDict):
     """Complete results for COM-Poisson mixture model analysis.
 
     Contains:
@@ -23,9 +23,11 @@ class ComAnalysisResults(TypedDict):
     """
 
     grt_stats: CovarianceStatistics  # Ground truth factor analysis
-    fan_stats: CovarianceStatistics  # Fitted factor analysis
-    cbm_stats: CovarianceStatistics  # Fitted COM-Poisson mixture
     sample_stats: CovarianceStatistics  # Empirical statistics
+    fan_stats: CovarianceStatistics  # Fitted factor analysis
+    psn_stats: CovarianceStatistics  # Fitted Poisson mixture
+    com_stats: CovarianceStatistics  # Fitted COM-Poisson mixture
 
     fan_lls: list[float]  # Factor analysis log-likelihoods
+    psn_lls: list[float]  # Poisson mixture log-likelihoods
     com_lls: list[float]  # Training log-likelihoods

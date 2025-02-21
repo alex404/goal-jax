@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import override
+from typing import Self, override
+
+import jax.numpy as jnp
 
 from ...geometry import (
     AnalyticHierarchical,
     AnalyticProduct,
     DifferentiableHierarchical,
     DifferentiableProduct,
+    LocationShape,
     LocationSubspace,
     Mean,
     Natural,
     Point,
     PositiveDefinite,
+    Product,
     Subspace,
 )
 from ..base.gaussian.normal import FullNormal, Normal
-from ..base.poisson import CoMPoisson, Poisson
+from ..base.poisson import CoMPoisson, CoMShape, Poisson
 from .lgm import LinearGaussianModel
 from .mixture import AnalyticMixture, DifferentiableMixture
 
@@ -150,9 +154,63 @@ def analytic_hmog[ObsRep: PositiveDefinite](
 
 # Type synonyms for common models
 type PoissonPopulation = AnalyticProduct[Poisson]
-type CoMPoissonPopulation = DifferentiableProduct[CoMPoisson]
+type PopulationShape = Product[CoMShape]
 type PoissonMixture = AnalyticMixture[PoissonPopulation]
 type CoMPoissonMixture = DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation]
+
+
+@dataclass(frozen=True)
+class CoMPoissonPopulation(
+    DifferentiableProduct[CoMPoisson], LocationShape[PoissonPopulation, PopulationShape]
+):
+    """A population of independent COM-Poisson units.
+
+    For $n$ independent COM-Poisson units, the joint density takes the form:
+
+    $$p(x; \\mu, \\nu) = \\prod_{i=1}^n \\frac{\\mu_i^{x_i}}{(x_i!)^{\\nu_i} Z(\\mu_i, \\nu_i)}$$
+
+    where for each unit $i$:
+    - $\\mu_i$ is the mode parameter
+    - $\\nu_i$ is the dispersion parameter controlling variance relative to Poisson
+    - $Z(\\mu, \\nu)$ is the normalizing constant
+    """
+
+    def __init__(self, n_reps: int):
+        """Initialize COM-Poisson population.
+
+        Args:
+            n_reps: Number of neurons in the population
+        """
+        super().__init__(CoMPoisson(), n_reps)
+
+    @property
+    @override
+    def fst_man(self) -> PoissonPopulation:
+        return AnalyticProduct(Poisson(), n_reps=self.n_reps)
+
+    @property
+    @override
+    def snd_man(self) -> PopulationShape:
+        return Product(CoMShape(), n_reps=self.n_reps)
+
+    @override
+    def join_params(
+        self,
+        first: Point[Natural, PoissonPopulation],
+        second: Point[Natural, PopulationShape],
+    ) -> Point[Natural, Self]:
+        params_matrix = jnp.stack([first.array, second.array])
+        return self.natural_point(params_matrix.T.reshape(-1))
+
+    @override
+    def split_params(
+        self,
+        params: Point[Natural, Self],
+    ) -> tuple[Point[Natural, PoissonPopulation], Point[Natural, PopulationShape]]:
+        matrix = params.array.reshape(self.n_reps, 2).T
+        loc_params = self.fst_man.natural_point(matrix[0])
+        shp_params = self.snd_man.natural_point(matrix[1])
+        return loc_params, shp_params
 
 
 @dataclass(frozen=True)
@@ -179,7 +237,7 @@ class PopulationLocationSubspace(
     @property
     @override
     def sup_man(self) -> CoMPoissonPopulation:
-        return DifferentiableProduct(CoMPoisson(), n_reps=self.n_neurons)
+        return CoMPoissonPopulation(n_reps=self.n_neurons)
 
     @property
     @override

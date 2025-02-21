@@ -114,7 +114,7 @@ class Poisson(Analytic):
     def statistical_mean(self, params: Point[Natural, Self]) -> Array:
         return self.to_mean(params).array
 
-    def statistical_variance(self, params: Point[Natural, Self]) -> Array:
+    def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
         return self.to_mean(params).array
 
 

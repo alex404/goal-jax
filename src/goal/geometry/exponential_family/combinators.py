@@ -28,6 +28,31 @@ from .base import (
     Natural,
 )
 
+### Protocols ###
+
+
+@runtime_checkable
+class StatisticalMoments(Protocol):
+    """Protocol for distributions that can compute statistical moments.
+
+    This is a temporary solution until Python supports proper intersection types that would allow us to express this as ExponentialFamily & StatisticalMoments.
+    """
+
+    def statistical_mean[M: ExponentialFamily](
+        self: M, params: Point[Natural, M]
+    ) -> Array:
+        """Compute the mean/expected value of the distribution."""
+        ...
+
+    def statistical_covariance[M: ExponentialFamily](
+        self: M, params: Point[Natural, M]
+    ) -> Array:
+        """Compute the covariance matrix of the distribution."""
+        ...
+
+
+### Classes ###
+
 
 class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
     Pair[Location, Shape], ExponentialFamily, ABC
@@ -104,7 +129,7 @@ class LocationSubspace[
         return self.sup_man.join_params(first + q, second)
 
 
-class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
+class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
     """Replicated manifold for exponential families, representing the product distribution over `n_reps` independent random variables."""
 
     # Overrides
@@ -171,8 +196,51 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
         init_params = jax.vmap(init_one)(keys, rep_datas)
         return self.natural_point(init_params)
 
+    def statistical_mean(self, params: Point[Natural, Self]) -> Array:
+        """Compute mean for product distribution.
 
-class GenerativeProduct[M: Generative](Product[M], Generative, ABC):
+        If the replicated manifold supports statistical moments, returns a vector of means for each component. Otherwise raises TypeError.
+        """
+        if not isinstance(self.rep_man, StatisticalMoments):
+            raise TypeError(
+                f"Replicated manifold {type(self.rep_man)} does not support statistical moment computation"
+            )
+
+        # Map the mean computation across all replicates
+
+        return self.map(self.rep_man.statistical_mean, params)  # pyright: ignore[reportArgumentType]
+
+    def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
+        """Compute covariance for product distribution."""
+        if not isinstance(self.rep_man, StatisticalMoments):
+            raise TypeError(
+                f"Replicated manifold {type(self.rep_man)} does not support statistical moment computation"
+            )
+
+        # Get component covariances
+        component_covs = self.map(self.rep_man.statistical_covariance, params)  # pyright: ignore[reportArgumentType]
+
+        # Check if components return scalar variances
+        if len(component_covs.shape) == 1:
+            # For scalar variances, return diagonal matrix
+            return jnp.diag(component_covs)
+        # Build block diagonal matrix for matrix covariances
+        rep_dim = self.rep_man.data_dim
+        full_dim = self.data_dim
+        block_diag = jnp.zeros((full_dim, full_dim))
+
+        # Place component covariances along the diagonal
+        for i in range(self.n_reps):
+            start_idx = i * rep_dim
+            end_idx = start_idx + rep_dim
+            block_diag = block_diag.at[start_idx:end_idx, start_idx:end_idx].set(
+                component_covs[i]
+            )
+
+        return block_diag
+
+
+class GenerativeProduct[M: Generative](Product[M], Generative):
     """Replicated manifold for generative exponential families."""
 
     # Overrides
@@ -192,9 +260,7 @@ class GenerativeProduct[M: Generative](Product[M], Generative, ABC):
         return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 
 
-class DifferentiableProduct[M: Differentiable](
-    Differentiable, GenerativeProduct[M], ABC
-):
+class DifferentiableProduct[M: Differentiable](Differentiable, GenerativeProduct[M]):
     """Replicated manifold for differentiable exponential families."""
 
     # Overrides
@@ -214,23 +280,3 @@ class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
     def negative_entropy(self, means: Point[Mean, Self]) -> Array:
         # Reshape instead of split
         return jnp.sum(self.map(self.rep_man.negative_entropy, means))
-
-
-@runtime_checkable
-class StatisticalMoments(Protocol):
-    """Protocol for distributions that can compute statistical moments.
-
-    This is a temporary solution until Python supports proper intersection types that would allow us to express this as ExponentialFamily & StatisticalMoments.
-    """
-
-    def statistical_mean[M: ExponentialFamily](
-        self: M, params: Point[Natural, M]
-    ) -> Array:
-        """Compute the mean/expected value of the distribution."""
-        ...
-
-    def statistical_covariance[M: ExponentialFamily](
-        self: M, params: Point[Natural, M]
-    ) -> Array:
-        """Compute the covariance matrix of the distribution."""
-        ...

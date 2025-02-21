@@ -84,12 +84,20 @@ class Manifold(ABC):
         """The dimension of the manifold."""
         ...
 
+    @property
+    def coordinates_shape(self) -> list[int]:
+        """The shape of the coordinate array."""
+        return [self.dim]
+
     # Templates
 
     def point[Coords: Coordinates](self, array: Array) -> Point[Coords, Self]:
-        """Create a point on the manifold from a coordinate array."""
-        # flatten array
-        return _Point(jnp.ravel(jnp.atleast_1d(array)))
+        # Check size matches dimension
+        if array.size != self.dim:
+            raise ValueError(
+                f"Array size {array.size} doesn't match manifold dimension {self.dim}"
+            )
+        return _Point(jnp.reshape(array, self.coordinates_shape))
 
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.array.ravel(), q.array.ravel())

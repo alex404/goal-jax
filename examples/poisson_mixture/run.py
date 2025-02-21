@@ -27,14 +27,17 @@ from goal.geometry import (
     PositiveDefinite,
 )
 from goal.models import (
-    CoMMixture,
+    CoMPoissonMixture,
     FactorAnalysis,
     FullNormal,
     Normal,
+    PoissonMixture,
+    com_poisson_mixture,
+    poisson_mixture,
 )
 
 from ..shared import example_paths, initialize_jax
-from .types import ComAnalysisResults, CovarianceStatistics
+from .types import CovarianceStatistics, PoissonAnalysisResults
 
 # Constants
 N_NEURONS = 10  # Observable dimension
@@ -46,7 +49,8 @@ N_SGD_STEPS = N_EM_STEPS * SGD_FACTOR
 N_COMPONENTS = 3  # Number of mixture components
 LEARNING_RATE = 3e-3
 
-COM_MIX_MAN = CoMMixture(N_NEURONS, N_COMPONENTS)
+PSN_MIX_MAN = poisson_mixture(N_NEURONS, N_COMPONENTS)
+COM_MIX_MAN = com_poisson_mixture(N_NEURONS, N_COMPONENTS)
 FAN_MAN = FactorAnalysis(N_NEURONS, N_FACTORS)
 NOR_MAN = Normal(N_NEURONS, PositiveDefinite)
 
@@ -130,23 +134,45 @@ def fit_factor_analysis(
     return fa_params_final, fa_lls.tolist()
 
 
+def fit_poisson_mixture(
+    key: Array,
+    sample: Array,
+) -> tuple[Point[Natural, PoissonMixture], list[float]]:
+    init_params = PSN_MIX_MAN.initialize(key, shape=1)
+
+    def em_step(
+        carry: Point[Natural, PoissonMixture], _: Any
+    ) -> tuple[Point[Natural, PoissonMixture], Array]:
+        params = carry
+        ll = PSN_MIX_MAN.average_log_observable_density(params, sample)
+        next_params = PSN_MIX_MAN.expectation_maximization(params, sample)
+        return next_params, ll
+
+    final_params, lls = jax.lax.scan(em_step, init_params, None, length=N_EM_STEPS)
+
+    return final_params, lls.tolist()
+
+
 def fit_com_mixture(
     key: Array,
     sample: Array,
-) -> tuple[Point[Natural, CoMMixture], list[float]]:
+) -> tuple[Point[Natural, CoMPoissonMixture], list[float]]:
     init_params = COM_MIX_MAN.initialize(key, shape=1)
 
-    optimizer: Optimizer[Natural, CoMMixture] = Optimizer.adam(
+    components, weights = COM_MIX_MAN.split_natural_mixture(init_params)
+    print("Components shape:", components.array.shape)
+
+    optimizer: Optimizer[Natural, CoMPoissonMixture] = Optimizer.adam(
         man=COM_MIX_MAN, learning_rate=LEARNING_RATE
     )
     opt_state = optimizer.init(init_params)
 
-    def cross_entropy_loss(params: Point[Natural, CoMMixture]) -> Array:
+    def cross_entropy_loss(params: Point[Natural, CoMPoissonMixture]) -> Array:
         return -COM_MIX_MAN.average_log_observable_density(params, sample)
 
     def grad_step(
-        opt_state_and_params: tuple[OptState, Point[Natural, CoMMixture]], _: Any
-    ) -> tuple[tuple[OptState, Point[Natural, CoMMixture]], Array]:
+        opt_state_and_params: tuple[OptState, Point[Natural, CoMPoissonMixture]], _: Any
+    ) -> tuple[tuple[OptState, Point[Natural, CoMPoissonMixture]], Array]:
         opt_state, params = opt_state_and_params
         loss_val, grads = COM_MIX_MAN.value_and_grad(cross_entropy_loss, params)
         opt_state, params = optimizer.update(opt_state, grads, params)
@@ -167,7 +193,7 @@ def main() -> None:
     # Create models and generate data
     key = jax.random.PRNGKey(0)
     key_sample, key_fit = jax.random.split(key, 2)
-    com_key, fan_key = jax.random.split(key_fit)
+    psn_key, com_key, fan_key = jax.random.split(key_fit, 3)
 
     grt_params = create_ground_truth_fa()
     _, grt_obs_params = FAN_MAN.observable_distribution(grt_params)
@@ -186,18 +212,25 @@ def main() -> None:
 
     # Fit COM mixture and compute its statistics
     com_params, com_lls = fit_com_mixture(com_key, discrete_sample)
-    cbm_mean, cbm_cov = COM_MIX_MAN.numerical_mean_covariance(com_params)
+    cbm_mean, cbm_cov = COM_MIX_MAN.observable_mean_covariance(com_params)
     cbm_stats = compute_dense_statistics(cbm_mean, cbm_cov)
     # take only every SGD_FACTOR-th log likelihood
     com_lls = com_lls[::SGD_FACTOR]
 
+    # Fit Poisson mixture and compute its statistics
+    psn_params, psn_lls = fit_poisson_mixture(psn_key, discrete_sample)
+    psn_mean, psn_cov = PSN_MIX_MAN.observable_mean_covariance(psn_params)
+    psn_stats = compute_dense_statistics(psn_mean, psn_cov)
+
     # Save results
-    results = ComAnalysisResults(
+    results = PoissonAnalysisResults(
         grt_stats=grt_stats,
-        fan_stats=fan_stats,
-        cbm_stats=cbm_stats,
         sample_stats=discrete_stats,
+        fan_stats=fan_stats,
+        psn_stats=psn_stats,
+        com_stats=cbm_stats,
         com_lls=com_lls,
+        psn_lls=psn_lls,
         fan_lls=fa_lls,
     )
     paths.save_analysis(results)

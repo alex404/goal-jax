@@ -138,7 +138,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
 
 @dataclass(frozen=True)
 class Replicated[M: Manifold](Manifold):
-    """Manifold representing multiple copies of a base manifold."""
+    """Manifold representing multiple copies of a base manifold. Unlike standard points defined by flat arrays, the shape of a Point on a replicated manifold is (n_reps, base_dim)."""
 
     # Fields
 
@@ -155,13 +155,11 @@ class Replicated[M: Manifold](Manifold):
         """Total dimension is product of base dimension and number of copies."""
         return self.rep_man.dim * self.n_reps
 
+    @property
     @override
-    def point[Coords: Coordinates](self, array: Array) -> Point[Coords, Self]:
-        """Create point with correct shape for replicated manifold.
-
-        Reshapes flat array into (n_copies, base_dim) matrix.
-        """
-        return _Point(jnp.reshape(array, (self.n_reps, -1)))
+    def coordinates_shape(self) -> list[int]:
+        """Shape of the coordinate array."""
+        return [self.n_reps, *self.rep_man.coordinates_shape]
 
     # Templates
 

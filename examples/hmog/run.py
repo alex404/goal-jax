@@ -48,35 +48,35 @@ def create_ground_truth_model() -> tuple[
         cat_means = cm.to_mean(cat_params)
 
     # Create latent Gaussian components
-    with hmog.lat_man as um:
-        with um.obs_man as om:
-            y0_means = om.join_mean_covariance(
-                om.loc_man.mean_point(jnp.array([-SEP / 2])),
-                om.cov_man.mean_point(jnp.array([1.0])),
-            )
-            y1_means = om.join_mean_covariance(
-                om.loc_man.mean_point(jnp.array([SEP / 2])),
-                om.cov_man.mean_point(jnp.array([1.0])),
-            )
+    with hmog.lat_man as um, um.obs_man as lm:
+        y0_means = lm.join_mean_covariance(
+            lm.loc_man.mean_point(jnp.array([-SEP / 2])),
+            lm.cov_man.mean_point(jnp.array([1.0])),
+        )
+        y1_means = lm.join_mean_covariance(
+            lm.loc_man.mean_point(jnp.array([SEP / 2])),
+            lm.cov_man.mean_point(jnp.array([1.0])),
+        )
 
-            # components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
-            components = um.cmp_man.mean_point(
-                jnp.stack([y0_means.array, y1_means.array])
-            )
-            mix_means = um.join_mean_mixture(components, cat_means)
-            mix_params = um.to_natural(mix_means)
+        # components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
+        components = um.cmp_man.mean_point(jnp.stack([y0_means.array, y1_means.array]))
+        mix_means = um.join_mean_mixture(components, cat_means)
+        mix_params = um.to_natural(mix_means)
 
+    with hmog.obs_man as om:
         # Create observable normal with diagonal covariance
-        obs_means = hmog.obs_man.join_mean_covariance(
+        obs_means = om.join_mean_covariance(
             om.loc_man.mean_point(jnp.array([0.0, 0.0])),
             om.cov_man.mean_point(jnp.array([WIDTH, HEIGHT])),
         )
-        obs_params = hmog.obs_man.to_natural(obs_means)
+        obs_params = om.to_natural(obs_means)
 
-    # NB: Multiplying the interaction parameters by the observable precision makes them scale more intuitively
-    int_mat0 = jnp.array([1.0, 0.0])
-    obs_prs = hmog.obs_man.split_location_precision(obs_params)[1]
-    int_mat = hmog.int_man.from_dense(hmog.obs_man.cov_man.to_dense(obs_prs) @ int_mat0)
+        # NB: Multiplying the interaction parameters by the observable precision makes them scale more intuitively
+        int_mat0 = jnp.array([1.0, 0.0])
+        obs_prs = om.split_location_precision(obs_params)[1]
+        int_mat: Point[Natural, ...] = hmog.int_man.from_dense(
+            om.cov_man.to_dense(obs_prs) @ int_mat0
+        )
 
     lkl_params = hmog.lkl_man.join_params(obs_params, int_mat)
 
