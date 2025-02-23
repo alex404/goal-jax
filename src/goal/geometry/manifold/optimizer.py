@@ -32,8 +32,9 @@ class Optimizer[C: Coordinates, M: Manifold]:
         learning_rate: float = 0.1,
         b1: float = 0.9,
         b2: float = 0.999,
+        weight_decay: float = 0.0001,
     ) -> Optimizer[C, M]:
-        return cls(adamw(learning_rate, b1=b1, b2=b2), man)
+        return cls(adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay), man)
 
     @classmethod
     def sgd(
