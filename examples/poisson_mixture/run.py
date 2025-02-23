@@ -160,7 +160,7 @@ def fit_com_mixture(
 ) -> tuple[Point[Natural, CoMPoissonMixture], list[float]]:
     init_params = COM_MIX_MAN.initialize_from_sample(key, sample)
 
-    optimizer: Optimizer[Natural, CoMPoissonMixture] = Optimizer.adam(
+    optimizer: Optimizer[Natural, CoMPoissonMixture] = Optimizer.adamw(
         man=COM_MIX_MAN, learning_rate=LEARNING_RATE
     )
     opt_state = optimizer.init(init_params)

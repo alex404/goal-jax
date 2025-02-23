@@ -30,7 +30,7 @@ def fit_von_mises(
     init_params = von_man.join_mean_concentration(0.0, 1.0)
 
     # Setup optimizer
-    optimizer: Optimizer[Natural, VonMises] = Optimizer.adam(
+    optimizer: Optimizer[Natural, VonMises] = Optimizer.adamw(
         von_man, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_params)
@@ -106,7 +106,7 @@ def fit_com_poisson(
     )  # Start at Poisson(1)
 
     # Setup optimizer
-    optimizer: Optimizer[Natural, CoMPoisson] = Optimizer.adam(
+    optimizer: Optimizer[Natural, CoMPoisson] = Optimizer.adamw(
         com_man, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_params)

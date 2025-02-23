@@ -26,7 +26,7 @@ class Optimizer[C: Coordinates, M: Manifold]:
     opt_man: M
 
     @classmethod
-    def adam(
+    def adamw(
         cls,
         man: M,
         learning_rate: float = 0.1,
