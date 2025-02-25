@@ -7,8 +7,11 @@ from typing import NewType
 
 from optax import (  # pyright: ignore[reportMissingTypeStubs]
     GradientTransformation,
+    ScalarOrSchedule,  # pyright: ignore[reportUnknownVariableType]
     adamw,  # pyright: ignore[reportUnknownVariableType]
     apply_updates,  # pyright: ignore[reportUnknownVariableType]
+    chain,
+    clip_by_global_norm,
     sgd,  # pyright: ignore[reportUnknownVariableType]
 )
 
@@ -29,24 +32,64 @@ class Optimizer[C: Coordinates, M: Manifold]:
     def adamw(
         cls,
         man: M,
-        learning_rate: float = 0.1,
+        learning_rate: ScalarOrSchedule = 0.1,
         b1: float = 0.9,
         b2: float = 0.999,
         weight_decay: float = 0.0001,
+        grad_clip: float | None = None,
     ) -> Optimizer[C, M]:
-        return cls(adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay), man)
+        """Create AdamW optimizer with optional gradient clipping.
+
+        Args:
+            man: Manifold
+            learning_rate: Learning rate or schedule
+            b1: First moment decay
+            b2: Second moment decay
+            weight_decay: Weight decay parameter
+            grad_clip: Optional global norm clipping value
+
+        Returns:
+            Optimizer instance
+        """
+        if grad_clip is not None:
+            # Apply gradient clipping before optimizer
+            opt = chain(
+                clip_by_global_norm(grad_clip),
+                adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay),
+            )
+        else:
+            opt = adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay)
+
+        return cls(opt, man)
 
     @classmethod
     def sgd(
         cls,
         man: M,
-        learning_rate: float = 0.1,
+        learning_rate: ScalarOrSchedule = 0.1,
         momentum: float = 0.0,
+        grad_clip: float | None = None,
     ) -> Optimizer[C, M]:
-        return cls(sgd(learning_rate, momentum=momentum), man)
+        """Create SGD optimizer with optional gradient clipping.
 
-    def init(self, point: Point[C, M]) -> OptState:
-        return OptState(self.optimizer.init(point.array))
+        Args:
+            man: Manifold
+            learning_rate: Learning rate or schedule
+            momentum: Momentum parameter
+            grad_clip: Optional global norm clipping value
+
+        Returns:
+            Optimizer instance
+        """
+        if grad_clip is not None:
+            # Apply gradient clipping before optimizer
+            opt = chain(
+                clip_by_global_norm(grad_clip), sgd(learning_rate, momentum=momentum)
+            )
+        else:
+            opt = sgd(learning_rate, momentum=momentum)
+
+        return cls(opt, man)
 
     def update(
         self,
