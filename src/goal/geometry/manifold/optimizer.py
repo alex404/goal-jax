@@ -62,6 +62,9 @@ class Optimizer[C: Coordinates, M: Manifold]:
 
         return cls(opt, man)
 
+    def init(self, point: Point[C, M]) -> OptState:
+        return OptState(self.optimizer.init(point.array))
+
     @classmethod
     def sgd(
         cls,
