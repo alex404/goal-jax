@@ -10,8 +10,6 @@ from optax import (  # pyright: ignore[reportMissingTypeStubs]
     ScalarOrSchedule,  # pyright: ignore[reportUnknownVariableType]
     adamw,  # pyright: ignore[reportUnknownVariableType]
     apply_updates,  # pyright: ignore[reportUnknownVariableType]
-    chain,
-    clip_by_global_norm,
     sgd,  # pyright: ignore[reportUnknownVariableType]
 )
 
@@ -36,7 +34,6 @@ class Optimizer[C: Coordinates, M: Manifold]:
         b1: float = 0.9,
         b2: float = 0.999,
         weight_decay: float = 0.0001,
-        grad_clip: float | None = None,
     ) -> Optimizer[C, M]:
         """Create AdamW optimizer with optional gradient clipping.
 
@@ -46,19 +43,11 @@ class Optimizer[C: Coordinates, M: Manifold]:
             b1: First moment decay
             b2: Second moment decay
             weight_decay: Weight decay parameter
-            grad_clip: Optional global norm clipping value
 
         Returns:
             Optimizer instance
         """
-        if grad_clip is not None:
-            # Apply gradient clipping before optimizer
-            opt = chain(
-                clip_by_global_norm(grad_clip),
-                adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay),
-            )
-        else:
-            opt = adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay)
+        opt = adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay)
 
         return cls(opt, man)
 
@@ -71,7 +60,6 @@ class Optimizer[C: Coordinates, M: Manifold]:
         man: M,
         learning_rate: ScalarOrSchedule = 0.1,
         momentum: float = 0.0,
-        grad_clip: float | None = None,
     ) -> Optimizer[C, M]:
         """Create SGD optimizer with optional gradient clipping.
 
@@ -79,18 +67,11 @@ class Optimizer[C: Coordinates, M: Manifold]:
             man: Manifold
             learning_rate: Learning rate or schedule
             momentum: Momentum parameter
-            grad_clip: Optional global norm clipping value
 
         Returns:
             Optimizer instance
         """
-        if grad_clip is not None:
-            # Apply gradient clipping before optimizer
-            opt = chain(
-                clip_by_global_norm(grad_clip), sgd(learning_rate, momentum=momentum)
-            )
-        else:
-            opt = sgd(learning_rate, momentum=momentum)
+        opt = sgd(learning_rate, momentum=momentum)
 
         return cls(opt, man)
 
