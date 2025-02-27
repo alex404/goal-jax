@@ -10,6 +10,8 @@ from optax import (  # pyright: ignore[reportMissingTypeStubs]
     ScalarOrSchedule,  # pyright: ignore[reportUnknownVariableType]
     adamw,  # pyright: ignore[reportUnknownVariableType]
     apply_updates,  # pyright: ignore[reportUnknownVariableType]
+    chain,
+    clip_by_global_norm,
     sgd,  # pyright: ignore[reportUnknownVariableType]
 )
 
@@ -88,3 +90,8 @@ class Optimizer[C: Coordinates, M: Manifold]:
         )
         new_params = apply_updates(point.array, updates)  # pyright: ignore[reportUnknownVariableType]
         return OptState(new_opt_state), self.opt_man.point(new_params)  # pyright: ignore[reportUnknownVariableType, reportArgumentType]
+
+    def with_grad_clip(self, max_norm: float) -> Optimizer[C, M]:
+        """Add gradient clipping to this optimizer."""
+        new_opt = chain(clip_by_global_norm(max_norm), self.optimizer)
+        return type(self)(new_opt, self.opt_man)
