@@ -37,6 +37,7 @@ from .manifold.base import (
     reduce_dual,
 )
 from .manifold.combinators import (
+    Null,
     Pair,
     Replicated,
     Triple,
@@ -91,6 +92,7 @@ __all__ = [
     "MatrixRep",
     "Mean",
     "Natural",
+    "Null",
     "ObservableSubspace",
     "OptState",
     "Optimizer",

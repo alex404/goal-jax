@@ -26,6 +26,16 @@ from .base import (
 
 
 @dataclass(frozen=True)
+class Null(Manifold):
+    """Dummy manifold for use when nothing is being masked."""
+
+    @property
+    @override
+    def dim(self) -> int:
+        return 0
+
+
+@dataclass(frozen=True)
 class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
     """The manifold given by the Cartesian product between the first and second manifold."""
 
