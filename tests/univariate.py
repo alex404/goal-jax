@@ -7,11 +7,12 @@ Tests cover:
 
 2. Additional tests for Analytic models:
    - Parameter recovery through to_mean/to_natural cycle
+   - Relative entropy with itself (should be zero)
 """
 
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import override
 
 import jax
@@ -46,6 +47,9 @@ class UnivariateStats:
     total_mass: list[float]  # Should be close to 1 for each trial
     mse_progression: list[list[float]]  # Should decrease within each trial
     param_recovery_error: list[float] | None  # Only for Analytic models
+    relative_entropy_error: list[float] | None = (
+        None  # Self-relative entropy should be 0
+    )
 
 
 ### Tests of differentiable models ###
@@ -165,6 +169,24 @@ class AnalyticUnivariateTest[M: Analytic](DifferentiableUnivariateTest[M], ABC):
         recovered_params = self.model.to_natural(mean_params)
         return float(jnp.mean((recovered_params.array - params.array) ** 2))
 
+    def run_relative_entropy_tests(self) -> list[float]:
+        """Run relative entropy tests across multiple trials."""
+        results: list[float] = []
+        for i in range(self.n_trials):
+            key = jax.random.PRNGKey(self.rng_seed + i)
+            params = self.model.initialize(key)
+            mean_params = self.model.to_mean(params)
+            re = self.model.relative_entropy(mean_params, params)
+            results.append(float(re))
+        return results
+
+    @override
+    def run_all_trials(self) -> UnivariateStats:
+        """Run all trials and collect statistics."""
+        base_stats = super().run_all_trials()
+        relative_entropy_error = self.run_relative_entropy_tests()
+        return replace(base_stats, relative_entropy_error=relative_entropy_error)
+
 
 @dataclass
 class CategoricalTest[M: Categorical](AnalyticUnivariateTest[M]):
@@ -241,6 +263,17 @@ def analyze_stats(stats: UnivariateStats) -> None:
         std_error = jnp.std(errors)
         logger.info(f"Parameter recovery MSE: {mean_error:.4e} ± {std_error:.4e}")
 
+    # Analyze relative entropy if available
+    if stats.relative_entropy_error is not None:
+        errors = jnp.array(stats.relative_entropy_error)
+        mean_error = jnp.mean(errors)
+        std_error = jnp.std(errors)
+        logger.info(f"Self relative entropy: {mean_error:.4e} ± {std_error:.4e}")
+        # Check for non zero
+        assert jnp.all(errors >= -1e-6), (
+            f"{stats.model_name} has negative relative entropy values: {errors}"
+        )
+
 
 ### Test assertions ###
 
@@ -265,6 +298,16 @@ def assert_univariate_stats(stats: UnivariateStats) -> None:
     if stats.param_recovery_error is not None:
         assert jnp.mean(jnp.array(stats.param_recovery_error)) < 1e-5, (
             f"{stats.model_name} parameter recovery error too high"
+        )
+
+    # Check relative entropy
+    if stats.relative_entropy_error is not None:
+        relative_entropies = jnp.array(stats.relative_entropy_error)
+        assert jnp.all(relative_entropies >= -1e-6), (
+            f"{stats.model_name} has negative relative entropy values: {relative_entropies}"
+        )
+        assert jnp.mean(jnp.abs(relative_entropies)) < 1e-5, (
+            f"{stats.model_name} relative entropy with itself not close to zero"
         )
 
 
