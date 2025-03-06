@@ -300,7 +300,7 @@ class Normal[Rep: PositiveDefinite](
         covariance = second_moment - outer_mean
         log_det = self.snd_man.logdet(covariance)
 
-        return -0.5 * (self.data_dim * (1 + jnp.log(2 * jnp.pi)) + log_det)
+        return -0.5 * log_det - 0.5 * self.data_dim
 
     @override
     def sample(
