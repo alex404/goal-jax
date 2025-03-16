@@ -6,6 +6,11 @@ dependencies = [
     "jax",
     "optax",
 ]
+readme = "README.md"
+license = {text = "LICENSE"}
+
+[project.urls]
+"Homepage" = "https://github.com/alex404/goal-jax"
 
 [project.optional-dependencies]
 test = [
