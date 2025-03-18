@@ -59,6 +59,7 @@ from .manifold.matrix import (
 )
 from .manifold.optimizer import Optimizer, OptState
 from .manifold.subspace import (
+    ComposedSubspace,
     IdentitySubspace,
     Subspace,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "AnalyticConjugated",
     "AnalyticHierarchical",
     "AnalyticProduct",
+    "ComposedSubspace",
     "Conjugated",
     "Coordinates",
     "Diagonal",

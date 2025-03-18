@@ -20,16 +20,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Protocol, Self, override
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.base import Coordinates, Manifold, Point
+from ..manifold.base import Coordinates, Point
 from ..manifold.linear import AffineMap
 from ..manifold.matrix import MatrixRep
-from ..manifold.subspace import Subspace
+from ..manifold.subspace import ComposedSubspace, Subspace
 from .base import (
     Analytic,
     Differentiable,
@@ -43,67 +43,6 @@ from .harmonium import (
     DifferentiableConjugated,
     Harmonium,
 )
-
-
-@dataclass(frozen=True)
-class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
-    Subspace[Super, Sub]
-):
-    """Composition of two subspace relationships.
-    Given subspaces $S: \\mathcal{M} \\to \\mathcal{L}$ and $T: \\mathcal{L} \\to \\mathcal{N}$, forms their composition $(T \\circ S): \\mathcal{M} \\to \\mathcal{N}$ where:
-
-    - Projection: $\\pi_{T \\circ S}(p) = \\pi_T(\\pi_S(p))$
-    - Translation: $\\tau_{T \\circ S}(p,q) = \\tau_S(p, \\tau_T(0,q))$
-    """
-
-    # Fields
-
-    sup_sub: Subspace[Super, Mid]
-    sub_sub: Subspace[Mid, Sub]
-
-    # Overrides
-
-    @property
-    @override
-    def sup_man(self) -> Super:
-        return self.sup_sub.sup_man
-
-    @property
-    def mid_man(self) -> Mid:
-        return self.sup_sub.sub_man
-
-    @property
-    @override
-    def sub_man(self) -> Sub:
-        return self.sub_sub.sub_man
-
-    @override
-    def project[C: Coordinates](self, p: Point[C, Super]) -> Point[C, Sub]:
-        mid = self.sup_sub.project(p)
-        return self.sub_sub.project(mid)
-
-    @override
-    def translate[C: Coordinates](
-        self, p: Point[C, Super], q: Point[C, Sub]
-    ) -> Point[C, Super]:
-        mid_zero: Point[C, Mid] = self.mid_man.point(
-            jnp.zeros(self.sup_sub.sub_man.dim)
-        )
-        mid = self.sub_sub.translate(mid_zero, q)
-        return self.sup_sub.translate(p, mid)
-
-
-class LatentHarmonium[Latent: ExponentialFamily](Protocol):
-    def split_params[C: Coordinates](
-        self, p: Point[C, Manifold]
-    ) -> tuple[Point[C, Latent], Point[C, Manifold], Point[C, Manifold]]: ...
-
-    def join_params[C: Coordinates](
-        self,
-        first: Point[C, Latent],
-        second: Point[C, Manifold],
-        third: Point[C, Manifold],
-    ) -> Point[C, Manifold]: ...
 
 
 @dataclass(frozen=True)
