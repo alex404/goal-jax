@@ -24,8 +24,8 @@ from .exponential_family.harmonium import (
     Harmonium,
 )
 from .exponential_family.hierarchical import (
-    AnalyticHierarchical,
-    DifferentiableHierarchical,
+    AnalyticUndirected,
+    DifferentiableUndirected,
     ObservableSubspace,
 )
 from .manifold.base import (
@@ -68,17 +68,17 @@ __all__ = [
     "AffineMap",
     "Analytic",
     "AnalyticConjugated",
-    "AnalyticHierarchical",
     "AnalyticProduct",
+    "AnalyticUndirected",
     "ComposedSubspace",
     "Conjugated",
     "Coordinates",
     "Diagonal",
     "Differentiable",
     "DifferentiableConjugated",
-    "DifferentiableHierarchical",
     "DifferentiableLatent",
     "DifferentiableProduct",
+    "DifferentiableUndirected",
     "Dual",
     "ExponentialFamily",
     "Generative",

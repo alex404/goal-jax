@@ -9,8 +9,6 @@ A subspace relationship defines how one manifold $\\mathcal{N}$ can be embedded 
 The module implements several types of subspace relationships:
 
 - `IdentitySubspace`: Trivial embedding of a manifold in itself.
-- `PairSubspace`: Projects product manifold $\\mathcal{M} \\times \\mathcal{N}$ to first component.
-- `TripleSubspace`: Projects triple product to first component.
 - `ComposedSubspace`: Composes two subspace relationships $\\mathcal{L} \\to \\mathcal{M} \\to \\mathcal{N}$.
 
 #### Class Hierarchy

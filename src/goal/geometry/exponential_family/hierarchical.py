@@ -44,26 +44,28 @@ from .harmonium import (
     Harmonium,
 )
 
+### Helper Classes ###
+
 
 @dataclass(frozen=True)
 class ObservableSubspace[
     Rep: MatrixRep,
     Observable: ExponentialFamily,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
     Latent: ExponentialFamily,
-](Subspace[Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], Observable]):
+](Subspace[Harmonium[Rep, Observable, LikeObservable, LikeLatent, Latent], Observable]):
     """Subspace relationship for a product manifold $\\mathcal M \\times \\mathcal N \\times \\mathcal O$."""
 
     # Fields
 
-    hrm_man: Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]
+    hrm_man: Harmonium[Rep, Observable, LikeObservable, LikeLatent, Latent]
 
     # Overrides
 
     @property
     @override
-    def sup_man(self) -> Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]:
+    def sup_man(self) -> Harmonium[Rep, Observable, LikeObservable, LikeLatent, Latent]:
         return self.hrm_man
 
     @property
@@ -73,7 +75,8 @@ class ObservableSubspace[
 
     @override
     def project[C: Coordinates](
-        self, p: Point[C, Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]]
+        self,
+        p: Point[C, Harmonium[Rep, Observable, LikeObservable, LikeLatent, Latent]],
     ) -> Point[C, Observable]:
         first, _, _ = self.sup_man.split_params(p)
         return first
@@ -81,24 +84,27 @@ class ObservableSubspace[
     @override
     def translate[C: Coordinates](
         self,
-        p: Point[C, Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]],
+        p: Point[C, Harmonium[Rep, Observable, LikeObservable, LikeLatent, Latent]],
         q: Point[C, Observable],
-    ) -> Point[C, Harmonium[Rep, Observable, SubObservable, SubLatent, Latent]]:
+    ) -> Point[C, Harmonium[Rep, Observable, LikeObservable, LikeLatent, Latent]]:
         first, second, third = self.sup_man.split_params(p)
         return self.sup_man.join_params(first + q, second, third)
 
 
-class StrongDifferentiableHierarchical[
+### Pseudo strongly typed classes ###
+
+
+class StrongDifferentiableUndirected[
     IntRep: MatrixRep,
     Observable: Generative,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
-    MidLatent: Differentiable,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
+    PostLatent: Differentiable,
     LowerHarmonium: Differentiable,
     UpperHarmonium: Differentiable,
 ](
     DifferentiableConjugated[
-        IntRep, Observable, SubObservable, SubLatent, UpperHarmonium
+        IntRep, Observable, LikeObservable, LikeLatent, UpperHarmonium
     ],
     ABC,
 ):
@@ -110,10 +116,10 @@ class StrongDifferentiableHierarchical[
 
     - `IntRep`: Matrix representation for interaction terms
     - `Observable`: Observable manifold type that supports sampling
-    - `SubObservable`: Interactive subspace of observable manifold
-    - `SubLatent`: Interactive subspace of latent manifold
-    - `MidLatent`: Complete parameters for shared latent state
-    - `LowerHarmonium`: Harmonium between observable and first latent layer. Must be a subtype of `DifferentiableConjugated[IntRep, Observable, SubObservable, SubLatent, MidLatent]`.
+    - `LikeObservable`: Interactive subspace of observable manifold
+    - `LikeLatent`: Interactive subspace of latent manifold
+    - `PostLatent`: Complete parameters for shared latent state
+    - `LowerHarmonium`: Harmonium between observable and first latent layer. Must be a subtype of `DifferentiableConjugated[IntRep, Observable, LikeObservable, LikeLatent, PostLatent]`.
     - `UpperHarmonium`: Latent Harmonium. Requisite structure is enforced by the latent subspaces.
 
     Notes
@@ -122,15 +128,15 @@ class StrongDifferentiableHierarchical[
 
         [ IntRep: MatrixRep,
         Observable: Generative,
-        SubObservable: ExponentialFamily,
-        SubLatent: ExponentialFamily,
-        MidLatent: Differentiable,
+        LikeObservable: ExponentialFamily,
+        LikeLatent: ExponentialFamily,
+        PostLatent: Differentiable,
         LowerHarmonium: DifferentiableConjugated,
         UpperHarmonium: Differentiable ]
 
     and `lwr_hrm` would have type
 
-        LowerHarmonium[IntRep, Observable, SubObservable, SubLatent, MidLatent]
+        LowerHarmonium[IntRep, Observable, LikeObservable, LikeLatent, PostLatent]
 
     instead of `LowerHarmonium`.
     """
@@ -141,7 +147,7 @@ class StrongDifferentiableHierarchical[
     @abstractmethod
     def _sup_lat_sub(
         self,
-    ) -> Subspace[UpperHarmonium, MidLatent]:
+    ) -> Subspace[UpperHarmonium, PostLatent]:
         """Accessor for subspace relationship between upper and mid latent manifolds."""
 
     @property
@@ -163,7 +169,7 @@ class StrongDifferentiableHierarchical[
     def _con_lwr_hrm(
         self,
     ) -> DifferentiableConjugated[
-        IntRep, Observable, SubObservable, SubLatent, MidLatent
+        IntRep, Observable, LikeObservable, LikeLatent, PostLatent
     ]:
         """Accessor for differentiable-typed lower harmonium."""
 
@@ -176,12 +182,12 @@ class StrongDifferentiableHierarchical[
 
     @property
     @override
-    def obs_sub(self) -> Subspace[Observable, SubObservable]:
+    def obs_sub(self) -> Subspace[Observable, LikeObservable]:
         return self._con_lwr_hrm.obs_sub
 
     @property
     @override
-    def lat_sub(self) -> Subspace[UpperHarmonium, SubLatent]:
+    def lat_sub(self) -> Subspace[UpperHarmonium, LikeLatent]:
         return ComposedSubspace(self._sup_lat_sub, self._con_lwr_hrm.lat_sub)
 
     @override
@@ -219,7 +225,7 @@ class StrongDifferentiableHierarchical[
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[IntRep, SubLatent, SubObservable, Observable]
+            Natural, AffineMap[IntRep, LikeLatent, LikeObservable, Observable]
         ],
     ) -> tuple[Array, Point[Natural, UpperHarmonium]]:
         """Compute conjugation parameters recursively."""
@@ -229,12 +235,15 @@ class StrongDifferentiableHierarchical[
         return chi, rho
 
 
+### Practical Differntiable Classes ###
+
+
 @dataclass(frozen=True)
-class DifferentiableHierarchical[
+class DifferentiableUndirected[
     LowerHarmonium: Differentiable,
     UpperHarmonium: Differentiable,
 ](
-    StrongDifferentiableHierarchical[
+    StrongDifferentiableUndirected[
         Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium
     ]
 ):
@@ -281,22 +290,74 @@ class DifferentiableHierarchical[
         return ObservableSubspace(self.upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
 
 
-class StrongAnalyticHierarchical[
+# @dataclass(frozen=True)
+# class DifferentiableDirected[
+#     LowerHarmonium: Differentiable,
+#     UpperHarmonium: Differentiable,
+# ](Pair[AffineMap[Any, Any, Any, Any], UpperHarmonium]):
+#     """Class for hierarchical harmoniums with deep conjugate structure. Uses runtime type checking to ensure proper structure. In particular:
+#
+#     - Lower harmonium must be a subtype of `DifferentiableConjugated`
+#     - Upper harmonium must be a subtype of `DifferentiableConjugated`
+#     - The latent manifold of the lower harmonium must match the observable manifold of the upper harmonium.
+#     """
+#
+#     # Fields
+#
+#     lwr_hrm: LowerHarmonium
+#     upr_hrm: UpperHarmonium
+#
+#     def __post_init__(self):
+#         # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
+#         assert isinstance(self.lwr_hrm, DifferentiableConjugated)
+#         assert isinstance(self.upr_hrm, DifferentiableConjugated)
+#         assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
+#
+# # Overrides
+#
+# @property
+# @override
+# def _lwr_hrm(self) -> LowerHarmonium:
+#     return self.lwr_hrm
+#
+# @property
+# @override
+# def _upr_hrm(self) -> UpperHarmonium:
+#     return self.upr_hrm
+#
+# @property
+# @override
+# def _con_lwr_hrm(
+#     self,
+# ) -> DifferentiableConjugated[Any, Any, Any, Any, Any]:
+#     return self.lwr_hrm
+#
+# @property
+# @override
+# def _sup_lat_sub(self) -> Subspace[UpperHarmonium, Any]:
+#     return ObservableSubspace(self.upr_hrm)
+#
+
+
+### Practical Analytic Classes ###
+
+
+class StrongAnalyticUndirected[
     IntRep: MatrixRep,
     Observable: Generative,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
-    MidLatent: Analytic,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
+    PostLatent: Analytic,
     LowerHarmonium: Analytic,
     UpperHarmonium: Analytic,
 ](
-    AnalyticConjugated[IntRep, Observable, SubObservable, SubLatent, UpperHarmonium],
-    StrongDifferentiableHierarchical[
+    AnalyticConjugated[IntRep, Observable, LikeObservable, LikeLatent, UpperHarmonium],
+    StrongDifferentiableUndirected[
         IntRep,
         Observable,
-        SubObservable,
-        SubLatent,
-        MidLatent,
+        LikeObservable,
+        LikeLatent,
+        PostLatent,
         LowerHarmonium,
         UpperHarmonium,
     ],
@@ -311,14 +372,14 @@ class StrongAnalyticHierarchical[
     @abstractmethod
     def _con_lwr_hrm(
         self,
-    ) -> AnalyticConjugated[IntRep, Observable, SubObservable, SubLatent, MidLatent]:
+    ) -> AnalyticConjugated[IntRep, Observable, LikeObservable, LikeLatent, PostLatent]:
         """Accessor for analytic-typed lower harmonium."""
 
     @override
     def to_natural_likelihood(
         self,
         params: Point[Mean, Self],
-    ) -> Point[Natural, AffineMap[IntRep, SubLatent, SubObservable, Observable]]:
+    ) -> Point[Natural, AffineMap[IntRep, LikeLatent, LikeObservable, Observable]]:
         """Convert mean parameters to natural parameters for lower likelihood."""
         obs_means, lwr_int_means, lat_means = self.split_params(params)
         lwr_lat_means = self._sup_lat_sub.project(lat_means)
@@ -329,10 +390,10 @@ class StrongAnalyticHierarchical[
 
 
 @dataclass(frozen=True)
-class AnalyticHierarchical[
+class AnalyticUndirected[
     LowerHarmonium: Analytic,
     UpperHarmonium: Analytic,
-](StrongAnalyticHierarchical[Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium]):
+](StrongAnalyticUndirected[Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium]):
     """Class for hierarchical harmoniums with deep conjugate structure."""
 
     # Fields

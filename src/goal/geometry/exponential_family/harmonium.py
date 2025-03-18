@@ -59,12 +59,12 @@ from .base import (
 class Harmonium[
     Rep: MatrixRep,
     Observable: ExponentialFamily,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
     Latent: ExponentialFamily,
 ](
     ExponentialFamily,
-    Triple[Observable, LinearMap[Rep, SubLatent, SubObservable], Latent],
+    Triple[Observable, LinearMap[Rep, LikeLatent, LikeObservable], Latent],
     ABC,
 ):
     """An exponential family harmonium is a product of two exponential families.
@@ -92,12 +92,12 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def obs_sub(self) -> Subspace[Observable, SubObservable]:
+    def obs_sub(self) -> Subspace[Observable, LikeObservable]:
         """Interactive subspace of observable sufficient statistics."""
 
     @property
     @abstractmethod
-    def lat_sub(self) -> Subspace[Latent, SubLatent]:
+    def lat_sub(self) -> Subspace[Latent, LikeLatent]:
         """Interactive subspace of latent sufficient statistics."""
 
     # Overrides
@@ -109,7 +109,7 @@ class Harmonium[
 
     @property
     @override
-    def snd_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
+    def snd_man(self) -> LinearMap[Rep, LikeLatent, LikeObservable]:
         return self.int_man
 
     @property
@@ -189,7 +189,7 @@ class Harmonium[
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
-        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = (
+        int_params: Point[Natural, LinearMap[Rep, LikeLatent, LikeObservable]] = (
             self.int_man.point(self.int_man.rep.from_dense(noise))
         )
 
@@ -225,7 +225,7 @@ class Harmonium[
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
-        int_params: Point[Natural, LinearMap[Rep, SubLatent, SubObservable]] = (
+        int_params: Point[Natural, LinearMap[Rep, LikeLatent, LikeObservable]] = (
             self.int_man.point(self.int_man.rep.from_dense(noise))
         )
 
@@ -244,23 +244,23 @@ class Harmonium[
         return self.lat_sub.sup_man
 
     @property
-    def int_man(self) -> LinearMap[Rep, SubLatent, SubObservable]:
+    def int_man(self) -> LinearMap[Rep, LikeLatent, LikeObservable]:
         """Manifold of interaction matrices."""
         return LinearMap(self.int_rep, self.lat_sub.sub_man, self.obs_sub.sub_man)
 
     @property
-    def lkl_man(self) -> AffineMap[Rep, SubLatent, SubObservable, Observable]:
+    def lkl_man(self) -> AffineMap[Rep, LikeLatent, LikeObservable, Observable]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
         return AffineMap(self.int_man.rep, self.lat_sub.sub_man, self.obs_sub)
 
     @property
-    def pst_man(self) -> AffineMap[Rep, SubObservable, SubLatent, Latent]:
+    def pst_man(self) -> AffineMap[Rep, LikeObservable, LikeLatent, Latent]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
         return AffineMap(self.int_man.rep, self.obs_sub.sub_man, self.lat_sub)
 
     def likelihood_function(
         self, params: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]]:
+    ) -> Point[Natural, AffineMap[Rep, LikeLatent, LikeObservable, Observable]]:
         """Natural parameters of the likelihood distribution as an affine function.
 
         The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
@@ -270,7 +270,7 @@ class Harmonium[
 
     def posterior_function(
         self, params: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[Rep, SubObservable, SubLatent, Latent]]:
+    ) -> Point[Natural, AffineMap[Rep, LikeObservable, LikeLatent, Latent]]:
         """Natural parameters of the posterior distribution as an affine function.
 
         The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}$.
@@ -308,10 +308,10 @@ class Harmonium[
 class Conjugated[
     Rep: MatrixRep,
     Observable: ExponentialFamily,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
     Latent: ExponentialFamily,
-](Harmonium[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
+](Harmonium[Rep, Observable, LikeObservable, LikeLatent, Latent], ABC):
     """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
 
     # Contract
@@ -320,7 +320,7 @@ class Conjugated[
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]
+            Natural, AffineMap[Rep, LikeLatent, LikeObservable, Observable]
         ],
     ) -> tuple[Array, Point[Natural, Latent]]:
         """Compute conjugation parameters for the harmonium."""
@@ -337,7 +337,7 @@ class Conjugated[
     def split_conjugated(
         self, params: Point[Natural, Self]
     ) -> tuple[
-        Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]],
+        Point[Natural, AffineMap[Rep, LikeLatent, LikeObservable, Observable]],
         Point[Natural, Latent],
     ]:
         """Split conjugated harmonium into likelihood and prior."""
@@ -349,7 +349,7 @@ class Conjugated[
     def join_conjugated(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]
+            Natural, AffineMap[Rep, LikeLatent, LikeObservable, Observable]
         ],
         prior_params: Point[Natural, Latent],
     ) -> Point[Natural, Self]:
@@ -364,10 +364,10 @@ class Conjugated[
 class GenerativeConjugated[
     Rep: MatrixRep,
     Observable: Generative,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
     Latent: Generative,
-](Conjugated[Rep, Observable, SubObservable, SubLatent, Latent], Generative, ABC):
+](Conjugated[Rep, Observable, LikeObservable, LikeLatent, Latent], Generative, ABC):
     """A conjugated harmonium that supports sampling.
 
     Sampling from a conjugated harmonium reduces to
@@ -420,10 +420,10 @@ class GenerativeConjugated[
 class DifferentiableLatent[
     Rep: MatrixRep,
     Observable: Generative,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
     Latent: Differentiable,
-](GenerativeConjugated[Rep, Observable, SubObservable, SubLatent, Latent], ABC):
+](GenerativeConjugated[Rep, Observable, LikeObservable, LikeLatent, Latent], ABC):
     """A harmonium with differentiable latent exponential family."""
 
     # Templates
@@ -462,7 +462,7 @@ class DifferentiableLatent[
         lat_means: Point[Mean, Latent] = self.lat_man.to_mean(lat_params)
 
         # Form interaction term via outer product
-        int_means: Point[Mean, LinearMap[Rep, SubLatent, SubObservable]] = (
+        int_means: Point[Mean, LinearMap[Rep, LikeLatent, LikeObservable]] = (
             self.int_man.outer_product(
                 self.obs_sub.project(obs_stats), self.lat_sub.project(lat_means)
             )
@@ -498,11 +498,11 @@ class DifferentiableLatent[
 class DifferentiableConjugated[
     Rep: MatrixRep,
     Observable: Generative,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
     Latent: Differentiable,
 ](
-    DifferentiableLatent[Rep, Observable, SubObservable, SubLatent, Latent],
+    DifferentiableLatent[Rep, Observable, LikeObservable, LikeLatent, Latent],
     Differentiable,
     ABC,
 ):
@@ -586,11 +586,11 @@ class DifferentiableConjugated[
 class AnalyticConjugated[
     Rep: MatrixRep,
     Observable: Generative,
-    SubObservable: ExponentialFamily,
-    SubLatent: ExponentialFamily,
+    LikeObservable: ExponentialFamily,
+    LikeLatent: ExponentialFamily,
     Latent: Analytic,
 ](
-    DifferentiableConjugated[Rep, Observable, SubObservable, SubLatent, Latent],
+    DifferentiableConjugated[Rep, Observable, LikeObservable, LikeLatent, Latent],
     Analytic,
     ABC,
 ):
@@ -608,7 +608,7 @@ class AnalyticConjugated[
     @abstractmethod
     def to_natural_likelihood(
         self, params: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[Rep, SubLatent, SubObservable, Observable]]:
+    ) -> Point[Natural, AffineMap[Rep, LikeLatent, LikeObservable, Observable]]:
         """Given a harmonium density in mean coordinates, returns the natural parameters of the likelihood."""
 
     # Overrides

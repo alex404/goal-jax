@@ -1,4 +1,4 @@
-"""Hierarchical mixture of Gaussians (HMoG) implemented as a hierarchical harmonium."""
+"""Undirected mixture of Gaussians (HMoG) implemented as a hierarchical harmonium."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from typing import Self, override
 import jax.numpy as jnp
 
 from ...geometry import (
-    AnalyticHierarchical,
     AnalyticProduct,
-    DifferentiableHierarchical,
+    AnalyticUndirected,
     DifferentiableProduct,
+    DifferentiableUndirected,
     LocationShape,
     LocationSubspace,
     Mean,
@@ -27,13 +27,13 @@ from .lgm import LinearGaussianModel
 from .mixture import AnalyticMixture, DifferentiableMixture
 
 type DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
-    DifferentiableHierarchical[
+    DifferentiableUndirected[
         LinearGaussianModel[ObsRep],
         DifferentiableMixture[FullNormal, Normal[LatRep]],
     ]
 )
 
-type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticHierarchical[
+type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
     LinearGaussianModel[ObsRep],
     AnalyticMixture[FullNormal],
 ]
@@ -130,7 +130,7 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     lwr_hrm = LinearGaussianModel(obs_dim, obs_rep, lat_dim)
     upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
-    return DifferentiableHierarchical(
+    return DifferentiableUndirected(
         lwr_hrm,
         upr_hrm,
     )
@@ -146,7 +146,7 @@ def analytic_hmog[ObsRep: PositiveDefinite](
     lwr_hrm = LinearGaussianModel(obs_dim, obs_rep, lat_dim)
     upr_hrm = AnalyticMixture(mid_lat_man, n_components)
 
-    return AnalyticHierarchical(
+    return AnalyticUndirected(
         lwr_hrm,
         upr_hrm,
     )
