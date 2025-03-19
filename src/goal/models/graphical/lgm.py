@@ -219,13 +219,13 @@ class LinearGaussianModel[
 
     @property
     @override
-    def obs_sub(self) -> NormalLocationSubspace[ObsRep]:
+    def int_obs_sub(self) -> NormalLocationSubspace[ObsRep]:
         """Representation of interaction matrix."""
         return NormalLocationSubspace(Normal(self.obs_dim, self.obs_rep))
 
     @property
     @override
-    def lat_sub(self) -> NormalLocationSubspace[PositiveDefinite]:
+    def int_lat_sub(self) -> NormalLocationSubspace[PositiveDefinite]:
         """Representation of interaction matrix."""
         return NormalLocationSubspace(Normal(self.lat_dim, PositiveDefinite))
 

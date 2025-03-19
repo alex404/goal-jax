@@ -92,12 +92,12 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def obs_sub(self) -> Subspace[Observable, IntObservable]:
+    def int_obs_sub(self) -> Subspace[Observable, IntObservable]:
         """Interactive subspace of observable sufficient statistics."""
 
     @property
     @abstractmethod
-    def lat_sub(self) -> Subspace[Latent, IntLatent]:
+    def int_lat_sub(self) -> Subspace[Latent, IntLatent]:
         """Interactive subspace of latent sufficient statistics."""
 
     # Overrides
@@ -139,7 +139,7 @@ class Harmonium[
         obs_stats = self.obs_man.sufficient_statistic(obs_x)
         lat_stats = self.lat_man.sufficient_statistic(lat_x)
         int_stats = self.int_man.outer_product(
-            self.obs_sub.project(obs_stats), self.lat_sub.project(lat_stats)
+            self.int_obs_sub.project(obs_stats), self.int_lat_sub.project(lat_stats)
         )
 
         return self.join_params(obs_stats, int_stats, lat_stats)
@@ -184,8 +184,8 @@ class Harmonium[
         lat_params = self.lat_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.obs_sub.sub_man.dim
-        lat_dim = self.lat_sub.sub_man.dim
+        obs_dim = self.int_obs_sub.sub_man.dim
+        lat_dim = self.int_lat_sub.sub_man.dim
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
@@ -220,8 +220,8 @@ class Harmonium[
         lat_params = self.lat_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.obs_sub.sub_man.dim
-        lat_dim = self.lat_sub.sub_man.dim
+        obs_dim = self.int_obs_sub.sub_man.dim
+        lat_dim = self.int_lat_sub.sub_man.dim
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
@@ -236,27 +236,29 @@ class Harmonium[
     @property
     def obs_man(self) -> Observable:
         """Manifold of observable biases."""
-        return self.obs_sub.sup_man
+        return self.int_obs_sub.sup_man
 
     @property
     def lat_man(self) -> Latent:
         """Manifold of latent biases."""
-        return self.lat_sub.sup_man
+        return self.int_lat_sub.sup_man
 
     @property
     def int_man(self) -> LinearMap[IntRep, IntLatent, IntObservable]:
         """Manifold of interaction matrices."""
-        return LinearMap(self.int_rep, self.lat_sub.sub_man, self.obs_sub.sub_man)
+        return LinearMap(
+            self.int_rep, self.int_lat_sub.sub_man, self.int_obs_sub.sub_man
+        )
 
     @property
     def lkl_man(self) -> AffineMap[IntRep, IntLatent, IntObservable, Observable]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.int_man.rep, self.lat_sub.sub_man, self.obs_sub)
+        return AffineMap(self.int_man.rep, self.int_lat_sub.sub_man, self.int_obs_sub)
 
     @property
     def pst_man(self) -> AffineMap[IntRep, IntObservable, IntLatent, Latent]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.int_man.rep, self.obs_sub.sub_man, self.lat_sub)
+        return AffineMap(self.int_man.rep, self.int_obs_sub.sub_man, self.int_lat_sub)
 
     def likelihood_function(
         self, params: Point[Natural, Self]
@@ -288,7 +290,7 @@ class Harmonium[
 
         $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mz = self.lat_sub.sub_man.sufficient_statistic(z)
+        mz = self.int_lat_sub.sub_man.sufficient_statistic(z)
         return self.lkl_man(self.likelihood_function(params), mz)
 
     def posterior_at(
@@ -301,17 +303,17 @@ class Harmonium[
 
         $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mx = self.obs_sub.sub_man.sufficient_statistic(x)
+        mx = self.int_obs_sub.sub_man.sufficient_statistic(x)
         return self.pst_man(self.posterior_function(params), mx)
 
 
 class Conjugated[
     IntRep: MatrixRep,
-    Observable: ExponentialFamily,
+    Observable: Generative,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    Latent: ExponentialFamily,
-](Harmonium[IntRep, Observable, IntObservable, IntLatent, Latent], ABC):
+    Latent: Generative,
+](Harmonium[IntRep, Observable, IntObservable, IntLatent, Latent], Generative, ABC):
     """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
 
     # Contract
@@ -359,23 +361,6 @@ class Conjugated[
         obs_params, int_params = self.lkl_man.split_params(lkl_params)
         return self.join_params(obs_params, int_params, lat_params)
 
-
-# TODO: Add stochastic expectation step
-class GenerativeConjugated[
-    IntRep: MatrixRep,
-    Observable: Generative,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    Latent: Generative,
-](Conjugated[IntRep, Observable, IntObservable, IntLatent, Latent], Generative, ABC):
-    """A conjugated harmonium that supports sampling.
-
-    Sampling from a conjugated harmonium reduces to
-
-    1. Sampling from the marginal latent distribution $p(z)$, and then
-    2. Sampling from the conditional likelihood $p(x \\mid z)$.
-    """
-
     # Overrides
 
     @override
@@ -417,84 +402,6 @@ class GenerativeConjugated[
         return xzs[:, : self.obs_man.data_dim]
 
 
-class DifferentiableLatent[
-    IntRep: MatrixRep,
-    Observable: Generative,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    Latent: Differentiable,
-](GenerativeConjugated[IntRep, Observable, IntObservable, IntLatent, Latent], ABC):
-    """A harmonium with differentiable latent exponential family."""
-
-    # Templates
-
-    def infer_missing_expectations(
-        self,
-        params: Point[Natural, Self],
-        x: Array,
-    ) -> Point[Mean, Self]:
-        """Compute joint expectations for a single observation.
-
-        For an observation x and current parameters $\\theta = $(\\theta_X, \\theta_Z, \\theta_{XZ})$, we
-
-        1. Compute sufficient statistics $\\mathbf s_X(x)$,
-        2. Get natural parameters of $p(z \\mid x)$ given by $\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$,
-        3. Convert to mean parameters $\\mathbb E[\\mathbf s_Z(z) \\mid x]$, and
-        4. Form joint expectations $(\\mathbf s_X(x), \\mathbb E[\\mathbf s_Z(z) \\mid x], \\mathbf s_X(x) \\otimes \\mathbb E[\\mathbf s_Z(z) \\mid x])$.
-
-        Args:
-            x: Single observation of shape (obs_dim,)
-            params: Current harmonium parameters in natural coordinates
-
-        Returns:
-            Joint expectations in mean coordinates for this observation
-        """
-        # Get sufficient statistics of observation
-        obs_stats: Point[Mean, Observable] = self.obs_man.sufficient_statistic(x)
-
-        # Get posterior parameters for this observation
-        post_map = self.posterior_function(params)
-        lat_params: Point[Natural, Latent] = self.pst_man(
-            post_map, self.obs_sub.project(obs_stats)
-        )
-
-        # Convert to mean parameters (expected sufficient statistics)
-        lat_means: Point[Mean, Latent] = self.lat_man.to_mean(lat_params)
-
-        # Form interaction term via outer product
-        int_means: Point[Mean, LinearMap[IntRep, IntLatent, IntObservable]] = (
-            self.int_man.outer_product(
-                self.obs_sub.project(obs_stats), self.lat_sub.project(lat_means)
-            )
-        )
-
-        # Join parameters into harmonium point
-        return self.join_params(obs_stats, int_means, lat_means)
-
-    def expectation_step(
-        self: Self,
-        params: Point[Natural, Self],
-        xs: Array,
-        batch_size: int = 256,
-    ) -> Point[Mean, Self]:
-        """Compute average joint expectations over a batch of observations.
-
-        Args:
-            params: Current harmonium parameters in natural coordinates
-            xs: Batch of observations of shape (batch_size, obs_dim)
-
-        Returns:
-            Average joint expectations in mean coordinates
-        """
-
-        def _infer_missing_expectations(x: Array) -> Array:
-            return self.infer_missing_expectations(params, x).array
-
-        return self.mean_point(
-            batched_mean(_infer_missing_expectations, xs, batch_size)
-        )
-
-
 class DifferentiableConjugated[
     IntRep: MatrixRep,
     Observable: Generative,
@@ -502,7 +409,7 @@ class DifferentiableConjugated[
     IntLatent: ExponentialFamily,
     Latent: Differentiable,
 ](
-    DifferentiableLatent[IntRep, Observable, IntObservable, IntLatent, Latent],
+    Conjugated[IntRep, Observable, IntObservable, IntLatent, Latent],
     Differentiable,
     ABC,
 ):
@@ -581,6 +488,72 @@ class DifferentiableConjugated[
     def observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
         """Compute density of the observable distribution $p(x)$."""
         return jnp.exp(self.log_observable_density(params, x))
+
+    def infer_missing_expectations(
+        self,
+        params: Point[Natural, Self],
+        x: Array,
+    ) -> Point[Mean, Self]:
+        """Compute joint expectations for a single observation.
+
+        For an observation x and current parameters $\\theta = $(\\theta_X, \\theta_Z, \\theta_{XZ})$, we
+
+        1. Compute sufficient statistics $\\mathbf s_X(x)$,
+        2. Get natural parameters of $p(z \\mid x)$ given by $\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$,
+        3. Convert to mean parameters $\\mathbb E[\\mathbf s_Z(z) \\mid x]$, and
+        4. Form joint expectations $(\\mathbf s_X(x), \\mathbb E[\\mathbf s_Z(z) \\mid x], \\mathbf s_X(x) \\otimes \\mathbb E[\\mathbf s_Z(z) \\mid x])$.
+
+        Args:
+            x: Single observation of shape (obs_dim,)
+            params: Current harmonium parameters in natural coordinates
+
+        Returns:
+            Joint expectations in mean coordinates for this observation
+        """
+        # Get sufficient statistics of observation
+        obs_stats: Point[Mean, Observable] = self.obs_man.sufficient_statistic(x)
+
+        # Get posterior parameters for this observation
+        post_map = self.posterior_function(params)
+        lat_params: Point[Natural, Latent] = self.pst_man(
+            post_map, self.int_obs_sub.project(obs_stats)
+        )
+
+        # Convert to mean parameters (expected sufficient statistics)
+        lat_means: Point[Mean, Latent] = self.lat_man.to_mean(lat_params)
+
+        # Form interaction term via outer product
+        int_means: Point[Mean, LinearMap[IntRep, IntLatent, IntObservable]] = (
+            self.int_man.outer_product(
+                self.int_obs_sub.project(obs_stats), self.int_lat_sub.project(lat_means)
+            )
+        )
+
+        # Join parameters into harmonium point
+        return self.join_params(obs_stats, int_means, lat_means)
+
+    def expectation_step(
+        self: Self,
+        params: Point[Natural, Self],
+        xs: Array,
+        batch_size: int = 256,
+    ) -> Point[Mean, Self]:
+        """Compute average joint expectations over a batch of observations.
+
+        Args:
+            params: Current harmonium parameters in natural coordinates
+            xs: Batch of observations of shape (batch_size, obs_dim)
+
+        Returns:
+            Average joint expectations in mean coordinates
+        """
+
+        def _infer_missing_expectations(x: Array) -> Array:
+            return self.infer_missing_expectations(params, x).array
+
+        return self.mean_point(
+            batched_mean(_infer_missing_expectations, xs, batch_size)
+        )
 
 
 class AnalyticConjugated[

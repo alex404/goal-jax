@@ -55,13 +55,13 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     Parameters:
         n_categories: Number of mixture components
-        _obs_sub: Subspace relationship for observable parameters (default: Identity)
+        _int_obs_sub: Subspace relationship for observable parameters (default: Identity)
     """
 
     # Fields
 
     n_categories: int
-    _obs_sub: Subspace[Observable, SubObservable]
+    _int_obs_sub: Subspace[Observable, SubObservable]
 
     # Overrides
 
@@ -72,12 +72,12 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     @property
     @override
-    def obs_sub(self) -> Subspace[Observable, SubObservable]:
-        return self._obs_sub
+    def int_obs_sub(self) -> Subspace[Observable, SubObservable]:
+        return self._int_obs_sub
 
     @property
     @override
-    def lat_sub(self) -> IdentitySubspace[Categorical]:
+    def int_lat_sub(self) -> IdentitySubspace[Categorical]:
         return IdentitySubspace(Categorical(self.n_categories))
 
     # Template Methods
@@ -95,7 +95,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         """Create a mixture model in mean coordinates from components and weights.
 
         Note: if only a submanifold of interactions on the observables are considered
-        (i.e. obs_sub is not the IdentitySubspace), then information in the components
+        (i.e. int_obs_sub is not the IdentitySubspace), then information in the components
         will be discarded.
         """
         probs = self.lat_man.to_probs(weights)
@@ -111,7 +111,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)
         projected_comps = cmp_man_minus.man_map(
-            self.obs_sub.project,
+            self.int_obs_sub.project,
             cmp_man_minus.mean_point(weighted_comps[1:]),
         )
         # int_means shape: (sub_obs_dim, n_categories-1)
@@ -180,7 +180,7 @@ class DifferentiableMixture[
         int_comps = self.int_man.to_columns(int_mat)
 
         def compute_rho(comp_params: Point[Natural, SubObservable]) -> Array:
-            adjusted_obs = self.obs_sub.translate(obs_bias, comp_params)
+            adjusted_obs = self.int_obs_sub.translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
         # rho_z shape: (n_categories - 1,)
@@ -204,7 +204,7 @@ class DifferentiableMixture[
         def translate_col(
             col: Point[Natural, SubObservable],
         ) -> Point[Natural, Observable]:
-            return self.obs_sub.translate(obs_bias, col)
+            return self.int_obs_sub.translate(obs_bias, col)
 
         # translated shape: (n_categories - 1, obs_dim)
         translated = self.int_man.col_man.man_map(translate_col, int_cols)
@@ -228,7 +228,7 @@ class DifferentiableMixture[
 
         # Get anchor (first component) - shape: (obs_dim,)
         anchor = self.cmp_man.get_replicate(components, jnp.asarray(0))
-        anchor_sub = self.obs_sub.project(anchor)  # shape: (sub_obs_dim,)
+        anchor_sub = self.int_obs_sub.project(anchor)  # shape: (sub_obs_dim,)
 
         # Compute weighted average - shape: (obs_dim,)
         avg_params = self.obs_man.natural_point(
@@ -236,10 +236,10 @@ class DifferentiableMixture[
         )
 
         # Create obs_bas combining in/out of subspace parameters
-        anchor_out_sub = self.obs_sub.translate(
-            avg_params, -self.obs_sub.project(avg_params)
+        anchor_out_sub = self.int_obs_sub.translate(
+            avg_params, -self.int_obs_sub.project(avg_params)
         )
-        anchor_in_sub = self.obs_sub.translate(
+        anchor_in_sub = self.int_obs_sub.translate(
             self.obs_man.natural_point(jnp.zeros_like(anchor.array)), anchor_sub
         )
         obs_bias = anchor_in_sub + anchor_out_sub  # shape: (obs_dim,)
@@ -247,7 +247,7 @@ class DifferentiableMixture[
         def to_interaction(
             comp: Point[Natural, Observable],
         ) -> Point[Natural, SubObservable]:
-            return self.obs_sub.project(comp) - anchor_sub
+            return self.int_obs_sub.project(comp) - anchor_sub
 
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)
