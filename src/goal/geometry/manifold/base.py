@@ -99,6 +99,9 @@ class Manifold(ABC):
             )
         return _Point(jnp.reshape(array, self.coordinates_shape))
 
+    def zeros[Coords: Coordinates](self) -> Point[Coords, Self]:
+        return self.point(jnp.zeros(self.coordinates_shape))
+
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
         return jnp.dot(p.array.ravel(), q.array.ravel())
 
