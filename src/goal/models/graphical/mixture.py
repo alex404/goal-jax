@@ -159,12 +159,30 @@ class DifferentiableMixture[
     # Overrides
 
     @override
+    def conjugation_baseline(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[Rectangular, Categorical, SubObservable, Observable]
+        ],
+    ) -> Array:
+        """Compute conjugation parameters for categorical mixture.
+
+        For a categorical mixture model:
+
+        - $\\chi = \\psi(\\theta_x)$
+        - $\\rho_k = \\psi(\\theta_x + \\theta_{xz,k}) - \\chi$
+        """
+        # Compute base term from observable bias
+        obs_bias, _ = self.lkl_man.split_params(lkl_params)
+        return self.obs_man.log_partition_function(obs_bias)
+
+    @override
     def conjugation_parameters(
         self,
         lkl_params: Point[
             Natural, AffineMap[Rectangular, Categorical, SubObservable, Observable]
         ],
-    ) -> tuple[Array, Point[Natural, Categorical]]:
+    ) -> Point[Natural, Categorical]:
         """Compute conjugation parameters for categorical mixture.
 
         For a categorical mixture model:
@@ -186,7 +204,7 @@ class DifferentiableMixture[
         # rho_z shape: (n_categories - 1,)
         rho_z = self.int_man.col_man.map(compute_rho, int_comps)
 
-        return rho_0, self.lat_man.natural_point(rho_z)
+        return self.lat_man.natural_point(rho_z)
 
     # Methods
 

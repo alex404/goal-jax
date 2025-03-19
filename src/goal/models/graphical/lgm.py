@@ -230,24 +230,15 @@ class LinearGaussianModel[
         return NormalLocationSubspace(Normal(self.lat_dim, PositiveDefinite))
 
     @override
-    def conjugation_parameters(
+    def conjugation_baseline(
         self,
         lkl_params: Point[
             Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]
         ],
-    ) -> tuple[Array, Point[Natural, FullNormal]]:
-        """Compute conjugation parameters for a linear model.
-
-        Args:
-            lkl_params: Linear model parameters in natural coordinates
-
-        Returns:
-            chi: Log normalization parameter
-            rho: Natural parameters of conjugate prior
-        """
+    ) -> Array:
         # Get parameters
         obs_cov_man = self.obs_man.cov_man
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        obs_bias, _ = self.lkl_man.split_params(lkl_params)
         obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
 
         # Intermediate computations
@@ -259,7 +250,25 @@ class LinearGaussianModel[
         chi = 0.5 * self.obs_man.loc_man.dot(
             obs_mean, expand_dual(obs_cov_man(obs_prec, obs_mean))
         )
-        chi += 0.5 * log_det
+        return chi + 0.5 * log_det
+
+    @override
+    def conjugation_parameters(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]
+        ],
+    ) -> Point[Natural, FullNormal]:
+        # Get parameters
+        obs_cov_man = self.obs_man.cov_man
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
+
+        # Intermediate computations
+        obs_sigma = obs_cov_man.inverse(obs_prec)
+        obs_mean = obs_cov_man(obs_sigma, expand_dual(obs_loc))
+
+        # Conjugation parameters
         rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
         _, rho_shape = _change_of_basis(
             self.int_man, int_mat, obs_cov_man, cov_to_lin(obs_sigma)
@@ -267,9 +276,7 @@ class LinearGaussianModel[
         rho_shape *= -1
 
         # Join parameters into moment parameters
-        rho = self.lat_man.join_location_precision(rho_mean, rho_shape)
-
-        return chi, rho
+        return self.lat_man.join_location_precision(rho_mean, rho_shape)
 
     @override
     def to_natural_likelihood(

@@ -69,11 +69,6 @@ class Subspace[Super: Manifold, Sub: Manifold](ABC):
         ...
 
     @abstractmethod
-    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Super]:
-        """Project point to subspace components."""
-        ...
-
-    @abstractmethod
     def translate[C: Coordinates](
         self, p: Point[C, Super], q: Point[C, Sub]
     ) -> Point[C, Super]:
@@ -99,10 +94,6 @@ class IdentitySubspace[M: Manifold](Subspace[M, M]):
 
     @override
     def project[C: Coordinates](self, p: Point[C, M]) -> Point[C, M]:
-        return p
-
-    @override
-    def embed[C: Coordinates](self, p: Point[C, M]) -> Point[C, M]:
         return p
 
     @override
@@ -146,11 +137,6 @@ class ComposedSubspace[Super: Manifold, Mid: Manifold, Sub: Manifold](
     def project[C: Coordinates](self, p: Point[C, Super]) -> Point[C, Sub]:
         mid = self.sup_sub.project(p)
         return self.sub_sub.project(mid)
-
-    @override
-    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Super]:
-        mid = self.sub_sub.embed(p)
-        return self.sup_sub.embed(mid)
 
     @override
     def translate[C: Coordinates](

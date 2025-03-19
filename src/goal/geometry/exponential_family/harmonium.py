@@ -319,21 +319,41 @@ class Conjugated[
     # Contract
 
     @abstractmethod
+    def conjugation_baseline(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
+        ],
+    ) -> Array:
+        """Compute conjugation baseline for the harmonium."""
+
+    @abstractmethod
     def conjugation_parameters(
         self,
         lkl_params: Point[
             Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
         ],
-    ) -> tuple[Array, Point[Natural, Latent]]:
+    ) -> Point[Natural, Latent]:
         """Compute conjugation parameters for the harmonium."""
 
     # Templates
+
+    def conjugation_baseline_and_parameters(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
+        ],
+    ) -> tuple[Array, Point[Natural, Latent]]:
+        """Compute conjugation baseline and parameters for the harmonium."""
+        chi = self.conjugation_baseline(lkl_params)
+        rho = self.conjugation_parameters(lkl_params)
+        return chi, rho
 
     def prior(self, params: Point[Natural, Self]) -> Point[Natural, Latent]:
         """Natural parameters of the prior distribution $p(z)$."""
         obs_params, int_params, lat_params = self.split_params(params)
         lkl_params = self.lkl_man.join_params(obs_params, int_params)
-        _, rho = self.conjugation_parameters(lkl_params)
+        rho = self.conjugation_parameters(lkl_params)
         return lat_params + rho
 
     def split_conjugated(
@@ -345,7 +365,7 @@ class Conjugated[
         """Split conjugated harmonium into likelihood and prior."""
         obs_params, int_params, lat_params = self.split_params(params)
         lkl_params = self.lkl_man.join_params(obs_params, int_params)
-        _, rho = self.conjugation_parameters(lkl_params)
+        rho = self.conjugation_parameters(lkl_params)
         return lkl_params, lat_params + rho
 
     def join_conjugated(
@@ -356,7 +376,7 @@ class Conjugated[
         prior_params: Point[Natural, Latent],
     ) -> Point[Natural, Self]:
         """Join likelihood and prior parameters into a conjugated harmonium."""
-        _, rho = self.conjugation_parameters(lkl_params)
+        rho = self.conjugation_parameters(lkl_params)
         lat_params = prior_params - rho
         obs_params, int_params = self.lkl_man.split_params(lkl_params)
         return self.join_params(obs_params, int_params, lat_params)
@@ -432,7 +452,7 @@ class DifferentiableConjugated[
         lkl_params = self.lkl_man.join_params(obs_params, int_params)
 
         # Get conjugation parameters
-        chi, rho = self.conjugation_parameters(lkl_params)
+        chi, rho = self.conjugation_baseline_and_parameters(lkl_params)
 
         # Compute adjusted latent parameters
         adjusted_lat = lat_params + rho
@@ -466,7 +486,7 @@ class DifferentiableConjugated[
         obs_params, int_params, lat_bias = self.split_params(params)
         lkl_params = self.lkl_man.join_params(obs_params, int_params)
 
-        chi, rho = self.conjugation_parameters(lkl_params)
+        chi, rho = self.conjugation_baseline_and_parameters(lkl_params)
         obs_stats = self.obs_man.sufficient_statistic(x)
 
         log_density = self.obs_man.dot(obs_params, obs_stats)
