@@ -99,6 +99,22 @@ class NormalCovarianceSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefin
         return self.sup_man.project_rep(self.sub_man, p)
 
     @override
+    def embed(
+        self, p: Point[Natural, Normal[SubRep]]
+    ) -> Point[Natural, Normal[SuperRep]]:
+        """Embed a point in sub-manifold into super-manifold.
+
+        This operation is only valid in natural coordinates, where it embeds the simpler structure into the more complex one by zero padding the missing elements.
+
+        Args:
+            p: Point in sub-manifold (must be in natural coordinates)
+
+        Returns:
+            Embedded point in super-manifold
+        """
+        return self.sub_man.embed_rep(self.sup_man, p)
+
+    @override
     def translate(
         self, p: Point[Natural, Normal[SuperRep]], q: Point[Natural, Normal[SubRep]]
     ) -> Point[Natural, Normal[SuperRep]]:
