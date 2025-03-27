@@ -41,9 +41,9 @@ from jax import Array
 
 from ..manifold.base import Point
 from ..manifold.combinators import Triple
+from ..manifold.embedding import LinearEmbedding
 from ..manifold.linear import AffineMap, LinearMap
 from ..manifold.matrix import MatrixRep
-from ..manifold.subspace import Subspace
 from ..manifold.util import batched_mean
 from .base import (
     Analytic,
@@ -92,12 +92,12 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def int_obs_sub(self) -> Subspace[Observable, IntObservable]:
+    def int_obs_sub(self) -> LinearEmbedding[Observable, IntObservable]:
         """Interactive subspace of observable sufficient statistics."""
 
     @property
     @abstractmethod
-    def int_lat_sub(self) -> Subspace[Latent, IntLatent]:
+    def int_lat_sub(self) -> LinearEmbedding[Latent, IntLatent]:
         """Interactive subspace of latent sufficient statistics."""
 
     # Overrides

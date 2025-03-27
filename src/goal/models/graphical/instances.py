@@ -12,6 +12,7 @@ from ...geometry import (
     AnalyticUndirected,
     DifferentiableProduct,
     DifferentiableUndirected,
+    LinearEmbedding,
     LocationShape,
     LocationSubspace,
     Mean,
@@ -19,7 +20,6 @@ from ...geometry import (
     Point,
     PositiveDefinite,
     Product,
-    Subspace,
 )
 from ..base.gaussian.normal import FullNormal, Normal
 from ..base.poisson import CoMPoisson, CoMShape, Poisson
@@ -41,7 +41,7 @@ type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
 
 @dataclass(frozen=True)
 class NormalCovarianceSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
-    Subspace[Normal[SuperRep], Normal[SubRep]]
+    LinearEmbedding[Normal[SuperRep], Normal[SubRep]]
 ):
     """Subspace relationship between Normal distributions with different covariance structures.
 

@@ -40,6 +40,12 @@ from .manifold.combinators import (
     Replicated,
     Triple,
 )
+from .manifold.embedding import (
+    ComposedEmbedding,
+    Embedding,
+    IdentityEmbedding,
+    LinearEmbedding,
+)
 from .manifold.linear import (
     AffineMap,
     LinearMap,
@@ -56,11 +62,6 @@ from .manifold.matrix import (
     Symmetric,
 )
 from .manifold.optimizer import Optimizer, OptState
-from .manifold.subspace import (
-    ComposedSubspace,
-    IdentitySubspace,
-    Subspace,
-)
 
 __all__ = [
     "AffineMap",
@@ -68,7 +69,7 @@ __all__ = [
     "AnalyticConjugated",
     "AnalyticProduct",
     "AnalyticUndirected",
-    "ComposedSubspace",
+    "ComposedEmbedding",
     "Conjugated",
     "Coordinates",
     "Diagonal",
@@ -82,10 +83,11 @@ __all__ = [
     "GenerativeProduct",
     "Harmonium",
     "Identity",
-    "IdentitySubspace",
+    "IdentityEmbedding",
+    "LinearEmbedding",
     "LinearMap",
+    "LocationEmbedding",
     "LocationShape",
-    "LocationSubspace",
     "Manifold",
     "MatrixRep",
     "Mean",
@@ -104,7 +106,6 @@ __all__ = [
     "Square",
     "SquareMap",
     "StatisticalMoments",
-    "Subspace",
     "Symmetric",
     "Triple",
     "expand_dual",

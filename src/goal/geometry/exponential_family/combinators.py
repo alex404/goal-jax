@@ -18,7 +18,7 @@ from ..manifold.combinators import (
     Pair,
     Replicated,
 )
-from ..manifold.subspace import Subspace
+from ..manifold.embedding import LinearEmbedding
 from .base import (
     Analytic,
     Differentiable,
@@ -103,7 +103,7 @@ class LocationSubspace[
     LS: Any,
     L: ExponentialFamily,
 ](
-    Subspace[LS, L],  # Note: we specify LS directly in Subspace
+    LinearEmbedding[LS, L],  # Note: we specify LS directly in Subspace
     ABC,
 ):
     """Subspace relationship for a product manifold $M \\times N$.

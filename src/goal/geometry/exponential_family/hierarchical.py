@@ -27,9 +27,9 @@ from jax import Array
 
 from ..manifold.base import Coordinates, Point
 from ..manifold.combinators import Pair
+from ..manifold.embedding import LinearComposedEmbedding, LinearEmbedding
 from ..manifold.linear import AffineMap
 from ..manifold.matrix import MatrixRep
-from ..manifold.subspace import ComposedSubspace, Subspace
 from .base import (
     Analytic,
     Differentiable,
@@ -54,7 +54,11 @@ class ObservableSubspace[
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
     Latent: ExponentialFamily,
-](Subspace[Harmonium[Rep, Observable, IntObservable, IntLatent, Latent], Observable]):
+](
+    LinearEmbedding[
+        Harmonium[Rep, Observable, IntObservable, IntLatent, Latent], Observable
+    ]
+):
     """Subspace relationship for a product manifold $\\mathcal M \\times \\mathcal N \\times \\mathcal O$."""
 
     # Fields
@@ -165,7 +169,7 @@ class StrongDifferentiableUndirected[
         return self.lwr_hrm  # pyright: ignore[reportReturnType]
 
     @property
-    def lat_sub(self) -> Subspace[UpperHarmonium, Any]:
+    def lat_sub(self) -> LinearEmbedding[UpperHarmonium, Any]:
         return ObservableSubspace(self.upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
 
     # Overrides
@@ -177,13 +181,13 @@ class StrongDifferentiableUndirected[
 
     @property
     @override
-    def int_obs_sub(self) -> Subspace[Observable, IntObservable]:
+    def int_obs_sub(self) -> LinearEmbedding[Observable, IntObservable]:
         return self._con_lwr_hrm.int_obs_sub
 
     @property
     @override
-    def int_lat_sub(self) -> Subspace[UpperHarmonium, IntLatent]:
-        return ComposedSubspace(self.lat_sub, self._con_lwr_hrm.int_lat_sub)
+    def int_lat_sub(self) -> LinearEmbedding[UpperHarmonium, IntLatent]:
+        return LinearComposedEmbedding(self.lat_sub, self._con_lwr_hrm.int_lat_sub)
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
@@ -354,7 +358,7 @@ class AsymmetricHarmonium[
     # Fields
 
     con_hrm: Undirected
-    prr_sub: Subspace[Latent, PriorLatent]
+    prr_sub: LinearEmbedding[Latent, PriorLatent]
 
     @property
     def dif_hrm(
@@ -460,7 +464,7 @@ class StrongDirectedHarmonium[
     # Fields
 
     con_hrm: Undirected
-    prr_sub: Subspace[Latent, PriorLatent]
+    prr_sub: LinearEmbedding[Latent, PriorLatent]
 
     @property
     def dif_hrm(

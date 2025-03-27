@@ -33,14 +33,14 @@ from ...geometry import (
     DifferentiableConjugated,
     ExponentialFamily,
     Harmonium,
-    IdentitySubspace,
+    IdentityEmbedding,
+    LinearEmbedding,
     Mean,
     Natural,
     Point,
     Product,
     Rectangular,
     StatisticalMoments,
-    Subspace,
 )
 from ..base.categorical import (
     Categorical,
@@ -55,13 +55,13 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     Parameters:
         n_categories: Number of mixture components
-        _int_obs_sub: Subspace relationship for observable parameters (default: Identity)
+        _int_obs_sub: Subspace relationship for observable parameters (default: IdentityEmbedding)
     """
 
     # Fields
 
     n_categories: int
-    _int_obs_sub: Subspace[Observable, SubObservable]
+    _int_obs_sub: LinearEmbedding[Observable, SubObservable]
 
     # Overrides
 
@@ -72,13 +72,13 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     @property
     @override
-    def int_obs_sub(self) -> Subspace[Observable, SubObservable]:
+    def int_obs_sub(self) -> LinearEmbedding[Observable, SubObservable]:
         return self._int_obs_sub
 
     @property
     @override
-    def int_lat_sub(self) -> IdentitySubspace[Categorical]:
-        return IdentitySubspace(Categorical(self.n_categories))
+    def int_lat_sub(self) -> IdentityEmbedding[Categorical]:
+        return IdentityEmbedding(Categorical(self.n_categories))
 
     # Template Methods
 
@@ -95,7 +95,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         """Create a mixture model in mean coordinates from components and weights.
 
         Note: if only a submanifold of interactions on the observables are considered
-        (i.e. int_obs_sub is not the IdentitySubspace), then information in the components
+        (i.e. int_obs_sub is not the IdentityEmbeddingSubspace), then information in the components
         will be discarded.
         """
         probs = self.lat_man.to_probs(weights)
@@ -342,7 +342,7 @@ class AnalyticMixture[Observable: Analytic](
     # Constructor
 
     def __init__(self, obs_man: Observable, n_categories: int):
-        super().__init__(n_categories, IdentitySubspace(obs_man))
+        super().__init__(n_categories, IdentityEmbedding(obs_man))
 
     # Overrides
 

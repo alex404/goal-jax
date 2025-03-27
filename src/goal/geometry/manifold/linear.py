@@ -19,8 +19,8 @@ from jax import Array
 
 from .base import Coordinates, Dual, Manifold, Point
 from .combinators import Pair, Replicated
+from .embedding import LinearEmbedding
 from .matrix import MatrixRep, Square
-from .subspace import Subspace
 
 ### Linear Maps ###
 
@@ -243,7 +243,7 @@ class AffineMap[
 
     rep: Rep
     dom_man: Domain
-    cod_sub: Subspace[Codomain, SubCodomain]
+    cod_sub: LinearEmbedding[Codomain, SubCodomain]
 
     # Overrides
 
