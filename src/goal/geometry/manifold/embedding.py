@@ -32,6 +32,8 @@ from .base import Coordinates, Dual, Manifold, Point
 class Embedding[Sup: Manifold, Sub: Manifold](ABC):
     """Base class for all subspace relationships."""
 
+    # Contract
+
     @property
     @abstractmethod
     def sup_man(self) -> Sup:
@@ -74,12 +76,7 @@ class Embedding[Sup: Manifold, Sub: Manifold](ABC):
 class LinearEmbedding[Sup: Manifold, Sub: Manifold](Embedding[Sup, Sub], ABC):
     """Linear subspace with additional operations."""
 
-    @override
-    def pullback[C: Coordinates](
-        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Sup]
-    ) -> Point[Dual[C], Sub]:
-        """For linear subspaces, pullback is location-independent."""
-        return self.project(cotangent_vector)
+    # Contract
 
     @abstractmethod
     def project[C: Coordinates](self, p: Point[C, Sup]) -> Point[C, Sub]:
@@ -90,6 +87,15 @@ class LinearEmbedding[Sup: Manifold, Sub: Manifold](Embedding[Sup, Sub], ABC):
         self, p: Point[C, Sup], q: Point[C, Sub]
     ) -> Point[C, Sup]:
         """Translate point by subspace components."""
+
+    # Overrides
+
+    @override
+    def pullback[C: Coordinates](
+        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Sup]
+    ) -> Point[Dual[C], Sub]:
+        """For linear subspaces, pullback is location-independent."""
+        return self.project(cotangent_vector)
 
 
 @dataclass(frozen=True)

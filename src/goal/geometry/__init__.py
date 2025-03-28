@@ -10,8 +10,8 @@ from .exponential_family.combinators import (
     AnalyticProduct,
     DifferentiableProduct,
     GenerativeProduct,
+    LocationEmbedding,
     LocationShape,
-    LocationSubspace,
     Product,
     StatisticalMoments,
 )
@@ -24,7 +24,7 @@ from .exponential_family.harmonium import (
 from .exponential_family.hierarchical import (
     AnalyticUndirected,
     DifferentiableUndirected,
-    ObservableSubspace,
+    ObservableEmbedding,
 )
 from .manifold.base import (
     Coordinates,
@@ -78,6 +78,7 @@ __all__ = [
     "DifferentiableProduct",
     "DifferentiableUndirected",
     "Dual",
+    "Embedding",
     "ExponentialFamily",
     "Generative",
     "GenerativeProduct",
@@ -93,7 +94,7 @@ __all__ = [
     "Mean",
     "Natural",
     "Null",
-    "ObservableSubspace",
+    "ObservableEmbedding",
     "OptState",
     "Optimizer",
     "Pair",

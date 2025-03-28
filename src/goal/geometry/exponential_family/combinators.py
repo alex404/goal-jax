@@ -99,7 +99,7 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
 
 @dataclass(frozen=True)
-class LocationSubspace[
+class LocationEmbedding[
     LS: Any,
     L: ExponentialFamily,
 ](

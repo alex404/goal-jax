@@ -48,7 +48,7 @@ from .harmonium import (
 
 
 @dataclass(frozen=True)
-class ObservableSubspace[
+class ObservableEmbedding[
     Rep: MatrixRep,
     Observable: ExponentialFamily,
     IntObservable: ExponentialFamily,
@@ -170,7 +170,7 @@ class StrongDifferentiableUndirected[
 
     @property
     def lat_sub(self) -> LinearEmbedding[UpperHarmonium, Any]:
-        return ObservableSubspace(self.upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
+        return ObservableEmbedding(self.upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
 
     # Overrides
 

@@ -46,7 +46,7 @@ from ...geometry import (
     Diagonal,
     Dual,
     LinearMap,
-    LocationSubspace,
+    LocationEmbedding,
     MatrixRep,
     Mean,
     Natural,
@@ -69,8 +69,8 @@ from ..base.gaussian.normal import (
 
 
 @dataclass(frozen=True)
-class NormalLocationSubspace[Rep: PositiveDefinite](
-    LocationSubspace[Normal[Rep], Euclidean],
+class NormalLocationEmbedding[Rep: PositiveDefinite](
+    LocationEmbedding[Normal[Rep], Euclidean],
 ):
     """Subspace relationship for a product manifold $M \\times N$."""
 
@@ -219,15 +219,15 @@ class LinearGaussianModel[
 
     @property
     @override
-    def int_obs_sub(self) -> NormalLocationSubspace[ObsRep]:
+    def int_obs_sub(self) -> NormalLocationEmbedding[ObsRep]:
         """Representation of interaction matrix."""
-        return NormalLocationSubspace(Normal(self.obs_dim, self.obs_rep))
+        return NormalLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
 
     @property
     @override
-    def int_lat_sub(self) -> NormalLocationSubspace[PositiveDefinite]:
+    def int_lat_sub(self) -> NormalLocationEmbedding[PositiveDefinite]:
         """Representation of interaction matrix."""
-        return NormalLocationSubspace(Normal(self.lat_dim, PositiveDefinite))
+        return NormalLocationEmbedding(Normal(self.lat_dim, PositiveDefinite))
 
     @override
     def conjugation_baseline(

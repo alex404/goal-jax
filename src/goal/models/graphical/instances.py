@@ -13,8 +13,8 @@ from ...geometry import (
     DifferentiableProduct,
     DifferentiableUndirected,
     LinearEmbedding,
+    LocationEmbedding,
     LocationShape,
-    LocationSubspace,
     Mean,
     Natural,
     Point,
@@ -40,7 +40,7 @@ type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
 
 
 @dataclass(frozen=True)
-class NormalCovarianceSubspace[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
+class NormalCovarianceEmbedding[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
     LinearEmbedding[Normal[SuperRep], Normal[SubRep]]
 ):
     """Subspace relationship between Normal distributions with different covariance structures.
@@ -142,7 +142,7 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
 ) -> DifferentiableHMoG[ObsRep, LatRep]:
     mid_lat_man = Normal(lat_dim, PositiveDefinite)
     sub_lat_man = Normal(lat_dim, lat_rep)
-    mix_sub = NormalCovarianceSubspace(mid_lat_man, sub_lat_man)
+    mix_sub = NormalCovarianceEmbedding(mid_lat_man, sub_lat_man)
     lwr_hrm = LinearGaussianModel(obs_dim, obs_rep, lat_dim)
     upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
@@ -230,8 +230,8 @@ class CoMPoissonPopulation(
 
 
 @dataclass(frozen=True)
-class PopulationLocationSubspace(
-    LocationSubspace[
+class PopulationLocationEmbedding(
+    LocationEmbedding[
         CoMPoissonPopulation,
         PoissonPopulation,
     ]
@@ -270,5 +270,5 @@ def poisson_mixture(n_neurons: int, n_components: int) -> PoissonMixture:
 
 def com_poisson_mixture(n_neurons: int, n_components: int) -> CoMPoissonMixture:
     """Create a COM-Poisson mixture with shared dispersion parameters."""
-    subspace = PopulationLocationSubspace(n_neurons)
+    subspace = PopulationLocationEmbedding(n_neurons)
     return DifferentiableMixture(n_components, subspace)
