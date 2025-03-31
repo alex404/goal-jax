@@ -44,7 +44,9 @@ from ...geometry import (
     AnalyticConjugated,
     Coordinates,
     Diagonal,
+    DifferentiableConjugated,
     Dual,
+    LinearEmbedding,
     LinearMap,
     LocationEmbedding,
     MatrixRep,
@@ -85,6 +87,100 @@ class NormalLocationEmbedding[Rep: PositiveDefinite](
     @override
     def sub_man(self) -> Euclidean:
         return self.nor_man.loc_man
+
+
+@dataclass(frozen=True)
+class NormalCovarianceEmbedding[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
+    LinearEmbedding[Normal[SuperRep], Normal[SubRep]]
+):
+    """Subspace relationship between Normal distributions with different covariance structures.
+
+    This relationship defines how simpler normal distributions (e.g. DiagonalNormal) embed
+    into more complex ones (e.g. FullNormal). The key operations are:
+
+    1. Projection: Extract diagonal/scaled components from a full distribution.
+       Should be used with mean coordinates (expectations and covariances).
+
+    2. Translation: Embed simpler parameters into the full space.
+       Should be used with natural coordinates (natural parameters and precisions).
+
+    For example, a DiagonalNormal can be seen as a submanifold of FullNormal where
+    off-diagonal elements are zero.
+
+    Warning:
+        This subspace relationship is sensitive to coordinate systems. Projection should only be used with mean coordinates, while translation should only be used with natural coordinates. Incorrect usage will lead to errors.
+    """
+
+    # Fields
+
+    _sup_man: Normal[SuperRep]
+    _sub_man: Normal[SubRep]
+
+    def __post_init__(self):
+        if not isinstance(self.sub_man.cov_man.rep, self.sup_man.cov_man.rep.__class__):
+            raise TypeError(
+                f"Sub-manifold rep {self.sub_man.cov_man.rep} must be simpler than super-manifold rep {self.sup_man.cov_man.rep}"
+            )
+
+    @property
+    @override
+    def sup_man(self) -> Normal[SuperRep]:
+        """Super-manifold."""
+        return self._sup_man
+
+    @property
+    @override
+    def sub_man(self) -> Normal[SubRep]:
+        """Sub-manifold."""
+        return self._sub_man
+
+    @override
+    def project(self, p: Point[Mean, Normal[SuperRep]]) -> Point[Mean, Normal[SubRep]]:
+        """Project from super-manifold to sub-manifold.
+
+        This operation is only valid in mean coordinates, where it corresponds to the information projection (moment matching).
+
+        Args:
+            p: Point in super-manifold (must be in mean coordinates)
+
+        Returns:
+            Projected point in sub-manifold
+        """
+        return self.sup_man.project_rep(self.sub_man, p)
+
+    @override
+    def embed(
+        self, p: Point[Natural, Normal[SubRep]]
+    ) -> Point[Natural, Normal[SuperRep]]:
+        """Embed a point in sub-manifold into super-manifold.
+
+        This operation is only valid in natural coordinates, where it embeds the simpler structure into the more complex one by zero padding the missing elements.
+
+        Args:
+            p: Point in sub-manifold (must be in natural coordinates)
+
+        Returns:
+            Embedded point in super-manifold
+        """
+        return self.sub_man.embed_rep(self.sup_man, p)
+
+    @override
+    def translate(
+        self, p: Point[Natural, Normal[SuperRep]], q: Point[Natural, Normal[SubRep]]
+    ) -> Point[Natural, Normal[SuperRep]]:
+        """Translate a point in super-manifold by a point in sub-manifold.
+
+        This operation is only valid in natural coordinates, where it embeds the simpler structure into the more complex one before adding, effectively zero padding the missing elements of the point on the submanifold.
+
+        Args:
+            p: Point in super-manifold (must be in natural coordinates)
+            q: Point in sub-manifold to translate by
+
+        Returns:
+            Translated point in super-manifold
+        """
+        embedded_q = self.sub_man.embed_rep(self.sup_man, q)
+        return p + embedded_q
 
 
 ### Private Functions ###
@@ -164,10 +260,13 @@ def _change_of_basis[
 
 
 @dataclass(frozen=True)
-class LinearGaussianModel[
+class DifferentiableLinearGaussianModel[
     ObsRep: PositiveDefinite,
+    LatRep: PositiveDefinite,
 ](
-    AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
+    DifferentiableConjugated[
+        Rectangular, Normal[ObsRep], Euclidean, Euclidean, Normal[LatRep], FullNormal
+    ],
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
 
@@ -208,6 +307,7 @@ class LinearGaussianModel[
     obs_dim: int
     obs_rep: type[ObsRep]
     lat_dim: int
+    lat_rep: type[LatRep]
 
     # Overrides
 
@@ -219,15 +319,25 @@ class LinearGaussianModel[
 
     @property
     @override
-    def int_obs_sub(self) -> NormalLocationEmbedding[ObsRep]:
+    def obs_emb(self) -> NormalLocationEmbedding[ObsRep]:
         """Representation of interaction matrix."""
         return NormalLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
 
     @property
     @override
-    def int_lat_sub(self) -> NormalLocationEmbedding[PositiveDefinite]:
+    def int_lat_emb(self) -> NormalLocationEmbedding[LatRep]:
         """Representation of interaction matrix."""
-        return NormalLocationEmbedding(Normal(self.lat_dim, PositiveDefinite))
+        return NormalLocationEmbedding(Normal(self.lat_dim, self.lat_rep))
+
+    @property
+    @override
+    def pst_lat_emb(self) -> NormalCovarianceEmbedding[LatRep, PositiveDefinite]:
+        """Representation of interaction matrix."""
+
+        return NormalCovarianceEmbedding(
+            Normal(self.lat_dim, PositiveDefinite),
+            Normal(self.lat_dim, self.lat_rep),
+        )
 
     @override
     def conjugation_parameters(
@@ -254,6 +364,44 @@ class LinearGaussianModel[
 
         # Join parameters into moment parameters
         return self.lat_man.join_location_precision(rho_mean, rho_shape)
+
+    def observable_distribution(
+        self, params: Point[Natural, Self]
+    ) -> tuple[FullNormal, Point[Natural, FullNormal]]:
+        """Returns the marginal normal distribution over observable variables."""
+        # Build transposed LGM with full covariance observable variables
+        transposed_lgm = AnalyticLinearGaussianModel(
+            obs_dim=self.lat_dim,  # Original latent becomes observable
+            obs_rep=PositiveDefinite,
+            lat_dim=self.obs_dim,  # Original observable becomes latent
+        )
+
+        # Construct parameters for transposed model
+        obs_params, int_params, lat_params = self.split_params(params)
+        nor_man = transposed_lgm.lat_man
+        obs_params_emb = self.obs_man.embed_rep(nor_man, obs_params)
+        lat_params_emb = self.pst_lat_man.embed_rep(transposed_lgm.obs_man, lat_params)
+
+        # Join parameters with interaction matrix transposed
+        transposed_params = transposed_lgm.join_params(
+            lat_params_emb,  # Original latent becomes observable
+            self.int_man.transpose(int_params),
+            obs_params_emb,
+        )
+
+        # Use harmonium prior to get marginal distribution
+        return nor_man, transposed_lgm.prior(transposed_params)
+
+
+@dataclass(frozen=True)
+class AnalyticLinearGaussianModel[
+    ObsRep: PositiveDefinite,
+](
+    DifferentiableLinearGaussianModel[ObsRep, PositiveDefinite],
+    AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
+):
+    def __init__(self, obs_dim: int, obs_rep: type[ObsRep], lat_dim: int):
+        super().__init__(obs_dim, obs_rep, lat_dim, PositiveDefinite)
 
     @override
     def to_natural_likelihood(
@@ -297,37 +445,11 @@ class LinearGaussianModel[
         )
         return self.lkl_man.join_params(obs_params, reduce_dual(int_params))
 
-    def observable_distribution(
-        self, params: Point[Natural, Self]
-    ) -> tuple[FullNormal, Point[Natural, FullNormal]]:
-        """Returns the marginal normal distribution over observable variables."""
-        # Build transposed LGM with full covariance observable variables
-        transposed_lgm = LinearGaussianModel(
-            obs_dim=self.lat_dim,  # Original latent becomes observable
-            obs_rep=PositiveDefinite,
-            lat_dim=self.obs_dim,  # Original observable becomes latent
-        )
-
-        # Construct parameters for transposed model
-        obs_params, int_params, lat_params = self.split_params(params)
-        nor_man = transposed_lgm.lat_man
-        obs_params_emb = self.obs_man.embed_rep(nor_man, obs_params)
-
-        # Join parameters with interaction matrix transposed
-        transposed_params = transposed_lgm.join_params(
-            lat_params,  # Original latent becomes observable
-            self.int_man.transpose(int_params),
-            obs_params_emb,
-        )
-
-        # Use harmonium prior to get marginal distribution
-        return nor_man, transposed_lgm.prior(transposed_params)
-
     def transform_observable_rep[TargetRep: PositiveDefinite](
         self,
-        trg_man: LinearGaussianModel[TargetRep],
+        trg_man: AnalyticLinearGaussianModel[TargetRep],
         p: Point[Natural, Self],
-    ) -> Point[Natural, LinearGaussianModel[TargetRep]]:
+    ) -> Point[Natural, AnalyticLinearGaussianModel[TargetRep]]:
         """Transform observable parameters to target representation.
 
         This transforms the observable component of the model between different matrix
@@ -342,10 +464,12 @@ class LinearGaussianModel[
 
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
-        new_man: LinearGaussianModel[PositiveDefinite] = LinearGaussianModel(
-            obs_dim=self.obs_man.data_dim,
-            obs_rep=PositiveDefinite,
-            lat_dim=self.lat_man.data_dim,
+        new_man: AnalyticLinearGaussianModel[PositiveDefinite] = (
+            AnalyticLinearGaussianModel(
+                obs_dim=self.obs_man.data_dim,
+                obs_rep=PositiveDefinite,
+                lat_dim=self.lat_man.data_dim,
+            )
         )
         p_embedded = self.transform_observable_rep(new_man, p)
         obs_params, int_params, lat_params = new_man.split_params(p_embedded)
@@ -367,7 +491,7 @@ class LinearGaussianModel[
 
 
 @dataclass(frozen=True)
-class FactorAnalysis(LinearGaussianModel[Diagonal]):
+class FactorAnalysis(AnalyticLinearGaussianModel[Diagonal]):
     """A factor analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
@@ -430,7 +554,7 @@ class FactorAnalysis(LinearGaussianModel[Diagonal]):
 
 
 @dataclass(frozen=True)
-class PrincipalComponentAnalysis(LinearGaussianModel[Scale]):
+class PrincipalComponentAnalysis(AnalyticLinearGaussianModel[Scale]):
     """A principal component analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):

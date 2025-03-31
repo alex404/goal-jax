@@ -51,23 +51,27 @@ class ObservableEmbedding[
     Observable: ExponentialFamily,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
+    PostLatent: ExponentialFamily,
     Latent: ExponentialFamily,
 ](
     LinearEmbedding[
-        Harmonium[Rep, Observable, IntObservable, IntLatent, Latent], Observable
+        Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+        Observable,
     ]
 ):
     """Subspace relationship for a product manifold $\\mathcal M \\times \\mathcal N \\times \\mathcal O$."""
 
     # Fields
 
-    hrm_man: Harmonium[Rep, Observable, IntObservable, IntLatent, Latent]
+    hrm_man: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
 
     # Overrides
 
     @property
     @override
-    def sup_man(self) -> Harmonium[Rep, Observable, IntObservable, IntLatent, Latent]:
+    def sup_man(
+        self,
+    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
         return self.hrm_man
 
     @property
@@ -78,7 +82,10 @@ class ObservableEmbedding[
     @override
     def project(
         self,
-        p: Point[Mean, Harmonium[Rep, Observable, IntObservable, IntLatent, Latent]],
+        p: Point[
+            Mean,
+            Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+        ],
     ) -> Point[Mean, Observable]:
         first, _, _ = self.sup_man.split_params(p)
         return first
@@ -87,20 +94,101 @@ class ObservableEmbedding[
     def embed(
         self,
         p: Point[Natural, Observable],
-    ) -> Point[Natural, Harmonium[Rep, Observable, IntObservable, IntLatent, Latent]]:
+    ) -> Point[
+        Natural,
+        Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+    ]:
         # zero pad
         int_params: Point[Natural, ...] = self.hrm_man.int_man.zeros()
-        lat_params: Point[Natural, ...] = self.hrm_man.obs_man.zeros()
+        lat_params: Point[Natural, ...] = self.hrm_man.pst_lat_man.zeros()
         return self.sup_man.join_params(p, int_params, lat_params)
 
     @override
     def translate[C: Coordinates](
         self,
-        p: Point[C, Harmonium[Rep, Observable, IntObservable, IntLatent, Latent]],
+        p: Point[
+            C, Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
+        ],
         q: Point[C, Observable],
-    ) -> Point[C, Harmonium[Rep, Observable, IntObservable, IntLatent, Latent]]:
+    ) -> Point[
+        C, Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
+    ]:
         first, second, third = self.sup_man.split_params(p)
         return self.sup_man.join_params(first + q, second, third)
+
+
+@dataclass(frozen=True)
+class LatentHarmoniumEmbedding[
+    Rep: MatrixRep,
+    Observable: ExponentialFamily,
+    PostObservable: ExponentialFamily,
+    IntObservable: ExponentialFamily,
+    IntLatent: ExponentialFamily,
+    PostLatent: ExponentialFamily,
+    Latent: ExponentialFamily,
+](
+    LinearEmbedding[
+        Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+        Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent],
+    ]
+):
+    """Subspace relationship for a product manifold $\\mathcal M \\times \\mathcal N \\times \\mathcal O$."""
+
+    # Fields
+
+    hrm_man: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
+    pst_hrm_man: Harmonium[
+        Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent
+    ]
+    pst_obs_emb: LinearEmbedding[Observable, PostObservable]
+
+    # Overrides
+
+    @property
+    @override
+    def sup_man(
+        self,
+    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
+        return self.hrm_man
+
+    @property
+    @override
+    def sub_man(
+        self,
+    ) -> Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent]:
+        return self.pst_hrm_man
+
+    @override
+    def project(
+        self,
+        p: Point[
+            Mean,
+            Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+        ],
+    ) -> Point[
+        Mean,
+        Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent],
+    ]:
+        obs_params, int_params, lat_params = self.sup_man.split_params(p)
+        prj_obs_params = self.pst_obs_emb.project(obs_params)
+        return self.sub_man.join_params(prj_obs_params, int_params, lat_params)
+
+    @override
+    def embed(
+        self,
+        p: Point[
+            Natural,
+            Harmonium[
+                Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent
+            ],
+        ],
+    ) -> Point[
+        Natural,
+        Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+    ]:
+        obs_params, int_params, lat_params = self.sub_man.split_params(p)
+        emb_obs_params = self.pst_obs_emb.embed(obs_params)
+        return self.sup_man.join_params(emb_obs_params, int_params, lat_params)
 
 
 ### Undirected Harmoniums ###
@@ -112,12 +200,14 @@ class StrongDifferentiableUndirected[
     Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
+    PostLatent: Differentiable,
     Latent: Differentiable,
     LowerHarmonium: Differentiable,
+    PostUpperHarmonium: Differentiable,
     UpperHarmonium: Differentiable,
 ](
     DifferentiableConjugated[
-        IntRep, Observable, IntObservable, IntLatent, UpperHarmonium
+        IntRep, Observable, IntObservable, IntLatent, PostUpperHarmonium, UpperHarmonium
     ],
 ):
     """Class for hierarchical harmoniums with deep conjugate structure.
@@ -156,6 +246,7 @@ class StrongDifferentiableUndirected[
     # Fields
 
     lwr_hrm: LowerHarmonium
+    pst_upr_hrm: PostUpperHarmonium
     upr_hrm: UpperHarmonium
 
     # Properties
@@ -163,11 +254,13 @@ class StrongDifferentiableUndirected[
     @property
     def _abc_lwr_hrm(
         self,
-    ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
+    ) -> DifferentiableConjugated[
+        IntRep, Observable, IntObservable, IntLatent, PostLatent, Latent
+    ]:
         return self.lwr_hrm  # pyright: ignore[reportReturnType]
 
     @property
-    def lat_sub(self) -> LinearEmbedding[UpperHarmonium, Any]:
+    def hrm_lat_emb(self) -> LinearEmbedding[UpperHarmonium, Latent]:
         return ObservableEmbedding(self.upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
 
     # Overrides
@@ -179,13 +272,25 @@ class StrongDifferentiableUndirected[
 
     @property
     @override
-    def int_obs_sub(self) -> LinearEmbedding[Observable, IntObservable]:
-        return self._abc_lwr_hrm.int_obs_sub
+    def obs_emb(self) -> LinearEmbedding[Observable, IntObservable]:
+        return self._abc_lwr_hrm.obs_emb
 
     @property
     @override
-    def int_lat_sub(self) -> LinearEmbedding[UpperHarmonium, IntLatent]:
-        return LinearComposedEmbedding(self.lat_sub, self._abc_lwr_hrm.int_lat_sub)
+    def int_lat_emb(self) -> LinearEmbedding[UpperHarmonium, IntLatent]:
+        return LinearComposedEmbedding(  # pyright: ignore[reportReturnType, reportUnknownVariableType]
+            ObservableEmbedding(self.pst_upr_hrm),  # pyright: ignore[reportArgumentType]
+            self._abc_lwr_hrm.int_lat_emb,
+        )
+
+    @property
+    @override
+    def pst_lat_emb(self) -> LinearEmbedding[UpperHarmonium, PostUpperHarmonium]:
+        return LatentHarmoniumEmbedding(  # pyright: ignore[reportReturnType, reportUnknownVariableType]
+            self.upr_hrm,  # pyright: ignore[reportArgumentType]
+            self.pst_upr_hrm,  # pyright: ignore[reportArgumentType]
+            self._abc_lwr_hrm.pst_lat_emb,
+        )
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
@@ -227,8 +332,7 @@ class StrongDifferentiableUndirected[
     ) -> Point[Natural, UpperHarmonium]:
         """Compute conjugation parameters recursively."""
         rho0 = self._abc_lwr_hrm.conjugation_parameters(lkl_params)
-        zero = self.lat_man.natural_point(jnp.zeros(self.lat_man.dim))
-        return self.lat_sub.translate(zero, rho0)
+        return self.hrm_lat_emb.embed(rho0)
 
 
 class StrongAnalyticUndirected[
@@ -247,11 +351,21 @@ class StrongAnalyticUndirected[
         IntObservable,
         IntLatent,
         Latent,
+        Latent,
         LowerHarmonium,
+        UpperHarmonium,
         UpperHarmonium,
     ],
 ):
     """Class for hierarchical harmoniums with deep conjugate structure. Adds analytic conjugation capabilities to `DifferentiableHierarchical`."""
+
+    def __init__(
+        self,
+        lwr_hrm: LowerHarmonium,
+        upr_hrm: UpperHarmonium,
+    ):
+        """Initialize hierarchical harmonium with conjugate structure."""
+        super().__init__(lwr_hrm, upr_hrm, upr_hrm)
 
     # Overrides
 
@@ -270,7 +384,7 @@ class StrongAnalyticUndirected[
     ) -> Point[Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]]:
         """Convert mean parameters to natural parameters for lower likelihood."""
         obs_means, lwr_int_means, lat_means = self.split_params(params)
-        lwr_lat_means = self.lat_sub.project(lat_means)
+        lwr_lat_means = self.hrm_lat_emb.project(lat_means)
         lwr_means = self._abc_lwr_hrm.join_params(
             obs_means, lwr_int_means, lwr_lat_means
         )
@@ -283,10 +397,11 @@ class StrongAnalyticUndirected[
 @dataclass(frozen=True)
 class DifferentiableUndirected[
     LowerHarmonium: Differentiable,
+    PostUpperHarmonium: Differentiable,
     UpperHarmonium: Differentiable,
 ](
     StrongDifferentiableUndirected[
-        Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium
+        Any, Any, Any, Any, Any, Any, LowerHarmonium, PostUpperHarmonium, UpperHarmonium
     ]
 ):
     """Class for hierarchical harmoniums with deep conjugate structure. Uses runtime type checking to ensure proper structure. In particular:
@@ -314,8 +429,13 @@ class AnalyticUndirected[
 
     # Fields
 
-    lwr_hrm: LowerHarmonium
-    upr_hrm: UpperHarmonium
+    def __init__(
+        self,
+        lwr_hrm: LowerHarmonium,
+        upr_hrm: UpperHarmonium,
+    ):
+        """Initialize hierarchical harmonium with conjugate structure."""
+        super().__init__(lwr_hrm, upr_hrm)
 
     def __post_init__(self):
         # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
@@ -352,7 +472,7 @@ class AnalyticUndirected[
 #     def dif_hrm(
 #         self,
 #     ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
-#         return self.con_hrm  # pyright: ignore[reportReturnType]
+#         return self.con_hrm
 #
 #     # Overrides
 #
@@ -458,7 +578,7 @@ class AnalyticUndirected[
 #     def dif_hrm(
 #         self,
 #     ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
-#         return self.con_hrm  # pyright: ignore[reportReturnType]
+#         return self.con_hrm
 #
 #     # Overrides
 #

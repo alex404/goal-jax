@@ -18,7 +18,7 @@ from jax import Array
 from jax.scipy import stats
 
 from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale
-from goal.models import Covariance, FactorAnalysis, LinearGaussianModel, Normal
+from goal.models import AnalyticLinearGaussianModel, Covariance, FactorAnalysis, Normal
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -164,7 +164,7 @@ def test_observable_distributions(
     # Create model
     obs_dim = obs_mean.shape[0]
     lat_dim = lat_mean.shape[0]
-    lgm = LinearGaussianModel(obs_dim, Diagonal, lat_dim)
+    lgm = AnalyticLinearGaussianModel(obs_dim, Diagonal, lat_dim)
 
     # Get model parameters
     means = lgm.average_sufficient_statistic(sample_data)
@@ -204,7 +204,7 @@ def test_single_model(
     # Create models
     obs_dim = obs_mean.shape[0]
     lat_dim = lat_mean.shape[0]
-    lgm_man = LinearGaussianModel(obs_dim, rep, lat_dim)
+    lgm_man = AnalyticLinearGaussianModel(obs_dim, rep, lat_dim)
     nor_man = Normal(obs_dim + lat_dim, PositiveDefinite)
 
     # Fit LGM model
@@ -294,9 +294,9 @@ def test_model_consistency(
     # Create models
     obs_dim = obs_mean.shape[0]
     lat_dim = lat_mean.shape[0]
-    iso_model = LinearGaussianModel(obs_dim, Scale, lat_dim)
-    dia_model = LinearGaussianModel(obs_dim, Diagonal, lat_dim)
-    pod_model = LinearGaussianModel(obs_dim, PositiveDefinite, lat_dim)
+    iso_model = AnalyticLinearGaussianModel(obs_dim, Scale, lat_dim)
+    dia_model = AnalyticLinearGaussianModel(obs_dim, Diagonal, lat_dim)
+    pod_model = AnalyticLinearGaussianModel(obs_dim, PositiveDefinite, lat_dim)
 
     # Fit isotropic model
     iso_means = iso_model.average_sufficient_statistic(sample_data)

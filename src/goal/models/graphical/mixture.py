@@ -49,19 +49,21 @@ from ..base.categorical import (
 
 @dataclass(frozen=True)
 class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
-    Harmonium[Rectangular, Observable, SubObservable, Categorical, Categorical],
+    Harmonium[
+        Rectangular, Observable, SubObservable, Categorical, Categorical, Categorical
+    ],
 ):
     """Mixture models with exponential family observations.
 
     Parameters:
         n_categories: Number of mixture components
-        _int_obs_sub: Subspace relationship for observable parameters (default: IdentityEmbedding)
+        _obs_emb: Subspace relationship for observable parameters (default: IdentityEmbedding)
     """
 
     # Fields
 
     n_categories: int
-    _int_obs_sub: LinearEmbedding[Observable, SubObservable]
+    _obs_emb: LinearEmbedding[Observable, SubObservable]
 
     # Overrides
 
@@ -72,12 +74,17 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     @property
     @override
-    def int_obs_sub(self) -> LinearEmbedding[Observable, SubObservable]:
-        return self._int_obs_sub
+    def obs_emb(self) -> LinearEmbedding[Observable, SubObservable]:
+        return self._obs_emb
 
     @property
     @override
-    def int_lat_sub(self) -> IdentityEmbedding[Categorical]:
+    def int_lat_emb(self) -> IdentityEmbedding[Categorical]:
+        return IdentityEmbedding(Categorical(self.n_categories))
+
+    @property
+    @override
+    def pst_lat_emb(self) -> IdentityEmbedding[Categorical]:
         return IdentityEmbedding(Categorical(self.n_categories))
 
     # Template Methods
@@ -95,7 +102,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         """Create a mixture model in mean coordinates from components and weights.
 
         Note: if only a submanifold of interactions on the observables are considered
-        (i.e. int_obs_sub is not the IdentityEmbeddingSubspace), then information in the components
+        (i.e. obs_emb is not the IdentityEmbeddingSubspace), then information in the components
         will be discarded.
         """
         probs = self.lat_man.to_probs(weights)
@@ -111,7 +118,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)
         projected_comps = cmp_man_minus.man_map(
-            self.int_obs_sub.project,
+            self.obs_emb.project,
             cmp_man_minus.mean_point(weighted_comps[1:]),
         )
         # int_means shape: (sub_obs_dim, n_categories-1)
@@ -153,7 +160,7 @@ class DifferentiableMixture[
 ](
     Mixture[Observable, SubObservable],
     DifferentiableConjugated[
-        Rectangular, Observable, SubObservable, Categorical, Categorical
+        Rectangular, Observable, SubObservable, Categorical, Categorical, Categorical
     ],
 ):
     # Overrides
@@ -180,7 +187,7 @@ class DifferentiableMixture[
         int_comps = self.int_man.to_columns(int_mat)
 
         def compute_rho(comp_params: Point[Natural, SubObservable]) -> Array:
-            adjusted_obs = self.int_obs_sub.translate(obs_bias, comp_params)
+            adjusted_obs = self.obs_emb.translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
         # rho_z shape: (n_categories - 1,)
@@ -204,7 +211,7 @@ class DifferentiableMixture[
         def translate_col(
             col: Point[Natural, SubObservable],
         ) -> Point[Natural, Observable]:
-            return self.int_obs_sub.translate(obs_bias, col)
+            return self.obs_emb.translate(obs_bias, col)
 
         # translated shape: (n_categories - 1, obs_dim)
         translated = self.int_man.col_man.man_map(translate_col, int_cols)
@@ -212,54 +219,6 @@ class DifferentiableMixture[
         components = jnp.vstack([obs_bias.array[None, :], translated.array])
 
         return self.cmp_man.natural_point(components), prr_params
-
-    def join_natural_mixture(
-        self,
-        components: Point[Natural, Product[Observable]],
-        prior: Point[Natural, Categorical],
-    ) -> Point[Natural, Self]:
-        """Create a mixture model in natural coordinates from components and prior.
-
-        Parameters in the mixing subspace use the first component as reference/anchor and store differences in the interaction matrix. Parameters outside the mixing subspace use the weighted average of all components.
-        """
-        # Get probabilities for weighting - shape: (n_categories,)
-        probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
-        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
-
-        # Get anchor (first component) - shape: (obs_dim,)
-        anchor = self.cmp_man.get_replicate(components, jnp.asarray(0))
-        anchor_sub = self.int_obs_sub.project(anchor)  # shape: (sub_obs_dim,)
-
-        # Compute weighted average - shape: (obs_dim,)
-        avg_params = self.obs_man.natural_point(
-            jnp.sum(components.array * probs.reshape(probs_shape), axis=0)
-        )
-
-        # Create obs_bas combining in/out of subspace parameters
-        anchor_out_sub = self.int_obs_sub.translate(
-            avg_params, -self.int_obs_sub.project(avg_params)
-        )
-        anchor_in_sub = self.int_obs_sub.translate(
-            self.obs_man.natural_point(jnp.zeros_like(anchor.array)), anchor_sub
-        )
-        obs_bias = anchor_in_sub + anchor_out_sub  # shape: (obs_dim,)
-
-        def to_interaction(
-            comp: Point[Natural, Observable],
-        ) -> Point[Natural, SubObservable]:
-            return self.int_obs_sub.project(comp) - anchor_sub
-
-        cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
-        # projected_comps shape: (n_categories-1, sub_obs_dim)
-        projected_comps = cmp_man_minus.man_map(
-            to_interaction, cmp_man_minus.natural_point(components.array[1:])
-        )
-
-        # int_mat shape: (sub_obs_dim, n_categories-1)
-        int_mat = self.int_man.from_columns(projected_comps)
-        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
-
-        return self.join_conjugated(lkl_params, prior)
 
     def observable_mean_covariance(
         self, params: Point[Natural, Self]
@@ -368,3 +327,51 @@ class AnalyticMixture[Observable: Analytic](
         int_mat = self.int_man.from_columns(int_cols)
 
         return self.lkl_man.join_params(obs_bias, int_mat)  # Methods
+
+    def join_natural_mixture(
+        self,
+        components: Point[Natural, Product[Observable]],
+        prior: Point[Natural, Categorical],
+    ) -> Point[Natural, Self]:
+        """Create a mixture model in natural coordinates from components and prior.
+
+        Parameters in the mixing subspace use the first component as reference/anchor and store differences in the interaction matrix. Parameters outside the mixing subspace use the weighted average of all components.
+        """
+        # Get probabilities for weighting - shape: (n_categories,)
+        probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
+        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
+
+        # Get anchor (first component) - shape: (obs_dim,)
+        anchor = self.cmp_man.get_replicate(components, jnp.asarray(0))
+        anchor_sub = self.obs_emb.project(anchor)  # shape: (sub_obs_dim,)
+
+        # Compute weighted average - shape: (obs_dim,)
+        avg_params = self.obs_man.natural_point(
+            jnp.sum(components.array * probs.reshape(probs_shape), axis=0)
+        )
+
+        # Create obs_bas combining in/out of subspace parameters
+        anchor_out_sub = self.obs_emb.translate(
+            avg_params, -self.obs_emb.project(avg_params)
+        )
+        anchor_in_sub = self.obs_emb.translate(
+            self.obs_man.natural_point(jnp.zeros_like(anchor.array)), anchor_sub
+        )
+        obs_bias = anchor_in_sub + anchor_out_sub  # shape: (obs_dim,)
+
+        def to_interaction(
+            comp: Point[Natural, Observable],
+        ) -> Point[Natural, Observable]:
+            return self.obs_emb.project(comp) - anchor_sub
+
+        cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
+        # projected_comps shape: (n_categories-1, sub_obs_dim)
+        projected_comps = cmp_man_minus.man_map(
+            to_interaction, cmp_man_minus.natural_point(components.array[1:])
+        )
+
+        # int_mat shape: (sub_obs_dim, n_categories-1)
+        int_mat = self.int_man.from_columns(projected_comps)
+        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
+
+        return self.join_conjugated(lkl_params, prior)

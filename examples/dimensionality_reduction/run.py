@@ -13,9 +13,9 @@ from goal.geometry import (
     Rectangular,
 )
 from goal.models import (
+    AnalyticLinearGaussianModel,
     Euclidean,
     FactorAnalysis,
-    LinearGaussianModel,
     PrincipalComponentAnalysis,
 )
 
@@ -59,7 +59,7 @@ def ground_truth(
     return fan_man, fan_params, sample
 
 
-def fit_model[Model: LinearGaussianModel[Any]](
+def fit_model[Model: AnalyticLinearGaussianModel[Any]](
     key: Array,
     model: Model,
     n_steps: int,

@@ -54,14 +54,16 @@ from .graphical.instances import (
     poisson_mixture,
 )
 from .graphical.lgm import (
+    AnalyticLinearGaussianModel,
+    DifferentiableLinearGaussianModel,
     FactorAnalysis,
-    LinearGaussianModel,
     PrincipalComponentAnalysis,
 )
 from .graphical.mixture import AnalyticMixture, DifferentiableMixture, Mixture
 
 __all__ = [
     "AnalyticHMoG",
+    "AnalyticLinearGaussianModel",
     "AnalyticMixture",
     "Categorical",
     "CoMPoisson",
@@ -73,6 +75,7 @@ __all__ = [
     "DiagonalCovariance",
     "DiagonalNormal",
     "DifferentiableHMoG",
+    "DifferentiableLinearGaussianModel",
     "DifferentiableMixture",
     "Euclidean",
     "FactorAnalysis",
@@ -80,7 +83,6 @@ __all__ = [
     "FullNormal",
     "IsotropicCovariance",
     "IsotropicNormal",
-    "LinearGaussianModel",
     "Mixture",
     "Normal",
     "Poisson",

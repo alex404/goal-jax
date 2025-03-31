@@ -82,11 +82,11 @@ class LinearEmbedding[Sup: Manifold, Sub: Manifold](Embedding[Sup, Sub], ABC):
     def project[C: Coordinates](self, p: Point[C, Sup]) -> Point[C, Sub]:
         """Project a point from the ambient space to the subspace."""
 
-    @abstractmethod
     def translate[C: Coordinates](
         self, p: Point[C, Sup], q: Point[C, Sub]
     ) -> Point[C, Sup]:
         """Translate point by subspace components."""
+        return p + self.embed(q)
 
     # Overrides
 
@@ -142,42 +142,42 @@ class ComposedEmbedding[
 
     # Fields
 
-    sup_sub: Embedding[Sup, Mid]
-    sub_sub: Embedding[Mid, Sub]
+    sup_emb: Embedding[Sup, Mid]
+    sub_emb: Embedding[Mid, Sub]
 
     # Overrides
 
     @property
     @override
     def sup_man(self) -> Sup:
-        return self.sup_sub.sup_man
+        return self.sup_emb.sup_man
 
     @property
     def mid_man(self) -> Mid:
-        return self.sup_sub.sub_man
+        return self.sup_emb.sub_man
 
     @property
     @override
     def sub_man(self) -> Sub:
-        return self.sub_sub.sub_man
+        return self.sub_emb.sub_man
 
     @override
     def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Sup]:
-        mid = self.sub_sub.embed(p)
-        return self.sup_sub.embed(mid)
+        mid = self.sub_emb.embed(p)
+        return self.sup_emb.embed(mid)
 
     @override
     def pullback[C: Coordinates](
         self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Sup]
     ) -> Point[Dual[C], Sub]:
         # First, embed the point to get its location in the middle space
-        mid_point = self.sub_sub.embed(at_point)
+        mid_point = self.sub_emb.embed(at_point)
 
         # Pull back through the upper subspace
-        mid_cotangent = self.sup_sub.pullback(mid_point, cotangent_vector)
+        mid_cotangent = self.sup_emb.pullback(mid_point, cotangent_vector)
 
         # Pull back through the lower subspace
-        return self.sub_sub.pullback(at_point, mid_cotangent)
+        return self.sub_emb.pullback(at_point, mid_cotangent)
 
 
 @dataclass(frozen=True)
@@ -195,22 +195,22 @@ class LinearComposedEmbedding[
 
     # Fields
 
-    sup_sub: LinearEmbedding[Sup, Mid]
-    sub_sub: LinearEmbedding[Mid, Sub]
+    sup_emb: LinearEmbedding[Sup, Mid]
+    sub_emb: LinearEmbedding[Mid, Sub]
 
     # Overrides
 
     @override
     def project[C: Coordinates](self, p: Point[Dual[C], Sup]) -> Point[Dual[C], Sub]:
-        mid = self.sup_sub.project(p)
-        return self.sub_sub.project(mid)
+        mid = self.sup_emb.project(p)
+        return self.sub_emb.project(mid)
 
     @override
     def translate[C: Coordinates](
         self, p: Point[C, Sup], q: Point[C, Sub]
     ) -> Point[C, Sup]:
         mid_zero: Point[C, Mid] = self.mid_man.point(
-            jnp.zeros(self.sup_sub.sub_man.dim)
+            jnp.zeros(self.sup_emb.sub_man.dim)
         )
-        mid = self.sub_sub.translate(mid_zero, q)
-        return self.sup_sub.translate(p, mid)
+        mid = self.sub_emb.translate(mid_zero, q)
+        return self.sup_emb.translate(p, mid)
