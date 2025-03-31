@@ -49,7 +49,6 @@ from .base import (
     Analytic,
     Differentiable,
     ExponentialFamily,
-    Generative,
     Mean,
     Natural,
 )
@@ -309,23 +308,14 @@ class Harmonium[
 
 class Conjugated[
     IntRep: MatrixRep,
-    Observable: Generative,
+    Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    Latent: Generative,
-](Harmonium[IntRep, Observable, IntObservable, IntLatent, Latent], Generative, ABC):
+    Latent: Differentiable,
+](Harmonium[IntRep, Observable, IntObservable, IntLatent, Latent], Differentiable, ABC):
     """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
 
     # Contract
-
-    @abstractmethod
-    def conjugation_baseline(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
-        ],
-    ) -> Array:
-        """Compute conjugation baseline for the harmonium."""
 
     @abstractmethod
     def conjugation_parameters(
@@ -337,17 +327,6 @@ class Conjugated[
         """Compute conjugation parameters for the harmonium."""
 
     # Templates
-
-    def conjugation_baseline_and_parameters(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
-        ],
-    ) -> tuple[Array, Point[Natural, Latent]]:
-        """Compute conjugation baseline and parameters for the harmonium."""
-        chi = self.conjugation_baseline(lkl_params)
-        rho = self.conjugation_parameters(lkl_params)
-        return chi, rho
 
     def prior(self, params: Point[Natural, Self]) -> Point[Natural, Latent]:
         """Natural parameters of the prior distribution $p(z)$."""
@@ -424,7 +403,7 @@ class Conjugated[
 
 class DifferentiableConjugated[
     IntRep: MatrixRep,
-    Observable: Generative,
+    Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
     Latent: Differentiable,
@@ -452,7 +431,8 @@ class DifferentiableConjugated[
         lkl_params = self.lkl_man.join_params(obs_params, int_params)
 
         # Get conjugation parameters
-        chi, rho = self.conjugation_baseline_and_parameters(lkl_params)
+        chi = self.obs_man.log_partition_function(obs_params)
+        rho = self.conjugation_parameters(lkl_params)
 
         # Compute adjusted latent parameters
         adjusted_lat = lat_params + rho
@@ -486,7 +466,8 @@ class DifferentiableConjugated[
         obs_params, int_params, lat_bias = self.split_params(params)
         lkl_params = self.lkl_man.join_params(obs_params, int_params)
 
-        chi, rho = self.conjugation_baseline_and_parameters(lkl_params)
+        chi = self.obs_man.log_partition_function(obs_params)
+        rho = self.conjugation_parameters(lkl_params)
         obs_stats = self.obs_man.sufficient_statistic(x)
 
         log_density = self.obs_man.dot(obs_params, obs_stats)
@@ -578,7 +559,7 @@ class DifferentiableConjugated[
 
 class AnalyticConjugated[
     IntRep: MatrixRep,
-    Observable: Generative,
+    Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
     Latent: Analytic,

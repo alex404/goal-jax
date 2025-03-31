@@ -69,8 +69,6 @@ class Natural(Coordinates):
     $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
     """
 
-    ...
-
 
 type Mean = Dual[Natural]
 """Mean parameters $\\eta \\in \\text{H}$ given by expectations of sufficient statistics:
@@ -127,7 +125,6 @@ class ExponentialFamily(Manifold, ABC):
     @abstractmethod
     def log_base_measure(self, x: Array) -> Array:
         """Compute log of base measure $\\mu(x)$."""
-        ...
 
     # Templates
 
@@ -201,7 +198,6 @@ class Generative(ExponentialFamily, ABC):
         Returns:
             Array of shape (n, *data_dims) containing samples
         """
-        ...
 
     # Templates
 

@@ -245,7 +245,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
         return block_diag
 
 
-class GenerativeProduct[M: Generative](Product[M], Generative):
+class GenerativeProduct[M: Differentiable](Product[M], Generative):
     """Replicated manifold for generative exponential families."""
 
     # Overrides

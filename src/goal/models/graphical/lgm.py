@@ -230,29 +230,6 @@ class LinearGaussianModel[
         return NormalLocationEmbedding(Normal(self.lat_dim, PositiveDefinite))
 
     @override
-    def conjugation_baseline(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]
-        ],
-    ) -> Array:
-        # Get parameters
-        obs_cov_man = self.obs_man.cov_man
-        obs_bias, _ = self.lkl_man.split_params(lkl_params)
-        obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
-
-        # Intermediate computations
-        obs_sigma = obs_cov_man.inverse(obs_prec)
-        log_det = obs_cov_man.logdet(obs_sigma)
-        obs_mean = obs_cov_man(obs_sigma, expand_dual(obs_loc))
-
-        # Conjugation parameters
-        chi = 0.5 * self.obs_man.loc_man.dot(
-            obs_mean, expand_dual(obs_cov_man(obs_prec, obs_mean))
-        )
-        return chi + 0.5 * log_det
-
-    @override
     def conjugation_parameters(
         self,
         lkl_params: Point[

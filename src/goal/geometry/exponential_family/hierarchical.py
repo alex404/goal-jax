@@ -19,14 +19,13 @@ Key algorithms (conjugation, natural parameters, sampling) are implemented recur
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Self, cast, override
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Coordinates, Point
-from ..manifold.combinators import Pair
 from ..manifold.embedding import LinearComposedEmbedding, LinearEmbedding
 from ..manifold.linear import AffineMap
 from ..manifold.matrix import MatrixRep
@@ -34,7 +33,6 @@ from .base import (
     Analytic,
     Differentiable,
     ExponentialFamily,
-    Generative,
     Mean,
     Natural,
 )
@@ -111,7 +109,7 @@ class ObservableEmbedding[
 @dataclass(frozen=True)
 class StrongDifferentiableUndirected[
     IntRep: MatrixRep,
-    Observable: Generative,
+    Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
     Latent: Differentiable,
@@ -163,7 +161,7 @@ class StrongDifferentiableUndirected[
     # Properties
 
     @property
-    def _con_lwr_hrm(
+    def _abc_lwr_hrm(
         self,
     ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
         return self.lwr_hrm  # pyright: ignore[reportReturnType]
@@ -177,17 +175,17 @@ class StrongDifferentiableUndirected[
     @property
     @override
     def int_rep(self) -> IntRep:
-        return self._con_lwr_hrm.snd_man.rep
+        return self._abc_lwr_hrm.snd_man.rep
 
     @property
     @override
     def int_obs_sub(self) -> LinearEmbedding[Observable, IntObservable]:
-        return self._con_lwr_hrm.int_obs_sub
+        return self._abc_lwr_hrm.int_obs_sub
 
     @property
     @override
     def int_lat_sub(self) -> LinearEmbedding[UpperHarmonium, IntLatent]:
-        return LinearComposedEmbedding(self.lat_sub, self._con_lwr_hrm.int_lat_sub)
+        return LinearComposedEmbedding(self.lat_sub, self._abc_lwr_hrm.int_lat_sub)
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
@@ -207,7 +205,7 @@ class StrongDifferentiableUndirected[
         # Sample from adjusted latent distribution p(z)
         nat_prior = self.prior(params)
         yz_sample = self.lat_man.sample(key1, nat_prior, n)
-        y_sample = yz_sample[:, : self._con_lwr_hrm.lat_man.data_dim]
+        y_sample = yz_sample[:, : self._abc_lwr_hrm.lat_man.data_dim]
 
         # Vectorize sampling from conditional distributions
         x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, y_sample)
@@ -221,16 +219,6 @@ class StrongDifferentiableUndirected[
         return jnp.concatenate([x_sample, yz_sample], axis=-1)
 
     @override
-    def conjugation_baseline(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
-        ],
-    ) -> Array:
-        """Compute conjugation parameters recursively."""
-        return self._con_lwr_hrm.conjugation_baseline(lkl_params)
-
-    @override
     def conjugation_parameters(
         self,
         lkl_params: Point[
@@ -238,14 +226,14 @@ class StrongDifferentiableUndirected[
         ],
     ) -> Point[Natural, UpperHarmonium]:
         """Compute conjugation parameters recursively."""
-        rho0 = self._con_lwr_hrm.conjugation_parameters(lkl_params)
+        rho0 = self._abc_lwr_hrm.conjugation_parameters(lkl_params)
         zero = self.lat_man.natural_point(jnp.zeros(self.lat_man.dim))
         return self.lat_sub.translate(zero, rho0)
 
 
 class StrongAnalyticUndirected[
     IntRep: MatrixRep,
-    Observable: Generative,
+    Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
     Latent: Analytic,
@@ -269,7 +257,7 @@ class StrongAnalyticUndirected[
 
     @property
     @override
-    def _con_lwr_hrm(
+    def _abc_lwr_hrm(
         self,
     ) -> AnalyticConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
         """Accessor for analytic-typed lower harmonium."""
@@ -283,10 +271,10 @@ class StrongAnalyticUndirected[
         """Convert mean parameters to natural parameters for lower likelihood."""
         obs_means, lwr_int_means, lat_means = self.split_params(params)
         lwr_lat_means = self.lat_sub.project(lat_means)
-        lwr_means = self._con_lwr_hrm.join_params(
+        lwr_means = self._abc_lwr_hrm.join_params(
             obs_means, lwr_int_means, lwr_lat_means
         )
-        return self._con_lwr_hrm.to_natural_likelihood(lwr_means)
+        return self._abc_lwr_hrm.to_natural_likelihood(lwr_means)
 
 
 ### Front End Classes ###
@@ -336,216 +324,216 @@ class AnalyticUndirected[
         assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
 
 
-### Assymetric Harmoniums ###
-
-
-@dataclass(frozen=True)
-class AsymmetricHarmonium[
-    IntRep: MatrixRep,
-    Observable: Generative,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    PriorLatent: Differentiable,
-    Latent: Differentiable,
-    Undirected: Differentiable,
-](Pair[AffineMap[IntRep, IntLatent, IntObservable, Observable], PriorLatent]):
-    """Harmoniums represented in conjugated, rather than exponential family form."""
-
-    def __post_init__(self):
-        # Check that the `Harmonium` is a subtype of `DifferentiableConjugated`
-        assert isinstance(self.con_hrm, DifferentiableConjugated)
-
-    # Fields
-
-    con_hrm: Undirected
-    prr_sub: LinearEmbedding[Latent, PriorLatent]
-
-    @property
-    def dif_hrm(
-        self,
-    ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
-        return self.con_hrm  # pyright: ignore[reportReturnType]
-
-    # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> AffineMap[IntRep, IntLatent, IntObservable, Observable]:
-        return self.dif_hrm.lkl_man
-
-    @property
-    @override
-    def snd_man(self) -> PriorLatent:
-        return self.prr_sub.sub_man
-
-    # Templates
-
-    def log_partition_function(
-        self,
-        params: Point[Natural, Self],
-    ) -> Array:
-        """Compute log partition function for the harmonium."""
-        lkl_params, lat_params = self.split_params(params)
-        chi = self.dif_hrm.conjugation_baseline(lkl_params)
-        return chi + self.snd_man.log_partition_function(lat_params)
-
-    def to_mean(self, params: Point[Natural, Self]) -> Point[Mean, Self]:
-        """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
-        return self.grad(self.log_partition_function, params)
-
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate samples from the harmonium distribution.
-
-        Args:
-            key: PRNG key for sampling
-            params: Parameters in natural coordinates
-            n: Number of samples to generate
-
-        Returns:
-            Array of shape (n, data_dim) containing concatenated observable and latent states
-        """
-        # Split up the sampling key
-        key1, key2 = jax.random.split(key)
-
-        # Sample from adjusted latent distribution p(z)
-        lkl_params, lat_params = self.split_params(params)
-        z_sample = self.snd_man.sample(key1, lat_params, n)
-
-        def likelihood_at(y: Array) -> Point[Natural, Observable]:
-            my = self.fst_man.dom_man.sufficient_statistic(y)
-            return self.fst_man(lkl_params, my)
-
-        # Vectorize sampling from conditional distributions
-        x_params = jax.vmap(likelihood_at)(z_sample)
-
-        # Sample from conditionals p(x|z) in parallel
-        x_sample = jax.vmap(self.fst_man.cod_sub.sup_man.sample, in_axes=(0, 0, None))(
-            jax.random.split(key2, n), x_params, 1
-        ).reshape((n, -1))
-
-        # Concatenate samples along data dimension
-        return jnp.concatenate([x_sample, z_sample], axis=-1)
-
-    def to_natural_undirected(
-        self, params: Point[Natural, Self]
-    ) -> Point[Natural, Undirected]:
-        """Convert directed parameters to undirected parameters."""
-        lkl_params, prr_params = self.split_params(params)
-        lat_params0: Point[Natural, ...] = self.dif_hrm.lat_man.zeros()
-        lat_params = self.prr_sub.translate(lat_params0, prr_params)
-        dif_params = self.dif_hrm.join_conjugated(lkl_params, lat_params)
-        return cast(Point[Natural, Undirected], dif_params)
-
-    def from_mean_undirected(self, means: Point[Mean, Undirected]) -> Point[Mean, Self]:
-        """Convert directed parameters to undirected parameters."""
-        dif_means = self.dif_hrm.mean_point(means.array)
-        obs_means, int_means, lat_means0 = self.dif_hrm.split_params(dif_means)
-        lkl_means = self.dif_hrm.lkl_man.join_params(obs_means, int_means)
-        lat_means = self.prr_sub.project(lat_means0)
-        return self.join_params(lkl_means, lat_means)
-
-
-@dataclass(frozen=True)
-class StrongDirectedHarmonium[
-    IntRep: MatrixRep,
-    Observable: Generative,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    PriorLatent: Differentiable,
-    Latent: Differentiable,
-    Undirected: Differentiable,
-](Pair[AffineMap[IntRep, IntLatent, IntObservable, Observable], PriorLatent]):
-    """Harmoniums represented in conjugated, rather than exponential family form."""
-
-    def __post_init__(self):
-        # Check that the `Harmonium` is a subtype of `DifferentiableConjugated`
-        assert isinstance(self.con_hrm, DifferentiableConjugated)
-
-    # Fields
-
-    con_hrm: Undirected
-    prr_sub: LinearEmbedding[Latent, PriorLatent]
-
-    @property
-    def dif_hrm(
-        self,
-    ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
-        return self.con_hrm  # pyright: ignore[reportReturnType]
-
-    # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> AffineMap[IntRep, IntLatent, IntObservable, Observable]:
-        return self.dif_hrm.lkl_man
-
-    @property
-    @override
-    def snd_man(self) -> PriorLatent:
-        return self.prr_sub.sub_man
-
-    # Templates
-
-    def log_partition_function(
-        self,
-        params: Point[Natural, Self],
-    ) -> Array:
-        """Compute log partition function for the harmonium."""
-        lkl_params, lat_params = self.split_params(params)
-        chi = self.dif_hrm.conjugation_baseline(lkl_params)
-        return chi + self.snd_man.log_partition_function(lat_params)
-
-    def to_mean(self, params: Point[Natural, Self]) -> Point[Mean, Self]:
-        """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
-        return self.grad(self.log_partition_function, params)
-
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate samples from the harmonium distribution.
-
-        Args:
-            key: PRNG key for sampling
-            params: Parameters in natural coordinates
-            n: Number of samples to generate
-
-        Returns:
-            Array of shape (n, data_dim) containing concatenated observable and latent states
-        """
-        # Split up the sampling key
-        key1, key2 = jax.random.split(key)
-
-        # Sample from adjusted latent distribution p(z)
-        lkl_params, lat_params = self.split_params(params)
-        z_sample = self.snd_man.sample(key1, lat_params, n)
-
-        def likelihood_at(y: Array) -> Point[Natural, Observable]:
-            my = self.fst_man.dom_man.sufficient_statistic(y)
-            return self.fst_man(lkl_params, my)
-
-        # Vectorize sampling from conditional distributions
-        x_params = jax.vmap(likelihood_at)(z_sample)
-
-        # Sample from conditionals p(x|z) in parallel
-        x_sample = jax.vmap(self.fst_man.cod_sub.sup_man.sample, in_axes=(0, 0, None))(
-            jax.random.split(key2, n), x_params, 1
-        ).reshape((n, -1))
-
-        # Concatenate samples along data dimension
-        return jnp.concatenate([x_sample, z_sample], axis=-1)
-
-    def to_natural_undirected(
-        self, params: Point[Natural, Self]
-    ) -> Point[Natural, Undirected]:
-        """Convert directed parameters to undirected parameters."""
-        lkl_params, prr_params = self.split_params(params)
-        lat_params0: Point[Natural, ...] = self.dif_hrm.lat_man.zeros()
-        lat_params = self.prr_sub.translate(lat_params0, prr_params)
-        dif_params = self.dif_hrm.join_conjugated(lkl_params, lat_params)
-        return cast(Point[Natural, Undirected], dif_params)
-
-    def from_mean_undirected(self, means: Point[Mean, Undirected]) -> Point[Mean, Self]:
-        """Convert directed parameters to undirected parameters."""
-        dif_means = self.dif_hrm.mean_point(means.array)
-        obs_means, int_means, lat_means0 = self.dif_hrm.split_params(dif_means)
-        lkl_means = self.dif_hrm.lkl_man.join_params(obs_means, int_means)
-        lat_means = self.prr_sub.project(lat_means0)
-        return self.join_params(lkl_means, lat_means)
+# ### Assymetric Harmoniums ###
+#
+#
+# @dataclass(frozen=True)
+# class AsymmetricHarmonium[
+#     IntRep: MatrixRep,
+#     Observable: Differentiable,
+#     IntObservable: ExponentialFamily,
+#     IntLatent: ExponentialFamily,
+#     PriorLatent: Differentiable,
+#     Latent: Differentiable,
+#     Undirected: Differentiable,
+# ](Pair[AffineMap[IntRep, IntLatent, IntObservable, Observable], PriorLatent]):
+#     """Harmoniums represented in conjugated, rather than exponential family form."""
+#
+#     def __post_init__(self):
+#         # Check that the `Harmonium` is a subtype of `DifferentiableConjugated`
+#         assert isinstance(self.con_hrm, DifferentiableConjugated)
+#
+#     # Fields
+#
+#     con_hrm: Undirected
+#     prr_sub: LinearEmbedding[Latent, PriorLatent]
+#
+#     @property
+#     def dif_hrm(
+#         self,
+#     ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
+#         return self.con_hrm  # pyright: ignore[reportReturnType]
+#
+#     # Overrides
+#
+#     @property
+#     @override
+#     def fst_man(self) -> AffineMap[IntRep, IntLatent, IntObservable, Observable]:
+#         return self.dif_hrm.lkl_man
+#
+#     @property
+#     @override
+#     def snd_man(self) -> PriorLatent:
+#         return self.prr_sub.sub_man
+#
+#     # Templates
+#
+#     def log_partition_function(
+#         self,
+#         params: Point[Natural, Self],
+#     ) -> Array:
+#         """Compute log partition function for the harmonium."""
+#         lkl_params, lat_params = self.split_params(params)
+#         chi = self.dif_hrm.conjugation_baseline(lkl_params)
+#         return chi + self.snd_man.log_partition_function(lat_params)
+#
+#     def to_mean(self, params: Point[Natural, Self]) -> Point[Mean, Self]:
+#         """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
+#         return self.grad(self.log_partition_function, params)
+#
+#     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
+#         """Generate samples from the harmonium distribution.
+#
+#         Args:
+#             key: PRNG key for sampling
+#             params: Parameters in natural coordinates
+#             n: Number of samples to generate
+#
+#         Returns:
+#             Array of shape (n, data_dim) containing concatenated observable and latent states
+#         """
+#         # Split up the sampling key
+#         key1, key2 = jax.random.split(key)
+#
+#         # Sample from adjusted latent distribution p(z)
+#         lkl_params, lat_params = self.split_params(params)
+#         z_sample = self.snd_man.sample(key1, lat_params, n)
+#
+#         def likelihood_at(y: Array) -> Point[Natural, Observable]:
+#             my = self.fst_man.dom_man.sufficient_statistic(y)
+#             return self.fst_man(lkl_params, my)
+#
+#         # Vectorize sampling from conditional distributions
+#         x_params = jax.vmap(likelihood_at)(z_sample)
+#
+#         # Sample from conditionals p(x|z) in parallel
+#         x_sample = jax.vmap(self.fst_man.cod_sub.sup_man.sample, in_axes=(0, 0, None))(
+#             jax.random.split(key2, n), x_params, 1
+#         ).reshape((n, -1))
+#
+#         # Concatenate samples along data dimension
+#         return jnp.concatenate([x_sample, z_sample], axis=-1)
+#
+#     def to_natural_undirected(
+#         self, params: Point[Natural, Self]
+#     ) -> Point[Natural, Undirected]:
+#         """Convert directed parameters to undirected parameters."""
+#         lkl_params, prr_params = self.split_params(params)
+#         lat_params0: Point[Natural, ...] = self.dif_hrm.lat_man.zeros()
+#         lat_params = self.prr_sub.translate(lat_params0, prr_params)
+#         dif_params = self.dif_hrm.join_conjugated(lkl_params, lat_params)
+#         return cast(Point[Natural, Undirected], dif_params)
+#
+#     def from_mean_undirected(self, means: Point[Mean, Undirected]) -> Point[Mean, Self]:
+#         """Convert directed parameters to undirected parameters."""
+#         dif_means = self.dif_hrm.mean_point(means.array)
+#         obs_means, int_means, lat_means0 = self.dif_hrm.split_params(dif_means)
+#         lkl_means = self.dif_hrm.lkl_man.join_params(obs_means, int_means)
+#         lat_means = self.prr_sub.project(lat_means0)
+#         return self.join_params(lkl_means, lat_means)
+#
+#
+# @dataclass(frozen=True)
+# class StrongDirectedHarmonium[
+#     IntRep: MatrixRep,
+#     Observable: Differentiable,
+#     IntObservable: ExponentialFamily,
+#     IntLatent: ExponentialFamily,
+#     PriorLatent: Differentiable,
+#     Latent: Differentiable,
+#     Undirected: Differentiable,
+# ](Pair[AffineMap[IntRep, IntLatent, IntObservable, Observable], PriorLatent]):
+#     """Harmoniums represented in conjugated, rather than exponential family form."""
+#
+#     def __post_init__(self):
+#         # Check that the `Harmonium` is a subtype of `DifferentiableConjugated`
+#         assert isinstance(self.con_hrm, DifferentiableConjugated)
+#
+#     # Fields
+#
+#     con_hrm: Undirected
+#     prr_sub: LinearEmbedding[Latent, PriorLatent]
+#
+#     @property
+#     def dif_hrm(
+#         self,
+#     ) -> DifferentiableConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
+#         return self.con_hrm  # pyright: ignore[reportReturnType]
+#
+#     # Overrides
+#
+#     @property
+#     @override
+#     def fst_man(self) -> AffineMap[IntRep, IntLatent, IntObservable, Observable]:
+#         return self.dif_hrm.lkl_man
+#
+#     @property
+#     @override
+#     def snd_man(self) -> PriorLatent:
+#         return self.prr_sub.sub_man
+#
+#     # Templates
+#
+#     def log_partition_function(
+#         self,
+#         params: Point[Natural, Self],
+#     ) -> Array:
+#         """Compute log partition function for the harmonium."""
+#         lkl_params, lat_params = self.split_params(params)
+#         chi = self.dif_hrm.conjugation_baseline(lkl_params)
+#         return chi + self.snd_man.log_partition_function(lat_params)
+#
+#     def to_mean(self, params: Point[Natural, Self]) -> Point[Mean, Self]:
+#         """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
+#         return self.grad(self.log_partition_function, params)
+#
+#     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
+#         """Generate samples from the harmonium distribution.
+#
+#         Args:
+#             key: PRNG key for sampling
+#             params: Parameters in natural coordinates
+#             n: Number of samples to generate
+#
+#         Returns:
+#             Array of shape (n, data_dim) containing concatenated observable and latent states
+#         """
+#         # Split up the sampling key
+#         key1, key2 = jax.random.split(key)
+#
+#         # Sample from adjusted latent distribution p(z)
+#         lkl_params, lat_params = self.split_params(params)
+#         z_sample = self.snd_man.sample(key1, lat_params, n)
+#
+#         def likelihood_at(y: Array) -> Point[Natural, Observable]:
+#             my = self.fst_man.dom_man.sufficient_statistic(y)
+#             return self.fst_man(lkl_params, my)
+#
+#         # Vectorize sampling from conditional distributions
+#         x_params = jax.vmap(likelihood_at)(z_sample)
+#
+#         # Sample from conditionals p(x|z) in parallel
+#         x_sample = jax.vmap(self.fst_man.cod_sub.sup_man.sample, in_axes=(0, 0, None))(
+#             jax.random.split(key2, n), x_params, 1
+#         ).reshape((n, -1))
+#
+#         # Concatenate samples along data dimension
+#         return jnp.concatenate([x_sample, z_sample], axis=-1)
+#
+#     def to_natural_undirected(
+#         self, params: Point[Natural, Self]
+#     ) -> Point[Natural, Undirected]:
+#         """Convert directed parameters to undirected parameters."""
+#         lkl_params, prr_params = self.split_params(params)
+#         lat_params0: Point[Natural, ...] = self.dif_hrm.lat_man.zeros()
+#         lat_params = self.prr_sub.translate(lat_params0, prr_params)
+#         dif_params = self.dif_hrm.join_conjugated(lkl_params, lat_params)
+#         return cast(Point[Natural, Undirected], dif_params)
+#
+#     def from_mean_undirected(self, means: Point[Mean, Undirected]) -> Point[Mean, Self]:
+#         """Convert directed parameters to undirected parameters."""
+#         dif_means = self.dif_hrm.mean_point(means.array)
+#         obs_means, int_means, lat_means0 = self.dif_hrm.split_params(dif_means)
+#         lkl_means = self.dif_hrm.lkl_man.join_params(obs_means, int_means)
+#         lat_means = self.prr_sub.project(lat_means0)
+#         return self.join_params(lkl_means, lat_means)
