@@ -2,6 +2,9 @@
 results/
 scratch/
 
+# Docs
+docs/build/
+
 
 # Python
 __pycache__/

@@ -1,10 +1,8 @@
-"""Core definitions for parameterized objects and their geometry.
+"""This module provides the building blocks for representing geometric objects and their transformations.
 
-A [Manifold][goal.geometry.manifold.manifold.Manifold] is a space that can be locally represented by $\\mathbb R^n$. A [`Point`][goal.geometry.manifold.manifold.Point] on the [`Manifold`][goal.geometry.manifold.manifold.Manifold] can then be locally represented by their [`Coordinates`][goal.geometry.manifold.manifold.Coordinates] in $\\mathbb R^n$.
+In practice, these tools let you create and manipulate points on manifolds, calculate gradients, and implement optimization algorithms.
 
-#### Class Hierarchy
-
-![Class Hierarchy](manifold.svg)
+In theory, this implements the mathematical foundation for information geometry, where statistical models form manifolds with natural geometric structures.
 """
 
 from __future__ import annotations
@@ -22,19 +20,18 @@ from jax import Array
 class Coordinates:
     """Base class for coordinate systems.
 
-    In theory, a coordinate system (or chart) $(U, \\phi)$ consists of an open set $U \\subset \\mathcal{M}$ and a homeomorphism $\\phi: U \\to \\mathbb{R}^n$ mapping points to their coordinate representation. In practice, `Coordinates` do not exist at runtime and only help type checking.
+    In practice, this class acts as a type tag and doesn't contain any runtime functionality. It helps ensure the type system recognize when certain operations on points are valid or not.
+
+    In theory, a coordinate system (or chart) $(U, \\phi)$ consists of an open set $U \\subset \\mathcal{M}$ and a homeomorphism $\\phi: U \\to \\mathbb{R}^n$ mapping points to their coordinate representation.
     """
 
 
 class Dual[C: Coordinates](Coordinates):
     """Dual coordinates to a given coordinate system.
 
-    For a vector space $V$, its dual space $V^*$ consists of linear functionals $f: V \\to \\mathbb{R}$.
-    The duality pairing between $V$ and $V^*$ is given by:
+    In practice, these coordinates are used for gradients, optimization, and representing linear functionals.
 
-    $$\\langle v, v^* \\rangle = \\sum_i v_i v^*_i$$
-
-    where $v \\in V$ and $v^* \\in V^*$.
+    In theory, for a vector space $V$, its dual space $V^*$ comprises all linear functionals $v^*: V \\to \\mathbb{R}$.
     """
 
 
@@ -53,14 +50,16 @@ def expand_dual[C: Coordinates, M: Manifold](
 
 
 class Manifold(ABC):
-    """A manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$. A manifold has a geometric structure described by:
+    """A space that locally resembles Euclidean space.
+
+    In practice, a Manifold defines operations on points and provides methods to create, transform and optimize over them. It acts as a factory for Point objects.
+
+    In theory, a manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$ with a geometric structure described by:
 
     - The dimension $n$ of the manifold,
-    - valid coordinate systems,
-    - Transition maps between coordinate systems, and
-    - Geometric constructions like tangent spaces and metrics.
-
-    In our implementation, a `Manifold` defines operations on `Point`s rather than containing `Point`s itself - it also acts as a "Point factory", and should be used to create points rather than the `Point` constructor itself.
+    - a collection of valid coordinate systems,
+    - transition maps between coordinate systems, and
+    - geometric constructions like tangent spaces and metrics.
     """
 
     # Simple context manager
@@ -92,6 +91,7 @@ class Manifold(ABC):
     # Templates
 
     def point[Coords: Coordinates](self, array: Array) -> Point[Coords, Self]:
+        """Create a point in the manifold in an arbitrary coordinate system --- more specific versions of this method should be preferred where applicable."""
         # Check size matches dimension
         if array.size != self.dim:
             raise ValueError(
@@ -100,33 +100,37 @@ class Manifold(ABC):
         return _Point(jnp.reshape(array, self.coordinates_shape))
 
     def zeros[Coords: Coordinates](self) -> Point[Coords, Self]:
+        """Create a point in an arbitrary coordinate system with coordinates $\\mathbf 0$."""
         return self.point(jnp.zeros(self.coordinates_shape))
 
     def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
+        """Compute the dot product between a point and its dual."""
         return jnp.dot(p.array.ravel(), q.array.ravel())
 
     def value_and_grad[C: Coordinates](
         self,
         f: Callable[[Point[C, Self]], Array],
-        point: Point[C, Self],
+        p: Point[C, Self],
     ) -> tuple[Array, Point[Dual[C], Self]]:
-        """Compute value and gradients of loss function.
+        """Compute both value and gradient of a function at a point.
 
-        Returns gradients in the dual coordinate system to the input point's coordinates.
+        In practice, this is useful for optimization algorithms that need both the function value and its gradient.
+
+        In theory, this computes $f(p)$ and $\\nabla f(p)$, where the gradient is represented in the dual coordinate system.
         """
-        value, grads = jax.value_and_grad(f)(point)
+        value, grads = jax.value_and_grad(f)(p)
         return value, grads
 
     def grad[C: Coordinates](
         self,
         f: Callable[[Point[C, Self]], Array],
-        point: Point[C, Self],
+        p: Point[C, Self],
     ) -> Point[Dual[C], Self]:
         """Compute gradients of loss function.
 
         Returns gradients in the dual coordinate system to the input point's coordinates.
         """
-        return self.value_and_grad(f, point)[1]
+        return self.value_and_grad(f, p)[1]
 
     def uniform_initialize(
         self,
@@ -139,21 +143,22 @@ class Manifold(ABC):
         return _Point(params)
 
 
+type Point[C: Coordinates, M: Manifold] = _Point[C, M]
+"""A point on a manifold in a given coordinate system."""
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class _Point[C: Coordinates, M: Manifold]:
-    """A point $p$ on a manifold $\\mathcal{M}$ in a given coordinate system.
+    """A point on a specific manifold with coordinates.
 
-    Points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
+    In practice, Points behave like arrays with additional type safety and mathematical operations. They're created by Manifold objects rather than directly instantiated.
+
+    In theory, points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
 
     - Addition: $\\phi(p) + \\phi(q)$
     - Scalar multiplication: $\\alpha\\phi(p)$
     - Vector subtraction: $\\phi(p) - \\phi(q)$
-
-    The constructor is private to prevent direct instantiation of points. Use the `Manifold` to create points instead.
-
-    Args:
-        array: Coordinate vector $x = \\phi(p) \\in \\mathbb{R}^n$
     """
 
     array: Array
@@ -189,7 +194,3 @@ class _Point[C: Coordinates, M: Manifold]:
 
     def __truediv__(self, other: float | Array) -> Point[C, M]:
         return _Point(self.array / other)
-
-
-type Point[C: Coordinates, M: Manifold] = _Point[C, M]
-"""A point on a manifold in a given coordinate system."""
