@@ -9,7 +9,7 @@ Class Hierarchy
 ---------------
 
 .. inheritance-diagram:: goal.geometry.manifold.base
-   :parts: 1
+   :parts: 2
 
 \
 
@@ -40,13 +40,7 @@ Coordinates
 Points
 ------
 
-.. data:: goal.geometry.manifold.base.Point
-   
-   A :class:`Point` on a :class:`Manifold` in given :class:`Coordinates`.
-   
-   This is a public type alias for the underlying :class:`_Point` implementation class, which should not be instantiated directly.
-
-.. autoclass:: goal.geometry.manifold.base._Point
+.. autoclass:: goal.geometry.manifold.base.Point
    :members:
    :undoc-members:
    :show-inheritance:

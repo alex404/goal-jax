@@ -1,12 +1,14 @@
-Manifold Module
-===============
+Manifold Package
+================
 
 Core definitions for parameterized objects and geometry.
 
-Submodules
-----------
+Modules
+-------
 
 .. toctree::
    :maxdepth: 1
 
    base
+   combinators
+   embedding

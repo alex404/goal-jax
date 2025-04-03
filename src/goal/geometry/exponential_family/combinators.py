@@ -118,20 +118,20 @@ class LocationEmbedding[
 
     @override
     def project(self, p: Point[Mean, LS]) -> Point[Mean, L]:
-        first, _ = self.sup_man.split_params(p)
+        first, _ = self.amb_man.split_params(p)
         return first
 
     @override
     def embed(self, p: Point[Natural, L]) -> Point[Natural, LS]:
-        snd0 = self.sup_man.snd_man.zeros()
-        return self.sup_man.join_params(p, snd0)
+        snd0 = self.amb_man.snd_man.zeros()
+        return self.amb_man.join_params(p, snd0)
 
     @override
     def translate[C: Coordinates](
         self, p: Point[C, LS], q: Point[C, L]
     ) -> Point[C, LS]:
-        first, second = self.sup_man.split_params(p)
-        return self.sup_man.join_params(first + q, second)
+        first, second = self.amb_man.split_params(p)
+        return self.amb_man.join_params(first + q, second)
 
 
 class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):

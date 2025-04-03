@@ -240,12 +240,12 @@ class Harmonium[
     @property
     def obs_man(self) -> Observable:
         """Manifold of observable biases."""
-        return self.obs_emb.sup_man
+        return self.obs_emb.amb_man
 
     @property
     def lat_man(self) -> Latent:
         """Manifold of latent biases."""
-        return self.pst_lat_emb.sup_man
+        return self.pst_lat_emb.amb_man
 
     @property
     def pst_lat_man(self) -> PostLatent:

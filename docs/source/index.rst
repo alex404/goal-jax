@@ -9,7 +9,7 @@ A library implementing information geometry and exponential families for machine
    :maxdepth: 1
    :caption: Documentation:
 
-   geometry/manifold/base
+   geometry/manifold/index
 
 .. Indices and tables
 .. ==================

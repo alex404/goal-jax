@@ -250,7 +250,7 @@ class AffineMap[
     @property
     @override
     def fst_man(self) -> Codomain:
-        return self.cod_sub.sup_man
+        return self.cod_sub.amb_man
 
     @property
     @override

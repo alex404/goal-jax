@@ -1,10 +1,6 @@
-"""Core definitions for parameterized objects and their geometry.
+"""Core classes for combining and replicating manifolds.
 
-A [Manifold][goal.geometry.manifold.manifold.Manifold] is a space that can be locally represented by $\\mathbb R^n$. A [`Point`][goal.geometry.manifold.manifold.Point] on the [`Manifold`][goal.geometry.manifold.manifold.Manifold] can then be locally represented by their [`Coordinates`][goal.geometry.manifold.manifold.Coordinates] in $\\mathbb R^n$.
-
-#### Class Hierarchy
-
-![Class Hierarchy](manifold.svg)
+This module provides ways to build complex manifolds from simpler ones, including products, triples, and replicated copies. These combinators let you create parameter spaces for complex models by combining simpler components, making it easy to split, join, and transform parameters.
 """
 
 from __future__ import annotations
@@ -21,13 +17,12 @@ from .base import (
     Coordinates,
     Manifold,
     Point,
-    _Point,  # pyright: ignore[reportPrivateUsage]
 )
 
 
 @dataclass(frozen=True)
 class Null(Manifold):
-    """Dummy manifold for use when nothing is being masked."""
+    """A zero-dimensional manifold with no parameters."""
 
     @property
     @override
@@ -37,7 +32,10 @@ class Null(Manifold):
 
 @dataclass(frozen=True)
 class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
-    """The manifold given by the Cartesian product between the first and second manifold."""
+    """Pair combines two parameter spaces, providing methods to split parameters into their respective components and join them back together. This is useful for models that have separate location and shape parameters, for example.
+
+    In theory, this implements the Cartesian product $\\mathcal M_1 \\times \\mathcal M_2$ of two manifolds, where the dimension is the sum of the component dimensions.
+    """
 
     # Contract
 
@@ -56,7 +54,6 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
     @property
     @override
     def dim(self) -> int:
-        """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim
 
     # Templates
@@ -74,7 +71,7 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
         first: Point[C, First],
         second: Point[C, Second],
     ) -> Point[C, Self]:
-        """Join component_Point parameters into a single point."""
+        """Join component parameters into a single point."""
         return self.point(
             jnp.concatenate([jnp.ravel(first.array), jnp.ravel(second.array)])
         )
@@ -82,7 +79,7 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
 
 @dataclass(frozen=True)
 class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
-    """A product manifold combining three component manifolds."""
+    """Triple combines three parameter spaces, providing methods to split parameters into their respective components and join them back together."""
 
     # Contract
 
@@ -148,7 +145,10 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
 
 @dataclass(frozen=True)
 class Replicated[M: Manifold](Manifold):
-    """Manifold representing multiple copies of a base manifold. Unlike standard points defined by flat arrays, the shape of a Point on a replicated manifold is (n_reps, base_dim)."""
+    """Replicated allows working with collections of parameters that share the same structure, like mixture model components or time series observations. It provides special methods for mapping functions across the copies. In contrast with most manifolds, coordinates are represented as multidimensional (as opposed to flat) arrays.
+
+    In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$, with special handling for the array structure.
+    """
 
     # Fields
 
@@ -168,7 +168,7 @@ class Replicated[M: Manifold](Manifold):
     @property
     @override
     def coordinates_shape(self) -> list[int]:
-        """Shape of the coordinate array."""
+        """Shape of the coordinates array is `[n_reps, *rep_man.coordinates_shape]`."""
         return [self.n_reps, *self.rep_man.coordinates_shape]
 
     # Templates
@@ -194,14 +194,9 @@ class Replicated[M: Manifold](Manifold):
         f: Callable[[Point[C, M]], Point[D, N]],
         p: Point[C, Self],
     ) -> Point[D, Replicated[N]]:
-        """Map a function across replicates, returning point in replicated codomain.
-
-        Args:
-            f: Function mapping points in base manifold to points in codomain
-            p: Point to map over
-        """
+        """Map a function across replicates, returning point in replicated codomain."""
 
         def array_f(row: Array) -> Array:
             return f(self.rep_man.point(row)).array
 
-        return _Point(jax.vmap(array_f)(p.array))
+        return Point(jax.vmap(array_f)(p.array))

@@ -1,16 +1,10 @@
 """Defines subspace relationships between manifolds.
 
-A subspace relationship defines how one manifold $\\mathcal{N}$ can be embedded within another manifold $\\mathcal{M}$, supporting two key operations:
+This module provides the fundamental embedding operations that define how manifolds relate to each other through subspace relationships.
 
-1. Projection $\\pi: \\mathcal{M} \\to \\mathcal{N}$, that takes a point in the larger space and returns its projected components in the subspace.
+In practice, embeddings allow you to transform parameters between different model spaces, project complex models to simpler ones, and define how changes in one manifold affect another.
 
-2. Translation $\\tau: \\mathcal{M} \\times \\mathcal{N} \\to \\mathcal{M}$, that takes a point in the larger space and a point in the subspace and a new point in the larger space shifted by the subspace components.
-
-The module implements several types of subspace relationships:
-
-#### Class Hierarchy
-
-![Class Hierarchy](subspace.svg)
+In theory, embeddings formalize the essential concept from information geometry where one statistical model (manifold) can be viewed as a submanifold of another. This corresponds to statistical concepts like sufficiency, model constraints, and parameter restrictions.
 """
 
 from __future__ import annotations
@@ -29,37 +23,48 @@ from .base import Coordinates, Dual, Manifold, Point
 
 
 @dataclass(frozen=True)
-class Embedding[Sup: Manifold, Sub: Manifold](ABC):
-    """Base class for all subspace relationships."""
+class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
+    """Embeddings let you transform points between manifolds, enabling operations like embedding and pullback that are crucial for model specification and constrained optimization.
+
+    In theory, an embedding relationship between manifolds $\\mathcal{M} \\subset \\mathcal{N}$ is characterized by an embedding map $\\phi: \\mathcal{M} \\to \\mathcal{N}$ that injects the submanifold into the ambient space.
+    """
 
     # Contract
 
     @property
     @abstractmethod
-    def sup_man(self) -> Sup:
-        """Super-manifold."""
+    def sub_man(self) -> Sub:
+        """The submanifold."""
 
     @property
     @abstractmethod
-    def sub_man(self) -> Sub:
-        """Sub-manifold."""
+    def amb_man(self) -> Ambient:
+        """The ambient manifold."""
 
     @abstractmethod
-    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Sup]:
-        """Embed a point from the submanifold to the ambient manifold."""
+    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Ambient]:
+        """Embed a point from the submanifold in the ambient manifold."""
 
     def pullback[C: Coordinates](
-        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Sup]
+        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Ambient]
     ) -> Point[Dual[C], Sub]:
-        """
-        Pull back a cotangent vector from the ambient manifold to the submanifold.
+        """Pull back a cotangent vector from the ambient manifold to the submanifold.
 
-        This default implementation uses vector-Jacobian products and works for
-        any subspace that defines an embedding function.
+        In practice, this transforms gradients computed in the larger model space to the constrained model space, enabling optimization in the lower-dimensional space. It's essential for efficiently computing natural gradients on submodels and implementing constrained optimization.
+
+        In theory, given the embedding $\\phi: \\mathcal M \\to \\mathcal N$. At $w = \\phi(v)$, the pullback is the mapping
+        $$
+        \\phi^*: T^*_w \\mathcal N \\to T^*_v
+        $$
+        from the cotangent space on $\\mathcal N$ at $w$ to the cotangent space on $\\mathcal M$ at $v$. Where $\\omega \\in T^*_w \\mathcal N$ is a cotangent vector, the pullback is given by
+        $$
+        \\phi^*(\\omega) = \\omega \\cdot \\frac{\\partial \\phi}{\\partial v},
+        $$
+        where $\\frac{\\partial \\phi}{\\partial v}$ is the Jacobian of $\\phi$ at $v$.
         """
 
         def embed_func(sub_array: Array) -> Array:
-            sub_point: Point[C, ...] = self.sub_man.point(sub_array)
+            sub_point: Point[C, Sub] = self.sub_man.point(sub_array)
             embedded_point = self.embed(sub_point)
             return embedded_point.array
 
@@ -73,18 +78,26 @@ class Embedding[Sup: Manifold, Sub: Manifold](ABC):
 
 
 @dataclass(frozen=True)
-class LinearEmbedding[Sup: Manifold, Sub: Manifold](Embedding[Sup, Sub], ABC):
-    """Linear subspace with additional operations."""
+class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient], ABC):
+    """A structure-preserving embedding with projection and translation operations.
+
+    In practice, linear embeddings enable direct conversion of parameters between model spaces through projection, while preserving vector operations like translation. These operations are fundamental to algorithms like EM and natural gradient descent on constrained models.
+
+    A linear embedding $\\phi: \\mathcal{M} \\to \\mathcal{N}$ supports
+
+        - A projection map $\\pi: \\mathcal{N} \\to \\mathcal{M}$ satisfying $\\pi \\circ \\phi = \\text{id}_{\\mathcal{M}}$ (the identity on $\\mathcal{M}$), and
+        - A translation operation $\\tau(p,q) = p + \\phi(q)$ that preserves the vector space structure.
+    """
 
     # Contract
 
     @abstractmethod
-    def project[C: Coordinates](self, p: Point[C, Sup]) -> Point[C, Sub]:
+    def project[C: Coordinates](self, p: Point[C, Ambient]) -> Point[C, Sub]:
         """Project a point from the ambient space to the subspace."""
 
     def translate[C: Coordinates](
-        self, p: Point[C, Sup], q: Point[C, Sub]
-    ) -> Point[C, Sup]:
+        self, p: Point[C, Ambient], q: Point[C, Sub]
+    ) -> Point[C, Ambient]:
         """Translate point by subspace components."""
         return p + self.embed(q)
 
@@ -92,7 +105,7 @@ class LinearEmbedding[Sup: Manifold, Sub: Manifold](Embedding[Sup, Sub], ABC):
 
     @override
     def pullback[C: Coordinates](
-        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Sup]
+        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Ambient]
     ) -> Point[Dual[C], Sub]:
         """For linear subspaces, pullback is location-independent."""
         return self.project(cotangent_vector)
@@ -106,7 +119,7 @@ class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
 
     @property
     @override
-    def sup_man(self) -> M:
+    def amb_man(self) -> M:
         return self.man
 
     @property
@@ -128,33 +141,32 @@ class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
 
 
 @dataclass(frozen=True)
-class ComposedEmbedding[
-    Sup: Manifold,
-    Mid: Manifold,
-    Sub: Manifold,
-](Embedding[Sup, Sub], ABC):
-    """Composition of two subspace relationships.
-    Given subspaces $S: \\mathcal{M} \\to \\mathcal{L}$ and $T: \\mathcal{L} \\to \\mathcal{N}$, forms their composition $(T \\circ S): \\mathcal{M} \\to \\mathcal{N}$ where:
+class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
+    Embedding[Sub, Ambient], ABC
+):
+    """Composed embeddings allow you to chain multiple model transformations, creating hierarchical model reductions that apply constraints in stages. This is particularly valuable for complex model relationships with multiple levels of abstraction.
 
-    - Projection: $\\pi_{T \\circ S}(p) = \\pi_T(\\pi_S(p))$
-    - Translation: $\\tau_{T \\circ S}(p,q) = \\tau_S(p, \\tau_T(0,q))$
+    In theory, given embeddings $\\phi_1: \\mathcal{M} \\to \\mathcal{L}$ and $\\phi_2: \\mathcal{L} \\to \\mathcal{N}$, their composition $\\phi = \\phi_2 \\circ \\phi_1: \\mathcal{M} \\to \\mathcal{N}$ forms a new embedding with:
+
+        - Embedding map: $\\phi(p) = \\phi_2(\\phi_1(p))$ for $p \\in \\mathcal{M}$
+        - Pullback operation: $\\phi^*(\\omega) = \\phi_1^*(\\phi_2^*(\\omega))$ for cotangent vectors $\\omega \\in T^*\\mathcal{N}$
     """
 
     # Fields
 
-    sup_emb: Embedding[Sup, Mid]
-    sub_emb: Embedding[Mid, Sub]
+    mid_emb: Embedding[Mid, Ambient]
+    sub_emb: Embedding[Sub, Mid]
 
     # Overrides
 
     @property
     @override
-    def sup_man(self) -> Sup:
-        return self.sup_emb.sup_man
+    def amb_man(self) -> Ambient:
+        return self.mid_emb.amb_man
 
     @property
     def mid_man(self) -> Mid:
-        return self.sup_emb.sub_man
+        return self.mid_emb.sub_man
 
     @property
     @override
@@ -162,19 +174,19 @@ class ComposedEmbedding[
         return self.sub_emb.sub_man
 
     @override
-    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Sup]:
+    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Ambient]:
         mid = self.sub_emb.embed(p)
-        return self.sup_emb.embed(mid)
+        return self.mid_emb.embed(mid)
 
     @override
     def pullback[C: Coordinates](
-        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Sup]
+        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Ambient]
     ) -> Point[Dual[C], Sub]:
         # First, embed the point to get its location in the middle space
         mid_point = self.sub_emb.embed(at_point)
 
         # Pull back through the upper subspace
-        mid_cotangent = self.sup_emb.pullback(mid_point, cotangent_vector)
+        mid_cotangent = self.mid_emb.pullback(mid_point, cotangent_vector)
 
         # Pull back through the lower subspace
         return self.sub_emb.pullback(at_point, mid_cotangent)
@@ -182,35 +194,38 @@ class ComposedEmbedding[
 
 @dataclass(frozen=True)
 class LinearComposedEmbedding[
-    Sup: Manifold,
-    Mid: Manifold,
     Sub: Manifold,
-](ComposedEmbedding[Sup, Mid, Sub], LinearEmbedding[Sup, Sub]):
-    """Composition of two subspace relationships.
-    Given subspaces $S: \\mathcal{M} \\to \\mathcal{L}$ and $T: \\mathcal{L} \\to \\mathcal{N}$, forms their composition $(T \\circ S): \\mathcal{M} \\to \\mathcal{N}$ where:
+    Mid: Manifold,
+    Ambient: Manifold,
+](ComposedEmbedding[Sub, Mid, Ambient], LinearEmbedding[Sub, Ambient]):
+    """Linear composed embeddings maintain projection and translation operations through nested embeddings.
 
-    - Projection: $\\pi_{T \\circ S}(p) = \\pi_T(\\pi_S(p))$
-    - Translation: $\\tau_{T \\circ S}(p,q) = \\tau_S(p, \\tau_T(0,q))$
+    In theory, given linear embeddings $(\\phi_1, \\pi_1, \\tau_1)$ from $\\mathcal{M} \\to \\mathcal{L}$ and $(\\phi_2, \\pi_2, \\tau_2)$ from $\\mathcal{L} \\to \\mathcal{N}$, their composition forms a linear embedding $(\\phi, \\pi, \\tau)$ from $\\mathcal{M} \\to \\mathcal{N}$ where
+
+        - Projection map: $\\pi = \\pi_1 \\circ \\pi_2$
+        - Translation operation: $\\tau(p, q) = \\tau_2(p, \\tau_1(0_{\\mathcal{L}}, q))$, where $0_{\\mathcal{L}}$ is the zero point in $\\mathcal{L}$
     """
 
     # Fields
 
-    sup_emb: LinearEmbedding[Sup, Mid]
-    sub_emb: LinearEmbedding[Mid, Sub]
+    mid_emb: LinearEmbedding[Mid, Ambient]
+    sub_emb: LinearEmbedding[Sub, Mid]
 
     # Overrides
 
     @override
-    def project[C: Coordinates](self, p: Point[Dual[C], Sup]) -> Point[Dual[C], Sub]:
-        mid = self.sup_emb.project(p)
+    def project[C: Coordinates](
+        self, p: Point[Dual[C], Ambient]
+    ) -> Point[Dual[C], Sub]:
+        mid = self.mid_emb.project(p)
         return self.sub_emb.project(mid)
 
     @override
     def translate[C: Coordinates](
-        self, p: Point[C, Sup], q: Point[C, Sub]
-    ) -> Point[C, Sup]:
+        self, p: Point[C, Ambient], q: Point[C, Sub]
+    ) -> Point[C, Ambient]:
         mid_zero: Point[C, Mid] = self.mid_man.point(
-            jnp.zeros(self.sup_emb.sub_man.dim)
+            jnp.zeros(self.mid_emb.sub_man.dim)
         )
         mid = self.sub_emb.translate(mid_zero, q)
-        return self.sup_emb.translate(p, mid)
+        return self.mid_emb.translate(p, mid)

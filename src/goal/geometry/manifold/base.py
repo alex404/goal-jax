@@ -39,14 +39,14 @@ def reduce_dual[C: Coordinates, M: Manifold](
     p: Point[Dual[Dual[C]], M],
 ) -> Point[C, M]:
     """Takes a point in the dual of the dual space and returns a point in the original space."""
-    return _Point(p.array)
+    return Point(p.array)
 
 
 def expand_dual[C: Coordinates, M: Manifold](
     p: Point[C, M],
 ) -> Point[Dual[Dual[C]], M]:
     """Takes a point in the original space and returns a point in the dual of the dual space."""
-    return _Point(p.array)
+    return Point(p.array)
 
 
 class Manifold(ABC):
@@ -97,7 +97,7 @@ class Manifold(ABC):
             raise ValueError(
                 f"Array size {array.size} doesn't match manifold dimension {self.dim}"
             )
-        return _Point(jnp.reshape(array, self.coordinates_shape))
+        return Point(jnp.reshape(array, self.coordinates_shape))
 
     def zeros[Coords: Coordinates](self) -> Point[Coords, Self]:
         """Create a point in an arbitrary coordinate system with coordinates $\\mathbf 0$."""
@@ -140,19 +140,15 @@ class Manifold(ABC):
     ) -> Point[Any, Self]:
         """Initialize a point from a uniformly distributed, bounded square in parameter space."""
         params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
-        return _Point(params)
-
-
-type Point[C: Coordinates, M: Manifold] = _Point[C, M]
-"""A point on a manifold in a given coordinate system."""
+        return Point(params)
 
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class _Point[C: Coordinates, M: Manifold]:
+class Point[C: Coordinates, M: Manifold]:
     """A point on a specific manifold with coordinates.
 
-    In practice, Points behave like arrays with additional type safety and mathematical operations. They're created by Manifold objects rather than directly instantiated.
+    In practice, Points behave like arrays with additional type safety and mathematical operations. Users should create points using the corresponding manifold, rather than directly with the class.
 
     In theory, points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
 
@@ -178,19 +174,19 @@ class _Point[C: Coordinates, M: Manifold]:
         return len(self.array)
 
     def __add__(self, other: Point[C, M]) -> Point[C, M]:
-        return _Point(self.array + other.array)
+        return Point(self.array + other.array)
 
     def __sub__(self, other: Point[C, M]) -> Point[C, M]:
-        return _Point(self.array - other.array)
+        return Point(self.array - other.array)
 
     def __neg__(self) -> Point[C, M]:
-        return _Point(-self.array)
+        return Point(-self.array)
 
     def __mul__(self, scalar: float) -> Point[C, M]:
-        return _Point(scalar * self.array)
+        return Point(scalar * self.array)
 
     def __rmul__(self, scalar: float) -> Point[C, M]:
         return self.__mul__(scalar)
 
     def __truediv__(self, other: float | Array) -> Point[C, M]:
-        return _Point(self.array / other)
+        return Point(self.array / other)
