@@ -10,7 +10,6 @@ Class Hierarchy
 
 .. inheritance-diagram:: goal.geometry.manifold.combinators
    :parts: 2
-   :top-classes: goal.geometry.manifold.base.Manifold, goal.geometry.manifold.base.Coordinates, goal.geometry.manifold.base.Point
 
 
 \

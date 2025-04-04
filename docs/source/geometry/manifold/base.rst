@@ -13,10 +13,10 @@ Class Hierarchy
 
 \
 
-Manifold
---------
+Points
+------
 
-.. autoclass:: goal.geometry.manifold.base.Manifold
+.. autoclass:: goal.geometry.manifold.base.Point
    :members:
    :undoc-members:
    :show-inheritance:
@@ -37,10 +37,10 @@ Coordinates
 .. autofunction:: goal.geometry.manifold.base.reduce_dual
 .. autofunction:: goal.geometry.manifold.base.expand_dual
 
-Points
-------
+Manifold
+--------
 
-.. autoclass:: goal.geometry.manifold.base.Point
+.. autoclass:: goal.geometry.manifold.base.Manifold
    :members:
    :undoc-members:
    :show-inheritance:

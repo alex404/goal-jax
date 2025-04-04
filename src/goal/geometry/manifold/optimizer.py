@@ -1,4 +1,4 @@
-"""Optimization primitives for exponential families."""
+"""This module is a thin, type-safe wrapper around `Optax`. It provides optimization tools tailored to the geometric structure of manifolds, enabling gradient-based optimization that respects the intrinsic properties of the parameter space."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .base import Coordinates, Dual, Manifold, Point
 
 # Create an opaque type for optimizer state
 OptState = NewType("OptState", object)
+"""Represents the internal state of an optimizer. """
 
 
 @dataclass(frozen=True)
@@ -37,18 +38,7 @@ class Optimizer[C: Coordinates, M: Manifold]:
         b2: float = 0.999,
         weight_decay: float = 0.0001,
     ) -> Optimizer[C, M]:
-        """Create AdamW optimizer with optional gradient clipping.
-
-        Args:
-            man: Manifold
-            learning_rate: Learning rate or schedule
-            b1: First moment decay
-            b2: Second moment decay
-            weight_decay: Weight decay parameter
-
-        Returns:
-            Optimizer instance
-        """
+        """Create AdamW optimizer with optional gradient clipping."""
         opt = adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay)
 
         return cls(opt, man)
@@ -63,16 +53,7 @@ class Optimizer[C: Coordinates, M: Manifold]:
         learning_rate: ScalarOrSchedule = 0.1,
         momentum: float = 0.0,
     ) -> Optimizer[C, M]:
-        """Create SGD optimizer with optional gradient clipping.
-
-        Args:
-            man: Manifold
-            learning_rate: Learning rate or schedule
-            momentum: Momentum parameter
-
-        Returns:
-            Optimizer instance
-        """
+        """Create SGD optimizer with optional gradient clipping."""
         opt = sgd(learning_rate, momentum=momentum)
 
         return cls(opt, man)

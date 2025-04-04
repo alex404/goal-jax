@@ -47,7 +47,6 @@ inheritance_graph_attrs = {
 # Extension configurations
 add_module_names = False
 autodoc_member_order = "bysource"
-autodoc_class_signature = "separated"
 myst_enable_extensions = ["dollarmath", "amsmath"]
 
 # Intersphinx mapping for cross-referencing to other docs
@@ -58,7 +57,7 @@ intersphinx_mapping = {
 }
 
 # The theme to use for HTML and HTML Help pages
-html_theme = "sphinx_rtd_theme"
+html_theme = "furo"
 
 # Additional templates
 templates_path = ["_templates"]

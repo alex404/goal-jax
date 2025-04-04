@@ -1,44 +1,6 @@
-"""Core definitions for exponential families and their parameterizations.
+"""This module implements the fundamental abstractions for exponential families, providing a hierarchy of classes with increasing capabilities for statistical modeling and inference.
 
-An exponential family is a collection of probability distributions with densities of the form:
-
-$$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf{s}(x) - \\psi(\\theta)),$$
-
-where:
-
-- $\\theta$ are the natural parameters,
-- $\\mathbf{s}(x)$ is the sufficient statistic,
-- $\\mu(x)$ is the base measure, and
-- $\\psi(\\theta)$ is the log partition function.
-
-Exponential families have a rich geometric structure that can be expressed through their dual parameterizations:
-
-1. Natural Parameters ($\\theta$):
-
-    - Define the density directly
-    - Connected to maximum likelihood estimation
-
-2. Mean Parameters ($\\eta$):
-
-    - Given by expectations: $\\eta = \\mathbb{E}[\\mathbf{s}(x)]$
-    - Connected to moment matching and variational inference
-
-Mappings between the two parameterizations are given by
-
-- $\\eta = \\nabla\\psi(\\theta)$, and
-- $\\theta = \\nabla\\phi(\\eta)$,
-
-where $\\phi(\\eta)$ is the negative entropy, which is the convex conjugate of $\\psi(\\theta)$.
-
-This module implements this structure through a hierarchy of classes:
-
-- `ExponentialFamily`: Base class defining sufficient statistics and base measure
-- `Differentiable`: Exponential families with analytical log partition function, and support mapping to the mean parameters by autodifferentation.
-- `Analytic`: Exponential families with analytical negative entropy, and support mapping to the natural parameters by autodifferentation.
-
-#### Class Hierarchy
-
-![Class Hierarchy](exponential_family.svg)
+See the package index for mathematical background on exponential families.
 """
 
 from __future__ import annotations
@@ -64,41 +26,23 @@ from ..manifold.util import batched_mean
 
 # Coordinate systems for exponential families
 class Natural(Coordinates):
-    """Natural parameters $\\theta \\in \\Theta$ defining an exponential family through:
+    """Natural serves as a type tag for parameters that directly parameterize the exponential family density. These parameters are used in maximum likelihood estimation and directly control the shape of the distribution.
+
+    In theory, natural parameters $\\theta \\in \\Theta$ define an exponential family through:
 
     $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
+
+    where $\\Theta$ is a convex subset of $\\mathbb{R}^d$.
     """
 
 
 type Mean = Dual[Natural]
-"""Mean parameters $\\eta \\in \\text{H}$ given by expectations of sufficient statistics:
-
-$$\\eta = \\mathbb{E}_{p(x;\\theta)}[\\mathbf s(x)]$$
-"""
-
 
 ### Exponential Families ###
 
 
 class ExponentialFamily(Manifold, ABC):
-    """Base manifold class for exponential families.
-
-    An exponential family is a manifold of probability distributions with densities
-    of the form:
-
-    $$
-    p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
-    $$
-
-    where:
-
-    * $\\theta \\in \\Theta$ are the natural parameters,
-    * $\\mathbf s(x)$ is the sufficient statistic,
-    * $\\mu(x)$ is the base measure, and
-    * $\\psi(\\theta)$ is the log partition function.
-
-    The base `ExponentialFamily` class includes methods that fundamentally define an exponential family, namely the base measure and sufficient statistic.
-    """
+    """ExponentialFamily defines the basic structure for statistical manifolds, where points represent probability distributions. It provides abstract methods defining the sufficient statistics and base measure. Concrete subclasses implement specific statistical models by defining these components and potentially adding additional capabilities."""
 
     # Contract
 
@@ -109,18 +53,7 @@ class ExponentialFamily(Manifold, ABC):
 
     @abstractmethod
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Convert observation to sufficient statistics.
-
-        Maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in mean coordinates:
-
-        $$\\mathbf s: \\mathcal{X} \\mapsto \\text{H}$$
-
-        Args:
-            x: Array containing a single observation
-
-        Returns:
-            Mean coordinates of the sufficient statistics
-        """
+        """Compute the sufficient statistics of an observation. In particular, maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in mean coordinates $\\mathbf s(x) \\in \\text{H}$"""
 
     @abstractmethod
     def log_base_measure(self, x: Array) -> Array:
@@ -131,14 +64,7 @@ class ExponentialFamily(Manifold, ABC):
     def average_sufficient_statistic(
         self, xs: Array, batch_size: int = 256
     ) -> Point[Mean, Self]:
-        """Average sufficient statistics of a batch of observations.
-
-        Args:
-            xs: Array of shape (batch_size, data_dim) containing : batch of observations
-
-        Returns:
-            Mean coordinates of average sufficient statistics
-        """
+        """Average sufficient statistics of a batch of observations."""
 
         def _sufficient_statistic(x: Array) -> Array:
             return self.sufficient_statistic(x).array
@@ -180,9 +106,11 @@ class ExponentialFamily(Manifold, ABC):
 
 
 class Generative(ExponentialFamily, ABC):
-    """An `ExponentialFamily` that supports random sampling.
+    """Generative extends ExponentialFamily with sampling capabilities, enabling simulation-based methods like Monte Carlo estimation. This allows for working with distributions even when closed-form expressions for statistics are unavailable or intractable.
 
-    Sampling is performed on distributions in natural coordinates. This enables estimation of mean parameters even when closed-form expressions for the log partition function are unavailable.
+    In particular, sampling from $p(x; \\theta)$ provides an empirical approach to estimating expectation-based quantities like mean parameters:
+
+    $$\\hat{\\eta} = \\frac{1}{n}\\sum_{i=1}^n \\mathbf{s}(x_i), \\quad x_i \\sim p(x; \\theta).$$
     """
 
     # Contract
@@ -190,10 +118,6 @@ class Generative(ExponentialFamily, ABC):
     @abstractmethod
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
         """Generate random samples from the distribution.
-
-        Args:
-            params: Parameters in natural coordinates
-            n: Number of samples to generate (default=1)
 
         Returns:
             Array of shape (n, *data_dims) containing samples
@@ -210,15 +134,15 @@ class Generative(ExponentialFamily, ABC):
 
 
 class Differentiable(Generative, ABC):
-    """Exponential family with an analytically tractable log-partition function, which permits computing the expecting value of the sufficient statistic, and data-fitting via gradient descent.
+    """Differentiable adds the ability to compute exact mean parameters from natural parameters, enabling efficient parameter estimation, density evaluation, and data-fitting via gradient descent.
 
-    The log partition function $\\psi(\\theta)$ is given by:
+    In particular, the log partition function $\\psi(\\theta)$ is given by:
 
     $$
     \\psi(\\theta) = \\log \\int_{\\mathcal{X}} \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x))dx
     $$
 
-    Its gradient at a point in natural coordinates returns that point in mean coordinates:
+    Its gradient gives the mean parameters through the dual relationship:
 
     $$
     \\eta = \\nabla \\psi(\\theta) = \\mathbb{E}_{p(x;\\theta)}[\\mathbf s(x)]
@@ -265,12 +189,8 @@ class Differentiable(Generative, ABC):
     ) -> Array:
         """Compute average log density over a batch of observations.
 
-        Args:
-            p: Parameters in natural coordinates
-            xs: Array of shape (batch_size, data_dim) containing batch of observations
-
         Returns:
-            Array of shape (batch_size,) containing average log densities
+            Scalar array of the average log density
         """
 
         def _log_density(x: Array) -> Array:
@@ -280,15 +200,24 @@ class Differentiable(Generative, ABC):
 
 
 class Analytic(Differentiable, ABC):
-    """An exponential family comprising distributions for which the entropy can be evaluated in closed-form. The negative entropy is the convex conjugate of the log-partition function
+    """Analytic provides the highest level of analytical capabilities, supporting bidirectional conversion between natural and mean parameters, and closed-form expression for quantities like entropy and KL divergence calculation.
+
+    In particular, the negative entropy $\\phi(\\eta)$ is the convex conjugate of the log-partition function:
 
     $$
-    \\phi(\\eta) = \\sup_{\\theta} \\{\\theta \\cdot \\eta - \\psi(\\theta)\\},
+    \\phi(\\eta) = \\sup_{\\theta} \\{\\theta \\cdot \\eta - \\psi(\\theta)\\}
     $$
 
-    and its gradient at a point in mean coordinates returns that point in natural coordinates $\\theta = \\nabla\\phi(\\eta).$
+    Its gradient gives the natural parameters through the dual relationship:
 
-     **NB:** This form of the negative entropy is the convex conjugate of the log-partition function, and does not factor in the base measure of the distribution. It may thus differ from the entropy as traditionally defined.
+    $$
+    \\theta = \\nabla\\phi(\\eta)
+    $$
+
+    This completes the duality between natural and mean coordinates, allowing
+    for closed-form solutions to many statistical problems.
+
+    **NB:** This form of negative entropy is the convex conjugate of the log-partition function and does not include the base measure term. It may differ from entropy as traditionally defined in information theory.
     """
 
     # Contract
@@ -324,12 +253,12 @@ class Analytic(Differentiable, ABC):
     def relative_entropy(
         self, p_means: Point[Mean, Self], q_params: Point[Natural, Self]
     ) -> Array:
-        """Compute the entropy of $p$ relative to $q$.
+        """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
 
         $D(p \\| q) = \\int p(x) \\log \\frac{p(x)}{q(x)} dx = \\theta \\cdot \\eta - \\psi(\\theta) - \\phi(\\eta)$, where
 
-        - $p(x;\\theta)$ has natural parameters $\\theta$,
-        - $q(x;\\eta)$ has mean parameters $\\eta$.
+        - $p(x;\\eta)$ has mean parameters $\\eta$, and
+        - $q(x;\\theta)$ has natural parameters $\\theta$.
         """
         return (
             self.negative_entropy(p_means)

@@ -54,7 +54,7 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
 
         In theory, given the embedding $\\phi: \\mathcal M \\to \\mathcal N$. At $w = \\phi(v)$, the pullback is the mapping
         $$
-        \\phi^*: T^*_w \\mathcal N \\to T^*_v
+        \\phi^*: T^*_w \\mathcal N \\to T^*_v \\mathcal M
         $$
         from the cotangent space on $\\mathcal N$ at $w$ to the cotangent space on $\\mathcal M$ at $v$. Where $\\omega \\in T^*_w \\mathcal N$ is a cotangent vector, the pullback is given by
         $$

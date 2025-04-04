@@ -1,14 +1,4 @@
-"""Linear and affine transformations between manifolds. The implementation focuses on:
-
-- Type safety through generics,
-- Efficient matrix representations, and
-- Mathematical correctness.
-
-
-#### Class Hierarchy
-
-![Class Hierarchy](linear.svg)
-"""
+"""This module provides a hierarchy of linear operators that transform points between manifolds, with specific matrix representations for efficient implementations."""
 
 from __future__ import annotations
 
@@ -27,32 +17,26 @@ from .matrix import MatrixRep, Square
 
 @dataclass(frozen=True)
 class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
-    """Linear map between manifolds using a specific matrix representation.
+    """LinearMap provides a type-safe way to represent and compute linear transformations between manifolds. The representation strategy (Rep) determines how matrix data is stored and manipulated, enabling efficient operations for special matrix structures like diagonal or symmetric matrices.
 
-    Type Parameters:
-        Rep: Matrix representation type (covariant). A more specific representation can be used where a more general one is expected. For example, a SymmetricMatrix representation can be used where a RectangularMatrix is expected because SymmetricMatrix is-a RectangularMatrix.
-
-        Domain: Source manifold type (covariant). A map defined on a more general domain can accept points from a more specific domain. For example, a LinearMap[R, Shape, C] can accept points from Circle because Circle is-a Shape.
-
-        Codomain: Target manifold type (contravariant). A map producing elements of a more specific type can be used where a map producing a more general type is expected. For example, a LinearMap[R, D, Circle] can be used where a LinearMap[R, D, Shape] is expected because Circle is-a Shape.
-
-    A linear map $L: V \\to W$ between vector spaces satisfies:
+    In theory, a linear map $L: V \\to W$ between vector spaces satisfies:
 
     $$L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$$
 
-    The map is stored in a specific representation (full, symmetric, etc) defined by R.
+    for all $x, y \\in V$ and scalars $\\alpha, \\beta$. The map preserves vector space operations like addition and scalar multiplication.
 
-    Args:
-        rep: The matrix representation strategy
-        dom_man: The source/domain manifold $V$
-        cod_man: The target/codomain manifold $W$
     """
 
     # Fields
 
     rep: Rep
+    """The matrix representation for this linear map."""
+
     dom_man: Domain
+    """The domain of the linear map."""
+
     cod_man: Codomain
+    """The codomain of the linear map."""
 
     # Overrides
 
@@ -75,12 +59,12 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
 
     @property
     def row_man(self) -> Replicated[Domain]:
-        """Returns the manifold of row vectors as points in the domain."""
+        """The manifold of row vectors."""
         return Replicated(self.dom_man, self.cod_man.dim)
 
     @property
     def col_man(self) -> Replicated[Codomain]:
-        """Returns the manifold of column vectors as points in the codomain."""
+        """The manifold of column vectors."""
         return Replicated(self.cod_man, self.dom_man.dim)
 
     def __call__[C: Coordinates](
@@ -150,15 +134,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
     def map_diagonal[C: Coordinates](
         self, f: Point[C, Self], diagonal_fn: Callable[[Array], Array]
     ) -> Point[C, Self]:
-        """Apply a function to the diagonal elements while preserving matrix structure.
-
-        Args:
-            f: Point in the linear map manifold
-            diagonal_fn: Function to apply to diagonal elements
-
-        Returns:
-            New point with modified diagonal elements
-        """
+        """Apply a function to the diagonal elements while preserving matrix structure."""
         return self.point(self.rep.map_diagonal(self.shape, f.array, diagonal_fn))
 
     def embed_rep[C: Coordinates, NewRep: MatrixRep](
@@ -190,13 +166,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
 
 @dataclass(frozen=True)
 class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
-    """Square linear map with domain and codomain the same manifold.
-
-    Args:
-        rep: Matrix representation strategy
-        dom_man: Source and target manifold
-
-    """
+    """SquareMap provides specialized operations for square matrices, like determinants, inverses, and tests for positive definiteness."""
 
     # Constructor
 
@@ -230,20 +200,31 @@ class AffineMap[
 ](
     Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]],
 ):
-    """Affine transformation targeting a subspace of the codomain.
+    """AffineMap combines a linear transformation with a translation component. The codomain is represented as an :class:`~geometry.manifold.embedding.Embedding` to allow transformations that translate only a subset of the codomain.
 
-    Args:
-        rep: Matrix representation strategy
-        dom_man: Source manifold
-        cod_sub: Target manifold and subspace
+    In theory, an affine map $A: V \\to W$ has the form:
+
+    $$A(x) = L(x) + b$$
+
+    where $L: V \\to W$ is a linear map and $b \\in W$ is a translation vector.
+    The map preserves affine combinations: for points $x_i$ and weights $\\alpha_i$ where
+    $\\sum_i \\alpha_i = 1$, we have:
+
+    $$A(\\sum_i \\alpha_i x_i) = \\sum_i \\alpha_i A(x_i)$$
+
 
     """
 
     # Fields
 
     rep: Rep
+    """The matrix representation for this affine map."""
+
     dom_man: Domain
-    cod_sub: LinearEmbedding[Codomain, SubCodomain]
+    """The domain of the affine map."""
+
+    cod_sub: LinearEmbedding[SubCodomain, Codomain]
+    """The submanifold of the codomain targetted by the affine map."""
 
     # Overrides
 

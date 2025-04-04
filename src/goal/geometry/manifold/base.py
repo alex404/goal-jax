@@ -3,6 +3,8 @@
 In practice, these tools let you create and manipulate points on manifolds, calculate gradients, and implement optimization algorithms.
 
 In theory, this implements the mathematical foundation for information geometry, where statistical models form manifolds with natural geometric structures.
+
+See the package index for additional mathematical background on manifolds.
 """
 
 from __future__ import annotations
@@ -148,7 +150,7 @@ class Manifold(ABC):
 class Point[C: Coordinates, M: Manifold]:
     """A point on a specific manifold with coordinates.
 
-    In practice, Points behave like arrays with additional type safety and mathematical operations. Users should create points using the corresponding manifold, rather than directly with the class.
+    In practice, Points behave like arrays with additional type safety and mathematical operations. **NB:** It is unsafe to create a point directly with this class - users should really on manifold constructors to build points.
 
     In theory, points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
 

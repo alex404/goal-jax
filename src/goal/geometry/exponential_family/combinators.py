@@ -100,36 +100,28 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
 @dataclass(frozen=True)
 class LocationEmbedding[
-    LS: Any,
-    L: ExponentialFamily,
+    Location: ExponentialFamily,
+    Complete: Any,
 ](
-    LinearEmbedding[LS, L],  # Note: we specify LS directly in Subspace
+    LinearEmbedding[Location, Complete],
     ABC,
 ):
-    """Subspace relationship for a product manifold $M \\times N$.
-
-    Type Parameters:
-
-    - `LS`: The combined manifold type. Should be a subclass of `LocationShape[L, S]`.
-    - `L`: The location manifold type.
-    - `S`: The shape manifold type.
-
-    """
+    """Subspace relationship for a location shape manifold $M \\times N$."""
 
     @override
-    def project(self, p: Point[Mean, LS]) -> Point[Mean, L]:
+    def project(self, p: Point[Mean, Complete]) -> Point[Mean, Location]:
         first, _ = self.amb_man.split_params(p)
         return first
 
     @override
-    def embed(self, p: Point[Natural, L]) -> Point[Natural, LS]:
+    def embed(self, p: Point[Natural, Location]) -> Point[Natural, Complete]:
         snd0 = self.amb_man.snd_man.zeros()
         return self.amb_man.join_params(p, snd0)
 
     @override
     def translate[C: Coordinates](
-        self, p: Point[C, LS], q: Point[C, L]
-    ) -> Point[C, LS]:
+        self, p: Point[C, Complete], q: Point[C, Location]
+    ) -> Point[C, Complete]:
         first, second = self.amb_man.split_params(p)
         return self.amb_man.join_params(first + q, second)
 

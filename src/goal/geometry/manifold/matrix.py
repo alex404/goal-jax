@@ -1,22 +1,27 @@
-"""Linear operators with structural specializations.
+"""This module provides a hierarchy of matrix representations with increasingly specialized structure, providing
+    - Progressive specialization from general to highly constrained structures,
+    - storage-efficient representations for special matrix types,
+    - optimized implementations of key operations like multiplication and inversion, and
+    - Type-safe handling of different matrix constraints (symmetry, positive-definiteness).
 
-This module provides a hierarchy of linear operators with increasingly specialized
-structure. Each specialization maintains key matrix operations (multiplication, determinant,
-inverse) while exploiting structure for efficiency:
+The following table provides an overview of the storage and computational complexity of each matrix representation:
 
-Operator Type    | Storage   | Matmul    | Inverse/Det
-----------------|------------|-----------|-------------
-Rectangular     | $O(n^2)$   | $O(n^2)$  | $O(n^3)$
-Symmetric       | $O(n^2/2)$ | $O(n^2)$  | $O(n^3)$
-Pos. Definite   | $O(n^2/2)$ | $O(n^2)$  | $O(n^3)$ (Cholesky)
-Diagonal        | $O(n)$     | $O(n)$    | $O(n^3)$
-Scale           | $O(1)$     | $O(n)$    | $O(1)$
-Identity        | $O(1)$     | $O(1)$    | $O(1)$
-
-
-#### Class Hierarchy
-
-![Class Hierarchy](matrix.svg)
++----------------+---------------+---------------+---------------+
+| Operator Type  | Storage       | Matmul        | Inverse/Det   |
++================+===============+===============+===============+
+| Rectangular    | $O(n^2)$      | $O(n^2)$      | $O(n^3)$      |
++----------------+---------------+---------------+---------------+
+| Symmetric      | $O(n^2/2)$    | $O(n^2)$      | $O(n^3)$      |
++----------------+---------------+---------------+---------------+
+| Pos. Definite  | $O(n^2/2)$    | $O(n^2)$      | $O(n^3)$      |
+|                |               |               | (Cholesky)    |
++----------------+---------------+---------------+---------------+
+| Diagonal       | $O(n)$        | $O(n)$        | $O(n)$        |
++----------------+---------------+---------------+---------------+
+| Scale          | $O(1)$        | $O(n)$        | $O(1)$        |
++----------------+---------------+---------------+---------------+
+| Identity       | $O(1)$        | $O(1)$        | $O(1)$        |
++----------------+---------------+---------------+---------------+
 """
 
 from __future__ import annotations
@@ -89,9 +94,11 @@ def _diag_indices_in_triangular(n: int) -> Array:
 
 
 class MatrixRep(ABC):
-    """Base class defining how to interpret and manipulate matrix parameters.
+    """MatrixRep acts as a strategy pattern for matrix operations, allowing different representations (full, symmetric, diagonal) to share the same interface while using optimized implementations. It defines operations that maintain the specific structure of each matrix type.
 
-    All matrix parameters are stored as 1D arrays for compatibility with Point. Each subclass defines how to reshape and manipulate these parameters while maintaining their specific structure (full, symmetric, diagonal, etc.)
+    In theory, each subclass corresponds to a specific matrix structure with constraints on the entries, and implements the corresponding linear algebraic operations while preserving those constraints.
+
+    All matrix parameters are stored as 1D arrays for compatibility with Point. The flattened representation enables unified parameter handling across different matrix structures, while each operation respects the specific matrix type's constraints.
     """
 
     @classmethod
@@ -108,21 +115,7 @@ class MatrixRep(ABC):
         right_shape: tuple[int, int],
         right_params: Array,
     ) -> tuple[MatrixRep, tuple[int, int], Array]:
-        """Multiply matrices, returning optimal representation type and parameters.
-
-        Args:
-            shape: (m,n) shape of left matrix
-            params: Parameters of left matrix
-            right_rep: Matrix representation class of right matrix
-            right_shape: (n,p) shape of right matrix
-            right_params: Parameters of right matrix
-
-        Returns:
-            Tuple of:
-                - Optimal matrix representation class
-                - Resulting (m,p) shape
-                - Parameters for resulting matrix
-        """
+        """Multiply matrices, returning optimal representation type and parameters."""
         return _matmat(cls(), shape, params, right_rep, right_shape, right_params)
 
     @classmethod
@@ -206,7 +199,14 @@ class MatrixRep(ABC):
 
 
 class Rectangular(MatrixRep):
-    """Full matrix representation with no special structure."""
+    """Rectangular stores all $m \\times n$ entries explicitly. This representation supports arbitrary linear transformations without constraints.
+
+    In theory, this represents the full space of linear maps from $\\mathbb{R}^n$ to $\\mathbb{R}^m$. It requires $mn$ parameters for storage.
+
+    Properties:
+        - Full $m \\times n$ matrix representation
+        - $O(mn)$ parameters stored in row-major order
+    """
 
     @classmethod
     @override
@@ -267,11 +267,13 @@ class Rectangular(MatrixRep):
 
 
 class Square(Rectangular):
-    """Square matrix representation.
+    """Square matrices enable additional operations like determinants and inverses.
 
     Properties:
-        - $n \\times n$ matrix shape
-        - Parameters stored as full matrix in row-major order
+        - $n \\times n$ matrix shape (same dimension for rows and columns)
+        - Supports determinant and inverse operations
+        - Forms an algebra under matrix multiplication
+        - Storage: $O(n^2)$ parameters
     """
 
     @classmethod
@@ -305,12 +307,13 @@ class Square(Rectangular):
 
 
 class Symmetric(Square):
-    """Symmetric matrix representation where $A = A^T$.
+    """Symmetric matrices require roughly half the storage of general square matrices and arise naturally in many statistical applications like covariance matrices. In theory, symmetric matrices satisfy $A = A^T$ and have a complete basis of orthogonal eigenvectors with real eigenvalues.
 
     Properties:
+        - Self-transpose with guaranteed real eigenvalues
+        - Orthogonally diagonalizable
         - Stores only upper/lower triangular elements
-        - Parameter vector contains n*(n+1)/2 elements for $n \\times n$ matrix
-        - Self-transpose, real eigenvalues
+        - Storage: $O(n^2/2)$ parameters
     """
 
     @classmethod
@@ -359,19 +362,19 @@ class Symmetric(Square):
 
 
 class PositiveDefinite(Symmetric):
-    """Symmetric positive definite matrix representation.
+    """PositiveDefinite matrices enable numerically stable operations through Cholesky decomposition and arise naturally in statistical models as covariance matrices. They ensure that quadratic forms like $x^TAx$ represent valid variance-like quantities.
 
-    A symmetric matrix $A$ is positive definite if and only if:
-
-    1. $x^T A x > 0$ for all $x \\neq 0$
-    2. All eigenvalues $\\lambda_i > 0$
-    3. Unique Cholesky decomposition exists: $A = LL^T$
-    4. All leading principal minors are positive
+    A symmetric matrix $A$ is positive definite if and only if any of these equivalent conditions hold:
+        1. $x^T A x > 0$ for all $x \\neq 0$
+        2. All eigenvalues $\\lambda_i > 0$
+        3. Unique Cholesky decomposition exists: $A = LL^T$
 
     Properties:
         - Inverse is also positive definite
         - Determinant is positive
         - Stable and efficient algorithms via Cholesky factorization
+        - Forms a convex cone (not a vector space)
+        - Storage: $O(n^2/2)$ parameters
     """
 
     @classmethod
@@ -384,17 +387,14 @@ class PositiveDefinite(Symmetric):
     def apply_cholesky(
         cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
+        """Compute cholesky factorization and apply to vector."""
         chol = cls.cholesky(shape, params)
         return (chol @ vector.T).T
 
     @classmethod
     @override
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
-        """Check positive definiteness via Cholesky decomposition.
-
-        Uses Cholesky attempt as a numerically stable way to check positive
-        definiteness. More efficient than computing eigenvalues.
-        """
+        """Check positive definiteness via Cholesky decomposition."""
         matrix = cls.to_dense(shape, params)
         # Use linalg_ops.cholesky which returns NaN on failure
         chol = jax.lax.linalg.cholesky(matrix)
@@ -431,12 +431,14 @@ class PositiveDefinite(Symmetric):
 
 
 class Diagonal(PositiveDefinite):
-    """Diagonal matrix representation $A = \\text{diag}(a_1, , a_n)$.
+    """Diagonal matrix representation $A = \\text{diag}(a_1, ..., a_n)$. Most operations with Diagonal matrices become $O(n)$ instead of $O(n^2)$ or $O(n^3)$.
 
     Properties:
         - Only diagonal elements stored, zero elsewhere
         - Most operations reduce to element-wise operations on diagonal
-        - $O(n)$ storage and operations
+        - Eigenvalues are the diagonal elements
+        - Forms a commutative subalgebra (AB = BA for diagonal matrices)
+        - Storage and operations: $O(n)$ complexity
     """
 
     @classmethod
