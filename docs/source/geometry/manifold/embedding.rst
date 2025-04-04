@@ -39,10 +39,15 @@ Composed Embeddings
    :undoc-members:
    :show-inheritance:
 
-Identity Embedding
-------------------
+Algebraic Embeddings
+--------------------
 
 .. autoclass:: goal.geometry.manifold.embedding.IdentityEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.embedding.TupleEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

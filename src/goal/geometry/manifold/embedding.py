@@ -18,6 +18,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from .base import Coordinates, Dual, Manifold, Point
+from .combinators import Tuple
 
 ### Linear Subspaces ###
 
@@ -229,3 +230,76 @@ class LinearComposedEmbedding[
         )
         mid = self.sub_emb.translate(mid_zero, q)
         return self.mid_emb.translate(p, mid)
+
+
+@dataclass(frozen=True)
+class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
+    LinearEmbedding[Component, TupleMan], ABC
+):
+    """Embedding that projects to or embeds from a specific component of a tuple manifold.
+
+    This embedding provides a way to work with individual components of tuple manifolds like Pair and Triple, enabling operations such as projection, embedding, and translation on specific components.
+    """
+
+    # Fields
+    cmp_idx: int
+    cmp_man: Component
+    tup_man: TupleMan
+
+    def __post_init__(self):
+        """Validate that the component manifold matches the expected component at the given index."""
+        # Get all components
+        zero_tuple = self.tup_man.zeros()
+        components = self.tup_man.split_params(zero_tuple)
+
+        # Check if index is valid
+        if self.cmp_idx >= len(components):
+            raise IndexError(
+                f"Component index {self.cmp_idx} out of range for {type(self.tup_man)}"
+            )
+
+    @property
+    @override
+    def amb_man(self) -> TupleMan:
+        """The tuple manifold (super-manifold)."""
+        return self.tup_man
+
+    @property
+    @override
+    def sub_man(self) -> Component:
+        """The component manifold (sub-manifold)."""
+        return self.cmp_man
+
+    @override
+    def project[C: Coordinates](self, p: Point[C, TupleMan]) -> Point[C, Component]:
+        """Project a point from the tuple manifold to the specified component."""
+        # Split the tuple and get the component at the specified index
+        components = self.amb_man.split_params(p)
+        return components[self.cmp_idx]  # type: ignore[return-value]
+
+    @override
+    def embed[C: Coordinates](self, p: Point[C, Component]) -> Point[C, TupleMan]:
+        """Creates a new point in the tuple manifold with the specified component set to p and all other components set to zero."""
+        # Split a zero tuple to get zero components
+        zero_tuple = self.amb_man.zeros()
+        components = list(self.amb_man.split_params(zero_tuple))
+
+        # Replace the component at the specified index
+        components[self.cmp_idx] = p
+
+        # Join the components back into a tuple
+        return self.amb_man.join_params(*components)
+
+    @override
+    def translate[C: Coordinates](
+        self, p: Point[C, TupleMan], q: Point[C, Component]
+    ) -> Point[C, TupleMan]:
+        """Updates the component at the specified index by adding q, leaving other components unchanged."""
+        # Split the tuple into components
+        components = list(self.amb_man.split_params(p))
+
+        # Update the component at the specified index
+        components[self.cmp_idx] = components[self.cmp_idx] + q
+
+        # Join the components back into a tuple
+        return self.amb_man.join_params(*components)

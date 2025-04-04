@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Self, override
+from typing import Any, Callable, Self, override
 
 import jax
 import jax.numpy as jnp
@@ -31,7 +31,22 @@ class Null(Manifold):
 
 
 @dataclass(frozen=True)
-class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
+class Tuple(Manifold, ABC):
+    """This protocol defines a common interface for manifolds like Pair and Triple that split parameters into tuples and join them back together."""
+
+    @abstractmethod
+    def split_params[C: Coordinates, M: Manifold](
+        self, params: Point[C, M]
+    ) -> tuple[Point[C, Any], ...]:
+        """Split parameters into tuple components."""
+
+    @abstractmethod
+    def join_params[C: Coordinates](self, *components: Point[C, Any]) -> Point[C, Any]:
+        """Join tuple components into a single point."""
+
+
+@dataclass(frozen=True)
+class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
     """Pair combines two parameter spaces, providing methods to split parameters into their respective components and join them back together. This is useful for models that have separate location and shape parameters, for example.
 
     In theory, this implements the Cartesian product $\\mathcal M_1 \\times \\mathcal M_2$ of two manifolds, where the dimension is the sum of the component dimensions.
@@ -56,8 +71,7 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
     def dim(self) -> int:
         return self.fst_man.dim + self.snd_man.dim
 
-    # Templates
-
+    @override
     def split_params[C: Coordinates](
         self, params: Point[C, Self]
     ) -> tuple[Point[C, First], Point[C, Second]]:
@@ -66,10 +80,9 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
         second_params = params.array[self.fst_man.dim :]
         return self.fst_man.point(first_params), self.snd_man.point(second_params)
 
-    def join_params[C: Coordinates](
-        self,
-        first: Point[C, First],
-        second: Point[C, Second],
+    @override
+    def join_params[C: Coordinates](  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, first: Point[C, First], second: Point[C, Second]
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
         return self.point(
@@ -78,7 +91,7 @@ class Pair[First: Manifold, Second: Manifold](Manifold, ABC):
 
 
 @dataclass(frozen=True)
-class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
+class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
     """Triple combines three parameter spaces, providing methods to split parameters into their respective components and join them back together."""
 
     # Contract
@@ -106,8 +119,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
         """Total dimension is the sum of component dimensions."""
         return self.fst_man.dim + self.snd_man.dim + self.trd_man.dim
 
-    # Templates
-
+    @override
     def split_params[C: Coordinates](
         self, params: Point[C, Self]
     ) -> tuple[Point[C, First], Point[C, Second], Point[C, Third]]:
@@ -125,7 +137,8 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Manifold, ABC):
             self.trd_man.point(third_params),
         )
 
-    def join_params[C: Coordinates](
+    @override
+    def join_params[C: Coordinates](  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         first: Point[C, First],
         second: Point[C, Second],

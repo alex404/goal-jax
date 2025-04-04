@@ -14,10 +14,19 @@ Class Hierarchy
 
 \
 
+Null Manifold
+-------------
+
+.. autoclass:: goal.geometry.manifold.combinators.Null
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 Product Manifolds
 -----------------
 
-.. autoclass:: goal.geometry.manifold.combinators.Null
+.. autoclass:: goal.geometry.manifold.combinators.Tuple
    :members:
    :undoc-members:
    :show-inheritance:
