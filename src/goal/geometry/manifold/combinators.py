@@ -170,20 +170,6 @@ class Replicated[M: Manifold](Manifold):
     n_reps: int
     """Number of copies of the base manifold."""
 
-    # Overrides
-
-    @property
-    @override
-    def dim(self) -> int:
-        """Total dimension is product of base dimension and number of copies."""
-        return self.rep_man.dim * self.n_reps
-
-    @property
-    @override
-    def coordinates_shape(self) -> list[int]:
-        """Shape of the coordinates array is `[n_reps, *rep_man.coordinates_shape]`."""
-        return [self.n_reps, *self.rep_man.coordinates_shape]
-
     # Templates
 
     def get_replicate[C: Coordinates](
@@ -213,3 +199,17 @@ class Replicated[M: Manifold](Manifold):
             return f(self.rep_man.point(row)).array
 
         return Point(jax.vmap(array_f)(p.array))
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Total dimension is product of base dimension and number of copies."""
+        return self.rep_man.dim * self.n_reps
+
+    @property
+    @override
+    def coordinates_shape(self) -> list[int]:
+        """Shape of the coordinates array is `[n_reps, *rep_man.coordinates_shape]`."""
+        return [self.n_reps, *self.rep_man.coordinates_shape]

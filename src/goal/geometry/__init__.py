@@ -9,7 +9,6 @@ from .exponential_family.combinators import (
     AnalyticProduct,
     DifferentiableProduct,
     GenerativeProduct,
-    LocationEmbedding,
     LocationShape,
     Product,
     StatisticalMoments,
@@ -19,6 +18,7 @@ from .exponential_family.harmonium import (
     Conjugated,
     DifferentiableConjugated,
     Harmonium,
+    SymmetricConjugated,
 )
 from .exponential_family.hierarchical import (
     AnalyticUndirected,
@@ -86,7 +86,6 @@ __all__ = [
     "IdentityEmbedding",
     "LinearEmbedding",
     "LinearMap",
-    "LocationEmbedding",
     "LocationShape",
     "Manifold",
     "MatrixRep",
@@ -107,6 +106,7 @@ __all__ = [
     "SquareMap",
     "StatisticalMoments",
     "Symmetric",
+    "SymmetricConjugated",
     "Triple",
     "expand_dual",
     "reduce_dual",

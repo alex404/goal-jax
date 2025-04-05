@@ -62,22 +62,22 @@ class Harmonium[
     @property
     @abstractmethod
     def int_rep(self) -> IntRep:
-        """Interactive subspace of observable sufficient statistics."""
+        """Matrix representation of the interaction matrix."""
 
     @property
     @abstractmethod
     def obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
-        """Interactive subspace of observable sufficient statistics."""
+        """Embedding of the interactive submanifold into the observable manifold."""
 
     @property
     @abstractmethod
     def int_lat_emb(self) -> LinearEmbedding[IntLatent, PostLatent]:
-        """Interactive subspace of latent sufficient statistics."""
+        """Embedding of the interactive submanifold of the (posterior) into the latent manifold."""
 
     @property
     @abstractmethod
     def pst_lat_emb(self) -> LinearEmbedding[PostLatent, Latent]:
-        """Interactive subspace of latent sufficient statistics."""
+        """Embedding of the posterior submanifold into the complete latent manifold."""
 
     # Templates
 
@@ -463,7 +463,7 @@ class SymmetricConjugated[
     Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    Latent: Analytic,
+    Latent: Differentiable,
 ](
     DifferentiableConjugated[
         IntRep, Observable, IntObservable, IntLatent, Latent, Latent

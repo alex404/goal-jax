@@ -241,41 +241,45 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
     This embedding provides a way to work with individual components of tuple manifolds like Pair and Triple, enabling operations such as projection, embedding, and translation on specific components.
     """
 
-    # Fields
-    cmp_idx: int
-    cmp_man: Component
-    tup_man: TupleMan
+    # Contract
+
+    @property
+    @abstractmethod
+    def tup_idx(self) -> int:
+        """The index of the component in the tuple manifold."""
 
     def __post_init__(self):
         """Validate that the component manifold matches the expected component at the given index."""
         # Get all components
-        zero_tuple = self.tup_man.zeros()
-        components = self.tup_man.split_params(zero_tuple)
+        zero_tuple = self.amb_man.zeros()
+        components = self.amb_man.split_params(zero_tuple)
 
         # Check if index is valid
-        if self.cmp_idx >= len(components):
+        if self.tup_idx >= len(components):
             raise IndexError(
-                f"Component index {self.cmp_idx} out of range for {type(self.tup_man)}"
+                f"Component index {self.tup_idx} out of range for {type(self.amb_man)}"
             )
+
+    # Overrides
 
     @property
     @override
     def amb_man(self) -> TupleMan:
         """The tuple manifold (super-manifold)."""
-        return self.tup_man
+        return self.amb_man
 
     @property
     @override
     def sub_man(self) -> Component:
         """The component manifold (sub-manifold)."""
-        return self.cmp_man
+        return self.sub_man
 
     @override
     def project[C: Coordinates](self, p: Point[C, TupleMan]) -> Point[C, Component]:
         """Project a point from the tuple manifold to the specified component."""
         # Split the tuple and get the component at the specified index
         components = self.amb_man.split_params(p)
-        return components[self.cmp_idx]  # type: ignore[return-value]
+        return components[self.tup_idx]  # type: ignore[return-value]
 
     @override
     def embed[C: Coordinates](self, p: Point[C, Component]) -> Point[C, TupleMan]:
@@ -285,7 +289,7 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         components = list(self.amb_man.split_params(zero_tuple))
 
         # Replace the component at the specified index
-        components[self.cmp_idx] = p
+        components[self.tup_idx] = p
 
         # Join the components back into a tuple
         return self.amb_man.join_params(*components)
@@ -299,7 +303,7 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         components = list(self.amb_man.split_params(p))
 
         # Update the component at the specified index
-        components[self.cmp_idx] = components[self.cmp_idx] + q
+        components[self.tup_idx] = components[self.tup_idx] + q
 
         # Join the components back into a tuple
         return self.amb_man.join_params(*components)
