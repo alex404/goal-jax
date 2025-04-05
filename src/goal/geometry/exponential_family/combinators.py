@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass
-from typing import Any, Protocol, Self, override, runtime_checkable
+from typing import Protocol, Self, override, runtime_checkable
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import (
-    Coordinates,
     Point,
 )
 from ..manifold.combinators import (
     Pair,
     Replicated,
 )
-from ..manifold.embedding import LinearEmbedding
 from .base import (
     Analytic,
     Differentiable,
@@ -94,36 +91,8 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        """Base measure is sum of component base measures."""
+        """Base measure of both manifolds should be the same - we take the second."""
         return self.snd_man.log_base_measure(x)
-
-
-@dataclass(frozen=True)
-class LocationEmbedding[
-    Location: ExponentialFamily,
-    Complete: Any,
-](
-    LinearEmbedding[Location, Complete],
-    ABC,
-):
-    """Subspace relationship for a location shape manifold $M \\times N$."""
-
-    @override
-    def project(self, p: Point[Mean, Complete]) -> Point[Mean, Location]:
-        first, _ = self.amb_man.split_params(p)
-        return first
-
-    @override
-    def embed(self, p: Point[Natural, Location]) -> Point[Natural, Complete]:
-        snd0 = self.amb_man.snd_man.zeros()
-        return self.amb_man.join_params(p, snd0)
-
-    @override
-    def translate[C: Coordinates](
-        self, p: Point[C, Complete], q: Point[C, Location]
-    ) -> Point[C, Complete]:
-        first, second = self.amb_man.split_params(p)
-        return self.amb_man.join_params(first + q, second)
 
 
 class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
@@ -194,7 +163,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
         return self.natural_point(init_params)
 
     def statistical_mean(self, params: Point[Natural, Self]) -> Array:
-        """Compute mean for product distribution.
+        """Compute the mean of the product distribution.
 
         If the replicated manifold supports statistical moments, returns a vector of means for each component. Otherwise raises TypeError.
         """
@@ -208,7 +177,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
         return self.map(self.rep_man.statistical_mean, params).ravel()  # pyright: ignore[reportArgumentType]
 
     def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
-        """Compute covariance for product distribution."""
+        """Compute the covariance of the product distribution (block diagonal)."""
         if not isinstance(self.rep_man, StatisticalMoments):
             raise TypeError(
                 f"Replicated manifold {type(self.rep_man)} does not support statistical moment computation"

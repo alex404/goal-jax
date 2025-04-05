@@ -503,7 +503,7 @@ class FactorAnalysis(AnalyticLinearGaussianModel[Diagonal]):
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm. Without further constraints the latent Normal of FA is not identifiable, and so we hold it fixed at standard normal."""
         # E-step: Compute expectations
-        q = self.expectation_step(params, xs)
+        q = self.posterior_statistics(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
@@ -566,7 +566,7 @@ class PrincipalComponentAnalysis(AnalyticLinearGaussianModel[Scale]):
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm. Without further constraints the latent Normal of PCA is not identifiable, and so we hold it fixed at standard normal."""
         # E-step: Compute expectations
-        q = self.expectation_step(params, xs)
+        q = self.posterior_statistics(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())

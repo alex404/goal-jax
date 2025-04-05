@@ -1,33 +1,4 @@
-"""Core definitions for harmonium models.
-
-A harmonium is a type of probabilistic graphical model over observable and latent variables with exponential family densities of the form
-
-$$p(x,z) \\propto \\exp(\\theta_X \\cdot \\mathbf{s}_X(x) + \\theta_Z \\cdot \\mathbf{s}_Z(z) + \\mathbf{s}_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf{s}_Z(z)).$$
-
-Data points of a harmonium are represented by the concatenation of observable and latent variables $x$ and $z$:
-
-```python
-# Observable data point from 2D observable space (e.g. points in R²)
-x = jnp.array([1.2, -0.5])  # shape: (2,)
-# Latent data point from a 3D latent space (e.g. 3 binary variables)
-z = jnp.array([1.0, 0.0, 1.0])  # shape: (3,)
-# harmonium data point
-xz = jnp.concatenate([x, z])  # shape: (5,)
-```
-
-The module provides a hierarchy of harmonium models with increasing structure:
-
-- `Harmonium`: Core exponential family structure with observable and latent variables.
-- `DifferentiableLatent`: Supports differentiation of latent variables.
-- `Conjugated`: Enables analytical computation of marginals $p(x)$ and $p(z)$ of $p(x, z)$.
-- `GenerativeConjugated`: Harmoniums that can be sampled from.
-- `DifferentiableConjugated`: Harmoniums with an analytical log-partition function.
-- `AnalyticConjugated`: Harmoniums with an analytic negative entropy.
-
-#### Class Hierarchy
-
-![Class Hierarchy](harmonium.svg)
-"""
+"""Core definitions for harmonium models. A harmonium is a type of product exponential family over observable and latent variables, with sufficient statistics given by those of the component exponential families, as well as all their pairwise interactions."""
 
 from __future__ import annotations
 
@@ -67,12 +38,15 @@ class Harmonium[
     Triple[Observable, LinearMap[IntRep, IntLatent, IntObservable], PostLatent],
     ABC,
 ):
-    """An exponential family harmonium is a product of two exponential families.
+    """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The harmonium is also specified by a number lof internal embeddings to support the following features:
 
-    The joint distribution of a harmonium takes the form
+    1. The interactions between the observable and latent variables can be restricted to submanifolds of either or both the observable and latent statistics.
+    2. The latent posterior can be restricted to a submanifold of the complete latent space, restricting the posterior to a more computationally tractable part of the latent space.
+
+    In theory, the joint distribution of a harmonium takes the form
 
     $$
-    p(x,z) \\propto e^{\\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x)\\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z)},
+    \\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x)\\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi_{XZ}(\\theta_X, \\theta_Z, \\Theta_{XZ}),
     $$
 
     where:
@@ -92,148 +66,18 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def obs_emb(self) -> LinearEmbedding[Observable, IntObservable]:
+    def obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
         """Interactive subspace of observable sufficient statistics."""
 
     @property
     @abstractmethod
-    def int_lat_emb(self) -> LinearEmbedding[PostLatent, IntLatent]:
+    def int_lat_emb(self) -> LinearEmbedding[IntLatent, PostLatent]:
         """Interactive subspace of latent sufficient statistics."""
 
     @property
     @abstractmethod
-    def pst_lat_emb(self) -> LinearEmbedding[Latent, PostLatent]:
+    def pst_lat_emb(self) -> LinearEmbedding[PostLatent, Latent]:
         """Interactive subspace of latent sufficient statistics."""
-
-    # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> Observable:
-        return self.obs_man
-
-    @property
-    @override
-    def snd_man(self) -> LinearMap[IntRep, IntLatent, IntObservable]:
-        return self.int_man
-
-    @property
-    @override
-    def trd_man(self) -> Latent:
-        return self.lat_man
-
-    @property
-    @override
-    def data_dim(self) -> int:
-        """Total dimension of data points."""
-        return self.obs_man.data_dim + self.lat_man.data_dim
-
-    @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Compute sufficient statistics for joint observation.
-
-        Args:
-            x: Array of shape (obs_dim + lat_dim) containing concatenated observable and latent states
-
-        Returns:
-            Array of sufficient statistics
-        """
-        obs_x = x[: self.obs_man.data_dim]
-        lat_x = x[self.obs_man.data_dim :]
-
-        obs_stats = self.obs_man.sufficient_statistic(obs_x)
-        lat_stats = self.pst_lat_man.sufficient_statistic(lat_x)
-        int_stats = self.int_man.outer_product(
-            self.obs_emb.project(obs_stats), self.int_lat_emb.project(lat_stats)
-        )
-
-        return self.join_params(obs_stats, int_stats, lat_stats)
-
-    @override
-    def log_base_measure(self, x: Array) -> Array:
-        """Compute log base measure for joint observation.
-
-        Args:
-            x: Array of shape (obs_dim + lat_dim) containing concatenated observable and latent states
-
-        Returns:
-            Log base measure at x
-        """
-        obs_x = x[..., self.obs_man.data_dim :]
-        lat_x = x[self.obs_man.data_dim :]
-
-        return self.obs_man.log_base_measure(obs_x) + self.lat_man.log_base_measure(
-            lat_x
-        )
-
-    @override
-    def initialize(
-        self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
-        """Initialize harmonium parameters.
-
-        Observable and latent biases are initialized using their respective
-        initialization strategies. The interaction matrix is initialized with
-        random entries scaled by 1/sqrt(dim) to maintain reasonable magnitudes
-        for the interactions.
-
-        Args:
-            key: Random key
-            location: Location parameter for bias initialization
-            shape: Shape parameter for random perturbations
-        """
-        keys = jax.random.split(key, 3)
-
-        # Initialize biases using component initialization
-        obs_params = self.obs_man.initialize(keys[0], location, shape)
-        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
-
-        # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.obs_emb.sub_man.dim
-        lat_dim = self.int_lat_emb.sub_man.dim
-        scaling = shape / jnp.sqrt(obs_dim * lat_dim)
-
-        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
-        int_params: Point[Natural, LinearMap[IntRep, IntLatent, IntObservable]] = (
-            self.int_man.point(self.int_man.rep.from_dense(noise))
-        )
-
-        return self.join_params(obs_params, int_params, lat_params)
-
-    @override
-    def initialize_from_sample(
-        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
-        """Initialize harmonium using sample data for observable biases.
-
-        Uses sample data to initialize observable biases, while latent biases and interaction matrix use standard initialization.
-
-        Args:
-            key: Random key
-            sample: Sample data for observable initialization
-            location: Location parameter for random initialization
-            shape: Shape parameter for random initialization
-        """
-        keys = jax.random.split(key, 3)
-
-        # Initialize observable biases from data
-        obs_params = self.obs_man.initialize_from_sample(
-            keys[0], sample, location, shape
-        )
-
-        # Use standard initialization for everything else
-        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
-
-        # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.obs_emb.sub_man.dim
-        lat_dim = self.int_lat_emb.sub_man.dim
-        scaling = shape / jnp.sqrt(obs_dim * lat_dim)
-
-        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
-        int_params: Point[Natural, LinearMap[IntRep, IntLatent, IntObservable]] = (
-            self.int_man.point(self.int_man.rep.from_dense(noise))
-        )
-        return self.join_params(obs_params, int_params, lat_params)
 
     # Templates
 
@@ -244,12 +88,12 @@ class Harmonium[
 
     @property
     def lat_man(self) -> Latent:
-        """Manifold of latent biases."""
+        """Manifold of general latent biases."""
         return self.pst_lat_emb.amb_man
 
     @property
     def pst_lat_man(self) -> PostLatent:
-        """Manifold of latent biases."""
+        """Manifold of posterior specific latent biases."""
         return self.pst_lat_emb.sub_man
 
     @property
@@ -313,6 +157,102 @@ class Harmonium[
         mx = self.obs_emb.sub_man.sufficient_statistic(x)
         return self.pst_man(self.posterior_function(params), mx)
 
+    # Overrides
+
+    @property
+    @override
+    def fst_man(self) -> Observable:
+        return self.obs_man
+
+    @property
+    @override
+    def snd_man(self) -> LinearMap[IntRep, IntLatent, IntObservable]:
+        return self.int_man
+
+    @property
+    @override
+    def trd_man(self) -> Latent:
+        return self.lat_man
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        """Total dimension of data points."""
+        return self.obs_man.data_dim + self.lat_man.data_dim
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
+        """Compute sufficient statistics for joint observation."""
+        obs_x = x[: self.obs_man.data_dim]
+        lat_x = x[self.obs_man.data_dim :]
+
+        obs_stats = self.obs_man.sufficient_statistic(obs_x)
+        lat_stats = self.pst_lat_man.sufficient_statistic(lat_x)
+        int_stats = self.int_man.outer_product(
+            self.obs_emb.project(obs_stats), self.int_lat_emb.project(lat_stats)
+        )
+
+        return self.join_params(obs_stats, int_stats, lat_stats)
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        """Compute log base measure for joint observation."""
+        obs_x = x[..., self.obs_man.data_dim :]
+        lat_x = x[self.obs_man.data_dim :]
+
+        return self.obs_man.log_base_measure(obs_x) + self.lat_man.log_base_measure(
+            lat_x
+        )
+
+    @override
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize harmonium parameters. Observable and latent biases are initialized using their respective initialization strategies. The interaction matrix is initialized with random entries scaled by 1/sqrt(dim) to maintain reasonable magnitudes for the interactions."""
+        keys = jax.random.split(key, 3)
+
+        # Initialize biases using component initialization
+        obs_params = self.obs_man.initialize(keys[0], location, shape)
+        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
+
+        # Initialize interaction matrix with appropriate scaling
+        obs_dim = self.obs_emb.sub_man.dim
+        lat_dim = self.int_lat_emb.sub_man.dim
+        scaling = shape / jnp.sqrt(obs_dim * lat_dim)
+
+        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
+        int_params: Point[Natural, LinearMap[IntRep, IntLatent, IntObservable]] = (
+            self.int_man.point(self.int_man.rep.from_dense(noise))
+        )
+
+        return self.join_params(obs_params, int_params, lat_params)
+
+    @override
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Point[Natural, Self]:
+        """Initialize harmonium using sample data for observable biases. Uses sample data to initialize observable biases, while latent biases and interaction matrix use standard initialization."""
+        keys = jax.random.split(key, 3)
+
+        # Initialize observable biases from data
+        obs_params = self.obs_man.initialize_from_sample(
+            keys[0], sample, location, shape
+        )
+
+        # Use standard initialization for everything else
+        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
+
+        # Initialize interaction matrix with appropriate scaling
+        obs_dim = self.obs_emb.sub_man.dim
+        lat_dim = self.int_lat_emb.sub_man.dim
+        scaling = shape / jnp.sqrt(obs_dim * lat_dim)
+
+        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
+        int_params: Point[Natural, LinearMap[IntRep, IntLatent, IntObservable]] = (
+            self.int_man.point(self.int_man.rep.from_dense(noise))
+        )
+        return self.join_params(obs_params, int_params, lat_params)
+
 
 class Conjugated[
     IntRep: MatrixRep,
@@ -326,7 +266,7 @@ class Conjugated[
     Differentiable,
     ABC,
 ):
-    """A harmonium with for which the prior $p(z)$ is conjugate to the posterior $p(x \\mid z)$."""
+    """In general, the prior of a harmonium model is not exponential family distribution. A conjugated harmonium, on the other hand, is one for which the prior $p(z)$ is in the same exponential family as the posterior $p(x \\mid z)$."""
 
     # Contract
 
@@ -337,7 +277,11 @@ class Conjugated[
             Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
         ],
     ) -> Point[Natural, Latent]:
-        """Compute conjugation parameters for the harmonium."""
+        """Compute conjugation parameters for the harmonium.
+
+        Conjugated harmoniums have so called "conjugation parameters" $\\rho$ that simplify many of the computations in the model.
+
+        """
 
     # Templates
 
@@ -362,16 +306,7 @@ class Conjugated[
 
     @override
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate samples from the harmonium distribution.
-
-        Args:
-            key: PRNG key for sampling
-            params: Parameters in natural coordinates
-            n: Number of samples to generate
-
-        Returns:
-            Array of shape (n, data_dim) containing concatenated observable and latent states
-        """
+        """Generate samples from the harmonium distribution."""
         # Split up the sampling key
         key1, key2 = jax.random.split(key)
 
@@ -419,11 +354,9 @@ class DifferentiableConjugated[
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         """Compute the log partition function using conjugation parameters.
 
-        The log partition function can be written as:
+        The log partition function of a conjugated harmonium can be written as:
 
-        $$\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\chi$$
-
-        where $\\psi_Z$ is the log partition function of the latent exponential family.
+        $$\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\psi_X(\\theta_X)$$
         """
         # Split parameters
         obs_params, int_params, lat_params = self.split_params(params)
@@ -446,21 +379,8 @@ class DifferentiableConjugated[
         For a conjugated harmonium, the observable density can be computed as:
 
         $$
-        \\log p(x) = \\theta_X \\cdot s_X(x) + \\psi_Z(\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}) - \\psi_Z(\\theta_Z + \\rho) - \\chi + \\log \\mu_X(x)
+        \\log p(x) = \\theta_X \\cdot s_X(x) + \\psi_Z(\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}) - \\psi_Z(\\theta_Z + \\rho) - \\psi_X(\\theta_X) + \\log \\mu_X(x)
         $$
-
-        where:
-
-        - $(\\chi, \\rho)$ are the conjugation parameters,
-        - $\\psi_Z$ is the latent log-partition function, and
-        - $\\mu_X$ is the observable base measure.
-
-        Args:
-            params: Parameters in natural coordinates
-            x: Observable data point
-
-        Returns:
-            Log density at x
         """
         obs_params, _, _ = self.split_params(params)
 
@@ -476,6 +396,10 @@ class DifferentiableConjugated[
 
         return log_density + self.obs_man.log_base_measure(x)
 
+    def observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
+        """Compute density of the observable distribution $p(x)$."""
+        return jnp.exp(self.log_observable_density(params, x))
+
     def average_log_observable_density(
         self, params: Point[Natural, Self], xs: Array, batch_size: int = 2048
     ) -> Array:
@@ -486,30 +410,17 @@ class DifferentiableConjugated[
 
         return batched_mean(_log_density, xs, batch_size)
 
-    def observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
-        """Compute density of the observable distribution $p(x)$."""
-        return jnp.exp(self.log_observable_density(params, x))
-
     def infer_missing_expectations(
         self,
         params: Point[Natural, Self],
         x: Array,
     ) -> Point[Mean, Self]:
-        """Compute joint expectations for a single observation.
-
-        For an observation x and current parameters $\\theta = $(\\theta_X, \\theta_Z, \\theta_{XZ})$, we
-
-        1. Compute sufficient statistics $\\mathbf s_X(x)$,
-        2. Get natural parameters of $p(z \\mid x)$ given by $\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$,
-        3. Convert to mean parameters $\\mathbb E[\\mathbf s_Z(z) \\mid x]$, and
-        4. Form joint expectations $(\\mathbf s_X(x), \\mathbb E[\\mathbf s_Z(z) \\mid x], \\mathbf s_X(x) \\otimes \\mathbb E[\\mathbf s_Z(z) \\mid x])$.
-
-        Args:
-            x: Single observation of shape (obs_dim,)
-            params: Current harmonium parameters in natural coordinates
-
-        Returns:
-            Joint expectations in mean coordinates for this observation
+        """
+        Compute joint expectations for a single observation. In particular we
+            1. Compute sufficient statistics $\\mathbf s_X(x)$,
+            2. Get natural parameters of $p(z \\mid x)$ given by $\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$,
+            3. Convert to mean parameters $\\mathbb E[\\mathbf s_Z(z) \\mid x]$, and
+            4. Form joint expectations $(\\mathbf s_X(x), \\mathbb E[\\mathbf s_Z(z) \\mid x], \\mathbf s_X(x) \\otimes \\mathbb E[\\mathbf s_Z(z) \\mid x])$.
         """
         # Get sufficient statistics of observation
         obs_stats: Point[Mean, Observable] = self.obs_man.sufficient_statistic(x)
@@ -531,21 +442,13 @@ class DifferentiableConjugated[
         # Join parameters into harmonium point
         return self.join_params(obs_stats, int_means, lat_means)
 
-    def expectation_step(
+    def posterior_statistics(
         self: Self,
         params: Point[Natural, Self],
         xs: Array,
         batch_size: int = 256,
     ) -> Point[Mean, Self]:
-        """Compute average joint expectations over a batch of observations.
-
-        Args:
-            params: Current harmonium parameters in natural coordinates
-            xs: Batch of observations of shape (batch_size, obs_dim)
-
-        Returns:
-            Average joint expectations in mean coordinates
-        """
+        """Compute average joint expectations over a batch of observations."""
 
         def _infer_missing_expectations(x: Array) -> Array:
             return self.infer_missing_expectations(params, x).array
@@ -555,7 +458,7 @@ class DifferentiableConjugated[
         )
 
 
-class AnalyticConjugated[
+class SymmetricConjugated[
     IntRep: MatrixRep,
     Observable: Differentiable,
     IntObservable: ExponentialFamily,
@@ -565,17 +468,36 @@ class AnalyticConjugated[
     DifferentiableConjugated[
         IntRep, Observable, IntObservable, IntLatent, Latent, Latent
     ],
+    ABC,
+):
+    """A differentiable conjugated harmonium where the space of posteriors is the same as the space of priors (as opposed to a strict submanifold)."""
+
+    def join_conjugated(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
+        ],
+        prior_params: Point[Natural, Latent],
+    ) -> Point[Natural, Self]:
+        """Join likelihood and prior parameters into a conjugated harmonium."""
+        rho = self.conjugation_parameters(lkl_params)
+        lat_params = self.pst_lat_emb.translate(-rho, prior_params)
+        obs_params, int_params = self.lkl_man.split_params(lkl_params)
+        return self.join_params(obs_params, int_params, lat_params)
+
+
+class AnalyticConjugated[
+    IntRep: MatrixRep,
+    Observable: Differentiable,
+    IntObservable: ExponentialFamily,
+    IntLatent: ExponentialFamily,
+    Latent: Analytic,
+](
+    SymmetricConjugated[IntRep, Observable, IntObservable, IntLatent, Latent],
     Analytic,
     ABC,
 ):
-    """A conjugated harmonium with an analytically tractable negative entropy.
-
-    AnalyticConjugated harmoniums have:
-
-    1. Conjugate structure (analytical marginals),
-    2. Differentiable structure (analytical log partition function), and
-    3. Analytic structure (analytical entropy).
-    """
+    """A conjugated harmonium with an analytically tractable negative entropy. Among other things, this allows for closed-form computation of the KL divergence between two conjugated harmoniums, and the expectation-maximization algorithm."""
 
     # Contract
 
@@ -616,18 +538,5 @@ class AnalyticConjugated[
         self, params: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm."""
-        q = self.expectation_step(params, xs)
+        q = self.posterior_statistics(params, xs)
         return self.to_natural(q)
-
-    def join_conjugated(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
-        ],
-        prior_params: Point[Natural, Latent],
-    ) -> Point[Natural, Self]:
-        """Join likelihood and prior parameters into a conjugated harmonium."""
-        rho = self.conjugation_parameters(lkl_params)
-        lat_params = self.pst_lat_emb.translate(-rho, prior_params)
-        obs_params, int_params = self.lkl_man.split_params(lkl_params)
-        return self.join_params(obs_params, int_params, lat_params)

@@ -1,20 +1,19 @@
 Exponential Family Subpackage
 =============================
 
-Statistical manifolds with elegant parametrizations and rich geometric structure.
+Manifolds of probability distributions.
 
 Implementation Strategy
 -----------------------
 
 This package implements exponential families through nested classes with increasing capabilities:
 
-- **ExponentialFamily**: The base class defining sufficient statistics and base measure
-- **Generative**: Adds sampling capabilities
-- **Differentiable**: Adds analytic log partition function and mapping to mean parameters
-- **Analytic**: Adds analytic negative entropy and mapping to natural parameters
+- **ExponentialFamily**: The base class defining sufficient statistics and the base measure
+- **Generative**: Models that can be sampled
+- **Differentiable**: Models with analytic log-partition functions, enabling optimization via gradient descent
+- **Analytic**: Models with analytic negative entropies, enabling closed-form algorithms like expectation maximization
 
-More complex exponential families (e.g. harmoniums) recapitulate this class
-hierarchy, mixing their own structure with this basic hierarchy.
+More complex exponential families (e.g. harmoniums) recapitulate this class hierarchy, mixing their own structure with this basic hierarchy.
 
 .. toctree::
    :maxdepth: 1

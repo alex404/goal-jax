@@ -10,7 +10,6 @@ Class Hierarchy
 
 
 .. inheritance-diagram:: goal.geometry.exponential_family.combinators
-   :top-classes: goal.geometry.manifold.base.Manifold goal.geometry.manifold.embedding.LinearEmbedding
    :parts: 2
 
 \
