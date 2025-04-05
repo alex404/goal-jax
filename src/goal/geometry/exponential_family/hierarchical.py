@@ -1,14 +1,14 @@
-"""Core definitions for hierarchical harmoniums.
+"""Hierarchical harmoniums enable modeling complex, multi-level dependencies by stacking harmonium models. This stacked structure supports deep representations where information flows between multiple levels of latent variables, while maintaining analytical tractability through conjugate relationships.
 
-A hierarchical harmonium is a conjugated harmonium where the latent manifold is itself a conjugated harmonium. This allows for deep hierarchical structure where each layer is connected through conjugate distributions. Note that this class pushes past the boundary of python typing, and requires verbose fiddling to maintain the integrity of the type system.
+In theory, a hierarchical harmonium is a conjugated harmonium where the latent manifold is itself a conjugated harmonium. This creates a structured joint distribution:
 
-The basic structure is:
-
-- A lower harmonium likelihood $p(x|y)$ between observable $x$ and first latent $y$
-- An upper harmonium likelihood $p(y|z)$ between first latent $y$ and second latent $z$
+- A lower harmonium provides likelihood $p(x|y)$ between observable $x$ and first latent $y$
+- An upper harmonium provides likelihood $p(y|z)$ between first latent $y$ and second latent $z$
 - Together they form a joint distribution $p(x,y,z) = p(x|y)p(y|z)p(z)$
 
-Key algorithms (conjugation, natural parameters, sampling) are implemented recursively.
+Key algorithms (conjugation, natural parameters, sampling) are implemented recursively through the model hierarchy, enabling efficient inference and learning despite the model's complexity.
+
+Note: Implementation of these models pushes the boundaries of Python's type system, requiring careful handling of generic types to maintain proper relationships between layers.
 """
 
 from __future__ import annotations
@@ -198,13 +198,15 @@ class StrongDifferentiableUndirected[
         Observable: Generative,
         IntObservable: ExponentialFamily,
         IntLatent: ExponentialFamily,
+        PostLatent: Differentiable,
         Latent: Differentiable,
         LowerHarmonium: DifferentiableConjugated,
+        PostUpperHarmonium: Differentiable,
         UpperHarmonium: Differentiable ]
 
     and `lwr_hrm` would have type
 
-        LowerHarmonium[IntRep, Observable, IntObservable, IntLatent, Latent]
+        LowerHarmonium[IntRep, Observable, IntObservable, IntLatent, PostLatent, Latent]
 
     instead of `LowerHarmonium`.
     """
@@ -320,7 +322,7 @@ class StrongSymmetricUndirected[
         UpperHarmonium,
     ],
 ):
-    """Class for conjugated hierarchical harmoniums built on symmetric differentiable harmoniums."""
+    """This class simplifies hierarchical models where the posterior latent space is not restricted to a submanifold of the full latent space. This enables more direct parameter transformations and inference procedures by eliminating the need to handle embedding constraints."""
 
     def __init__(
         self,
@@ -361,7 +363,7 @@ class StrongAnalyticUndirected[
         UpperHarmonium,
     ],
 ):
-    """Class for conjugated hierarchical harmoniums built on analytical harmoniums."""
+    """This class enables closed-form parameter conversion, entropy calculation, and efficient implementation of the EM algorithm for hierarchical models. It represents the most analytically tractable form of hierarchical harmoniums."""
 
     # Overrides
 
@@ -400,11 +402,11 @@ class DifferentiableUndirected[
         Any, Any, Any, Any, Any, Any, LowerHarmonium, PostUpperHarmonium, UpperHarmonium
     ]
 ):
-    """Class for hierarchical harmoniums with deep conjugate structure. Uses runtime type checking to ensure proper structure. In particular:
+    """This front-end class provides a simplified interface for creating hierarchical models, with runtime checks to ensure the provided components form a valid hierarchical structure. It handles the technical implementation details while exposing a clean interface for model building.
 
-    - Lower harmonium must be a subtype of `DifferentiableConjugated`
-    - Upper harmonium must be a subtype of `DifferentiableConjugated`
-    - The latent manifold of the lower harmonium must match the observable manifold of the upper harmonium.
+    In theory, this wraps the strong implementation with appropriate runtime validation to ensure:
+    - `LowerHarmonium`, `PostUpperHarmonium`, and `UpperHarmonium` must be subtypes of `DifferentiableConjugated`
+    - The latent manifold of the lower harmonium must match the observable manifold of the upper harmonium and posterior harmoniums.
     """
 
     # Fields
@@ -412,8 +414,10 @@ class DifferentiableUndirected[
     def __post_init__(self):
         # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
         assert isinstance(self.lwr_hrm, DifferentiableConjugated)
+        assert isinstance(self.pst_upr_hrm, DifferentiableConjugated)
         assert isinstance(self.upr_hrm, DifferentiableConjugated)
         assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
+        assert self.lwr_hrm.lat_man == self.pst_upr_hrm.obs_man
 
 
 @dataclass(frozen=True)
@@ -421,7 +425,7 @@ class SymmetricUndirected[
     LowerHarmonium: Differentiable,
     UpperHarmonium: Differentiable,
 ](StrongSymmetricUndirected[Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium]):
-    """Class for hierarchical harmoniums with deep conjugate structure."""
+    """This front-end class provides a simplified interface for creating hierarchical models where posterior and prior spaces are the same. It incorporates runtime validation to ensure the component models satisfy the required properties."""
 
     # Fields
 
@@ -445,7 +449,10 @@ class AnalyticUndirected[
     LowerHarmonium: Analytic,
     UpperHarmonium: Analytic,
 ](StrongAnalyticUndirected[Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium]):
-    """Class for hierarchical harmoniums with deep conjugate structure."""
+    """This front-end class provides a simplified interface for creating hierarchical models
+    where posterior and prior spaces are the same. It incorporates runtime validation to ensure the
+    component models satisfy the required properties.
+    """
 
     # Fields
 

@@ -40,8 +40,8 @@ class Harmonium[
 ):
     """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The harmonium is also specified by a number lof internal embeddings to support the following features:
 
-    1. The interactions between the observable and latent variables can be restricted to submanifolds of either or both the observable and latent statistics.
-    2. The latent posterior can be restricted to a submanifold of the complete latent space, restricting the posterior to a more computationally tractable part of the latent space.
+    1. The interactions between the observable and latent variables can be restricted to submanifolds (`IntObservable` and `IntLatent`) of either or both the observable and latent manifolds (`Observable` and `Latent`).
+    2. The latent posterior can be restricted to a submanifold (`PostLatent`) of the complete latent space (`Latent`), restricting the posterior to a more computationally tractable part of the latent space.
 
     In theory, the joint distribution of a harmonium takes the form
 
@@ -266,7 +266,7 @@ class Conjugated[
     Differentiable,
     ABC,
 ):
-    """In general, the prior of a harmonium model is not exponential family distribution. A conjugated harmonium, on the other hand, is one for which the prior $p(z)$ is in the same exponential family as the posterior $p(x \\mid z)$."""
+    """In general, the prior $p(x)$ of a harmonium model is not exponential family distribution. A conjugated harmonium, on the other hand, is one for which the prior $p(z)$ is in the same exponential family as the posterior $p(x \\mid z)$. It follows that a conjugated harmonium has so called "conjugation parameters" that complement the latent parameters, and facilitate a variety of computations and algorithms for harmoniums."""
 
     # Contract
 
