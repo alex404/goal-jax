@@ -17,12 +17,20 @@ from ...geometry import (
     Point,
     PositiveDefinite,
     Product,
+    SymmetricUndirected,
     TupleEmbedding,
 )
 from ..base.gaussian.normal import FullNormal, Normal
 from ..base.poisson import CoMPoisson, CoMShape, Poisson
-from .lgm import AnalyticLinearGaussianModel, DifferentiableLinearGaussianModel
+from .lgm import (
+    AnalyticLinearGaussianModel,
+    DifferentiableLinearGaussianModel,
+    NormalCovarianceEmbedding,
+)
 from .mixture import AnalyticMixture, DifferentiableMixture
+
+### HMoGs ###
+
 
 type DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
     DifferentiableUndirected[
@@ -32,10 +40,18 @@ type DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
     ]
 )
 
+type SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
+    SymmetricUndirected[
+        AnalyticLinearGaussianModel[ObsRep],
+        DifferentiableMixture[FullNormal, Normal[LatRep]],
+    ]
+)
 type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
     AnalyticLinearGaussianModel[ObsRep],
     AnalyticMixture[FullNormal],
 ]
+
+## Factories ##
 
 
 def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
@@ -45,6 +61,14 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     lat_rep: type[LatRep],
     n_components: int,
 ) -> DifferentiableHMoG[ObsRep, LatRep]:
+    """Create a differentiable hierarchical mixture of Gaussians model.
+
+    This function constructs a hierarchical model combining:
+    1. A bottom layer with a linear Gaussian model reducing observables to first-level latents
+    2. A top layer with a Gaussian mixture model for modelling the latent distribution
+
+    This model supports optimization via log-likelihood gradient descent.
+    """
     obs_lat_man = Normal(lat_dim, PositiveDefinite)
     pst_lat_man = Normal(lat_dim, lat_rep)
     lwr_hrm = DifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim, lat_rep)
@@ -58,12 +82,34 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     )
 
 
+def symmetric_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
+    obs_dim: int,
+    obs_rep: type[ObsRep],
+    lat_dim: int,
+    lat_rep: type[LatRep],
+    n_components: int,
+) -> SymmetricHMoG[ObsRep, LatRep]:
+    """Create a symmetric hierarchical mixture of Gaussians model. Supports optimization via log-likelihood gradient descent, but can be slower since requisite matrix inversions happen in the space of full covariance matrices over the latent space. Nevertheless, the supports additional functionality (e.g. join_conjugated) not available to `differentiableHMoG`."""
+    mid_lat_man = Normal(lat_dim, PositiveDefinite)
+    sub_lat_man = Normal(lat_dim, lat_rep)
+    mix_sub = NormalCovarianceEmbedding(mid_lat_man, sub_lat_man)
+    lwr_hrm = AnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
+    upr_hrm = DifferentiableMixture(n_components, mix_sub)
+
+    return SymmetricUndirected(
+        lwr_hrm,
+        upr_hrm,
+    )
+
+
 def analytic_hmog[ObsRep: PositiveDefinite](
     obs_dim: int,
     obs_rep: type[ObsRep],
     lat_dim: int,
     n_components: int,
 ) -> AnalyticHMoG[ObsRep]:
+    """Create an analytic hierarchical mixture of Gaussians model. The resulting model enables closed-form EM for learning and bidirectional parameter conversion, however requires mixtuers of full coviarance Gaussians in the latent space."""
+
     mid_lat_man = Normal(lat_dim, PositiveDefinite)
     lwr_hrm = AnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
     upr_hrm = AnalyticMixture(mid_lat_man, n_components)
@@ -74,11 +120,15 @@ def analytic_hmog[ObsRep: PositiveDefinite](
     )
 
 
+### Count Mixtures ###
+
 # Type synonyms for common models
 type PoissonPopulation = AnalyticProduct[Poisson]
 type PopulationShape = Product[CoMShape]
 type PoissonMixture = AnalyticMixture[PoissonPopulation]
 type CoMPoissonMixture = DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation]
+
+## Factories ##
 
 
 @dataclass(frozen=True)
@@ -92,9 +142,9 @@ class CoMPoissonPopulation(
     $$p(x; \\mu, \\nu) = \\prod_{i=1}^n \\frac{\\mu_i^{x_i}}{(x_i!)^{\\nu_i} Z(\\mu_i, \\nu_i)}$$
 
     where for each unit $i$:
-    - $\\mu_i$ is the mode parameter
-    - $\\nu_i$ is the dispersion parameter controlling variance relative to Poisson
-    - $Z(\\mu, \\nu)$ is the normalizing constant
+        - $\\mu_i$ is the mode parameter
+        - $\\nu_i$ is the dispersion parameter controlling variance relative to Poisson
+        - $Z(\\mu, \\nu)$ is the normalizing constant
     """
 
     def __init__(self, n_reps: int):

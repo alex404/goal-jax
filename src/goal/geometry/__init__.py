@@ -24,6 +24,7 @@ from .exponential_family.hierarchical import (
     AnalyticUndirected,
     DifferentiableUndirected,
     ObservableEmbedding,
+    SymmetricUndirected,
 )
 from .manifold.base import (
     Coordinates,
@@ -108,6 +109,7 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
+    "SymmetricUndirected",
     "Triple",
     "TupleEmbedding",
     "expand_dual",

@@ -302,8 +302,13 @@ def test_model_consistency(
     iso_means = iso_model.average_sufficient_statistic(sample_data)
     iso_natural = iso_model.to_natural(iso_means)
 
-    dia_natural = iso_model.transform_observable_rep(dia_model, iso_natural)
-    pod_natural = iso_model.transform_observable_rep(pod_model, iso_natural)
+    obs_params, int_params, lat_params = iso_model.split_params(iso_natural)
+    trn_obs_params = iso_model.obs_man.embed_rep(dia_model.obs_man, obs_params)
+    dia_natural = dia_model.join_params(trn_obs_params, int_params, lat_params)
+
+    obs_params, int_params, lat_params = iso_model.split_params(iso_natural)
+    trn_obs_params = iso_model.obs_man.embed_rep(pod_model.obs_man, obs_params)
+    pod_natural = pod_model.join_params(trn_obs_params, int_params, lat_params)
 
     # Test log partition function
     logger.info("\nComparing log partition functions:")

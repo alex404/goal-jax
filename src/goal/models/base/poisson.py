@@ -31,13 +31,6 @@ from ...geometry import (
     Point,
 )
 
-### Helper Functions ###
-
-
-def _log_factorial(k: Array) -> Array:
-    return jax.lax.lgamma(k.astype(float) + 1)
-
-
 ### Classes ###
 
 
@@ -431,3 +424,10 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
         # Convert to natural parameters
         return self.join_mode_dispersion(mu, nu)
+
+
+### Helper Functions ###
+
+
+def _log_factorial(k: Array) -> Array:
+    return jax.lax.lgamma(k.astype(float) + 1)
