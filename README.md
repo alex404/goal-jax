@@ -5,12 +5,9 @@
 
 A JAX implementation of information geometric algorithms and exponential families.
 
-## Overview
+## Documentation
 
-`goal-jax` provides tools for working with exponential families and their geometry, including:
-
-* Efficient implementations of common exponential families
-* Optimization algorithms
+https://goal-jax.readthedocs.io/en/latest/index.html
 
 ## License
 
