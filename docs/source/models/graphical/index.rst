@@ -41,7 +41,7 @@ The `instances.py` module provides ready-to-use implementations and constructors
 
 * **Hierarchical Models**
 
-    - Multi-level models with latent variables
+  - Multi-level models with latent variables
 
 * **Specialized Mixtures**
 

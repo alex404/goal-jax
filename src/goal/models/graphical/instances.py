@@ -32,18 +32,18 @@ from .mixture import AnalyticMixture, DifferentiableMixture
 ### HMoGs ###
 
 
-type DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
+type DifferentiableHMoG[ObsRep: PositiveDefinite, PostRep: PositiveDefinite] = (
     DifferentiableUndirected[
-        DifferentiableLinearGaussianModel[ObsRep, LatRep],
-        AnalyticMixture[Normal[LatRep]],
+        DifferentiableLinearGaussianModel[ObsRep, PostRep],
+        AnalyticMixture[Normal[PostRep]],
         AnalyticMixture[FullNormal],
     ]
 )
 
-type SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
+type SymmetricHMoG[ObsRep: PositiveDefinite, PostRep: PositiveDefinite] = (
     SymmetricUndirected[
         AnalyticLinearGaussianModel[ObsRep],
-        DifferentiableMixture[FullNormal, Normal[LatRep]],
+        DifferentiableMixture[FullNormal, Normal[PostRep]],
     ]
 )
 type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
@@ -54,13 +54,13 @@ type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
 ## Factories ##
 
 
-def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
+def differentiable_hmog[ObsRep: PositiveDefinite, PostRep: PositiveDefinite](
     obs_dim: int,
     obs_rep: type[ObsRep],
     lat_dim: int,
-    lat_rep: type[LatRep],
+    pst_rep: type[PostRep],
     n_components: int,
-) -> DifferentiableHMoG[ObsRep, LatRep]:
+) -> DifferentiableHMoG[ObsRep, PostRep]:
     """Create a differentiable hierarchical mixture of Gaussians model.
 
     This function constructs a hierarchical model combining:
@@ -70,8 +70,8 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     This model supports optimization via log-likelihood gradient descent.
     """
     obs_lat_man = Normal(lat_dim, PositiveDefinite)
-    pst_lat_man = Normal(lat_dim, lat_rep)
-    lwr_hrm = DifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim, lat_rep)
+    pst_lat_man = Normal(lat_dim, pst_rep)
+    lwr_hrm = DifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim, pst_rep)
     pst_upr_hrm = AnalyticMixture(pst_lat_man, n_components)
     upr_hrm = AnalyticMixture(obs_lat_man, n_components)
 

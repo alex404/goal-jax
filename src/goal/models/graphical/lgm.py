@@ -121,10 +121,10 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbientRep: PositiveDe
 @dataclass(frozen=True)
 class DifferentiableLinearGaussianModel[
     ObsRep: PositiveDefinite,
-    LatRep: PositiveDefinite,
+    PostRep: PositiveDefinite,
 ](
     DifferentiableConjugated[
-        Rectangular, Normal[ObsRep], Euclidean, Euclidean, Normal[LatRep], FullNormal
+        Rectangular, Normal[ObsRep], Euclidean, Euclidean, Normal[PostRep], FullNormal
     ],
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
@@ -165,7 +165,7 @@ class DifferentiableLinearGaussianModel[
     lat_dim: int
     """Dimension of the latent variables."""
 
-    lat_rep: type[LatRep]
+    lat_rep: type[PostRep]
     """Covariance structure of the latent variables."""
 
     ### Methods ###
@@ -211,12 +211,12 @@ class DifferentiableLinearGaussianModel[
 
     @property
     @override
-    def int_lat_emb(self) -> NormalLocationEmbedding[LatRep]:
+    def int_lat_emb(self) -> NormalLocationEmbedding[PostRep]:
         return NormalLocationEmbedding(Normal(self.lat_dim, self.lat_rep))
 
     @property
     @override
-    def pst_lat_emb(self) -> NormalCovarianceEmbedding[LatRep, PositiveDefinite]:
+    def pst_lat_emb(self) -> NormalCovarianceEmbedding[PostRep, PositiveDefinite]:
         return NormalCovarianceEmbedding(
             Normal(self.lat_dim, PositiveDefinite),
             Normal(self.lat_dim, self.lat_rep),
