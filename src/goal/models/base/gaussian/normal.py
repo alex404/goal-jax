@@ -104,8 +104,7 @@ class Euclidean(ExponentialFamily):
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
-@dataclass(frozen=True)
-class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):  # pyright: ignore[reportUnsafeMultipleInheritance]
+class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):
     """Shape component of a Normal distribution.
 
     This represents the covariance structure of a Normal distribution through different matrix representations:

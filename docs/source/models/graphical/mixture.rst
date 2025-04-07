@@ -15,7 +15,7 @@ Class Hierarchy
 \
 
 Base Classes
------------
+------------
 
 .. autoclass:: goal.models.graphical.mixture.Mixture
    :members:
@@ -23,7 +23,7 @@ Base Classes
    :show-inheritance:
 
 Specialized Implementations
--------------------------
+---------------------------
 
 .. autoclass:: goal.models.graphical.mixture.DifferentiableMixture
    :members:

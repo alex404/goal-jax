@@ -19,7 +19,6 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     Differentiable,
-    DifferentiableConjugated,
     ExponentialFamily,
     Harmonium,
     IdentityEmbedding,
@@ -30,6 +29,7 @@ from ...geometry import (
     Product,
     Rectangular,
     StatisticalMoments,
+    SymmetricConjugated,
 )
 from ..base.categorical import (
     Categorical,
@@ -157,8 +157,8 @@ class DifferentiableMixture[
     SubObservable: ExponentialFamily,
 ](
     Mixture[Observable, SubObservable],
-    DifferentiableConjugated[
-        Rectangular, Observable, SubObservable, Categorical, Categorical, Categorical
+    SymmetricConjugated[
+        Rectangular, Observable, SubObservable, Categorical, Categorical
     ],
 ):
     """Mixture model with differentiable components.

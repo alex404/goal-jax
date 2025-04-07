@@ -18,10 +18,12 @@ from .graphical.instances import (
     CoMPoissonPopulation,
     DifferentiableHMoG,
     PoissonMixture,
+    SymmetricHMoG,
     analytic_hmog,
     com_poisson_mixture,
     differentiable_hmog,
     poisson_mixture,
+    symmetric_hmog,
 )
 from .graphical.lgm import (
     AnalyticLinearGaussianModel,
@@ -60,9 +62,11 @@ __all__ = [
     "Poisson",
     "PoissonMixture",
     "PrincipalComponentAnalysis",
+    "SymmetricHMoG",
     "VonMises",
     "analytic_hmog",
     "com_poisson_mixture",
     "differentiable_hmog",
     "poisson_mixture",
+    "symmetric_hmog",
 ]
