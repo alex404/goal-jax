@@ -413,7 +413,7 @@ class Normal[Rep: PositiveDefinite](
 
         3. Scale case:
             - The exponential family dot product has to be scaled by $\\frac{1}{d}$
-            - This scales needs to be ``stored'' in either in the sufficient statistic or the natural parameters
+            - This scales needs to be stored in either in the sufficient statistic or the natural parameters
             - We store it in the sufficient statistic (hence its defined as an average), which requires that we divide the natural parameters by $d$ when converting to precision
         """
         # First do basic parameter split

@@ -1,5 +1,5 @@
 Graphical Models Subpackage
-==========================
+===========================
 
 Complex statistical models with dependency structures.
 
@@ -14,7 +14,6 @@ probabilistic modeling of complex data.
    mixture
    lgm
    instances
-   hierarchical
 
 Core Models
 -----------
@@ -42,9 +41,11 @@ The `instances.py` module provides ready-to-use implementations and constructors
 
 * **Hierarchical Models**
 
-- Multi-level models with latent variables
+    - Multi-level models with latent variables
+
 * **Specialized Mixtures**
 
   - Pre-configured mixtures of common distributions
   - Poisson mixtures for count data
   - COM-Poisson mixtures for dispersed counts
+

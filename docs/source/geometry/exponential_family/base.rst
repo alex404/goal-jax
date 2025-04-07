@@ -15,7 +15,7 @@ Class Hierarchy
 \
 
 Coordinate Systems
-----------------
+------------------
 
 .. autoclass:: goal.geometry.exponential_family.base.Natural
 
