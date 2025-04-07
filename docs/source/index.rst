@@ -10,3 +10,4 @@ A library implementing information geometry and exponential families for machine
    :caption: Documentation:
 
    geometry/index
+   models/index

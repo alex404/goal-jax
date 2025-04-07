@@ -1,19 +1,4 @@
-"""Von Mises distribution over the circle.
-
-The von Mises distribution is a continuous probability distribution on the circle, analogous to the normal distribution on the line. The probability density function is:
-
-$$p(x; \\mu, \\kappa) = \\frac{1}{2\\pi I_0(\\kappa)}\\exp(\\kappa \\cos(x - \\mu))$$
-
-where:
-- $\\mu$ is the mean direction
-- $\\kappa$ is the concentration parameter
-- $I_0(\\kappa)$ is the modified Bessel function of the first kind of order 0
-
-As an exponential family, it can be written with:
-- Sufficient statistic: $\\mathbf{s}(x) = (\\cos(x), \\sin(x))$
-- Base measure: $\\mu(x) = -\\log(2\\pi)$
-- Natural parameters: $\\theta = \\kappa(\\cos(\\mu), \\sin(\\mu))$
-"""
+"""Von Mises distribution over the circle."""
 
 from __future__ import annotations
 
@@ -30,7 +15,42 @@ from ...geometry import Differentiable, Mean, Natural, Point
 
 @dataclass(frozen=True)
 class VonMises(Differentiable):
-    """[previous docstring remains the same]"""
+    """The von Mises distribution is a continuous probability distribution on the circle, analogous to the normal distribution on the line. The probability density function is:
+
+    $$p(x; \\mu, \\kappa) = \\frac{1}{2\\pi I_0(\\kappa)}\\exp(\\kappa \\cos(x - \\mu))$$
+
+    where:
+
+    - $\\mu$ is the mean direction
+    - $\\kappa$ is the concentration parameter
+    - $I_0(\\kappa)$ is the modified Bessel function of the first kind of order 0
+
+    As an exponential family:
+
+    - Sufficient statistic: $\\mathbf{s}(x) = (\\cos(x), \\sin(x))$
+    - Base measure: $\\mu(x) = -\\log(2\\pi)$
+    - Natural parameters: $\\theta = \\kappa(\\cos(\\mu), \\sin(\\mu))$
+    """
+
+    # Methods
+
+    def split_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:
+        """Split the natural parameters into mean and concentration parameters."""
+        theta = p.array
+        kappa = jnp.sqrt(jnp.sum(theta**2))
+        mu = jnp.arctan2(theta[1], theta[0])
+        return mu, kappa
+
+    def join_mean_concentration(
+        self, mu0: float, kappa0: float
+    ) -> Point[Natural, Self]:
+        """Join the mean and concentration parameters into natural parameters."""
+        mu = jnp.atleast_1d(mu0)
+        kappa = jnp.atleast_1d(kappa0)
+        theta = kappa * jnp.concatenate([jnp.cos(mu), jnp.sin(mu)])
+        return self.natural_point(theta)
+
+    # Overrides
 
     @property
     @override
@@ -94,17 +114,3 @@ class VonMises(Differentiable):
         keys = jax.random.split(key, n)
         samples = jax.vmap(sample_one)(keys)
         return samples[..., None]
-
-    def split_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:
-        theta = p.array
-        kappa = jnp.sqrt(jnp.sum(theta**2))
-        mu = jnp.arctan2(theta[1], theta[0])
-        return mu, kappa
-
-    def join_mean_concentration(
-        self, mu0: float, kappa0: float
-    ) -> Point[Natural, Self]:
-        mu = jnp.atleast_1d(mu0)
-        kappa = jnp.atleast_1d(kappa0)
-        theta = kappa * jnp.concatenate([jnp.cos(mu), jnp.sin(mu)])
-        return self.natural_point(theta)

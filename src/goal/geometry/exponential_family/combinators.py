@@ -91,7 +91,7 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        """Base measure of both manifolds should be the same - we take the second."""
+        """Base measure is assumed to come from the shape parameter (i.e. `snd_man`)."""
         return self.snd_man.log_base_measure(x)
 
 

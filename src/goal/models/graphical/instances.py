@@ -12,12 +12,12 @@ from ...geometry import (
     AnalyticUndirected,
     DifferentiableProduct,
     DifferentiableUndirected,
-    LocationEmbedding,
     LocationShape,
     Natural,
     Point,
     PositiveDefinite,
     Product,
+    TupleEmbedding,
 )
 from ..base.gaussian.normal import FullNormal, Normal
 from ..base.poisson import CoMPoisson, CoMShape, Poisson
@@ -137,9 +137,9 @@ class CoMPoissonPopulation(
 
 @dataclass(frozen=True)
 class PopulationLocationEmbedding(
-    LocationEmbedding[
-        CoMPoissonPopulation,
+    TupleEmbedding[
         PoissonPopulation,
+        CoMPoissonPopulation,
     ]
 ):
     """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
@@ -158,7 +158,14 @@ class PopulationLocationEmbedding(
 
     @property
     @override
-    def sup_man(self) -> CoMPoissonPopulation:
+    def tup_idx(
+        self,
+    ) -> int:
+        return 0
+
+    @property
+    @override
+    def amb_man(self) -> CoMPoissonPopulation:
         return CoMPoissonPopulation(n_reps=self.n_neurons)
 
     @property

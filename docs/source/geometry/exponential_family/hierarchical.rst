@@ -10,6 +10,7 @@ Class Hierarchy
 ---------------
 
 .. inheritance-diagram:: goal.geometry.exponential_family.hierarchical
+   :top-classes: goal.geometry.exponential_family.harmonium.DifferentiableConjugated, goal.geometry.exponential_family.harmonium.SymmetricConjugated, goal.geometry.exponential_family.harmonium.AnalyticConjugated 
    :parts: 2
 
 \

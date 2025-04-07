@@ -44,6 +44,7 @@ from .manifold.embedding import (
     Embedding,
     IdentityEmbedding,
     LinearEmbedding,
+    TupleEmbedding,
 )
 from .manifold.linear import (
     AffineMap,
@@ -108,6 +109,7 @@ __all__ = [
     "Symmetric",
     "SymmetricConjugated",
     "Triple",
+    "TupleEmbedding",
     "expand_dual",
     "reduce_dual",
 ]

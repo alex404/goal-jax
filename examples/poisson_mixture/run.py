@@ -44,10 +44,10 @@ from .types import CovarianceStatistics, PoissonAnalysisResults
 N_NEURONS = 10  # Observable dimension
 N_FACTORS = 3  # Latent dimension
 SAMPLE_SIZE = 1000  # Number of samples
-N_EM_STEPS = 100  # EM steps
+N_EM_STEPS = 200  # EM steps
 SGD_FACTOR = 100
 N_SGD_STEPS = N_EM_STEPS * SGD_FACTOR
-N_COMPONENTS = 5  # Number of mixture components
+N_COMPONENTS = 10  # Number of mixture components
 LEARNING_RATE = 3e-3
 
 PSN_MIX_MAN = poisson_mixture(N_NEURONS, N_COMPONENTS)

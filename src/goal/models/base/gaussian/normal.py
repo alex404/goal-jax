@@ -1,29 +1,12 @@
-"""Normal distributions as exponential families.
-
-1. Base Components:
-
+"""This module provides implementations of multivariate normal distributions in an exponential family framework. Each normal is build out of the base components:
     - `Euclidean`: The location component ($\\mathbb{R}^n$)
     - `Covariance`: The shape component with flexible structure
 
-2. Covariance Structures (Type Synonyms):
-
+The matrix representation used for the `Covariance` yields the following variants of normal distribution:
     - `FullNormal`: Unrestricted positive definite covariance
     - `DiagonalNormal`: Diagonal covariance matrix
     - `IsotropicNormal`: Scalar multiple of identity
     - `StandardNormal`: Unit covariance (identity matrix)
-
-The normal density has the form
-
-$$p(x; \\mu, \\Sigma) = (2\\pi)^{-d/2}|\\Sigma|^{-1/2}\\exp\\left(-\\frac{1}{2}(x-\\mu)^T\\Sigma^{-1}(x-\\mu)\\right)$$.
-
-This can be expressed in exponontial family coordinates as
-
-- Natural parameters: $(\\theta_1, \\theta_2) = (\\Sigma^{-1}\\mu, -\\frac{1}{2}\\Sigma^{-1})$
-- Mean parameters: $(\\eta_1, \\eta_2) = (\\mu, \\mu\\mu^T + \\Sigma)$
-
-#### Class Hierarchy
-
-![Class Hierarchy](normal.svg)
 """
 
 from __future__ import annotations
@@ -51,7 +34,6 @@ from ....geometry import (
     SquareMap,
     expand_dual,
 )
-from ....geometry.manifold.base import _Point  # pyright: ignore[reportPrivateUsage]
 
 type FullNormal = Normal[PositiveDefinite]
 type DiagonalNormal = Normal[Diagonal]
@@ -70,14 +52,14 @@ def cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
     p: Point[C, Covariance[Rep]],
 ) -> Point[C, LinearMap[Rep, Euclidean, Euclidean]]:
     """Convert a covariance to a linear map."""
-    return _Point(p.array)
+    return Point(p.array)
 
 
 def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
     p: Point[C, LinearMap[Rep, Euclidean, Euclidean]],
 ) -> Point[C, Covariance[Rep]]:
     """Convert a linear map to a covariance."""
-    return _Point(p.array)
+    return Point(p.array)
 
 
 # Component Classes
@@ -85,19 +67,16 @@ def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
 
 @dataclass(frozen=True)
 class Euclidean(ExponentialFamily):
-    """Euclidean space $\\mathbb{R}^n$ of dimension $n$. Also serves as the location component of a Normal distribution.
-
-    Euclidean space consists of $n$-dimensional real vectors with the standard Euclidean distance metric
+    """Euclidean space $\\mathbb{R}^n$ of dimension $n$. Euclidean space consists of $n$-dimensional real vectors with the standard Euclidean distance metric
 
     $$d(x,y) = \\sqrt{\\sum_{i=1}^n (x_i - y_i)^2}.$$
 
-    Euclidean space serves as the model space for more general manifolds, which locally resemble $\\mathbb{R}^n$ near each point.
+    Euclidean also serves as the location component of a Normal distribution, and on its own we treat it as a normal distribution with unit covariance.
 
-    Args:
-        _dim: The dimension $n$ of the space
-    """
-
-    # Fields
+    As an exponential family:
+        - Sufficient statistic: Identity map $s(x) = x$
+        - Base measure: $\\mu(x) = -\\frac{n}{2}\\log(2\\pi)$
+    """  # Fields
 
     _dim: int
 
@@ -130,15 +109,19 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
     """Shape component of a Normal distribution.
 
     This represents the covariance structure of a Normal distribution through different matrix representations:
-
-    - `PositiveDefinite`: Full covariance matrix
-    - `Diagonal`: diagonal elements
-    - `Scale`: Scalar multiple of identity
+        - `PositiveDefinite`: Full covariance matrix
+        - `Diagonal`: diagonal elements
+        - `Scale`: Scalar multiple of identity
+        - `Identity`: Unit covariance
 
     The Rep parameter determines both:
 
     1. How parameters are stored (symmetric matrix, diagonal, scalar)
     2. The effiency of operations (matrix multiply, inversion, etc.)
+
+    As an exponential family:
+        - Sufficient statistic: Outer product $s(x) = x \\otimes x$
+        - Base measure: $\\mu(x) = -\\frac{n}{2}\\log(2\\pi)$
     """
 
     # Constructor
@@ -181,20 +164,7 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Point[Natural, Self]:
-        """Initialize covariance matrix with random perturbation from identity.
-
-        Uses a low-rank perturbation I + LL^T where L has entries N(0, shape/sqrt(dim))
-        to ensure reasonable condition numbers. The representation (Scale, Diagonal,
-        PositiveDefinite) determines how this matrix is stored and used.
-
-        Args:
-            key: Random key
-            location: Base location (not currently used)
-            shape: Scale of perturbation from identity
-
-        Returns:
-            Point in natural coordinates
-        """
+        """Initialize covariance matrix with random perturbation from identity. Uses a low-rank perturbation $I + LL^T$ where $L$ has entries drawn from $N(0, shape/sqrt(dim))$ to ensure reasonable condition numbers."""
         noise_scale = shape / jnp.sqrt(self.data_dim)
         big_l = noise_scale * jax.random.normal(key, (self.data_dim, self.data_dim))
         base_cov = jnp.eye(self.data_dim) + big_l @ big_l.T
@@ -215,17 +185,9 @@ class Normal[Rep: PositiveDefinite](
 ):
     """(Multivariate) Normal distributions.
 
-    Parameters:
-        _data_dim: Dimension of the data space.
-        rep: Covariance structure (e.g. `PositiveDefinite`, `Diagonal`, `Scale`).
-
-    Attributes:
-        fst_man: Euclidean class. Determines the dimension.
-        snd_man: Covariance structure class (e.g. `Scale`, `Diagonal`, `PositiveDefinite`). Determines how the covariance matrix is parameterized.
-
     The standard expression for the Normal density is
 
-    $$p(x; \\mu, \\Sigma) = (2\\pi)^{-d/2}|\\Sigma|^{-1/2}e^{-\\frac{1}{2}(x-\\mu) \\cdot \\Sigma^{-1} \\cdot (x-\\mu)}.$$
+    $$p(x; \\mu, \\Sigma) = (2\\pi)^{-d/2}|\\Sigma|^{-1/2}e^{-\\frac{1}{2}(x-\\mu) \\cdot \\Sigma^{-1} \\cdot (x-\\mu)},$$
 
     where
 
@@ -233,17 +195,15 @@ class Normal[Rep: PositiveDefinite](
     - $\\Sigma$ is the covariance matrix, and
     - $d$ is the dimension of the data.
 
-    As an exponential family, the general form of the Normal family is defined by the base measure $\\mu(x) = -\\frac{d}{2}\\log(2\\pi)$ and sufficient statistic $\\mathbf{s}(x) = (x, x \\otimes x)$. The log-partition function is then given by
+    As an exponential family:
+        - Sufficient statistic: $\\mathbf{s}(x) = (x, x \\otimes x)$
+        - Base measure: $\\mu(x) = -\\frac{d}{2}\\log(2\\pi)$
+        - Natural parameters: $\\theta_1 = \\Sigma^{-1}\\mu$, $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$
+        - Mean parameters: $\\eta_1 = \\mu$, $\\eta_2 = \\mu\\mu^T + \\Sigma$
+        - Log-partition: $\\psi(\\theta) = -\\frac{1}{4}\\theta_1 \\cdot \\theta_2^{-1} \\cdot \\theta_1 - \\frac{1}{2}\\log|-2\\theta_2|$
+        - Negative entropy: $\\phi(\\eta) = -\\frac{1}{2}\\log|\\eta_2 - \\eta_1\\eta_1^T| - \\frac{d}{2}(1 + \\log(2\\pi))$
 
-    $$\\psi(\\theta_1, \\theta_2) = -\\frac{1}{4}\\theta_1 \\cdot \\theta_2^{-1} \\cdot \\theta - \\frac{1}{2}\\log|-2\\theta_2|,$$
-
-    and the negative entropy is given by
-
-    $$\\psi(\\eta_1, \\eta_2) = -\\frac{1}{2}\\log|\\eta_2 - \\eta_1\\eta_1^T| - \\frac{d}{2}(1 + \\log(2\\pi)).$$
-
-    Consequently, the mean parameters are given simply by the first and second moments $\\eta_1 = \\mu$ and $\\eta_2 = \\mu\\mu^T + \\Sigma$, and the natural parameters are given by $\\theta_1 = \\Sigma^{-1}\\mu$ and $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$.
-
-    Finally, we handle different covariance structures (full, diagonal, scalar) through the `LinearOperator` hierarchy, so that the sufficient statistics and parameters are lowerer-dimensional, and the given manifold is a submanifold of the unrestricted family of Normals.
+    Different covariance structures are handled through the `Rep` parameter, providing appropriate trade-offs between flexibility and computational efficiency.
     """
 
     # Fields
@@ -439,7 +399,7 @@ class Normal[Rep: PositiveDefinite](
     def split_location_precision(
         self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[Rep]]]:
-        """Join natural location and precision (inverse covariance) parameters. There's some subtle rescaling that has to happen to ensure that the minimal representation of the natural parameters behaves correctly when used either as a vector in a dot product, or as a precision matrix.
+        """Join natural location and precision (inverse covariance) parameters. There's some subtle rescaling that has to happen to ensure that the natural parameters behaves correctly when used either as a vector in a dot product, or as a precision matrix.
 
         For a multivariate normal distribution, the natural parameters $(\\theta_1,\\theta_2)$ are related to the standard parameters $(\\mu,\\Sigma)$ by, $\\theta_1 = \\Sigma^{-1}\\mu$ and $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$. matrix representations require different scaling to maintain these relationships:
 
@@ -447,7 +407,7 @@ class Normal[Rep: PositiveDefinite](
             - No additional rescaling needed as parameters directly represent diagonal elements
 
         2. Full (PositiveDefinite) case:
-            - Off-diagonal elements appear twice in the matrix but once in parameters
+            - Off-diagonal elements appear twice in the precision matrix but once in the natural parameters
             - For $i \\neq j$, element $\\theta_{2,ij}$ is stored as double its matrix value to account for missing parameters in the dot product
             - When converting to precision $\\Sigma^{-1}$, vector elements corresponding to off-diagonal elements are halved
 
@@ -455,13 +415,6 @@ class Normal[Rep: PositiveDefinite](
             - The exponential family dot product has to be scaled by $\\frac{1}{d}$
             - This scales needs to be ``stored'' in either in the sufficient statistic or the natural parameters
             - We store it in the sufficient statistic (hence its defined as an average), which requires that we divide the natural parameters by $d$ when converting to precision
-
-        Args:
-            p: Point in natural coordinates containing concatenated $\\theta_1$ and $\\theta_2$ parameters
-
-        Returns:
-            - $\\theta_1$: Natural location parameters $(\\Sigma^{-1}\\mu)$
-            - $\\theta_2$: Precision parameters $(\\Sigma^{-1})$
         """
         # First do basic parameter split
         loc, theta2 = self.split_params(p)
@@ -514,20 +467,7 @@ class Normal[Rep: PositiveDefinite](
     def embed_rep[TargetRep: PositiveDefinite](
         self, trg_man: Normal[TargetRep], p: Point[Natural, Self]
     ) -> Point[Natural, Normal[TargetRep]]:
-        """Embed natural parameters into a more complex representation.
-
-        This converts parameters from a simpler to more complex representation (e.g. Scale to PositiveDefinite) by treating the simpler structure as a special case of the more complex one. For example, a diagonal matrix can be embedded as a full matrix with zeros off the diagonal.
-
-        Args:
-            target_man: Target normal distribution (must have more complex structure)
-            p: Parameters in natural coordinates to embed
-
-        Returns:
-            Parameters embedded in target representation
-
-        Raises:
-            TypeError: If trying to embed into a simpler representation
-        """
+        """Embed natural parameters into a more complex representation. For example, a diagonal matrix can be embedded as a full matrix with zeros off the diagonal."""
         # Embedding in natural coordinates means embedding precision matrix
         loc, prs = self.split_location_precision(p)
         _, trg_prs = self.cov_man.embed_rep(prs, type(trg_man.cov_man.rep))
@@ -536,22 +476,7 @@ class Normal[Rep: PositiveDefinite](
     def project_rep[TargetRep: PositiveDefinite](
         self, trg_man: Normal[TargetRep], p: Point[Mean, Self]
     ) -> Point[Mean, Normal[TargetRep]]:
-        """Project mean parameters to a simpler representation.
-
-        This converts parameters from a more complex to simpler representation (e.g. PositiveDefinite to Diagonal) by discarding components not representable in the simpler structure.
-
-        For example, a full matrix can be projected to a diagonal one. In Mean coordinates this this corresponds to the information (moment matching) projection.
-
-        Args:
-            target_man: Target normal distribution (must have simpler structure)
-            p: Parameters in mean coordinates to project
-
-        Returns:
-            Parameters projected to target representation
-
-        Raises:
-            TypeError: If trying to project to a more complex representation
-        """
+        """Project mean parameters to a simpler representation. For example, a full matrix can be projected to a diagonal one. In Mean coordinates this this corresponds to the information (moment matching) projection."""
         mean, second_moment = self.split_mean_second_moment(p)
         _, target_second = self.cov_man.project_rep(
             second_moment, type(trg_man.cov_man.rep)
@@ -564,21 +489,10 @@ class Normal[Rep: PositiveDefinite](
         """Regularize covariance matrix to ensure numerical stability and reasonable variances.
 
         This method applies two forms of regularization to the covariance matrix:
-        1. A minimum variance constraint that prevents any dimension from having
-           variance below a specified threshold
-        2. A jitter term that adds a small positive value to all diagonal elements,
-           improving numerical stability
+            1. A minimum variance constraint that prevents any dimension from having variance below a specified threshold
+            2. A jitter term that adds a small positive value to all diagonal elements, improving numerical stability
 
-        The regularization preserves the correlation structure while ensuring the
-        covariance matrix remains well-conditioned.
-
-        Args:
-            p: Point in mean coordinates containing location and covariance
-            min_var: Minimum allowed variance for any dimension
-            jitter: Small positive value added to diagonal elements
-
-        Returns:
-            New point in mean coordinates with regularized covariance
+        The regularization preserves the correlation structure while ensuring the covariance matrix remains well-conditioned.
         """
         mean, covariance = self.split_mean_covariance(p)
 
@@ -597,9 +511,11 @@ class Normal[Rep: PositiveDefinite](
         )
 
     def statistical_mean(self, params: Point[Natural, Self]) -> Array:
+        """Compute the mean of the distribution."""
         mean, _ = self.split_mean_covariance(self.to_mean(params))
         return mean.array
 
     def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
+        """Compute the covariance of the distribution."""
         _, cov = self.split_mean_covariance(self.to_mean(params))
         return self.snd_man.to_dense(cov)

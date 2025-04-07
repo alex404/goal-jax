@@ -2,19 +2,8 @@
 
 This module implements mixture models using a harmonium structure where
 
-- The observable manifold is any exponential family with a backward mapping, and
-- the Latent Manifold is Categorical distribution over mixture components
-
-Key Features:
-
-- Conjugate structure enabling exact inference
-- Support for any exponential family observations
-- Parameter conversion between natural and mean coordinates
-- Methods for component-wise manipulation
-
-#### Class Hierarchy
-
-![Class Hierarchy](mixture.svg)
+- The observable manifold is an exponential family, and
+- the latent manifold is `Categorical` distribution over mixture components
 """
 
 from __future__ import annotations
@@ -55,37 +44,26 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 ):
     """Mixture models with exponential family observations.
 
-    Parameters:
-        n_categories: Number of mixture components
-        _obs_emb: Subspace relationship for observable parameters (default: IdentityEmbedding)
+    A mixture model represents a weighted combination of component distributions:
+
+    $$p(x) = \\sum_{k=1}^K \\pi_k p(x|\\theta_k)$$
+
+    where $\\pi_k$ are mixture weights summing to 1, and $p(x|\\theta_k)$ are component
+    distributions from the same exponential family.
+
+    In the harmonium framework, mixture models are implemented using:
+        - A categorical latent variable $z$ representing component assignment
+        - An observable distribution family for component distributions
+        - An interaction matrix between $z$ and $x$ that that contain component specific parameters
     """
 
     # Fields
 
     n_categories: int
-    _obs_emb: LinearEmbedding[Observable, SubObservable]
+    """Number of mixture components."""
 
-    # Overrides
-
-    @property
-    @override
-    def int_rep(self) -> Rectangular:
-        return Rectangular()
-
-    @property
-    @override
-    def obs_emb(self) -> LinearEmbedding[Observable, SubObservable]:
-        return self._obs_emb
-
-    @property
-    @override
-    def int_lat_emb(self) -> IdentityEmbedding[Categorical]:
-        return IdentityEmbedding(Categorical(self.n_categories))
-
-    @property
-    @override
-    def pst_lat_emb(self) -> IdentityEmbedding[Categorical]:
-        return IdentityEmbedding(Categorical(self.n_categories))
+    _obs_emb: LinearEmbedding[SubObservable, Observable]
+    """Embedding for observable manifold."""
 
     # Template Methods
 
@@ -101,9 +79,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     ) -> Point[Mean, Self]:
         """Create a mixture model in mean coordinates from components and weights.
 
-        Note: if only a submanifold of interactions on the observables are considered
-        (i.e. obs_emb is not the IdentityEmbeddingSubspace), then information in the components
-        will be discarded.
+        **NB:** if only a submanifold of interactions on the observables are considered (i.e. obs_emb is not the IdentityEmbeddingSubspace), then the statistics outside of the interaction submanifold will simply be averaged.
         """
         probs = self.lat_man.to_probs(weights)
         probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
@@ -152,6 +128,28 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
         return self.cmp_man.mean_point(components), cat_means
 
+    # Overrides
+
+    @property
+    @override
+    def int_rep(self) -> Rectangular:
+        return Rectangular()
+
+    @property
+    @override
+    def obs_emb(self) -> LinearEmbedding[SubObservable, Observable]:
+        return self._obs_emb
+
+    @property
+    @override
+    def int_lat_emb(self) -> IdentityEmbedding[Categorical]:
+        return IdentityEmbedding(Categorical(self.n_categories))
+
+    @property
+    @override
+    def pst_lat_emb(self) -> IdentityEmbedding[Categorical]:
+        return IdentityEmbedding(Categorical(self.n_categories))
+
 
 @dataclass(frozen=True)
 class DifferentiableMixture[
@@ -163,37 +161,15 @@ class DifferentiableMixture[
         Rectangular, Observable, SubObservable, Categorical, Categorical, Categorical
     ],
 ):
-    # Overrides
+    """Mixture model with differentiable components.
 
-    @override
-    def conjugation_parameters(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[Rectangular, Categorical, SubObservable, Observable]
-        ],
-    ) -> Point[Natural, Categorical]:
-        """Compute conjugation parameters for categorical mixture.
+    This implementation adds numerical capabilities:
 
-        For a categorical mixture model:
-
-        - $\\chi = \\psi(\\theta_x)$
-        - $\\rho_k = \\psi(\\theta_x + \\theta_{xz,k}) - \\chi$
-        """
-        # Compute base term from observable bias
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
-        rho_0 = self.obs_man.log_partition_function(obs_bias)
-
-        # int_comps shape: (n_categories - 1, sub_obs_dim)
-        int_comps = self.int_man.to_columns(int_mat)
-
-        def compute_rho(comp_params: Point[Natural, SubObservable]) -> Array:
-            adjusted_obs = self.obs_emb.translate(obs_bias, comp_params)
-            return self.obs_man.log_partition_function(adjusted_obs) - rho_0
-
-        # rho_z shape: (n_categories - 1,)
-        rho_z = self.int_man.col_man.map(compute_rho, int_comps)
-
-        return self.lat_man.natural_point(rho_z)
+    - Exact log-partition function calculation
+    - Density evaluation for observations
+    - Mean and covariance calculation
+    - Parameter estimation via posterior statistics/expectation step
+    """
 
     # Methods
 
@@ -223,19 +199,7 @@ class DifferentiableMixture[
     def observable_mean_covariance(
         self, params: Point[Natural, Self]
     ) -> tuple[Array, Array]:
-        """Compute mean and covariance of the observable variables.
-
-        Requires the observable manifold to implement StatisticalMoments.
-
-        Args:
-            params: Parameters in natural coordinates
-
-        Returns:
-            Tuple of (mean array, covariance array)
-
-        Raises:
-            TypeError: If observable manifold doesn't support moment computation
-        """
+        """Compute mean and covariance of the observable variables."""
         if not isinstance(self.obs_man, StatisticalMoments):
             raise TypeError(
                 f"Observable manifold {type(self.obs_man)} does not support statistical moment computation"
@@ -264,21 +228,42 @@ class DifferentiableMixture[
 
         return mean, cov
 
+    # Overrides
+
+    @override
+    def conjugation_parameters(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[Rectangular, Categorical, SubObservable, Observable]
+        ],
+    ) -> Point[Natural, Categorical]:
+        """Compute conjugation parameters for categorical mixture. In particular,
+
+        $$\\rho_k = \\psi(\\theta_X + \\theta_{XZ,k}) - \\psi(\\theta_X)$$
+        """
+        # Compute base term from observable bias
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        rho_0 = self.obs_man.log_partition_function(obs_bias)
+
+        # int_comps shape: (n_categories - 1, sub_obs_dim)
+        int_comps = self.int_man.to_columns(int_mat)
+
+        def compute_rho(comp_params: Point[Natural, SubObservable]) -> Array:
+            adjusted_obs = self.obs_emb.translate(obs_bias, comp_params)
+            return self.obs_man.log_partition_function(adjusted_obs) - rho_0
+
+        # rho_z shape: (n_categories - 1,)
+        rho_z = self.int_man.col_man.map(compute_rho, int_comps)
+
+        return self.lat_man.natural_point(rho_z)
+
 
 @dataclass(frozen=True)
 class AnalyticMixture[Observable: Analytic](
     DifferentiableMixture[Observable, Observable],
     AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
 ):
-    """Mixture model with analytical entropy.
-
-    This class adds the ability to convert from mean to natural parameters and
-    compute negative entropy. Only works with identity subspace relationships.
-
-    Args:
-        obs_man: Base exponential family for observations
-        n_categories: Number of mixture components
-    """
+    """Mixture model with analytically tractable components. Amongst other things, this enables closed-form implementation of expectation-maximization."""
 
     # Constructor
 
@@ -337,32 +322,13 @@ class AnalyticMixture[Observable: Analytic](
 
         Parameters in the mixing subspace use the first component as reference/anchor and store differences in the interaction matrix. Parameters outside the mixing subspace use the weighted average of all components.
         """
-        # Get probabilities for weighting - shape: (n_categories,)
-        probs = self.lat_man.to_probs(self.lat_man.to_mean(prior))
-        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
-
         # Get anchor (first component) - shape: (obs_dim,)
-        anchor = self.cmp_man.get_replicate(components, jnp.asarray(0))
-        anchor_sub = self.obs_emb.project(anchor)  # shape: (sub_obs_dim,)
-
-        # Compute weighted average - shape: (obs_dim,)
-        avg_params = self.obs_man.natural_point(
-            jnp.sum(components.array * probs.reshape(probs_shape), axis=0)
-        )
-
-        # Create obs_bas combining in/out of subspace parameters
-        anchor_out_sub = self.obs_emb.translate(
-            avg_params, -self.obs_emb.project(avg_params)
-        )
-        anchor_in_sub = self.obs_emb.translate(
-            self.obs_man.natural_point(jnp.zeros_like(anchor.array)), anchor_sub
-        )
-        obs_bias = anchor_in_sub + anchor_out_sub  # shape: (obs_dim,)
+        obs_bias = self.cmp_man.get_replicate(components, jnp.asarray(0))
 
         def to_interaction(
             comp: Point[Natural, Observable],
         ) -> Point[Natural, Observable]:
-            return self.obs_emb.project(comp) - anchor_sub
+            return comp - obs_bias
 
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)

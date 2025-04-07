@@ -48,7 +48,6 @@ from ...geometry import (
     Dual,
     LinearEmbedding,
     LinearMap,
-    LocationEmbedding,
     MatrixRep,
     Mean,
     Natural,
@@ -56,6 +55,7 @@ from ...geometry import (
     PositiveDefinite,
     Rectangular,
     Scale,
+    TupleEmbedding,
     expand_dual,
     reduce_dual,
 )
@@ -72,7 +72,7 @@ from ..base.gaussian.normal import (
 
 @dataclass(frozen=True)
 class NormalLocationEmbedding[Rep: PositiveDefinite](
-    LocationEmbedding[Normal[Rep], Euclidean],
+    TupleEmbedding[Euclidean, Normal[Rep]],
 ):
     """Subspace relationship for a product manifold $M \\times N$."""
 
@@ -80,7 +80,14 @@ class NormalLocationEmbedding[Rep: PositiveDefinite](
 
     @property
     @override
-    def sup_man(self) -> Normal[Rep]:
+    def tup_idx(
+        self,
+    ) -> int:
+        return 0
+
+    @property
+    @override
+    def amb_man(self) -> Normal[Rep]:
         return self.nor_man
 
     @property
@@ -91,7 +98,7 @@ class NormalLocationEmbedding[Rep: PositiveDefinite](
 
 @dataclass(frozen=True)
 class NormalCovarianceEmbedding[SubRep: PositiveDefinite, SuperRep: PositiveDefinite](
-    LinearEmbedding[Normal[SuperRep], Normal[SubRep]]
+    LinearEmbedding[Normal[SubRep], Normal[SuperRep]]
 ):
     """Subspace relationship between Normal distributions with different covariance structures.
 
@@ -117,14 +124,14 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, SuperRep: PositiveDefi
     _sub_man: Normal[SubRep]
 
     def __post_init__(self):
-        if not isinstance(self.sub_man.cov_man.rep, self.sup_man.cov_man.rep.__class__):
+        if not isinstance(self.sub_man.cov_man.rep, self.amb_man.cov_man.rep.__class__):
             raise TypeError(
-                f"Sub-manifold rep {self.sub_man.cov_man.rep} must be simpler than super-manifold rep {self.sup_man.cov_man.rep}"
+                f"Sub-manifold rep {self.sub_man.cov_man.rep} must be simpler than super-manifold rep {self.amb_man.cov_man.rep}"
             )
 
     @property
     @override
-    def sup_man(self) -> Normal[SuperRep]:
+    def amb_man(self) -> Normal[SuperRep]:
         """Super-manifold."""
         return self._sup_man
 
@@ -146,7 +153,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, SuperRep: PositiveDefi
         Returns:
             Projected point in sub-manifold
         """
-        return self.sup_man.project_rep(self.sub_man, p)
+        return self.amb_man.project_rep(self.sub_man, p)
 
     @override
     def embed(
@@ -162,7 +169,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, SuperRep: PositiveDefi
         Returns:
             Embedded point in super-manifold
         """
-        return self.sub_man.embed_rep(self.sup_man, p)
+        return self.sub_man.embed_rep(self.amb_man, p)
 
     @override
     def translate(
@@ -179,7 +186,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, SuperRep: PositiveDefi
         Returns:
             Translated point in super-manifold
         """
-        embedded_q = self.sub_man.embed_rep(self.sup_man, q)
+        embedded_q = self.sub_man.embed_rep(self.amb_man, q)
         return p + embedded_q
 
 

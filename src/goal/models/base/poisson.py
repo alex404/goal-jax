@@ -1,38 +1,15 @@
-"""
-The Conway-Maxwell Poisson distribution is a generalization of the Poisson distribution
-that can model both over- and under-dispersed count data. Its probability mass function is:
+"""Poisson distributions as exponential families.
 
-$$p(x; \\mu, \nu) = \\frac{\\mu^x}{(x!)^\\nu Z(\\mu, \\nu)}$$
+This module provides two count models in the exponential family framework:
 
-where:
+1. Base Distributions:
+   - `Poisson`: Standard Poisson distribution for count data
+   - `CoMPoisson`: Conway-Maxwell-Poisson distribution for flexible dispersion
 
-- $\\mu > 0$ is related to the mode of the distribution
-- $\\nu > 0$ is the dispersion parameter (pseudo-precision)
-- $Z(\\mu, \\nu)$ is the normalizing constant defined as:
+2. Components:
+   - `CoMShape`: Shape component for the COM-Poisson distribution
 
-$$Z(\\mu, \\nu) = \\sum_{j=0}^{\\infty} \\frac{\\mu^j}{(j!)^\\nu}$$
-
-As an exponential family, it can be written with:
-
-- Natural parameters: $\\theta_1 = \\nu\\log(\\mu)$, $\\theta_2 = -\\nu$
-- Base measure: $\\mu(x) = 0$
-- Sufficient statistics: $s(x) = (x, \\log(x!))$
-
-Natural to mode-shape:
-$(\\theta_1, \\theta_2) \\mapsto (\\exp(-\\theta_1/\\theta_2), -\\theta_2)$
-
-Mode-shape to natural:
-$(\\mu, \\nu) \\mapsto (\\nu\\log(\\mu), -\\nu)$
-
-Key numerical considerations:
-
-1. Series evaluation strategy balancing accuracy and performance
-2. Mode-directed evaluation to handle both under- and over-dispersed cases
-3. JAX-optimized computation patterns
-
-#### Class Hierarchy
-
-![Class Hierarchy](poisson.svg)
+The Poisson distribution models count data with a single rate parameter, where the mean equals the variance. The Conway-Maxwell-Poisson extends this with a dispersion parameter, allowing for both over- and under-dispersed count data.
 """
 
 from __future__ import annotations
@@ -54,22 +31,34 @@ from ...geometry import (
     Point,
 )
 
+### Helper Functions ###
+
+
+def _log_factorial(k: Array) -> Array:
+    return jax.lax.lgamma(k.astype(float) + 1)
+
+
+### Classes ###
+
 
 @dataclass(frozen=True)
 class Poisson(Analytic):
     """
-    The Poisson distribution over counts.
+    The Poisson distribution models counts and is defined by a single rate parameter $\\eta > 0$. The probability mass function at count $k \\in \\mathbb{N}$ is given by
 
-    The Poisson distribution is defined by a single rate parameter $\\eta > 0$. The probability mass function at count $k \\in \\mathbb{N}$ is given by
+    As an exponential family:
 
-    $$p(k; \\eta) = \\frac{\\eta^k e^{-\\eta}}{k!}.$$
+    - Natural parameter: $\\theta = \\log(\\eta)$
+    - Probability mass function: $p(k; \\theta) = e^{\\theta k - \\log(k!)}$
+    - Sufficient statistic: $s(x) = x$
+    - Base measure: $\\mu(k) = -\\log(k!)$
+    - Log-partition function: $\\psi(\\theta) = e^{\\theta}$
+    - Negative entropy: $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$
 
     Properties:
 
-    - Base measure $\\mu(k) = -\\log(k!)$
-    - Sufficient statistic $s(x) = x$
-    - Log-partition function: $\\psi(\\theta) = e^{\\theta}$
-    - Negative entropy: $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$
+    - Mean = Variance = $\\eta$
+    - Mode = $\\lfloor \\eta \\rfloor$
     """
 
     @property
@@ -120,9 +109,13 @@ class Poisson(Analytic):
 
 @dataclass(frozen=True)
 class CoMShape(ExponentialFamily):
-    """Shape component of a CoMPoisson distribution.
+    """Shape component of a CoMPoisson distribution. This represents the dispersion structure with sufficient statistic log(x!). It captures deviations from the standard Poisson variance-mean relationship.
 
-    This represents the dispersion structure with sufficient statistic log(x!).
+    The dispersion parameter $\\nu$ controls whether the distribution is:
+
+    - Equidispersed ($\\nu = 1$): Variance = Mean (standard Poisson)
+    - Underdispersed ($\\nu > 1$): Variance < Mean
+    - Overdispersed ($\\nu < 1$): Variance > Mean
     """
 
     def __init__(self):
@@ -149,22 +142,126 @@ class CoMShape(ExponentialFamily):
 
 @dataclass(frozen=True)
 class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
-    """Conway-Maxwell Poisson distribution implementation optimized for JAX.
+    """The Conway-Maxwell Poisson distribution is a generalization of the Poisson distribution that can model both over- and under-dispersed count data. Its probability mass function is:
 
-    This implementation uses fixed-width window numerical integration centered on the
-    approximate mode of the distribution. This approach provides:
+    $$p(x; \\mu, \\nu) = \\frac{\\mu^x}{(x!)^\\nu Z(\\mu, \\nu)}$$
 
-    1. JAX-optimized performance through static computation graphs
-    2. Numerically stable computation in log space
-    3. Accurate evaluation for both under- and over-dispersed cases
+    where:
 
-    Args:
-        window_size: Fixed number of terms to evaluate in series expansions (default: 200)
+    - $\\mu > 0$ is related to the mode of the distribution
+    - $\\nu > 0$ is the dispersion parameter (pseudo-precision)
+    - $Z(\\mu, \\nu)$ is the normalizing constant:
+      $$Z(\\mu, \\nu) = \\sum_{j=0}^{\\infty} \\frac{\\mu^j}{(j!)^\\nu}$$
+
+    Special cases:
+
+    - When $\\nu = 1$: Standard Poisson distribution
+    - When $\\nu < 1$: Over-dispersed (variance > mean)
+    - When $\\nu > 1$: Under-dispersed (variance < mean)
+    - When $\\nu \\to \\infty$: Bernoulli distribution
+    - When $\\nu = 0$: Geometric distribution
+
+    As an exponential family:
+
+    - Natural parameters: $\\theta_1 = \\nu\\log(\\mu)$, $\\theta_2 = -\\nu$
+    - Sufficient statistics: $s(x) = (x, \\log(x!))$
+    - Log-partition function: log of the normalizing constant $Z$
     """
 
     # Fields
 
     window_size: int = 200
+    """Fixed number of terms to evaluate in series expansions."""
+
+    # Methods
+
+    def split_mode_dispersion(
+        self, natural_params: Point[Natural, Self]
+    ) -> tuple[Array, Array]:
+        """Convert from natural parameters to mode-shape parameters.
+
+        The COM-Poisson distribution can be parameterized by either natural parameters $(\\theta_1, \\theta_2)$ or by mode-shape parameters $(\\mu, \\nu)$. The conversion
+        is given by:
+
+        $$\\nu = -\\theta_2$$
+        $$\\mu = \\exp(-\\theta_1/\\theta_2)$$
+        """
+        theta1, theta2 = natural_params[0], natural_params[1]
+        nu = -theta2
+        mu = jnp.exp(-theta1 / theta2)
+        return mu, nu
+
+    def join_mode_dispersion(self, mu: Array, nu: Array) -> Point[Natural, Self]:
+        """Convert from mode-shape parameters to natural parameters.
+
+        The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
+        is given by:
+
+        - $\\theta_1 = \\nu\\log(\\mu)$
+        - $\\theta_2 = -\\nu$
+        """
+        theta1 = nu * jnp.log(mu)
+        theta2 = -nu
+        return self.natural_point(jnp.array([theta1, theta2]).ravel())
+
+    def approximate_mean_variance(
+        self, natural_params: Point[Natural, Self]
+    ) -> tuple[Array, Array]:
+        """Compute approximate mean and variance of COM-Poisson distribution.
+
+        Given mode $\\mu$ and shape $\\nu$ parameters, the approximations are:
+        $E(X) \\approx \\mu + 1/(2\\nu) - 1/2$
+        Var(X) ≈ $\\mu$/$\\nu$
+        """
+        mu, nu = self.split_mode_dispersion(natural_params)
+        approx_mean = mu + 1 / (2 * nu) - 0.5
+        approx_var = mu / nu
+        return approx_mean, approx_var
+
+    def numerical_mean_variance(
+        self,
+        natural_params: Point[Natural, Self],
+    ) -> tuple[Array, Array]:
+        """Compute mean and variance using numerical integration.
+
+        Uses window-based approach centered on mode to compute:
+        $$E[X] = \\sum_{x=0}^\\infty x p(x)$$
+        $$E[X^2] = \\sum_{x=0}^\\infty x^2 p(x)$$
+        $$\\text{Var}(X) = E[X^2] - E[X]^2$$
+        """
+        # Get mode for window centering
+        mu, _ = self.split_mode_dispersion(natural_params)
+
+        # Create fixed window of indices
+        mode_shift = jnp.maximum(0, jnp.floor(mu - self.window_size / 2)).astype(
+            jnp.int32
+        )
+        indices = jnp.arange(self.window_size) + mode_shift
+
+        # Compute log probabilities
+        log_probs = jax.vmap(self.log_density, in_axes=(None, 0))(
+            natural_params, indices
+        )
+        probs = jnp.exp(log_probs)
+
+        # Compute first and second moments
+        mean = jnp.sum(indices * probs)
+        second_moment = jnp.sum(indices**2 * probs)
+
+        # Compute variance
+        variance = second_moment - mean**2
+
+        return mean, variance
+
+    def statistical_mean(self, params: Point[Natural, Self]) -> Array:
+        """Numerical approximation of the mean."""
+        mean, _ = self.numerical_mean_variance(params)
+        return mean.reshape([1])
+
+    def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
+        """Numerical approximation of the covariance."""
+        _, var = self.numerical_mean_variance(params)
+        return var.reshape([1, 1])
 
     # Override
 
@@ -334,120 +431,3 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
         # Convert to natural parameters
         return self.join_mode_dispersion(mu, nu)
-
-    # Methods
-
-    def split_mode_dispersion(
-        self, natural_params: Point[Natural, Self]
-    ) -> tuple[Array, Array]:
-        """Convert from natural parameters to mode-shape parameters.
-
-        The COM-Poisson distribution can be parameterized by either natural parameters $(\\theta_1, \\theta_2)$ or by mode-shape parameters $(\\mu, \\nu)$. The conversion
-        is given by:
-
-        $$\\nu = -\\theta_2$$
-        $$\\mu = \\exp(-\\theta_1/\\theta_2)$$
-
-        Args:
-            natural_params: Natural parameters $(\\theta_1, \\theta_2)$
-
-        Returns:
-            Tuple of mode parameter $\\mu$ and shape parameter $\\nu$
-        """
-        theta1, theta2 = natural_params[0], natural_params[1]
-        nu = -theta2
-        mu = jnp.exp(-theta1 / theta2)
-        return mu, nu
-
-    def join_mode_dispersion(self, mu: Array, nu: Array) -> Point[Natural, Self]:
-        """Convert from mode-shape parameters to natural parameters.
-
-        The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
-        is given by:
-
-        - $\\theta_1 = \\nu\\log(\\mu)$
-        - $\\theta_2 = -\\nu$
-
-        Args:
-            mu: Mode parameter $\\mu > 0$
-            nu: Shape parameter $\\nu > 0$
-
-        Returns:
-            Natural parameters $(\\theta_1, \\theta_2)$ as a Point
-        """
-        theta1 = nu * jnp.log(mu)
-        theta2 = -nu
-        return self.natural_point(jnp.array([theta1, theta2]).ravel())
-
-    def approximate_mean_variance(
-        self, natural_params: Point[Natural, Self]
-    ) -> tuple[Array, Array]:
-        """Compute approximate mean and variance of COM-Poisson distribution.
-
-        Given mode $\\mu$ and shape $\\nu$ parameters, the approximations are:
-        $E(X) \\approx \\mu + 1/(2\\nu) - 1/2$
-        Var(X) ≈ $\\mu$/$\\nu$
-
-        Args:
-            natural_params: Natural parameters $(\\theta_1$, \\theta_2)$
-
-        Returns:
-            Tuple of (approximate mean, approximate variance)
-        """
-        mu, nu = self.split_mode_dispersion(natural_params)
-        approx_mean = mu + 1 / (2 * nu) - 0.5
-        approx_var = mu / nu
-        return approx_mean, approx_var
-
-    def numerical_mean_variance(
-        self,
-        natural_params: Point[Natural, Self],
-    ) -> tuple[Array, Array]:
-        """Compute mean and variance using numerical integration.
-
-        Uses window-based approach centered on mode to compute:
-        $$E[X] = \\sum_{x=0}^\\infty x p(x)$$
-        $$E[X^2] = \\sum_{x=0}^\\infty x^2 p(x)$$
-        $$\\text{Var}(X) = E[X^2] - E[X]^2$$
-
-        Args:
-            natural_params: Natural parameters $(\\theta_1, \\theta_2)$
-
-        Returns:
-            Tuple of (mean, variance)
-        """
-        # Get mode for window centering
-        mu, _ = self.split_mode_dispersion(natural_params)
-
-        # Create fixed window of indices
-        mode_shift = jnp.maximum(0, jnp.floor(mu - self.window_size / 2)).astype(
-            jnp.int32
-        )
-        indices = jnp.arange(self.window_size) + mode_shift
-
-        # Compute log probabilities
-        log_probs = jax.vmap(self.log_density, in_axes=(None, 0))(
-            natural_params, indices
-        )
-        probs = jnp.exp(log_probs)
-
-        # Compute first and second moments
-        mean = jnp.sum(indices * probs)
-        second_moment = jnp.sum(indices**2 * probs)
-
-        # Compute variance
-        variance = second_moment - mean**2
-
-        return mean, variance
-
-    def statistical_mean(self, params: Point[Natural, Self]) -> Array:
-        mean, _ = self.numerical_mean_variance(params)
-        return mean.reshape([1])
-
-    def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
-        _, var = self.numerical_mean_variance(params)
-        return var.reshape([1, 1])
-
-
-def _log_factorial(k: Array) -> Array:
-    return jax.lax.lgamma(k.astype(float) + 1)

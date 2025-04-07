@@ -117,11 +117,7 @@ class Generative(ExponentialFamily, ABC):
 
     @abstractmethod
     def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate random samples from the distribution.
-
-        Returns:
-            Array of shape (n, *data_dims) containing samples
-        """
+        """Generate random samples from the distribution."""
 
     # Templates
 

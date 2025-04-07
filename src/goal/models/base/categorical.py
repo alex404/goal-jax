@@ -1,13 +1,4 @@
-"""Core exponential families. In particular provides
-
-- `Categorical`: Family of discrete probability distributions over $n$ states.
-- `Poisson`: Family of Poisson distribution over counts $k \\in \\mathbb{N}$.
-
-
-#### Class Hierarchy
-
-![Class Hierarchy](categorical.svg)
-"""
+"""The categorical distribution (probability simplex) models distributions over finite sets of elements, and has sufficient parameters to model any such distribution."""
 
 from __future__ import annotations
 
@@ -25,11 +16,11 @@ from ...geometry import Analytic, Mean, Natural, Point
 class Categorical(Analytic):
     """Categorical distribution over $n$ states.
 
-    The categorical distribution describes discrete probability distributions over $n$ states with probabilities $\\eta_i$ where $\\sum_{i=0}^n \\eta_i = 1$. The probability mass function for outcome $k$ is:
+    The categorical distribution describes discrete probability distributions over $n$ states with probabilities $\\eta_i$ where $\\sum_{i=0}^n \\eta_i = 1$.
 
     $$p(k; \\eta) = \\eta_k$$
 
-    Properties:
+    As an exponential family:
 
     - Base measure: $\\mu(k) = 0$
     - Sufficient statistic: One-hot encoding for $k > 0$
@@ -38,11 +29,12 @@ class Categorical(Analytic):
     """
 
     n_categories: int
+    """Number of categories."""
 
     @property
     @override
     def dim(self) -> int:
-        """Dimension $d$ is (`n_categories` - 1) due to the sum-to-one constraint."""
+        """Dimension $d$ is `n_categories - 1` due to the sum-to-one constraint."""
         return self.n_categories - 1
 
     @property
@@ -63,7 +55,7 @@ class Categorical(Analytic):
         prob0 = 1 - jnp.sum(probs)
         return jnp.concatenate([jnp.array([prob0]), probs])
 
-    # Exponential family methods
+    # Overrides
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
