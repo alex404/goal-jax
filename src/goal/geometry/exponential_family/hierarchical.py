@@ -107,12 +107,12 @@ class LatentHarmoniumEmbedding[
 
     # Fields
 
-    pst_hrm_man: Harmonium[
+    pst_hrm: Harmonium[
         Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent
     ]
     """The harmonium that contains the contrained observable manifold."""
 
-    hrm_man: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
+    hrm: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
     """The harmonium that contains the unconstrained observable manifold."""
 
     pst_obs_emb: LinearEmbedding[PostObservable, Observable]
@@ -125,14 +125,14 @@ class LatentHarmoniumEmbedding[
     def amb_man(
         self,
     ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
-        return self.hrm_man
+        return self.hrm
 
     @property
     @override
     def sub_man(
         self,
     ) -> Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent]:
-        return self.pst_hrm_man
+        return self.pst_hrm
 
     @override
     def project(
@@ -417,7 +417,7 @@ class DifferentiableUndirected[
         assert isinstance(self.pst_upr_hrm, DifferentiableConjugated)
         assert isinstance(self.upr_hrm, DifferentiableConjugated)
         assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
-        assert self.lwr_hrm.lat_man == self.pst_upr_hrm.obs_man
+        assert self.lwr_hrm.pst_lat_man == self.pst_upr_hrm.obs_man
 
 
 @dataclass(frozen=True)
