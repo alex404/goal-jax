@@ -72,12 +72,12 @@ class Harmonium[
     @property
     @abstractmethod
     def int_lat_emb(self) -> LinearEmbedding[IntLatent, PostLatent]:
-        """Embedding of the interactive submanifold of the (posterior) into the latent manifold."""
+        """Embedding of the interactive submanifold into the posterior latent manifold."""
 
     @property
     @abstractmethod
     def pst_lat_emb(self) -> LinearEmbedding[PostLatent, Latent]:
-        """Embedding of the posterior submanifold into the complete latent manifold."""
+        """Embedding of the posterior latent submanifold into the complete latent manifold."""
 
     # Templates
 
@@ -87,14 +87,14 @@ class Harmonium[
         return self.obs_emb.amb_man
 
     @property
-    def lat_man(self) -> Latent:
-        """Manifold of general latent biases."""
-        return self.pst_lat_emb.amb_man
-
-    @property
     def pst_lat_man(self) -> PostLatent:
         """Manifold of posterior specific latent biases."""
         return self.pst_lat_emb.sub_man
+
+    @property
+    def lat_man(self) -> Latent:
+        """Manifold of general latent biases."""
+        return self.pst_lat_emb.amb_man
 
     @property
     def int_man(self) -> LinearMap[IntRep, IntLatent, IntObservable]:
@@ -171,8 +171,8 @@ class Harmonium[
 
     @property
     @override
-    def trd_man(self) -> Latent:
-        return self.lat_man
+    def trd_man(self) -> PostLatent:
+        return self.pst_lat_man
 
     @property
     @override
@@ -481,7 +481,7 @@ class SymmetricConjugated[
     ) -> Point[Natural, Self]:
         """Join likelihood and prior parameters into a conjugated harmonium."""
         rho = self.conjugation_parameters(lkl_params)
-        lat_params = self.pst_lat_emb.translate(-rho, prior_params)
+        lat_params = prior_params - rho
         obs_params, int_params = self.lkl_man.split_params(lkl_params)
         return self.join_params(obs_params, int_params, lat_params)
 

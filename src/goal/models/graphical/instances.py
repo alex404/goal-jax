@@ -36,14 +36,14 @@ type DifferentiableHMoG[ObsRep: PositiveDefinite, PostRep: PositiveDefinite] = (
     DifferentiableUndirected[
         DifferentiableLinearGaussianModel[ObsRep, PostRep],
         AnalyticMixture[Normal[PostRep]],
-        AnalyticMixture[FullNormal],
+        DifferentiableMixture[FullNormal, Normal[PostRep]],
     ]
 )
 
-type SymmetricHMoG[ObsRep: PositiveDefinite, PostRep: PositiveDefinite] = (
+type SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
     SymmetricUndirected[
         AnalyticLinearGaussianModel[ObsRep],
-        DifferentiableMixture[FullNormal, Normal[PostRep]],
+        DifferentiableMixture[FullNormal, Normal[LatRep]],
     ]
 )
 type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
@@ -69,11 +69,12 @@ def differentiable_hmog[ObsRep: PositiveDefinite, PostRep: PositiveDefinite](
 
     This model supports optimization via log-likelihood gradient descent.
     """
-    obs_lat_man = Normal(lat_dim, PositiveDefinite)
     pst_lat_man = Normal(lat_dim, pst_rep)
+    lat_man = Normal(lat_dim, PositiveDefinite)
+    mix_sub = NormalCovarianceEmbedding(pst_lat_man, lat_man)
     lwr_hrm = DifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim, pst_rep)
     pst_upr_hrm = AnalyticMixture(pst_lat_man, n_components)
-    upr_hrm = AnalyticMixture(obs_lat_man, n_components)
+    upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
     return DifferentiableUndirected(
         lwr_hrm,
@@ -92,7 +93,7 @@ def symmetric_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     """Create a symmetric hierarchical mixture of Gaussians model. Supports optimization via log-likelihood gradient descent, but can be slower since requisite matrix inversions happen in the space of full covariance matrices over the latent space. Nevertheless, the supports additional functionality (e.g. join_conjugated) not available to `differentiableHMoG`."""
     mid_lat_man = Normal(lat_dim, PositiveDefinite)
     sub_lat_man = Normal(lat_dim, lat_rep)
-    mix_sub = NormalCovarianceEmbedding(mid_lat_man, sub_lat_man)
+    mix_sub = NormalCovarianceEmbedding(sub_lat_man, mid_lat_man)
     lwr_hrm = AnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
     upr_hrm = DifferentiableMixture(n_components, mix_sub)
 

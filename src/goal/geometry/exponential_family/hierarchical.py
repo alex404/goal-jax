@@ -107,6 +107,9 @@ class LatentHarmoniumEmbedding[
 
     # Fields
 
+    pst_obs_emb: LinearEmbedding[PostObservable, Observable]
+    """The embedding of the constrained observable manifold into the unconstrained observable manifold."""
+
     pst_hrm: Harmonium[
         Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent
     ]
@@ -115,17 +118,7 @@ class LatentHarmoniumEmbedding[
     hrm: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
     """The harmonium that contains the unconstrained observable manifold."""
 
-    pst_obs_emb: LinearEmbedding[PostObservable, Observable]
-    """The embedding of the constrained observable manifold into the unconstrained observable manifold."""
-
     # Overrides
-
-    @property
-    @override
-    def amb_man(
-        self,
-    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
-        return self.hrm
 
     @property
     @override
@@ -133,6 +126,13 @@ class LatentHarmoniumEmbedding[
         self,
     ) -> Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent]:
         return self.pst_hrm
+
+    @property
+    @override
+    def amb_man(
+        self,
+    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
+        return self.hrm
 
     @override
     def project(
@@ -262,9 +262,9 @@ class StrongDifferentiableUndirected[
     @override
     def pst_lat_emb(self) -> LinearEmbedding[PostUpperHarmonium, UpperHarmonium]:
         return LatentHarmoniumEmbedding(  # pyright: ignore[reportReturnType, reportUnknownVariableType]
-            self.upr_hrm,  # pyright: ignore[reportArgumentType]
-            self.pst_upr_hrm,  # pyright: ignore[reportArgumentType]
             self._abc_lwr_hrm.pst_lat_emb,
+            self.pst_upr_hrm,  # pyright: ignore[reportArgumentType]
+            self.upr_hrm,  # pyright: ignore[reportArgumentType]
         )
 
     @override

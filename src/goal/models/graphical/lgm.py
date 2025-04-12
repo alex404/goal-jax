@@ -74,11 +74,11 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbientRep: PositiveDe
 
     # Fields
 
-    _amb_man: Normal[AmbientRep]
-    """The super-manifold with the more complex covariance structure."""
-
     _sub_man: Normal[SubRep]
     """The sub-manifold with the simpler covariance structure."""
+
+    _amb_man: Normal[AmbientRep]
+    """The super-manifold with the more complex covariance structure."""
 
     def __post_init__(self):
         if not isinstance(self.sub_man.cov_man.rep, self.amb_man.cov_man.rep.__class__):
@@ -218,8 +218,8 @@ class DifferentiableLinearGaussianModel[
     @override
     def pst_lat_emb(self) -> NormalCovarianceEmbedding[PostRep, PositiveDefinite]:
         return NormalCovarianceEmbedding(
-            Normal(self.lat_dim, PositiveDefinite),
             Normal(self.lat_dim, self.lat_rep),
+            Normal(self.lat_dim, PositiveDefinite),
         )
 
     @override
