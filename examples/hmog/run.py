@@ -42,7 +42,7 @@ def create_ground_truth_model() -> tuple[
         lat_dim=1,
         n_components=2,
     )
-    with hmog.lat_man.lat_man as cm:
+    with hmog.lat_man.con_lat_man as cm:
         # Create latent categorical prior
         cat_params = cm.natural_point(jnp.array([0.5]))
         cat_means = cm.to_mean(cat_params)
@@ -74,9 +74,7 @@ def create_ground_truth_model() -> tuple[
         # NB: Multiplying the interaction parameters by the observable precision makes them scale more intuitively
         int_mat0 = jnp.array([1.0, 0.0])
         obs_prs = om.split_location_precision(obs_params)[1]
-        int_mat: Point[Natural, ...] = hmog.int_man.from_dense(
-            om.cov_man.to_dense(obs_prs) @ int_mat0
-        )
+        int_mat = hmog.int_man.from_dense(om.cov_man.to_dense(obs_prs) @ int_mat0)
 
     lkl_params = hmog.lkl_man.join_params(obs_params, int_mat)
 

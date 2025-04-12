@@ -69,11 +69,11 @@ def differentiable_hmog[ObsRep: PositiveDefinite, PostRep: PositiveDefinite](
 
     This model supports optimization via log-likelihood gradient descent.
     """
-    pst_lat_man = Normal(lat_dim, pst_rep)
-    lat_man = Normal(lat_dim, PositiveDefinite)
-    mix_sub = NormalCovarianceEmbedding(pst_lat_man, lat_man)
+    lat_man = Normal(lat_dim, pst_rep)
+    con_lat_man = Normal(lat_dim, PositiveDefinite)
+    mix_sub = NormalCovarianceEmbedding(lat_man, con_lat_man)
     lwr_hrm = DifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim, pst_rep)
-    pst_upr_hrm = AnalyticMixture(pst_lat_man, n_components)
+    pst_upr_hrm = AnalyticMixture(lat_man, n_components)
     upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
     return DifferentiableUndirected(

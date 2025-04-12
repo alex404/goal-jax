@@ -274,8 +274,8 @@ class StrongDifferentiableUndirected[
 
         # Sample from adjusted latent distribution p(z)
         nat_prior = self.prior(params)
-        yz_sample = self.lat_man.sample(key1, nat_prior, n)
-        y_sample = yz_sample[:, : self._abc_lwr_hrm.lat_man.data_dim]
+        yz_sample = self.con_lat_man.sample(key1, nat_prior, n)
+        y_sample = yz_sample[:, : self._abc_lwr_hrm.con_lat_man.data_dim]
 
         # Vectorize sampling from conditional distributions
         x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, y_sample)
@@ -416,8 +416,8 @@ class DifferentiableUndirected[
         assert isinstance(self.lwr_hrm, DifferentiableConjugated)
         assert isinstance(self.pst_upr_hrm, DifferentiableConjugated)
         assert isinstance(self.upr_hrm, DifferentiableConjugated)
-        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
-        assert self.lwr_hrm.pst_lat_man == self.pst_upr_hrm.obs_man
+        assert self.lwr_hrm.con_lat_man == self.upr_hrm.obs_man
+        assert self.lwr_hrm.lat_man == self.pst_upr_hrm.obs_man
 
 
 @dataclass(frozen=True)
