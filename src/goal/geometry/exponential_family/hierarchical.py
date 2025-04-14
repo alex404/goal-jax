@@ -110,12 +110,10 @@ class LatentHarmoniumEmbedding[
     pst_obs_emb: LinearEmbedding[PostObservable, Observable]
     """The embedding of the constrained observable manifold into the unconstrained observable manifold."""
 
-    pst_hrm: Harmonium[
-        Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent
-    ]
+    hrm: Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent]
     """The harmonium that contains the contrained observable manifold."""
 
-    hrm: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
+    con_hrm: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
     """The harmonium that contains the unconstrained observable manifold."""
 
     # Overrides
@@ -125,14 +123,14 @@ class LatentHarmoniumEmbedding[
     def sub_man(
         self,
     ) -> Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent]:
-        return self.pst_hrm
+        return self.hrm
 
     @property
     @override
     def amb_man(
         self,
     ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
-        return self.hrm
+        return self.con_hrm
 
     @override
     def project(
@@ -216,11 +214,11 @@ class StrongDifferentiableUndirected[
     lwr_hrm: LowerHarmonium
     """The lower harmonium in the hierarchy."""
 
-    pst_upr_hrm: PostUpperHarmonium
-    """The posterior harmonium in the hierarchy. This is a harmonium with a constrained observable space that is embedded into the upper harmonium."""
+    upr_hrm: PostUpperHarmonium
+    """The posterior harmonium in the hierarchy. This is a harmonium with observable space given by the posterior harmonium."""
 
-    upr_hrm: UpperHarmonium
-    """The upper harmonium in the hierarchy. This is a harmonium with an unconstrained observable space that contains the posterior harmonium."""
+    con_upr_hrm: UpperHarmonium
+    """The upper harmonium in the hierarchy. This is a harmonium with that contains the conjugation parameters."""
 
     # Private Properties
 
@@ -236,7 +234,7 @@ class StrongDifferentiableUndirected[
     @property
     def _hrm_lat_emb(self) -> LinearEmbedding[Latent, UpperHarmonium]:
         """The embedding of the shared latent manifold into the upper harmonium."""
-        return ObservableEmbedding(self.upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
+        return ObservableEmbedding(self.con_upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
 
     # Overrides
 
@@ -254,7 +252,7 @@ class StrongDifferentiableUndirected[
     @override
     def int_lat_emb(self) -> LinearEmbedding[IntLatent, UpperHarmonium]:
         return LinearComposedEmbedding(  # pyright: ignore[reportReturnType, reportUnknownVariableType]
-            ObservableEmbedding(self.pst_upr_hrm),  # pyright: ignore[reportArgumentType]
+            ObservableEmbedding(self.upr_hrm),  # pyright: ignore[reportArgumentType]
             self._abc_lwr_hrm.int_lat_emb,
         )
 
@@ -263,8 +261,8 @@ class StrongDifferentiableUndirected[
     def pst_lat_emb(self) -> LinearEmbedding[PostUpperHarmonium, UpperHarmonium]:
         return LatentHarmoniumEmbedding(  # pyright: ignore[reportReturnType, reportUnknownVariableType]
             self._abc_lwr_hrm.pst_lat_emb,
-            self.pst_upr_hrm,  # pyright: ignore[reportArgumentType]
             self.upr_hrm,  # pyright: ignore[reportArgumentType]
+            self.con_upr_hrm,  # pyright: ignore[reportArgumentType]
         )
 
     @override
@@ -414,10 +412,10 @@ class DifferentiableUndirected[
     def __post_init__(self):
         # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
         assert isinstance(self.lwr_hrm, DifferentiableConjugated)
-        assert isinstance(self.pst_upr_hrm, DifferentiableConjugated)
         assert isinstance(self.upr_hrm, DifferentiableConjugated)
-        assert self.lwr_hrm.con_lat_man == self.upr_hrm.obs_man
-        assert self.lwr_hrm.lat_man == self.pst_upr_hrm.obs_man
+        assert isinstance(self.con_upr_hrm, DifferentiableConjugated)
+        assert self.lwr_hrm.con_lat_man == self.con_upr_hrm.obs_man
+        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
 
 
 @dataclass(frozen=True)
@@ -440,8 +438,8 @@ class SymmetricUndirected[
     def __post_init__(self):
         # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
         assert isinstance(self.lwr_hrm, SymmetricConjugated)
-        assert isinstance(self.upr_hrm, SymmetricConjugated)
-        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
+        assert isinstance(self.con_upr_hrm, SymmetricConjugated)
+        assert self.lwr_hrm.lat_man == self.con_upr_hrm.obs_man
 
 
 @dataclass(frozen=True)
@@ -467,5 +465,5 @@ class AnalyticUndirected[
     def __post_init__(self):
         # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
         assert isinstance(self.lwr_hrm, AnalyticConjugated)
-        assert isinstance(self.upr_hrm, AnalyticConjugated)
-        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
+        assert isinstance(self.con_upr_hrm, AnalyticConjugated)
+        assert self.lwr_hrm.lat_man == self.con_upr_hrm.obs_man

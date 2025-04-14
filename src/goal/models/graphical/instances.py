@@ -73,13 +73,13 @@ def differentiable_hmog[ObsRep: PositiveDefinite, PostRep: PositiveDefinite](
     con_lat_man = Normal(lat_dim, PositiveDefinite)
     mix_sub = NormalCovarianceEmbedding(lat_man, con_lat_man)
     lwr_hrm = DifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim, pst_rep)
-    pst_upr_hrm = AnalyticMixture(lat_man, n_components)
-    upr_hrm = DifferentiableMixture(n_components, mix_sub)
+    upr_hrm = AnalyticMixture(lat_man, n_components)
+    con_upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
     return DifferentiableUndirected(
         lwr_hrm,
-        pst_upr_hrm,
         upr_hrm,
+        con_upr_hrm,
     )
 
 
@@ -111,9 +111,9 @@ def analytic_hmog[ObsRep: PositiveDefinite](
 ) -> AnalyticHMoG[ObsRep]:
     """Create an analytic hierarchical mixture of Gaussians model. The resulting model enables closed-form EM for learning and bidirectional parameter conversion, however requires mixtuers of full coviarance Gaussians in the latent space."""
 
-    mid_lat_man = Normal(lat_dim, PositiveDefinite)
+    lat_man = Normal(lat_dim, PositiveDefinite)
     lwr_hrm = AnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
-    upr_hrm = AnalyticMixture(mid_lat_man, n_components)
+    upr_hrm = AnalyticMixture(lat_man, n_components)
 
     return AnalyticUndirected(
         lwr_hrm,

@@ -147,7 +147,7 @@ class Manifold(ABC):
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class Point[C: Coordinates, M]:
+class Point[C: Coordinates, M: Manifold]:
     """A point on a specific manifold with coordinates.
 
     In practice, Points behave like arrays with additional type safety and mathematical operations. **NB:** It is unsafe to create a point directly with this class - users should really on manifold constructors to build points.
