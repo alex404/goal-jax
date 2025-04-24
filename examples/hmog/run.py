@@ -97,7 +97,7 @@ def fit_hmog[R: PositiveDefinite](
     Point[Natural, AnalyticHMoG[R]],
 ]:
     """Train HMoG model using expectation maximization."""
-    init_params = hmog.initialize_from_sample(key, sample)
+    init_params = hmog.initialize_from_sample(key, sample, shape=2)
 
     def em_step(
         carry: Point[Natural, AnalyticHMoG[R]], _: Any
@@ -119,7 +119,7 @@ fit_hmog = jax.jit(fit_hmog, static_argnames=["hmog", "n_steps"])
 def compute_hmog_results(
     key: Array,
     sample_size: int = 400,
-    n_steps: int = 5000,
+    n_steps: int = 1000,
     n_points: int = 100,
 ) -> HMoGResults:
     """Generate samples and train model following Haskell implementation."""
