@@ -408,7 +408,7 @@ class DifferentiableConjugated[
 
         return batched_mean(_log_density, xs, batch_size)
 
-    def infer_missing_expectations(
+    def posterior_statistics(
         self,
         params: Point[Natural, Self],
         x: Array,
@@ -440,7 +440,7 @@ class DifferentiableConjugated[
         # Join parameters into harmonium point
         return self.join_params(obs_stats, int_means, lat_means)
 
-    def posterior_statistics(
+    def mean_posterior_statistics(
         self: Self,
         params: Point[Natural, Self],
         xs: Array,
@@ -449,7 +449,7 @@ class DifferentiableConjugated[
         """Compute average joint expectations over a batch of observations."""
 
         def _infer_missing_expectations(x: Array) -> Array:
-            return self.infer_missing_expectations(params, x).array
+            return self.posterior_statistics(params, x).array
 
         return self.mean_point(
             batched_mean(_infer_missing_expectations, xs, batch_size)
@@ -536,5 +536,5 @@ class AnalyticConjugated[
         self, params: Point[Natural, Self], xs: Array
     ) -> Point[Natural, Self]:
         """Perform a single iteration of the EM algorithm."""
-        q = self.posterior_statistics(params, xs)
+        q = self.mean_posterior_statistics(params, xs)
         return self.to_natural(q)
