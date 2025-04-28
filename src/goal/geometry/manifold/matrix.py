@@ -378,7 +378,7 @@ class PositiveDefinite(Symmetric):
     """
 
     @classmethod
-    def cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
+    def _cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
         """Compute lower triangular Cholesky factor L where A = LL^T."""
         matrix = cls.to_dense(shape, params)
         return jnp.linalg.cholesky(matrix)  # pyright: ignore[reportUnknownVariableType]
@@ -388,7 +388,7 @@ class PositiveDefinite(Symmetric):
         cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
         """Compute cholesky factorization and apply to vector."""
-        chol = cls.cholesky(shape, params)
+        chol = cls._cholesky(shape, params)
         return (chol @ vector.T).T
 
     @classmethod
@@ -404,7 +404,7 @@ class PositiveDefinite(Symmetric):
     @override
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         """Inverse via Cholesky decomposition."""
-        chol = cls.cholesky(shape, params)
+        chol = cls._cholesky(shape, params)
         n = shape[0]
         eye = jnp.eye(n)
         # Solve L L^T x = I
@@ -416,7 +416,7 @@ class PositiveDefinite(Symmetric):
     @override
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         """Log determinant via Cholesky."""
-        chol = cls.cholesky(shape, params)
+        chol = cls._cholesky(shape, params)
         return 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
 
     @classmethod
@@ -486,7 +486,7 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     @override
-    def cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
+    def _cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
         return jnp.sqrt(params)
 
     @classmethod
