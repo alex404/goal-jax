@@ -379,17 +379,54 @@ class PositiveDefinite(Symmetric):
 
     @classmethod
     def _cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
-        """Compute lower triangular Cholesky factor L where A = LL^T."""
         matrix = cls.to_dense(shape, params)
         return jnp.linalg.cholesky(matrix)  # pyright: ignore[reportUnknownVariableType]
 
     @classmethod
-    def apply_cholesky(
+    def cholesky_matvec(
         cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
-        """Compute cholesky factorization and apply to vector."""
+        """Compute cholesky factorization and apply to vector or batch thereof."""
         chol = cls._cholesky(shape, params)
+        # Handle both single vectors and batches
+        if vector.ndim == 1:
+            return chol @ vector
         return (chol @ vector.T).T
+
+    @classmethod
+    def cholesky_whiten(
+        cls,
+        shape: tuple[int, int],
+        mean1: Array,
+        params1: Array,
+        mean2: Array,
+        params2: Array,
+    ) -> tuple[Array, Array]:
+        """Whiten a distribution (mean1, params1) with respect to another (mean2, params2).
+
+        Perform the transformation:
+        - new_mean = L^(-1) @ (mean1 - mean2)
+        - new_params = L^(-1) @ params1 @ L^(-T)
+
+        Where L is the Cholesky factor of params2 such that L @ L.T = params2.
+        """
+
+        # Get dense matrices
+        matrix2 = cls.to_dense(shape, params2)
+        matrix1 = cls.to_dense(shape, params1)
+
+        # Compute Cholesky and transform mean
+        chol = jnp.linalg.cholesky(matrix2)
+        centered_mean = mean1 - mean2
+        whitened_mean = jax.scipy.linalg.solve_triangular(
+            chol, centered_mean, lower=True
+        )
+
+        # Transform covariance
+        temp = jax.scipy.linalg.solve_triangular(chol, matrix1, lower=True)
+        whitened_matrix = jax.scipy.linalg.solve_triangular(chol, temp.T, lower=True).T
+
+        return whitened_mean, cls.from_dense(whitened_matrix)
 
     @classmethod
     @override
@@ -497,10 +534,29 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     @override
-    def apply_cholesky(
+    def cholesky_matvec(
         cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
-        return jnp.sqrt(params) * vector
+        return vector * jnp.sqrt(params)
+
+    # In class Diagonal
+    @classmethod
+    @override
+    def cholesky_whiten(
+        cls,
+        shape: tuple[int, int],
+        mean1: Array,
+        params1: Array,
+        mean2: Array,
+        params2: Array,
+    ) -> tuple[Array, Array]:
+        # For diagonal matrices, Cholesky is just sqrt of diagonal elements
+        # So whitening is just division by sqrt(params2)
+        sqrt_params2 = jnp.sqrt(params2)
+        whitened_mean = (mean1 - mean2) / sqrt_params2
+        whitened_params = params1 / params2
+
+        return whitened_mean, whitened_params
 
     @classmethod
     @override
@@ -652,10 +708,28 @@ class Identity(Scale):
 
     @classmethod
     @override
-    def apply_cholesky(
+    def cholesky_matvec(
         cls, shape: tuple[int, int], params: Array, vector: Array
     ) -> Array:
         return vector
+
+    # In class Scale
+    @classmethod
+    @override
+    def cholesky_whiten(
+        cls,
+        shape: tuple[int, int],
+        mean1: Array,
+        params1: Array,
+        mean2: Array,
+        params2: Array,
+    ) -> tuple[Array, Array]:
+        # For scale matrices, even simpler - just scalar division
+        sqrt_scale = jnp.sqrt(params2[0])
+        whitened_mean = (mean1 - mean2) / sqrt_scale
+        whitened_params = jnp.array([params1[0] / params2[0]])
+
+        return whitened_mean, whitened_params
 
     @classmethod
     @override

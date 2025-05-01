@@ -208,7 +208,9 @@ class Normal[Rep: PositiveDefinite](
     # Fields
 
     _data_dim: int
+
     rep: type[Rep]
+    """Covariance representation type."""
 
     # Overrides
 
@@ -276,7 +278,7 @@ class Normal[Rep: PositiveDefinite](
         z = jax.random.normal(key, shape)
 
         # Transform samples using Cholesky
-        samples = self.snd_man.rep.apply_cholesky(
+        samples = self.snd_man.rep.cholesky_matvec(
             self.snd_man.shape, covariance.array, z
         )
         return mean.array + samples
@@ -502,6 +504,35 @@ class Normal[Rep: PositiveDefinite](
 
         return self.join_mean_covariance(mean, adjusted_covariance)
 
+    def whiten(
+        self,
+        given: Point[Mean, Self],
+        relative: Point[Mean, Self],
+    ) -> Point[Mean, Self]:
+        """Whiten a normal distribution relative to another normal distribution.
+
+        Transforms a normal distribution to have standard normal parameters by:
+        1. Extracting the distribution's mean and covariance
+        2. Scaling the mean: new_mean = precision^(1/2) @ (old_mean - mean)
+        3. Transforming the covariance: new_cov = precision^(1/2) @ old_cov @ precision^(1/2)
+        where precision^(1/2) is the inverse of the Cholesky decomposition of covariance
+        """
+        old_mean, old_cov = self.split_mean_covariance(given)
+        rel_mean, rel_cov = self.split_mean_covariance(relative)
+
+        new_array, new_matrix = self.cov_man.rep.cholesky_whiten(
+            self.cov_man.shape,
+            old_mean.array,
+            old_cov.array,
+            rel_mean.array,
+            rel_cov.array,
+        )
+
+        new_mean = self.loc_man.mean_point(new_array)
+        new_cov = self.cov_man.mean_point(new_matrix)
+
+        return self.join_mean_covariance(new_mean, new_cov)
+
     def standard_normal(self) -> Point[Mean, Self]:
         """Return the standard normal distribution."""
         return self.join_mean_covariance(
@@ -517,4 +548,4 @@ class Normal[Rep: PositiveDefinite](
     def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
         """Compute the covariance of the distribution."""
         _, cov = self.split_mean_covariance(self.to_mean(params))
-        return self.snd_man.to_dense(cov)
+        return self.cov_man.to_dense(cov)

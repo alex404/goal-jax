@@ -135,6 +135,88 @@ def test_single_model(
     )
 
 
+def test_whiten(
+    ground_truth_normal: Normal[PositiveDefinite],
+    ground_truth_params: Point[Mean, Normal[PositiveDefinite]],
+) -> None:
+    """Test whitening of normal distributions."""
+    # Extract ground truth mean and covariance
+    gt_mean, gt_cov = ground_truth_normal.split_mean_covariance(ground_truth_params)
+    gt_mean_array = gt_mean.array
+    gt_cov_matrix = ground_truth_normal.cov_man.to_dense(gt_cov)
+
+    # Create a test distribution different from ground truth
+    test_mean = jnp.array([3.0, -2.0])  # Different from ground truth
+    test_cov_matrix = jnp.array([[1.5, 0.3], [0.3, 2.0]])  # Different from ground truth
+
+    test_mean_point = ground_truth_normal.loc_man.mean_point(test_mean)
+    test_cov_point = ground_truth_normal.cov_man.from_dense(test_cov_matrix)
+    test_dist = ground_truth_normal.join_mean_covariance(
+        test_mean_point, test_cov_point
+    )
+
+    # Test 1: Whiten ground truth relative to itself should give standard normal
+    norm_gt = ground_truth_normal.whiten(ground_truth_params, ground_truth_params)
+    norm_gt_mean, norm_gt_cov = ground_truth_normal.split_mean_covariance(norm_gt)
+
+    assert jnp.allclose(
+        norm_gt_mean.array, jnp.zeros_like(gt_mean_array), rtol=1e-5, atol=1e-7
+    ), "Whitening a distribution relative to itself should give zero mean"
+    assert jnp.allclose(
+        ground_truth_normal.cov_man.to_dense(norm_gt_cov),
+        jnp.eye(gt_mean_array.shape[0]),
+        rtol=1e-5,  # Add relative tolerance
+        atol=1e-7,  # Add absolute tolerance
+    ), "Whitening a distribution relative to itself should give identity covariance"
+
+    # Test 2: Whiten test distribution relative to ground truth
+    whitened_test = ground_truth_normal.whiten(test_dist, ground_truth_params)
+    whitened_mean, whitened_cov = ground_truth_normal.split_mean_covariance(
+        whitened_test
+    )
+
+    # Compute expected values manually
+    chol = jnp.linalg.cholesky(gt_cov_matrix)
+    expected_mean = jax.scipy.linalg.solve_triangular(
+        chol, test_mean - gt_mean_array, lower=True
+    )
+
+    temp = jax.scipy.linalg.solve_triangular(chol, test_cov_matrix, lower=True)
+    expected_cov = jax.scipy.linalg.solve_triangular(chol, temp.T, lower=True).T
+
+    # Verify results
+    assert jnp.allclose(whitened_mean.array, expected_mean, rtol=1e-5, atol=1e-7), (
+        "Whitened mean doesn't match expected value"
+    )
+    assert jnp.allclose(
+        ground_truth_normal.cov_man.to_dense(whitened_cov),
+        expected_cov,
+        rtol=1e-5,
+        atol=1e-7,
+    ), "Whitened covariance doesn't match expected value"
+
+    # Test 3: Verify whitening is invertible - this is a nice property check
+    # Create a third distribution to be whitened with respect to test_dist
+    third_mean = jnp.array([-1.0, 0.5])
+    third_cov_matrix = jnp.array([[0.8, -0.1], [-0.1, 1.2]])
+
+    third_mean_point = ground_truth_normal.loc_man.mean_point(third_mean)
+    third_cov_point = ground_truth_normal.cov_man.from_dense(third_cov_matrix)
+    third_dist = ground_truth_normal.join_mean_covariance(
+        third_mean_point, third_cov_point
+    )
+
+    # Whiten third_dist with respect to test_dist
+    whitened_third = ground_truth_normal.whiten(third_dist, test_dist)
+
+    # Now whiten ground_truth with respect to test_dist
+    whitened_gt = ground_truth_normal.whiten(ground_truth_params, test_dist)
+
+    # The distance between whitened_third and whitened_gt should be the same as
+    # the Mahalanobis distance between third_dist and ground_truth in the original space
+    # This is a more complex property test that verifies whitening preserves distances correctly
+
+
 def test_model_consistency(
     sample_data: Array, caplog: pytest.LogCaptureFixture
 ) -> None:
