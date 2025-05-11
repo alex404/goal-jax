@@ -232,7 +232,7 @@ class StrongDifferentiableUndirected[
         return self.lwr_hrm  # pyright: ignore[reportReturnType]
 
     @property
-    def hrm_lat_emb(self) -> LinearEmbedding[Latent, UpperHarmonium]:
+    def _hrm_lat_emb(self) -> LinearEmbedding[Latent, UpperHarmonium]:
         """The embedding of the shared latent manifold into the upper harmonium."""
         return ObservableEmbedding(self.con_upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
 
@@ -293,7 +293,7 @@ class StrongDifferentiableUndirected[
             Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
         ],
     ) -> Point[Natural, UpperHarmonium]:
-        return self.hrm_lat_emb.embed(
+        return self._hrm_lat_emb.embed(
             self._abc_lwr_hrm.conjugation_parameters(lkl_params)
         )
 
@@ -380,7 +380,7 @@ class StrongAnalyticUndirected[
     ) -> Point[Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]]:
         """Convert mean parameters to natural parameters for lower likelihood."""
         obs_means, lwr_int_means, lat_means = self.split_params(params)
-        lwr_lat_means = self.hrm_lat_emb.project(lat_means)
+        lwr_lat_means = self._hrm_lat_emb.project(lat_means)
         lwr_means = self._abc_lwr_hrm.join_params(
             obs_means, lwr_int_means, lwr_lat_means
         )
