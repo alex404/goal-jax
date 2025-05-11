@@ -448,12 +448,10 @@ class DifferentiableConjugated[
     ) -> Point[Mean, Self]:
         """Compute average joint expectations over a batch of observations."""
 
-        def _infer_missing_expectations(x: Array) -> Array:
+        def infer_missing_expectations(x: Array) -> Array:
             return self.posterior_statistics(params, x).array
 
-        return self.mean_point(
-            batched_mean(_infer_missing_expectations, xs, batch_size)
-        )
+        return self.mean_point(batched_mean(infer_missing_expectations, xs, batch_size))
 
 
 class SymmetricConjugated[
