@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
@@ -70,10 +70,10 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
             return embedded_point.array
 
         # Compute VJP function at the current point
-        _, vjp_fn = jax.vjp(embed_func, at_point.array)
+        _, vjp_fn = jax.vjp(embed_func, at_point.array)  # pyright: ignore[reportUnknownVariableType]
 
         # Apply VJP to transform the cotangent vector
-        pulled_back_array = vjp_fn(cotangent_vector.array)[0]
+        pulled_back_array = vjp_fn(cotangent_vector.array)[0]  # pyright: ignore[reportUnknownVariableType]
 
         return self.sub_man.point(pulled_back_array)
 
@@ -250,9 +250,9 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
 
     def __post_init__(self):
         """Validate that the component manifold matches the expected component at the given index."""
-        # Get all components
-        zero_tuple = self.amb_man.zeros()
-        components = self.amb_man.split_params(zero_tuple)
+        # Get all components (using Any coordinates since this is just validation)
+        zero_tuple: Point[Any, TupleMan] = self.amb_man.zeros()
+        components: tuple[Point[Any, Any], ...] = self.amb_man.split_params(zero_tuple)
 
         # Check if index is valid
         if self.tup_idx >= len(components):
@@ -285,8 +285,8 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
     def embed[C: Coordinates](self, p: Point[C, Component]) -> Point[C, TupleMan]:
         """Creates a new point in the tuple manifold with the specified component set to p and all other components set to zero."""
         # Split a zero tuple to get zero components
-        zero_tuple = self.amb_man.zeros()
-        components = list(self.amb_man.split_params(zero_tuple))
+        zero_tuple: Point[C, TupleMan] = self.amb_man.zeros()
+        components: list[Point[C, Any]] = list(self.amb_man.split_params(zero_tuple))
 
         # Replace the component at the specified index
         components[self.tup_idx] = p

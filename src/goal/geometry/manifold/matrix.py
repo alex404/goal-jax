@@ -416,7 +416,7 @@ class PositiveDefinite(Symmetric):
         matrix1 = cls.to_dense(shape, params1)
 
         # Compute Cholesky and transform mean
-        chol = jnp.linalg.cholesky(matrix2)
+        chol = jnp.linalg.cholesky(matrix2)  # pyright: ignore[reportUnknownVariableType]
         centered_mean = mean1 - mean2
         whitened_mean = jax.scipy.linalg.solve_triangular(
             chol, centered_mean, lower=True

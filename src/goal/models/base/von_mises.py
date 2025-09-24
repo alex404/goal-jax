@@ -8,7 +8,7 @@ from typing import Self, override
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.scipy.special import i0e  # pyright: ignore[reportUnknownVariableType]
+from jax.scipy.special import i0e
 
 from ...geometry import Differentiable, Mean, Natural, Point
 

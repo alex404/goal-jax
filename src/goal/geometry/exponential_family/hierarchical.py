@@ -234,7 +234,7 @@ class StrongDifferentiableUndirected[
     @property
     def _hrm_lat_emb(self) -> LinearEmbedding[Latent, UpperHarmonium]:
         """The embedding of the shared latent manifold into the upper harmonium."""
-        return ObservableEmbedding(self.con_upr_hrm)  # pyright: ignore[reportReturnType, reportUnknownVariableType, reportArgumentType]
+        return ObservableEmbedding(self.con_upr_hrm)  # pyright: ignore[reportReturnType, reportArgumentType]
 
     # Overrides
 
@@ -251,7 +251,7 @@ class StrongDifferentiableUndirected[
     @property
     @override
     def int_lat_emb(self) -> LinearEmbedding[IntLatent, UpperHarmonium]:
-        return LinearComposedEmbedding(  # pyright: ignore[reportReturnType, reportUnknownVariableType]
+        return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
             ObservableEmbedding(self.upr_hrm),  # pyright: ignore[reportArgumentType]
             self._abc_lwr_hrm.int_lat_emb,
         )
@@ -259,7 +259,7 @@ class StrongDifferentiableUndirected[
     @property
     @override
     def pst_lat_emb(self) -> LinearEmbedding[PostUpperHarmonium, UpperHarmonium]:
-        return LatentHarmoniumEmbedding(  # pyright: ignore[reportReturnType, reportUnknownVariableType]
+        return LatentHarmoniumEmbedding(  # pyright: ignore[reportReturnType]
             self._abc_lwr_hrm.pst_lat_emb,
             self.upr_hrm,  # pyright: ignore[reportArgumentType]
             self.con_upr_hrm,  # pyright: ignore[reportArgumentType]

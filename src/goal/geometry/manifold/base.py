@@ -92,7 +92,7 @@ class Manifold(ABC):
 
     # Templates
 
-    def point[Coords: Coordinates](self, array: Array) -> Point[Coords, Self]:
+    def point[C: Coordinates](self, array: Array) -> Point[C, Self]:  # pyright: ignore[reportInvalidTypeVarUse]
         """Create a point in the manifold in an arbitrary coordinate system --- more specific versions of this method should be preferred where applicable."""
         # Check size matches dimension
         if array.size != self.dim:
@@ -101,7 +101,7 @@ class Manifold(ABC):
             )
         return Point(jnp.reshape(array, self.coordinates_shape))
 
-    def zeros[Coords: Coordinates](self) -> Point[Coords, Self]:
+    def zeros[C: Coordinates](self) -> Point[C, Self]:  # pyright: ignore[reportInvalidTypeVarUse]
         """Create a point in an arbitrary coordinate system with coordinates $\\mathbf 0$."""
         return self.point(jnp.zeros(self.coordinates_shape))
 

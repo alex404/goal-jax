@@ -7,12 +7,12 @@ from typing import NewType
 
 from optax import (  # pyright: ignore[reportMissingTypeStubs]
     GradientTransformation,
-    ScalarOrSchedule,  # pyright: ignore[reportUnknownVariableType]
-    adamw,  # pyright: ignore[reportUnknownVariableType]
-    apply_updates,  # pyright: ignore[reportUnknownVariableType]
+    ScalarOrSchedule,
+    adamw,
+    apply_updates,
     chain,
     clip_by_global_norm,
-    sgd,  # pyright: ignore[reportUnknownVariableType]
+    sgd,
 )
 
 from .base import Coordinates, Dual, Manifold, Point
@@ -64,13 +64,14 @@ class Optimizer[C: Coordinates, M: Manifold]:
         grads: Point[Dual[C], M],
         point: Point[C, M],
     ) -> tuple[OptState, Point[C, M]]:
-        updates, new_opt_state = self.optimizer.update(  # pyright: ignore[reportUnknownVariableType]
+        updates, new_opt_state = self.optimizer.update(
             grads.array,
             opt_state,  # pyright: ignore[reportArgumentType]
             point.array,
         )
-        new_params = apply_updates(point.array, updates)  # pyright: ignore[reportUnknownVariableType]
-        return OptState(new_opt_state), self.opt_man.point(new_params)  # pyright: ignore[reportUnknownVariableType, reportArgumentType]
+        new_params = apply_updates(point.array, updates)
+        new_point: Point[C, M] = self.opt_man.point(new_params)  # pyright: ignore[reportArgumentType, reportUnknownVariableType]
+        return OptState(new_opt_state), new_point
 
     def with_grad_clip(self, max_norm: float) -> Optimizer[C, M]:
         """Add gradient clipping to this optimizer."""

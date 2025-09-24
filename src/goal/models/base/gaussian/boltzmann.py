@@ -70,6 +70,7 @@ class Boltzmann(GeneralizedGaussian[InteractionMatrix], ExponentialFamily):
         self._states = jnp.array(list(itertools.product([0, 1], repeat=n_neurons)))
 
     @property
+    @override
     def dim(self) -> int:
         return self.loc_man.dim
 
@@ -81,6 +82,7 @@ class Boltzmann(GeneralizedGaussian[InteractionMatrix], ExponentialFamily):
         xx_tril = jnp.outer(x, x)[tril_indices]
         return jnp.concatenate([x, xx_tril])
 
+    @override
     def log_base_measure(self, x: Array) -> Array:
         return 0.0
 

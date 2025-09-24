@@ -81,7 +81,7 @@ class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
         return self.fst_man.point(first_params), self.snd_man.point(second_params)
 
     @override
-    def join_params[C: Coordinates](  # pyright: ignore[reportIncompatibleMethodOverride]
+    def join_params[C: Coordinates](
         self, first: Point[C, First], second: Point[C, Second]
     ) -> Point[C, Self]:
         """Join component parameters into a single point."""
@@ -138,7 +138,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
         )
 
     @override
-    def join_params[C: Coordinates](  # pyright: ignore[reportIncompatibleMethodOverride]
+    def join_params[C: Coordinates](
         self,
         first: Point[C, First],
         second: Point[C, Second],

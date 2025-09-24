@@ -75,7 +75,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         """Apply the linear map to transform a point."""
         return self.cod_man.point(self.rep.matvec(self.shape, f.array, p.array))
 
-    def from_dense[C: Coordinates](self, matrix: Array) -> Point[C, Self]:
+    def from_dense[C: Coordinates](self, matrix: Array) -> Point[C, Self]:  # pyright: ignore[reportInvalidTypeVarUse]
         """Create point from dense matrix."""
         return self.point(self.rep.from_dense(matrix))
 

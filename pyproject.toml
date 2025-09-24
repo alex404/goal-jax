@@ -65,6 +65,7 @@ reportAny = "none"
 reportExplicitAny = "none"
 reportMissingSuperCall = "none"
 reportUnusedCallResult = "none"
+reportIncompatibleMethodOverride = "none"
 
 [tool.ruff]
 src = ["src"]
