@@ -34,6 +34,7 @@ from ....geometry import (
     SquareMap,
     expand_dual,
 )
+from .generalized import GeneralizedGaussian
 
 type FullNormal = Normal[PositiveDefinite]
 type DiagonalNormal = Normal[Diagonal]
@@ -180,7 +181,9 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
 
 @dataclass(frozen=True)
 class Normal[Rep: PositiveDefinite](
-    LocationShape[Euclidean, Covariance[Rep]], Analytic
+    LocationShape[Euclidean, Covariance[Rep]],
+    GeneralizedGaussian[Euclidean, Covariance[Rep]],
+    Analytic,
 ):
     """(Multivariate) Normal distributions.
 
@@ -385,18 +388,21 @@ class Normal[Rep: PositiveDefinite](
 
         return mean, covariance
 
+    @override
     def split_mean_second_moment(
         self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
         """Split parameters into mean and second-moment components."""
         return self.split_params(p)
 
+    @override
     def join_mean_second_moment(
         self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance[Rep]]
     ) -> Point[Mean, Self]:
         """Join mean and second-moment parameters."""
         return self.join_params(mean, second_moment)
 
+    @override
     def split_location_precision(
         self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[Rep]]]:
@@ -440,6 +446,7 @@ class Normal[Rep: PositiveDefinite](
 
         return loc, scl * theta2
 
+    @override
     def join_location_precision(
         self,
         loc: Point[Natural, Euclidean],
@@ -549,3 +556,28 @@ class Normal[Rep: PositiveDefinite](
         """Compute the covariance of the distribution."""
         _, cov = self.split_mean_covariance(self.to_mean(params))
         return self.cov_man.to_dense(cov)
+
+    # GeneralizedGaussian interface implementation
+
+    @property
+    @override
+    def location_manifold(self) -> Euclidean:
+        """The location component manifold (Euclidean space)."""
+        return self.loc_man
+
+    @property
+    @override
+    def shape_manifold(self) -> Covariance[Rep]:
+        """The shape component manifold (covariance structure)."""
+        return self.cov_man
+
+    @override
+    def _compute_second_moment(self, x: Array) -> Point[Mean, Covariance[Rep]]:
+        """Compute the second moment component for Normal distributions.
+
+        For Normal distributions, this is the outer product x⊗x with the
+        appropriate covariance matrix structure.
+        """
+        x = jnp.atleast_1d(x)
+        x_point: Point[Mean, Euclidean] = self.loc_man.mean_point(x)
+        return self.cov_man.outer_product(x_point, x_point)
