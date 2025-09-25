@@ -6,10 +6,11 @@ from typing import Self, override
 import jax.numpy as jnp
 from jax import Array
 
-from ....geometry import ExponentialFamily, Manifold, Mean, Natural, Point
+from ....geometry import ExponentialFamily, Mean, Natural, Point
+from ....geometry.exponential_family.combinators import LocationShape
 
 
-class GeneralizedGaussian[L: Manifold, S: Manifold](ExponentialFamily, ABC):
+class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](LocationShape[L, S], ABC):
     r"""ABC for exponential families with Gaussian-like sufficient statistics.
 
     This abc captures the shared structure between Normal distributions and
@@ -29,19 +30,6 @@ class GeneralizedGaussian[L: Manifold, S: Manifold](ExponentialFamily, ABC):
     distributions.
     """
 
-    # Abstract properties
-
-    @property
-    @abstractmethod
-    def location_manifold(self) -> L:
-        """The location component manifold (first-order parameters)."""
-        ...
-
-    @property
-    @abstractmethod
-    def shape_manifold(self) -> S:
-        """The shape/interaction component manifold (second-order parameters)."""
-        ...
 
     # Core split/join operations for harmonium conjugation
 
@@ -138,21 +126,10 @@ class GeneralizedGaussian[L: Manifold, S: Manifold](ExponentialFamily, ABC):
         x = jnp.atleast_1d(x)
 
         # First moment component
-        first_moment: Point[Mean, L] = self.location_manifold.point(x)
+        first_moment: Point[Mean, L] = self.fst_man.point(x)
 
         # Second moment component - computed by shape manifold
-        # This allows Normal vs Boltzmann to handle constraints differently
-        second_moment = self._compute_second_moment(x)
+        second_moment = self.snd_man.sufficient_statistic(x)
 
         return self.join_mean_second_moment(first_moment, second_moment)
 
-    @abstractmethod
-    def _compute_second_moment(self, x: Array) -> Point[Mean, S]:
-        """Compute the second moment component with distribution-specific constraints.
-
-        Args:
-            x: Data point
-
-        Returns:
-            Second moment in mean coordinates with appropriate constraints
-        """

@@ -8,7 +8,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ....geometry import Differentiable, ExponentialFamily, LocationShape, Mean, Natural, Point
+from ....geometry import (
+    Differentiable,
+    ExponentialFamily,
+    LocationShape,
+    Mean,
+    Natural,
+    Point,
+)
 from .generalized import GeneralizedGaussian
 from .normal import Euclidean
 
@@ -76,7 +83,6 @@ class InteractionMatrix(ExponentialFamily):
 
 @dataclass(frozen=True)
 class Boltzmann(
-    LocationShape[Euclidean, InteractionMatrix],
     GeneralizedGaussian[Euclidean, InteractionMatrix],
     Differentiable,
 ):
@@ -111,17 +117,6 @@ class Boltzmann(
         """Data dimension equals number of neurons."""
         return self.n_neurons
 
-    @property
-    @override
-    def location_manifold(self) -> Euclidean:
-        """Bias parameters (location component)."""
-        return Euclidean(self.n_neurons)
-
-    @property
-    @override
-    def shape_manifold(self) -> InteractionMatrix:
-        """Interaction parameters (shape component)."""
-        return InteractionMatrix(self.n_neurons)
 
     # LocationShape interface (Pair implementation)
 
@@ -129,13 +124,13 @@ class Boltzmann(
     @override
     def fst_man(self) -> Euclidean:
         """First component: location manifold (bias parameters)."""
-        return self.location_manifold
+        return Euclidean(self.n_neurons)
 
     @property
     @override
     def snd_man(self) -> InteractionMatrix:
         """Second component: shape manifold (interaction parameters)."""
-        return self.shape_manifold
+        return InteractionMatrix(self.n_neurons)
 
     @override
     def split_location_precision(
@@ -146,8 +141,8 @@ class Boltzmann(
         bias_params = params.array[:n]
         int_params = params.array[n:]
 
-        bias_point = self.location_manifold.natural_point(bias_params)
-        int_point = self.shape_manifold.natural_point(int_params)
+        bias_point = self.fst_man.natural_point(bias_params)
+        int_point = self.snd_man.natural_point(int_params)
 
         return bias_point, int_point
 
@@ -170,8 +165,8 @@ class Boltzmann(
         mean_params = params.array[:n]
         corr_params = params.array[n:]
 
-        mean_point = self.location_manifold.mean_point(mean_params)
-        corr_point = self.shape_manifold.mean_point(corr_params)
+        mean_point = self.fst_man.mean_point(mean_params)
+        corr_point = self.snd_man.mean_point(corr_params)
 
         return mean_point, corr_point
 
@@ -183,10 +178,6 @@ class Boltzmann(
         combined = jnp.concatenate([mean.array, correlations.array])
         return self.mean_point(combined)
 
-    @override
-    def _compute_second_moment(self, x: Array) -> Point[Mean, InteractionMatrix]:
-        """Compute off-diagonal correlations for Boltzmann machines."""
-        return self.shape_manifold.sufficient_statistic(x)
 
     @override
     def log_base_measure(self, x: Array) -> Array:

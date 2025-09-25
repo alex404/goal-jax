@@ -181,7 +181,6 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
 
 @dataclass(frozen=True)
 class Normal[Rep: PositiveDefinite](
-    LocationShape[Euclidean, Covariance[Rep]],
     GeneralizedGaussian[Euclidean, Covariance[Rep]],
     Analytic,
 ):
@@ -561,23 +560,13 @@ class Normal[Rep: PositiveDefinite](
 
     @property
     @override
-    def location_manifold(self) -> Euclidean:
-        """The location component manifold (Euclidean space)."""
+    def fst_man(self) -> Euclidean:
+        """First component: location manifold (Euclidean space)."""
         return self.loc_man
 
     @property
     @override
-    def shape_manifold(self) -> Covariance[Rep]:
-        """The shape component manifold (covariance structure)."""
+    def snd_man(self) -> Covariance[Rep]:
+        """Second component: shape manifold (covariance structure)."""
         return self.cov_man
 
-    @override
-    def _compute_second_moment(self, x: Array) -> Point[Mean, Covariance[Rep]]:
-        """Compute the second moment component for Normal distributions.
-
-        For Normal distributions, this is the outer product x⊗x with the
-        appropriate covariance matrix structure.
-        """
-        x = jnp.atleast_1d(x)
-        x_point: Point[Mean, Euclidean] = self.loc_man.mean_point(x)
-        return self.cov_man.outer_product(x_point, x_point)
