@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 goal-jax is a JAX implementation of information geometric algorithms and exponential families. The library provides geometric optimization tools for statistical models, focusing on manifold-based optimization and exponential family distributions.
 
+## Development Environment
+
+This project uses `uv` for Python environment and dependency management. Always activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
 ## Development Commands
 
 ### Testing
@@ -22,9 +30,9 @@ goal-jax is a JAX implementation of information geometric algorithms and exponen
 - Type checking: `pyright` (configured via pyproject.toml)
 
 ### Installation and Dependencies
-- Install for development: `pip install -e ".[test]"`
-- Install for examples: `pip install -e ".[examples]"`
-- Install for documentation: `pip install -e ".[docs]"`
+- Install for development: `pip install -e ".[test]"` or `uv pip install -e ".[test]"`
+- Install for examples: `pip install -e ".[examples]"` or `uv pip install -e ".[examples]"`
+- Install for documentation: `pip install -e ".[docs]"` or `uv pip install -e ".[docs]"`
 - GPU support: `pip install -e ".[gpu]"`
 
 ### Examples
@@ -34,7 +42,7 @@ Examples are located in the `examples/` directory and organized by topic:
 - Available examples: bivariate_normal, dimensionality_reduction, hmog, mixture_of_gaussians, univariate_analytic, univariate_differentiable, poisson_mixture
 
 ### Documentation
-- Build documentation: `sphinx-build docs/source docs/build`
+- Build documentation: `sphinx-build docs/source docs/build` or `cd docs/ && make html`
 - Documentation is also configured for MkDocs: `mkdocs serve` (uses mkdocs.yml)
 - Live documentation: https://goal-jax.readthedocs.io/
 
@@ -138,3 +146,10 @@ return components[self.tup_idx]  # type: ignore[return-value]
 - Tests are minimal and focused on core functionality
 - Test files correspond to major components: matrix representations, normal distributions, univariate models, linear Gaussian models
 - No comprehensive test suite - tests serve as integration checks
+
+## Dependencies
+- **JAX**: Core computation backend for automatic differentiation
+- **Optax**: Optimization algorithms compatible with JAX
+- **pytest**: Testing framework
+- **ruff**: Fast Python linter/formatter
+- **pyright**: Static type checker
