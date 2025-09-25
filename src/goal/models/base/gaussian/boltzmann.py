@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ....geometry import Differentiable, ExponentialFamily, Mean, Natural, Point
+from ....geometry import Differentiable, ExponentialFamily, LocationShape, Mean, Natural, Point
 from .generalized import GeneralizedGaussian
 from .normal import Euclidean
 
@@ -75,7 +75,11 @@ class InteractionMatrix(ExponentialFamily):
 
 
 @dataclass(frozen=True)
-class Boltzmann(Differentiable, GeneralizedGaussian[Euclidean, InteractionMatrix]):
+class Boltzmann(
+    LocationShape[Euclidean, InteractionMatrix],
+    GeneralizedGaussian[Euclidean, InteractionMatrix],
+    Differentiable,
+):
     """Boltzmann machine distribution for small networks.
 
     Designed for exact computation with <100 neurons.
@@ -118,6 +122,20 @@ class Boltzmann(Differentiable, GeneralizedGaussian[Euclidean, InteractionMatrix
     def shape_manifold(self) -> InteractionMatrix:
         """Interaction parameters (shape component)."""
         return InteractionMatrix(self.n_neurons)
+
+    # LocationShape interface (Pair implementation)
+
+    @property
+    @override
+    def fst_man(self) -> Euclidean:
+        """First component: location manifold (bias parameters)."""
+        return self.location_manifold
+
+    @property
+    @override
+    def snd_man(self) -> InteractionMatrix:
+        """Second component: shape manifold (interaction parameters)."""
+        return self.shape_manifold
 
     @override
     def split_location_precision(
