@@ -16,8 +16,7 @@ from ....geometry import (
     Natural,
     Point,
 )
-from .generalized import GeneralizedGaussian
-from .normal import Euclidean
+from .generalized import Euclidean, GeneralizedGaussian
 
 
 @dataclass(frozen=True)

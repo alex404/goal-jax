@@ -25,7 +25,6 @@ from ....geometry import (
     ExponentialFamily,
     Identity,
     LinearMap,
-    LocationShape,
     Mean,
     Natural,
     Point,
@@ -34,7 +33,7 @@ from ....geometry import (
     SquareMap,
     expand_dual,
 )
-from .generalized import GeneralizedGaussian
+from .generalized import Euclidean, GeneralizedGaussian
 
 type FullNormal = Normal[PositiveDefinite]
 type DiagonalNormal = Normal[Diagonal]
@@ -67,44 +66,6 @@ def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
 
 
 @dataclass(frozen=True)
-class Euclidean(ExponentialFamily):
-    """Euclidean space $\\mathbb{R}^n$ of dimension $n$. Euclidean space consists of $n$-dimensional real vectors with the standard Euclidean distance metric
-
-    $$d(x,y) = \\sqrt{\\sum_{i=1}^n (x_i - y_i)^2}.$$
-
-    Euclidean also serves as the location component of a Normal distribution, and on its own we treat it as a normal distribution with unit covariance.
-
-    As an exponential family:
-        - Sufficient statistic: Identity map $s(x) = x$
-        - Base measure: $\\mu(x) = -\\frac{n}{2}\\log(2\\pi)$
-    """  # Fields
-
-    _dim: int
-
-    # Overrides
-
-    @property
-    @override
-    def dim(self) -> int:
-        """Return the dimension of the space."""
-        return self._dim
-
-    @property
-    @override
-    def data_dim(self) -> int:
-        return self.dim
-
-    @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Identity map on the data."""
-        return self.mean_point(x)
-
-    @override
-    def log_base_measure(self, x: Array) -> Array:
-        """Standard normal base measure including normalizing constant."""
-        return -0.5 * self.dim * jnp.log(2 * jnp.pi)
-
-
 class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):
     """Shape component of a Normal distribution.
 
@@ -215,16 +176,6 @@ class Normal[Rep: PositiveDefinite](
     """Covariance representation type."""
 
     # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> Euclidean:
-        return self.loc_man
-
-    @property
-    @override
-    def snd_man(self) -> Covariance[Rep]:
-        return self.cov_man
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
@@ -569,4 +520,3 @@ class Normal[Rep: PositiveDefinite](
     def snd_man(self) -> Covariance[Rep]:
         """Second component: shape manifold (covariance structure)."""
         return self.cov_man
-

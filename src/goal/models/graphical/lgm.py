@@ -28,9 +28,9 @@ from ...geometry import (
     expand_dual,
     reduce_dual,
 )
+from ..base.gaussian.generalized import Euclidean
 from ..base.gaussian.normal import (
     Covariance,
-    Euclidean,
     FullNormal,
     Normal,
     cov_to_lin,
