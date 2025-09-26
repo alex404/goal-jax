@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Self, override
 
 import jax
@@ -11,7 +12,6 @@ from jax import Array
 from ....geometry import (
     Differentiable,
     ExponentialFamily,
-    LocationShape,
     Mean,
     Natural,
     Point,
@@ -96,15 +96,7 @@ class Boltzmann(
     """
 
     n_neurons: int
-    _states: Array = None  # Will be computed in __post_init__
 
-    def __post_init__(self):
-        # Precompute all possible states (2^n binary vectors)
-        states = jnp.array(list(itertools.product([0, 1], repeat=self.n_neurons)))
-        # Use object.__setattr__ to bypass frozen dataclass restriction
-        object.__setattr__(self, "_states", states)
-
-    @property
     @override
     def dim(self) -> int:
         """Parameter dimension: n bias + n(n-1)/2 interaction terms."""
@@ -116,6 +108,12 @@ class Boltzmann(
         """Data dimension equals number of neurons."""
         return self.n_neurons
 
+    @cached_property
+    def states(self) -> Array:
+        """All possible binary states of the network."""
+        return jnp.array(
+            list(itertools.product([0, 1], repeat=self.n_neurons)), dtype=jnp.float32
+        )
 
     # LocationShape interface (Pair implementation)
 
@@ -177,7 +175,6 @@ class Boltzmann(
         combined = jnp.concatenate([mean.array, correlations.array])
         return self.mean_point(combined)
 
-
     @override
     def log_base_measure(self, x: Array) -> Array:
         """Base measure for binary variables."""
@@ -193,12 +190,12 @@ class Boltzmann(
         bias, interactions = self.split_location_precision(params)
 
         # Compute bias terms
-        energies = jnp.dot(self._states, bias.array)
+        energies = jnp.dot(self.states, bias.array)
 
         # Add interaction terms
-        int_matrix = self.shape_manifold.to_dense(interactions)
+        int_matrix = self.snd_man.to_dense(interactions)
         interaction_energies = 0.5 * jnp.sum(
-            self._states[:, :, None] * int_matrix * self._states[:, None, :],
+            self.states[:, :, None] * int_matrix * self.states[:, None, :],
             axis=(1, 2),
         )
 
@@ -221,7 +218,7 @@ class Boltzmann(
 
         # Extract parameters
         bias, interactions = self.split_location_precision(params)
-        int_matrix = self.shape_manifold.to_dense(interactions)
+        int_matrix = self.snd_man.to_dense(interactions)
 
         def gibbs_step(state: Array, key: Array) -> Array:
             """Single Gibbs step updating all units in random order."""
