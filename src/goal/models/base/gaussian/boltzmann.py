@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
-from functools import cached_property
 from typing import Any, Self, override
 
 import jax
@@ -97,6 +96,7 @@ class Boltzmann(
 
     n_neurons: int
 
+    @property
     @override
     def dim(self) -> int:
         """Parameter dimension: n bias + n(n-1)/2 interaction terms."""
@@ -108,7 +108,7 @@ class Boltzmann(
         """Data dimension equals number of neurons."""
         return self.n_neurons
 
-    @cached_property
+    @property
     def states(self) -> Array:
         """All possible binary states of the network."""
         return jnp.array(
@@ -187,20 +187,12 @@ class Boltzmann(
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         """Compute log partition function by exact enumeration."""
-        bias, interactions = self.split_location_precision(params)
-
-        # Compute bias terms
-        energies = jnp.dot(self.states, bias.array)
-
-        # Add interaction terms
-        int_matrix = self.snd_man.to_dense(interactions)
-        interaction_energies = 0.5 * jnp.sum(
-            self.states[:, :, None] * int_matrix * self.states[:, None, :],
-            axis=(1, 2),
-        )
-
-        total_energies = energies + interaction_energies
-        return jax.scipy.special.logsumexp(total_energies)
+        # Compute sufficient statistics for all states
+        suff_stats = jax.vmap(self.sufficient_statistic)(self.states)
+        
+        # Dot product of parameters with sufficient statistics + log-sum-exp
+        energies = jnp.dot(suff_stats.array, params.array)
+        return jax.scipy.special.logsumexp(energies)
 
     @override
     def sample(

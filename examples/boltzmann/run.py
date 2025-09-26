@@ -178,7 +178,7 @@ def evaluate_model(model: Boltzmann, params: Array) -> tuple[Array, Array, Array
 
     # Compute energies (negative log unnormalized probabilities)
     bias, interactions = model.split_location_precision(params)
-    int_matrix = model.shape_manifold.to_dense(interactions)
+    int_matrix = model.snd_man.to_dense(interactions)
 
     energies = -(
         jnp.dot(all_states, bias.array)
@@ -286,7 +286,7 @@ def run_boltzmann_analysis(key: Array) -> BoltzmannPatternResults:
 
     # 6. Extract learned parameters for visualization
     bias, interactions = model.split_location_precision(fitted_params)
-    interaction_matrix = model.shape_manifold.to_dense(interactions)
+    interaction_matrix = model.snd_man.to_dense(interactions)
 
     # 7. Compute pattern frequencies
     pattern_frequencies = compute_pattern_frequencies(training_data, gt_patterns)
