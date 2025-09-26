@@ -189,7 +189,7 @@ class Boltzmann(
         """Compute log partition function by exact enumeration."""
         # Compute sufficient statistics for all states
         suff_stats = jax.vmap(self.sufficient_statistic)(self.states)
-        
+
         # Dot product of parameters with sufficient statistics + log-sum-exp
         energies = jnp.dot(suff_stats.array, params.array)
         return jax.scipy.special.logsumexp(energies)

@@ -65,7 +65,6 @@ def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
 # Component Classes
 
 
-@dataclass(frozen=True)
 class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):
     """Shape component of a Normal distribution.
 
