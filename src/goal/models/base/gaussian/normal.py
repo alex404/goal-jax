@@ -320,7 +320,7 @@ class Normal[Rep: PositiveDefinite](
         covariance: Point[Mean, Covariance[Rep]],
     ) -> Point[Mean, Self]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
-        # Create the second moment η₂ = μμᵀ + Σ
+        # Create the second moment $\\eta_2 = \\mu\\mu^T + \\Sigma$
         outer = self.snd_man.outer_product(mean, mean)
         second_moment = outer + covariance
 
@@ -330,10 +330,10 @@ class Normal[Rep: PositiveDefinite](
         self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
         """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
-        # Split into μ and η₂
+        # Split into $\\mu$ and $\\eta_2$
         mean, second_moment = self.split_params(p)
 
-        # Compute Σ = η₂ - μμᵀ
+        # Compute $\\Sigma = \\eta_2 - \\mu\\mu^T$
         outer = self.snd_man.outer_product(mean, mean)
         covariance = second_moment - outer
 

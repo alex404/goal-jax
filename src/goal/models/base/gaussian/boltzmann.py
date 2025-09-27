@@ -22,9 +22,9 @@ class CouplingMatrix(Differentiable):
     """Exponential family over moment matrices.
 
     Core implementation of Boltzmann machines as exponential family distributions
-    with moment matrix sufficient statistic x ⊗ x.
+    with moment matrix sufficient statistic $x \\otimes x$.
 
-    Distribution: p(x) ∝ exp(tr(Θᵀ(x ⊗ x)))
+    Distribution: $p(x) \\propto \\exp(\\tr(\\Theta^T(x \\otimes x)))$
     """
 
     n_neurons: int
@@ -53,7 +53,7 @@ class CouplingMatrix(Differentiable):
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Sufficient statistic is x ⊗ x stored as triangular."""
+        """Sufficient statistic is $x \\otimes x$ stored as triangular."""
         x = jnp.atleast_1d(x).astype(jnp.float32)
         outer_product = jnp.outer(x, x)
         tril_indices = jnp.tril_indices(self.n_neurons)
@@ -95,7 +95,7 @@ class CouplingMatrix(Differentiable):
         suff_stat_0 = self.sufficient_statistic(state_0)
         suff_stat_1 = self.sufficient_statistic(state_1)
 
-        # Energy difference = θ^T (s(x_1) - s(x_0))
+        # Energy difference = $\\theta^T (s(x_1) - s(x_0))$
         return jnp.dot(params.array, suff_stat_1.array - suff_stat_0.array)
 
     def unit_conditional_prob(
@@ -180,8 +180,8 @@ class Boltzmann(CouplingMatrix):
 
         The scaling by 1/2 for off-diagonal terms ensures that the dot product
         between natural parameters and triangular sufficient statistics equals
-        the quadratic form x^T Θ x. Since off-diagonal elements appear twice
-        in the outer product x⊗x (as (i,j) and (j,i)), we scale by 1/2 to
+        the quadratic form $x^T \\Theta x$. Since off-diagonal elements appear twice
+        in the outer product $x\\otimes x$ (as (i,j) and (j,i)), we scale by 1/2 to
         avoid double-counting in the energy computation.
         """
         triangular_params = params.array
@@ -239,7 +239,7 @@ class Boltzmann(CouplingMatrix):
 
         Mean parameters represent expected values of sufficient statistics.
         The first moment E[x] is extracted from the diagonal of the second
-        moment matrix E[x⊗x], since the diagonal contains E[xᵢ²] = E[xᵢ]
+        moment matrix $E[x\\otimes x]$, since the diagonal contains $E[x_i^2] = E[x_i]$
         for binary variables.
         """
         triangular_params = params.array

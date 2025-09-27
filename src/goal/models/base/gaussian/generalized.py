@@ -78,8 +78,8 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, 
         """Split parameters into location and precision in natural coordinates.
 
         For harmonium conjugation, natural coordinates represent:
-        - Location: θ₁ = Σ⁻¹μ (Normal) or bias parameters (Boltzmann)
-        - Precision: θ₂ = -½Σ⁻¹ (Normal) or -½J (Boltzmann precisions)
+        - Location: $\\theta_1 = \\Sigma^{-1}\\mu$ (Normal) or bias parameters (Boltzmann)
+        - Precision: $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$ (Normal) or $-\\frac{1}{2}J$ (Boltzmann precisions)
 
         Args:
             params: Parameters in natural coordinates
@@ -113,8 +113,8 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, 
         """Split parameters into mean and second moment in mean coordinates.
 
         For harmonium conjugation, mean coordinates represent:
-        - Mean: η₁ = μ (first moment)
-        - Second moment: η₂ = μμᵀ + Σ (Normal) or correlations (Boltzmann)
+        - Mean: $\\eta_1 = \\mu$ (first moment)
+        - Second moment: $\\eta_2 = \\mu\\mu^T + \\Sigma$ (Normal) or correlations (Boltzmann)
 
         Args:
             params: Parameters in mean coordinates
