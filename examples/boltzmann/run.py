@@ -89,7 +89,7 @@ def generate_training_data(
 
 def fit_boltzmann_machine(
     training_data: Array, n_steps: int = 500, learning_rate: float = 0.01
-) -> tuple[Boltzmann, Array]:
+) -> tuple[Boltzmann, Point[Natural, Boltzmann], Array]:
     """Fit a Boltzmann machine to the training data using gradient descent.
 
     Args:
@@ -100,6 +100,7 @@ def fit_boltzmann_machine(
     Returns:
         model: Fitted Boltzmann machine
         params: Learned parameters in natural coordinates
+        losses: Training loss history
     """
     model = Boltzmann(n_neurons=4)
 
@@ -124,12 +125,8 @@ def fit_boltzmann_machine(
     opt_state = optimizer.init(init_params)
 
     def cross_entropy_loss(params: Point[Natural, Boltzmann]) -> Array:
-        """Negative log-likelihood loss."""
-        # Manually compute average log density
-        log_densities = jax.vmap(model.log_density, in_axes=(None, 0))(
-            params, training_data
-        )
-        return -jnp.mean(log_densities)
+        """Negative log-likelihood loss using exponential family interface."""
+        return -model.average_log_density(params, training_data)
 
     def grad_step(
         opt_state_and_params: tuple[OptState, Point[Natural, Boltzmann]], _: Any
@@ -158,27 +155,26 @@ def fit_boltzmann_machine(
     return model, final_params, losses
 
 
-def evaluate_model(model: Boltzmann, params: Array) -> tuple[Array, Array, Array]:
+def evaluate_model(
+    model: Boltzmann, params: Point[Natural, Boltzmann]
+) -> tuple[Array, Array, Array]:
     """Evaluate the fitted model on all possible 2x2 binary states.
 
     Returns:
         all_states: All possible 4-bit binary states
         probabilities: Model probability for each state
-        energies: Energy of each state under the model
+        energies: Negative log unnormalized probabilities
     """
     # Generate all possible 2x2 binary states
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))
 
-    # Compute log probabilities using the model
+    # Use exponential family interface directly
     log_probs = jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states)
     probabilities = jnp.exp(log_probs)
 
-    # Compute energies using sufficient statistics
-    def energy_for_state(state):
-        suff_stat = model.sufficient_statistic(state)
-        return -jnp.dot(params.array, suff_stat.array)
-
-    energies = jax.vmap(energy_for_state)(all_states)
+    # Energies are negative log unnormalized probabilities
+    log_partition = model.log_partition_function(params)
+    energies = -(log_probs + log_partition)
 
     return all_states, probabilities, energies
 
@@ -209,15 +205,15 @@ def compute_pattern_frequencies(data: Array, patterns: Array) -> Array:
 
 
 def test_sampling_convergence(
-    key: Array, model: Boltzmann, params: Array
+    key: Array, model: Boltzmann, params: Point[Natural, Boltzmann]
 ) -> tuple[list[int], list[int], list[list[float]]]:
     """Test that Gibbs sampling converges to exact probabilities.
 
     This is a numerical simulation test independent of the learning problem.
     We test how both sample size and number of Gibbs steps affect convergence
-    to the exact probabilities computed via natural-to-mean conversion.
+    to the exact probabilities computed via the exponential family interface.
     """
-    # Get exact probabilities via brute force computation
+    # Get exact probabilities using exponential family interface
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))
     exact_probs = jnp.exp(
         jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states)
@@ -235,10 +231,10 @@ def test_sampling_convergence(
 
     print("Testing Gibbs sampling convergence...")
 
-    for i, n_samples in enumerate(sample_sizes):
+    for n_samples in sample_sizes:
         sample_errors = []
 
-        for j, n_thin in enumerate(thin_levels):
+        for n_thin in thin_levels:
             # Generate samples using Gibbs sampling
             key, subkey = jax.random.split(key)
             samples = model.sample(
@@ -249,7 +245,9 @@ def test_sampling_convergence(
             empirical_probs = jnp.zeros(16)
             for k, state in enumerate(all_states):
                 # Convert both to same type for comparison
-                matches = jnp.all(samples.astype(jnp.int32) == state.astype(jnp.int32), axis=1)
+                matches = jnp.all(
+                    samples.astype(jnp.int32) == state.astype(jnp.int32), axis=1
+                )
                 empirical_probs = empirical_probs.at[k].set(jnp.mean(matches))
 
             # Compute L2 error

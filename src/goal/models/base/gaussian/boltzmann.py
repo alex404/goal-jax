@@ -90,14 +90,13 @@ class CouplingMatrix(Differentiable):
         # Create states with unit_idx = 0 and unit_idx = 1
         state_0 = state.at[unit_idx].set(0.0)
         state_1 = state.at[unit_idx].set(1.0)
-        
+
         # Compute sufficient statistics for both states
         suff_stat_0 = self.sufficient_statistic(state_0)
         suff_stat_1 = self.sufficient_statistic(state_1)
-        
+
         # Energy difference = θ^T (s(x_1) - s(x_0))
-        energy_diff = jnp.dot(params.array, suff_stat_1.array - suff_stat_0.array)
-        return energy_diff
+        return jnp.dot(params.array, suff_stat_1.array - suff_stat_0.array)
 
     def unit_conditional_prob(
         self, state: Array, unit_idx: int, params: Point[Natural, Self]
@@ -106,14 +105,16 @@ class CouplingMatrix(Differentiable):
         energy_diff = self._unit_conditional_energy_diff(state, unit_idx, params)
         return jax.nn.sigmoid(energy_diff)
 
-    def _gibbs_step(self, state: Array, key: Array, params: Point[Natural, Self]) -> Array:
+    def _gibbs_step(
+        self, state: Array, key: Array, params: Point[Natural, Self]
+    ) -> Array:
         """Single Gibbs sampling step updating all units in random order."""
         perm = jax.random.permutation(key, self.n_neurons)
 
         def update_unit(state: Array, unit_idx: int) -> tuple[Array, None]:
             prob = self.unit_conditional_prob(state, unit_idx, params)
             subkey = jax.random.fold_in(key, unit_idx)
-            new_val = jax.random.bernoulli(subkey, prob)
+            new_val = jax.random.bernoulli(subkey, prob).astype(state.dtype)
             return state.at[unit_idx].set(new_val), None
 
         final_state, _ = jax.lax.scan(update_unit, state, perm)  # pyright: ignore[reportArgumentType]
@@ -131,7 +132,9 @@ class CouplingMatrix(Differentiable):
         """Generate samples using Gibbs sampling."""
         # Initialize
         init_key, sample_key = jax.random.split(key)
-        init_state = jax.random.bernoulli(init_key, 0.5, shape=(self.n_neurons,))
+        init_state = jax.random.bernoulli(
+            init_key, 0.5, shape=(self.n_neurons,)
+        ).astype(jnp.float32)
 
         # Burn-in
         def burn_step(state: Array, step: int) -> tuple[Array, None]:
