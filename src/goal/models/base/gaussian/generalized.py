@@ -7,8 +7,7 @@ from typing import Self, override
 import jax.numpy as jnp
 from jax import Array
 
-from ....geometry import ExponentialFamily, Mean, Natural, Point
-from ....geometry.exponential_family.combinators import LocationShape
+from ....geometry import ExponentialFamily, Manifold, Mean, Natural, Point
 
 
 @dataclass(frozen=True)
@@ -50,9 +49,7 @@ class Euclidean(ExponentialFamily):
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
-class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](
-    LocationShape[L, S], ABC
-):
+class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, ABC):
     r"""ABC for exponential families with Gaussian-like sufficient statistics.
 
     This abc captures the shared structure between Normal distributions and
@@ -82,7 +79,7 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](
 
         For harmonium conjugation, natural coordinates represent:
         - Location: θ₁ = Σ⁻¹μ (Normal) or bias parameters (Boltzmann)
-        - Precision: θ₂ = -½Σ⁻¹ (Normal) or -½J (Boltzmann interactions)
+        - Precision: θ₂ = -½Σ⁻¹ (Normal) or -½J (Boltzmann precisions)
 
         Args:
             params: Parameters in natural coordinates

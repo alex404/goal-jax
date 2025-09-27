@@ -25,6 +25,7 @@ from ....geometry import (
     ExponentialFamily,
     Identity,
     LinearMap,
+    LocationShape,
     Mean,
     Natural,
     Point,
@@ -142,6 +143,7 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
 @dataclass(frozen=True)
 class Normal[Rep: PositiveDefinite](
     GeneralizedGaussian[Euclidean, Covariance[Rep]],
+    LocationShape[Euclidean, Covariance[Rep]],
     Analytic,
 ):
     """(Multivariate) Normal distributions.

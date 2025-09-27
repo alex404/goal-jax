@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
-from typing import Any, Self, override
+from typing import Self, override
 
 import jax
 import jax.numpy as jnp
@@ -10,88 +10,21 @@ from jax import Array
 
 from ....geometry import (
     Differentiable,
-    ExponentialFamily,
     Mean,
     Natural,
     Point,
 )
-from .generalized import Euclidean, GeneralizedGaussian
+from .generalized import Euclidean
 
 
 @dataclass(frozen=True)
-class InteractionMatrix(ExponentialFamily):
-    """Shape component of a Boltzmann machine.
+class CouplingMatrix(Differentiable):
+    """Exponential family over moment matrices.
 
-    For n neurons, stores n(n-1)/2 interaction parameters
-    (lower triangular without diagonal).
+    Core implementation of Boltzmann machines as exponential family distributions
+    with moment matrix sufficient statistic x ⊗ x.
 
-    For naming simplicity we sometimes refer to these parameters as "precisions", as they are analogous to the precisions in a Gaussian model, but strictly speaking they do not compose a precision matrix that is the inverse of the covariance matrix."""
-
-    n_neurons: int  # Number of neurons
-
-    @property
-    @override
-    def dim(self) -> int:
-        """Number of parameters needed for interactions."""
-        return (self.n_neurons * (self.n_neurons - 1)) // 2
-
-    @property
-    @override
-    def data_dim(self) -> int:
-        """Data dimension matches the number of neurons."""
-        return self.n_neurons
-
-    def to_dense(self, params: Point[Any, Self]) -> Array:
-        """Convert parameters to dense matrix.
-
-        Returns symmetric matrix with zeros on diagonal.
-        """
-        n = self.n_neurons
-        matrix = jnp.zeros((n, n))
-        # Fill lower triangle
-        indices = jnp.tril_indices(n, k=-1)
-        matrix = matrix.at[indices].set(params.array)
-        # Make symmetric
-        return matrix + matrix.T
-
-    def from_dense(self, matrix: Array) -> Point[Any, Self]:
-        """Extract parameters from dense matrix.
-
-        Takes lower triangle excluding diagonal.
-        """
-        indices = jnp.tril_indices(self.n_neurons, k=-1)
-        return Point(matrix[indices])
-
-    @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Compute off-diagonal outer product x⊗x for Boltzmann interactions."""
-        x = jnp.atleast_1d(x)
-        # Compute full outer product
-        outer_product = jnp.outer(x, x)
-        # Extract off-diagonal elements (Boltzmann constraint)
-        indices = jnp.tril_indices(self.n_neurons, k=-1)
-        off_diagonal = outer_product[indices]
-        return self.mean_point(off_diagonal)
-
-    @override
-    def log_base_measure(self, x: Array) -> Array:
-        """Base measure for binary variables (no normalizing constant needed)."""
-        return jnp.array(0.0)
-
-
-@dataclass(frozen=True)
-class Boltzmann(
-    GeneralizedGaussian[Euclidean, InteractionMatrix],
-    Differentiable,
-):
-    """Boltzmann machine distribution for small networks.
-
-    Designed for exact computation with <100 neurons.
-
-    The distribution follows the form:
-    p(x) ∝ exp(θ·x + x'Jx)
-
-    where θ are bias parameters and J is the interaction matrix.
+    Distribution: p(x) ∝ exp(tr(Θᵀ(x ⊗ x)))
     """
 
     n_neurons: int
@@ -99,8 +32,9 @@ class Boltzmann(
     @property
     @override
     def dim(self) -> int:
-        """Parameter dimension: n bias + n(n-1)/2 interaction terms."""
-        return self.n_neurons + (self.n_neurons * (self.n_neurons - 1)) // 2
+        """Parameter dimension: triangular matrix (n(n+1)/2 elements)."""
+        n = self.n_neurons
+        return (n * (n + 1)) // 2
 
     @property
     @override
@@ -110,89 +44,80 @@ class Boltzmann(
 
     @property
     def states(self) -> Array:
-        """All possible binary states of the network."""
+        """All possible binary states."""
         return jnp.array(
             list(itertools.product([0, 1], repeat=self.n_neurons)), dtype=jnp.float32
         )
 
-    # LocationShape interface (Pair implementation)
-
-    @property
-    @override
-    def fst_man(self) -> Euclidean:
-        """First component: location manifold (bias parameters)."""
-        return Euclidean(self.n_neurons)
-
-    @property
-    @override
-    def snd_man(self) -> InteractionMatrix:
-        """Second component: shape manifold (interaction parameters)."""
-        return InteractionMatrix(self.n_neurons)
+    # Core exponential family
 
     @override
-    def split_location_precision(
-        self, params: Point[Natural, Self]
-    ) -> tuple[Point[Natural, Euclidean], Point[Natural, InteractionMatrix]]:
-        """Split into bias and interaction parameters."""
-        n = self.n_neurons
-        bias_params = params.array[:n]
-        int_params = params.array[n:]
-
-        bias_point = self.fst_man.natural_point(bias_params)
-        int_point = self.snd_man.natural_point(int_params)
-
-        return bias_point, int_point
-
-    @override
-    def join_location_precision(
-        self,
-        bias: Point[Natural, Euclidean],
-        interactions: Point[Natural, InteractionMatrix],
-    ) -> Point[Natural, Self]:
-        """Join bias and interaction parameters."""
-        combined = jnp.concatenate([bias.array, interactions.array])
-        return self.natural_point(combined)
-
-    @override
-    def split_mean_second_moment(
-        self, params: Point[Mean, Self]
-    ) -> tuple[Point[Mean, Euclidean], Point[Mean, InteractionMatrix]]:
-        """Split into mean and correlation parameters."""
-        n = self.n_neurons
-        mean_params = params.array[:n]
-        corr_params = params.array[n:]
-
-        mean_point = self.fst_man.mean_point(mean_params)
-        corr_point = self.snd_man.mean_point(corr_params)
-
-        return mean_point, corr_point
-
-    @override
-    def join_mean_second_moment(
-        self, mean: Point[Mean, Euclidean], correlations: Point[Mean, InteractionMatrix]
-    ) -> Point[Mean, Self]:
-        """Join mean and correlation parameters."""
-        combined = jnp.concatenate([mean.array, correlations.array])
-        return self.mean_point(combined)
+    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
+        """Sufficient statistic is x ⊗ x stored as triangular."""
+        x = jnp.atleast_1d(x).astype(jnp.float32)
+        outer_product = jnp.outer(x, x)
+        tril_indices = jnp.tril_indices(self.n_neurons)
+        triangular_elements = outer_product[tril_indices]
+        return Point(triangular_elements)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        """Base measure for binary variables."""
         return jnp.array(0.0)
-
-    # Exponential family coordinate transformations
-    # For small Boltzmann machines, we can compute exact transformations
-    # by brute force evaluation over all 2^n states
 
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
-        """Compute log partition function by exact enumeration."""
-        # Compute sufficient statistics for all states
-        suff_stats = jax.vmap(self.sufficient_statistic)(self.states)
+        """Exact computation via enumeration."""
+        # Compute sufficient statistics for all states without lambda
+        # states shape: (2^n, n)
+        # For each state, compute outer product and extract triangular elements
+        states = self.states
 
-        # Dot product of parameters with sufficient statistics + log-sum-exp
-        energies = jnp.dot(suff_stats.array, params.array)
+        # Vectorized outer products: (2^n, n, n)
+        outer_products = jnp.einsum("bi,bj->bij", states, states)
+
+        # Extract lower triangular elements for each state
+        tril_indices = jnp.tril_indices(self.n_neurons)
+        suff_stats = outer_products[:, tril_indices[0], tril_indices[1]]
+
+        # Compute energies and log partition function
+        energies = jnp.dot(suff_stats, params.array)
         return jax.scipy.special.logsumexp(energies)
+
+    def _unit_conditional_energy_diff(
+        self, state: Array, unit_idx: int, params: Point[Natural, Self]
+    ) -> Array:
+        """Compute energy difference for unit being 1 vs 0 using sufficient statistics."""
+        # Create states with unit_idx = 0 and unit_idx = 1
+        state_0 = state.at[unit_idx].set(0.0)
+        state_1 = state.at[unit_idx].set(1.0)
+        
+        # Compute sufficient statistics for both states
+        suff_stat_0 = self.sufficient_statistic(state_0)
+        suff_stat_1 = self.sufficient_statistic(state_1)
+        
+        # Energy difference = θ^T (s(x_1) - s(x_0))
+        energy_diff = jnp.dot(params.array, suff_stat_1.array - suff_stat_0.array)
+        return energy_diff
+
+    def unit_conditional_prob(
+        self, state: Array, unit_idx: int, params: Point[Natural, Self]
+    ) -> Array:
+        """Compute P(x_unit = 1 | x_other) for a single unit."""
+        energy_diff = self._unit_conditional_energy_diff(state, unit_idx, params)
+        return jax.nn.sigmoid(energy_diff)
+
+    def _gibbs_step(self, state: Array, key: Array, params: Point[Natural, Self]) -> Array:
+        """Single Gibbs sampling step updating all units in random order."""
+        perm = jax.random.permutation(key, self.n_neurons)
+
+        def update_unit(state: Array, unit_idx: int) -> tuple[Array, None]:
+            prob = self.unit_conditional_prob(state, unit_idx, params)
+            subkey = jax.random.fold_in(key, unit_idx)
+            new_val = jax.random.bernoulli(subkey, prob)
+            return state.at[unit_idx].set(new_val), None
+
+        final_state, _ = jax.lax.scan(update_unit, state, perm)  # pyright: ignore[reportArgumentType]
+        return final_state
 
     @override
     def sample(
@@ -200,48 +125,137 @@ class Boltzmann(
         key: Array,
         params: Point[Natural, Self],
         n_samples: int = 1,
-        n_burnin: int = 100,
-        n_thin: int = 1,
+        n_burnin: int = 1000,
+        n_thin: int = 10,
     ) -> Array:
         """Generate samples using Gibbs sampling."""
-        # Initialize random state
+        # Initialize
         init_key, sample_key = jax.random.split(key)
-        state = jax.random.bernoulli(init_key, 0.5, shape=(self.n_neurons,))
+        init_state = jax.random.bernoulli(init_key, 0.5, shape=(self.n_neurons,))
 
-        # Extract parameters
-        bias, interactions = self.split_location_precision(params)
-        int_matrix = self.snd_man.to_dense(interactions)
+        # Burn-in
+        def burn_step(state: Array, step: int) -> tuple[Array, None]:
+            subkey = jax.random.fold_in(sample_key, step)
+            return self._gibbs_step(state, subkey, params), None
 
-        def gibbs_step(state: Array, key: Array) -> Array:
-            """Single Gibbs step updating all units in random order."""
-            perm = jax.random.permutation(key, self.n_neurons)
+        burned_state, _ = jax.lax.scan(burn_step, init_state, jnp.arange(n_burnin))  # pyright: ignore[reportArgumentType]
 
-            def update_unit(state: Array, unit_idx: int) -> Array:
-                # Compute conditional energy
-                energy = bias.array[unit_idx] + jnp.sum(int_matrix[unit_idx] * state)
-                # Sample new state
-                prob = jax.nn.sigmoid(energy)
-                subkey = jax.random.fold_in(key, unit_idx)
-                new_val = jax.random.bernoulli(subkey, prob)
-                return state.at[unit_idx].set(new_val)
+        # Sample collection with thinning
+        def sample_with_thinning(state: Array, step: int) -> tuple[Array, Array]:
+            def thin_step(i: int, current_state: Array) -> Array:
+                subkey = jax.random.fold_in(sample_key, n_burnin + step * n_thin + i)
+                return self._gibbs_step(current_state, subkey, params)
 
-            # Update all units in random order
-            for idx in perm:
-                state = update_unit(state, idx)
-            return state
+            final_state = jax.lax.fori_loop(0, n_thin, thin_step, state)
+            return final_state, final_state
 
-        # Burn-in phase
-        for _ in range(n_burnin):
-            sample_key, subkey = jax.random.split(sample_key)
-            state = gibbs_step(state, subkey)
+        _, samples = jax.lax.scan(
+            sample_with_thinning,
+            burned_state,
+            jnp.arange(n_samples),  # pyright: ignore[reportArgumentType]
+        )
+        return samples
 
-        # Collect samples
-        samples = []
-        for _ in range(n_samples):
-            # Thinning steps
-            for _ in range(n_thin):
-                sample_key, subkey = jax.random.split(sample_key)
-                state = gibbs_step(state, subkey)
-            samples.append(state)
 
-        return jnp.stack(samples)
+@dataclass(frozen=True)
+class Boltzmann(CouplingMatrix):
+    """Boltzmann machine with GeneralizedGaussian interface for harmoniums.
+
+    Extends CouplingMatrix with the GeneralizedGaussian-compatible interface methods
+    needed for Linear Gaussian Models and other harmonium applications. Implements
+    parameter absorption to handle the redundancy between bias and diagonal
+    interaction terms for binary variables.
+    """
+
+    # Inherits all core functionality from CouplingMatrix
+    # Implements GeneralizedGaussian-compatible interface methods below
+
+    def split_location_precision(
+        self, params: Point[Natural, Self]
+    ) -> tuple[Point[Natural, Euclidean], Point[Natural, CouplingMatrix]]:
+        """Split for GeneralizedGaussian interface.
+
+        The scaling by 1/2 for off-diagonal terms ensures that the dot product
+        between natural parameters and triangular sufficient statistics equals
+        the quadratic form x^T Θ x. Since off-diagonal elements appear twice
+        in the outer product x⊗x (as (i,j) and (j,i)), we scale by 1/2 to
+        avoid double-counting in the energy computation.
+        """
+        triangular_params = params.array
+        n = self.n_neurons
+
+        # Extract diagonal elements directly from triangular storage
+        diagonal_indices = jnp.array([i * (i + 1) // 2 + i for i in range(n)])
+
+        # Extract off-diagonal elements
+        off_diag_mask = jnp.ones(len(triangular_params), dtype=bool)
+        off_diag_mask = off_diag_mask.at[diagonal_indices].set(False)
+        off_diagonal = triangular_params[off_diag_mask]
+
+        # For Natural parameters, scale off-diagonal by 1/2
+        off_diagonal_scaled = off_diagonal / 2.0
+
+        # Reconstruct triangular array with scaled off-diagonal
+        new_triangular = triangular_params.at[off_diag_mask].set(off_diagonal_scaled)
+
+        return Point(jnp.zeros(n)), Point(new_triangular)
+
+    def join_location_precision(
+        self,
+        location: Point[Natural, Euclidean],
+        precision: Point[Natural, CouplingMatrix],
+    ) -> Point[Natural, Self]:
+        """Join with parameter absorption."""
+        triangular_params = precision.array
+        n = self.n_neurons
+
+        # Extract diagonal and off-diagonal directly
+        diagonal_indices = jnp.array([i * (i + 1) // 2 + i for i in range(n)])
+        diagonal_terms = triangular_params[diagonal_indices]
+
+        off_diag_mask = jnp.ones(len(triangular_params), dtype=bool)
+        off_diag_mask = off_diag_mask.at[diagonal_indices].set(False)
+        off_diagonal_terms = triangular_params[off_diag_mask]
+
+        # ABSORPTION: Add diagonal terms to location
+        absorbed_diagonal = location.array + diagonal_terms
+
+        # Scale off-diagonal terms by 2 for Natural parameters
+        scaled_off_diagonal = 2.0 * off_diagonal_terms
+
+        # Reconstruct triangular array
+        final_triangular = triangular_params.at[diagonal_indices].set(absorbed_diagonal)
+        final_triangular = final_triangular.at[off_diag_mask].set(scaled_off_diagonal)
+
+        return Point(final_triangular)
+
+    def split_mean_second_moment(
+        self, params: Point[Mean, Self]
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, CouplingMatrix]]:
+        """Split mean parameters into first and second moments.
+
+        Mean parameters represent expected values of sufficient statistics.
+        The first moment E[x] is extracted from the diagonal of the second
+        moment matrix E[x⊗x], since the diagonal contains E[xᵢ²] = E[xᵢ]
+        for binary variables.
+        """
+        triangular_params = params.array
+        n = self.n_neurons
+
+        # Extract diagonal elements (first moments E[xᵢ])
+        diagonal_indices = jnp.array([i * (i + 1) // 2 + i for i in range(n)])
+        first_moment = triangular_params[diagonal_indices]
+
+        return Point(first_moment), Point(triangular_params)
+
+    def join_mean_second_moment(
+        self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, CouplingMatrix]
+    ) -> Point[Mean, Self]:
+        """Join mean and second moment.
+
+        For mean parameters, the second moment matrix already contains the
+        correct diagonal elements (first moments), so we simply return the
+        second moment as-is. The mean parameter is redundant information
+        extracted from the diagonal.
+        """
+        return Point(second_moment.array)

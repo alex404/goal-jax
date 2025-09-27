@@ -6,6 +6,7 @@ class BoltzmannPatternResults(TypedDict):
 
     # Ground truth patterns
     ground_truth_patterns: list[list[int]]  # List of binary patterns
+    ground_truth_weights: list[float]  # True weights for each pattern
     pattern_frequencies: list[float]  # Frequency of each pattern in training data
 
     # Fitted model parameters

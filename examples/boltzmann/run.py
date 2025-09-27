@@ -112,12 +112,10 @@ def fit_boltzmann_machine(
     print(f"Found {len(unique_patterns)} unique patterns in training data")
     print(f"Pattern counts: {pattern_counts}")
 
-    # Initialize parameters at small random values
+    # Initialize parameters at small random values (triangular storage)
     key = jax.random.PRNGKey(42)
-    init_bias = jax.random.normal(key, (4,)) * 0.1
-    key, subkey = jax.random.split(key)
-    init_interactions = jax.random.normal(subkey, (6,)) * 0.1
-    init_params = model.natural_point(jnp.concatenate([init_bias, init_interactions]))
+    init_params_flat = jax.random.normal(key, (model.dim,)) * 0.1
+    init_params = model.natural_point(init_params_flat)
 
     # Setup optimizer
     optimizer: Optimizer[Natural, Boltzmann] = Optimizer.adamw(
@@ -154,9 +152,8 @@ def fit_boltzmann_machine(
     print(f"Final loss: {losses[-1]:.4f}")
 
     # Extract final parameters for inspection
-    bias, interactions = model.split_location_precision(final_params)
-    print(f"Final bias parameters: {bias.array}")
-    print(f"Final interaction parameters: {interactions.array}")
+    print(f"Final parameters shape: {final_params.array.shape}")
+    print(f"Final parameters: {final_params.array}")
 
     return model, final_params, losses
 
@@ -176,17 +173,12 @@ def evaluate_model(model: Boltzmann, params: Array) -> tuple[Array, Array, Array
     log_probs = jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states)
     probabilities = jnp.exp(log_probs)
 
-    # Compute energies (negative log unnormalized probabilities)
-    bias, interactions = model.split_location_precision(params)
-    int_matrix = model.snd_man.to_dense(interactions)
+    # Compute energies using sufficient statistics
+    def energy_for_state(state):
+        suff_stat = model.sufficient_statistic(state)
+        return -jnp.dot(params.array, suff_stat.array)
 
-    energies = -(
-        jnp.dot(all_states, bias.array)
-        + 0.5
-        * jnp.sum(
-            all_states[:, :, None] * int_matrix * all_states[:, None, :], axis=(1, 2)
-        )
-    )
+    energies = jax.vmap(energy_for_state)(all_states)
 
     return all_states, probabilities, energies
 
@@ -209,13 +201,16 @@ def compute_pattern_frequencies(data: Array, patterns: Array) -> Array:
     """Compute frequency of each pattern in the data."""
     frequencies = []
     for pattern in patterns:
-        matches = jnp.all(data == pattern, axis=1)
+        # Convert both to same type for comparison
+        matches = jnp.all(data.astype(jnp.int32) == pattern.astype(jnp.int32), axis=1)
         freq = jnp.mean(matches)
         frequencies.append(freq)
     return jnp.array(frequencies)
 
 
-def test_sampling_convergence(key: Array, model: Boltzmann, params: Array) -> tuple[list[int], list[int], list[list[float]]]:
+def test_sampling_convergence(
+    key: Array, model: Boltzmann, params: Array
+) -> tuple[list[int], list[int], list[list[float]]]:
     """Test that Gibbs sampling converges to exact probabilities.
 
     This is a numerical simulation test independent of the learning problem.
@@ -224,11 +219,17 @@ def test_sampling_convergence(key: Array, model: Boltzmann, params: Array) -> tu
     """
     # Get exact probabilities via brute force computation
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))
-    exact_probs = jnp.exp(jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states))
+    exact_probs = jnp.exp(
+        jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states)
+    )
 
     # Test different sample sizes and thinning levels (reduced for speed)
     sample_sizes = [50, 100, 200, 500]
-    thin_levels = [1, 5, 10]  # Different levels of thinning (Gibbs steps between samples)
+    thin_levels = [
+        1,
+        5,
+        10,
+    ]  # Different levels of thinning (Gibbs steps between samples)
 
     errors_matrix = []  # errors_matrix[i][j] = error for sample_sizes[i] and thin_levels[j]
 
@@ -240,19 +241,24 @@ def test_sampling_convergence(key: Array, model: Boltzmann, params: Array) -> tu
         for j, n_thin in enumerate(thin_levels):
             # Generate samples using Gibbs sampling
             key, subkey = jax.random.split(key)
-            samples = model.sample(subkey, params, n_samples=n_samples, n_burnin=50, n_thin=n_thin)
+            samples = model.sample(
+                subkey, params, n_samples=n_samples, n_burnin=50, n_thin=n_thin
+            )
 
             # Compute empirical probabilities
             empirical_probs = jnp.zeros(16)
             for k, state in enumerate(all_states):
-                matches = jnp.all(samples == state, axis=1)
+                # Convert both to same type for comparison
+                matches = jnp.all(samples.astype(jnp.int32) == state.astype(jnp.int32), axis=1)
                 empirical_probs = empirical_probs.at[k].set(jnp.mean(matches))
 
             # Compute L2 error
             l2_error = jnp.sqrt(jnp.sum((empirical_probs - exact_probs) ** 2))
             sample_errors.append(float(l2_error))
 
-            print(f"  n_samples={n_samples:4d}, thin={n_thin:2d}: L2 error={l2_error:.4f}")
+            print(
+                f"  n_samples={n_samples:4d}, thin={n_thin:2d}: L2 error={l2_error:.4f}"
+            )
 
         errors_matrix.append(sample_errors)
 
@@ -285,8 +291,31 @@ def run_boltzmann_analysis(key: Array) -> BoltzmannPatternResults:
     )
 
     # 6. Extract learned parameters for visualization
-    bias, interactions = model.split_location_precision(fitted_params)
-    interaction_matrix = model.snd_man.to_dense(interactions)
+    # Create a simple matrix representation for visualization
+    n = model.n_neurons
+    interaction_matrix = jnp.zeros((n, n))
+    triangular_params = fitted_params.array
+
+    # Extract bias terms (diagonal)
+    bias_indices = jnp.array([i * (i + 1) // 2 + i for i in range(n)])
+    bias_terms = triangular_params[bias_indices]
+
+    # Reconstruct symmetric matrix from triangular storage
+    param_idx = 0
+    for i in range(n):
+        for j in range(i + 1):
+            if i == j:
+                interaction_matrix = interaction_matrix.at[i, j].set(
+                    triangular_params[param_idx]
+                )
+            else:
+                interaction_matrix = interaction_matrix.at[i, j].set(
+                    triangular_params[param_idx]
+                )
+                interaction_matrix = interaction_matrix.at[j, i].set(
+                    triangular_params[param_idx]
+                )
+            param_idx += 1
 
     # 7. Compute pattern frequencies
     pattern_frequencies = compute_pattern_frequencies(training_data, gt_patterns)
@@ -294,15 +323,18 @@ def run_boltzmann_analysis(key: Array) -> BoltzmannPatternResults:
 
     # 8. Test Gibbs sampling convergence (numerical simulation test)
     key, subkey = jax.random.split(key)
-    sampling_sizes, sampling_thin_levels, sampling_errors_matrix = test_sampling_convergence(subkey, model, fitted_params)
+    sampling_sizes, sampling_thin_levels, sampling_errors_matrix = (
+        test_sampling_convergence(subkey, model, fitted_params)
+    )
 
     # 9. Create state labels for visualization
     state_labels = [f"{''.join(map(str, state))}" for state in all_states]
 
     return BoltzmannPatternResults(
         ground_truth_patterns=gt_patterns.tolist(),
+        ground_truth_weights=gt_weights.tolist(),
         pattern_frequencies=pattern_frequencies.tolist(),
-        fitted_bias=bias.array.tolist(),
+        fitted_bias=bias_terms.tolist(),
         fitted_interactions=interaction_matrix.tolist(),
         all_possible_states=all_states.tolist(),
         true_probabilities=gt_probs.tolist(),
