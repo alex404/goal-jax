@@ -27,68 +27,43 @@ from ..shared import example_paths, initialize_jax
 from .types import BoltzmannPatternResults
 
 
-def create_ground_truth_patterns() -> tuple[Array, Array]:
-    """Create interpretable 2x2 binary patterns.
+def create_ground_truth_model() -> tuple[Boltzmann, Point[Natural, Boltzmann]]:
+    """Create a ground truth Boltzmann machine with meaningful correlations."""
+    model = Boltzmann(n_neurons=4)
 
-    We'll create patterns that have clear structure:
-    - Corner patterns (one corner active)
-    - Edge patterns (two adjacent units active)
-    - Diagonal patterns (opposite corners active)
-
-    Returns:
-        patterns: Array of shape (n_patterns, 4) with binary patterns
-        weights: Array of shape (n_patterns,) with pattern probabilities
-    """
-    # Define meaningful 2x2 patterns (flattened to 4D vectors)
-    patterns = jnp.array(
+    # Create parameters that encourage some patterns over others
+    # Triangular storage (row-major): [(0,0), (1,0), (1,1), (2,0), (2,1), (2,2), (3,0), (3,1), (3,2), (3,3)]
+    ground_truth_params = jnp.array(
         [
-            # Corner patterns (more likely)
-            [1, 0, 0, 0],  # Top-left corner
-            [0, 1, 0, 0],  # Top-right corner
-            [0, 0, 1, 0],  # Bottom-left corner
-            [0, 0, 0, 1],  # Bottom-right corner
-            # Diagonal patterns (medium likelihood)
-            [1, 0, 0, 1],  # Main diagonal
-            [0, 1, 1, 0],  # Anti-diagonal
-            # Edge patterns (lower likelihood)
-            [1, 1, 0, 0],  # Top edge
-            [0, 0, 1, 1],  # Bottom edge
+            0.5,   # (0,0) - bias for unit 0
+            1.2,   # (1,0) - interaction between units 0 and 1
+            -0.2,  # (1,1) - bias for unit 1
+            0.8,   # (2,0) - interaction between units 0 and 2
+            0.6,   # (2,1) - interaction between units 1 and 2
+            0.3,   # (2,2) - bias for unit 2
+            -0.5,  # (3,0) - interaction between units 0 and 3
+            -0.3,  # (3,1) - interaction between units 1 and 3
+            0.4,   # (3,2) - interaction between units 2 and 3
+            -0.1,  # (3,3) - bias for unit 3
         ]
     )
 
-    # Assign probabilities (corner patterns more likely)
-    weights = jnp.array(
-        [
-            0.15,
-            0.15,
-            0.15,
-            0.15,  # Corners
-            0.10,
-            0.10,  # Diagonals
-            0.10,
-            0.10,
-        ]
-    )  # Edges
-
-    # Normalize to ensure they sum to 1
-    weights = weights / weights.sum()
-
-    return patterns, weights
+    params = model.natural_point(ground_truth_params)
+    return model, params
 
 
 def generate_training_data(
-    key: Array, patterns: Array, weights: Array, n_samples: int = 1000
+    key: Array,
+    ground_truth_model: Boltzmann,
+    ground_truth_params: Point[Natural, Boltzmann],
+    n_samples: int = 1000,
 ) -> Array:
-    """Generate training data by sampling from the ground truth distribution."""
-    # Sample pattern indices according to weights
-    pattern_indices = jax.random.choice(key, len(patterns), (n_samples,), p=weights)
-
-    # Return the corresponding patterns
-    return patterns[pattern_indices]
+    """Generate training data from ground truth Boltzmann machine."""
+    return ground_truth_model.sample(key, ground_truth_params, n_samples=n_samples)
 
 
 def fit_boltzmann_machine(
-    training_data: Array, n_steps: int = 500, learning_rate: float = 0.01
+    training_data: Array, n_steps: int = 2000, learning_rate: float = 0.01
 ) -> tuple[Boltzmann, Point[Natural, Boltzmann], Array]:
     """Fit a Boltzmann machine to the training data using gradient descent.
 
@@ -179,31 +154,6 @@ def evaluate_model(
     return all_states, probabilities, energies
 
 
-def compute_ground_truth_probabilities(
-    all_states: Array, gt_patterns: Array, gt_weights: Array
-) -> Array:
-    """Compute ground truth probabilities for all states."""
-    gt_probs = jnp.zeros(len(all_states))
-
-    for i, pattern in enumerate(gt_patterns):
-        # Find which states match this pattern
-        matches = jnp.all(all_states == pattern, axis=1)
-        gt_probs = gt_probs + matches * gt_weights[i]
-
-    return gt_probs
-
-
-def compute_pattern_frequencies(data: Array, patterns: Array) -> Array:
-    """Compute frequency of each pattern in the data."""
-    frequencies = []
-    for pattern in patterns:
-        # Convert both to same type for comparison
-        matches = jnp.all(data.astype(jnp.int32) == pattern.astype(jnp.int32), axis=1)
-        freq = jnp.mean(matches)
-        frequencies.append(freq)
-    return jnp.array(frequencies)
-
-
 def test_sampling_convergence(
     key: Array, model: Boltzmann, params: Point[Natural, Boltzmann]
 ) -> tuple[list[int], list[int], list[list[float]]]:
@@ -266,85 +216,40 @@ def test_sampling_convergence(
 def run_boltzmann_analysis(key: Array) -> BoltzmannPatternResults:
     """Run the complete Boltzmann pattern learning analysis."""
 
-    # 1. Create ground truth patterns
-    gt_patterns, gt_weights = create_ground_truth_patterns()
+    # 1. Create ground truth model
+    ground_truth_model, ground_truth_params = create_ground_truth_model()
 
-    # 2. Generate training data
+    # 2. Generate training data from ground truth
     key, subkey = jax.random.split(key)
     training_data = generate_training_data(
-        subkey, gt_patterns, gt_weights, n_samples=1000
+        subkey, ground_truth_model, ground_truth_params, n_samples=1000
     )
 
-    # 3. Fit Boltzmann machine
+    # 3. Fit Boltzmann machine to training data
     model, fitted_params, training_losses = fit_boltzmann_machine(training_data)
 
-    # 4. Evaluate model on all possible states
+    # 4. Evaluate both models on all possible states
     all_states, learned_probs, energies = evaluate_model(model, fitted_params)
-    gt_probs = compute_ground_truth_probabilities(all_states, gt_patterns, gt_weights)
+    _, true_probs, _ = evaluate_model(ground_truth_model, ground_truth_params)
 
-    # 5. Generate samples from fitted model
-    key, subkey = jax.random.split(key)
-    generated_samples = model.sample(
-        subkey, fitted_params, n_samples=1000, n_burnin=500, n_thin=5
-    )
-
-    # 6. Extract learned parameters for visualization
-    # Create a simple matrix representation for visualization
-    n = model.n_neurons
-    interaction_matrix = jnp.zeros((n, n))
-    triangular_params = fitted_params.array
-
-    # Extract bias terms (diagonal)
-    bias_indices = jnp.array([i * (i + 1) // 2 + i for i in range(n)])
-    bias_terms = triangular_params[bias_indices]
-
-    # Reconstruct symmetric matrix from triangular storage
-    param_idx = 0
-    for i in range(n):
-        for j in range(i + 1):
-            if i == j:
-                interaction_matrix = interaction_matrix.at[i, j].set(
-                    triangular_params[param_idx]
-                )
-            else:
-                interaction_matrix = interaction_matrix.at[i, j].set(
-                    triangular_params[param_idx]
-                )
-                interaction_matrix = interaction_matrix.at[j, i].set(
-                    triangular_params[param_idx]
-                )
-            param_idx += 1
-
-    # 7. Compute pattern frequencies
-    pattern_frequencies = compute_pattern_frequencies(training_data, gt_patterns)
-    generated_frequencies = compute_pattern_frequencies(generated_samples, gt_patterns)
-
-    # 8. Test Gibbs sampling convergence (numerical simulation test)
+    # 5. Test Gibbs sampling convergence (numerical simulation test)
     key, subkey = jax.random.split(key)
     sampling_sizes, sampling_thin_levels, sampling_errors_matrix = (
         test_sampling_convergence(subkey, model, fitted_params)
     )
 
-    # 9. Create state labels for visualization
+    # 6. Create state labels for visualization
     state_labels = [f"{''.join(map(str, state))}" for state in all_states]
 
     return BoltzmannPatternResults(
-        ground_truth_patterns=gt_patterns.tolist(),
-        ground_truth_weights=gt_weights.tolist(),
-        pattern_frequencies=pattern_frequencies.tolist(),
-        fitted_bias=bias_terms.tolist(),
-        fitted_interactions=interaction_matrix.tolist(),
         all_possible_states=all_states.tolist(),
-        true_probabilities=gt_probs.tolist(),
+        true_probabilities=true_probs.tolist(),
         learned_probabilities=learned_probs.tolist(),
         energy_values=energies.tolist(),
-        generated_samples=generated_samples.tolist(),
-        generated_frequencies=generated_frequencies.tolist(),
         training_losses=training_losses.tolist(),
         sampling_sizes=sampling_sizes,
         sampling_thin_levels=sampling_thin_levels,
         sampling_errors_matrix=sampling_errors_matrix,
-        pattern_grid_size=2,
         state_labels=state_labels,
     )
 
@@ -362,10 +267,9 @@ def main():
     print("Running Boltzmann pattern learning analysis...")
     results = run_boltzmann_analysis(key)
 
-    print(f"Generated {len(results['generated_samples'])} samples")
-    print(f"Learned {len(results['fitted_bias'])} bias parameters")
+    print(f"Evaluated {len(results['all_possible_states'])} possible states")
     print(
-        f"Learned interaction matrix of size {len(results['fitted_interactions'])}x{len(results['fitted_interactions'][0])}"
+        f"Learned model with {len(results['learned_probabilities'])} state probabilities"
     )
 
     # Save results

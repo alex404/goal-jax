@@ -31,30 +31,6 @@ def plot_probability_comparison(ax: Axes, results: BoltzmannPatternResults) -> N
     ax.grid(True, alpha=0.3)
 
 
-def plot_pattern_frequency_comparison(
-    ax: Axes, results: BoltzmannPatternResults
-) -> None:
-    """Compare pattern frequencies between ground truth, training data, and generated samples."""
-    n_patterns = len(results["ground_truth_patterns"])
-    x = np.arange(n_patterns)
-    width = 0.25
-
-    # Get the pattern frequencies
-    gt_weights = results["ground_truth_weights"]
-    pattern_freqs = results["pattern_frequencies"]
-    generated_freqs = results["generated_frequencies"]
-
-    ax.bar(x - width, gt_weights, width, label="Ground Truth", alpha=0.8, color="blue")
-    ax.bar(x, pattern_freqs, width, label="Training Data", alpha=0.8, color="gray")
-    ax.bar(x + width, generated_freqs, width, label="Generated", alpha=0.8, color="red")
-
-    ax.set_xlabel("Pattern Index")
-    ax.set_ylabel("Frequency")
-    ax.set_title("Pattern Frequencies")
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"P{i + 1}" for i in range(n_patterns)])
-    ax.legend()
-    ax.grid(True, alpha=0.3)
 
 
 def plot_training_loss(ax: Axes, results: BoltzmannPatternResults) -> None:
