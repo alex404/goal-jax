@@ -49,7 +49,7 @@ class Euclidean(ExponentialFamily):
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
-class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, ABC):
+class GeneralizedGaussian[S: ExponentialFamily](Manifold, ABC):
     r"""ABC for exponential families with Gaussian-like sufficient statistics.
 
     This abc captures the shared structure between Normal distributions and
@@ -67,6 +67,9 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, 
     This abstraction enables unified conjugation algorithms for harmoniums (bilinear
     exponential family models) that can work with either continuous or discrete
     distributions.
+
+    The location component is always Euclidean space, as both Normal and Boltzmann
+    distributions use Euclidean for their first-order sufficient statistics.
     """
 
     # Core split/join operations for harmonium conjugation
@@ -74,7 +77,7 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, 
     @abstractmethod
     def split_location_precision(
         self, params: Point[Natural, Self]
-    ) -> tuple[Point[Natural, L], Point[Natural, S]]:
+    ) -> tuple[Point[Natural, Euclidean], Point[Natural, S]]:
         """Split parameters into location and precision in natural coordinates.
 
         For harmonium conjugation, natural coordinates represent:
@@ -91,7 +94,7 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, 
 
     @abstractmethod
     def join_location_precision(
-        self, location: Point[Natural, L], precision: Point[Natural, S]
+        self, location: Point[Natural, Euclidean], precision: Point[Natural, S]
     ) -> Point[Natural, Self]:
         """Join location and precision in natural coordinates.
 
@@ -109,7 +112,7 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, 
     @abstractmethod
     def split_mean_second_moment(
         self, params: Point[Mean, Self]
-    ) -> tuple[Point[Mean, L], Point[Mean, S]]:
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, S]]:
         """Split parameters into mean and second moment in mean coordinates.
 
         For harmonium conjugation, mean coordinates represent:
@@ -126,7 +129,7 @@ class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Manifold, 
 
     @abstractmethod
     def join_mean_second_moment(
-        self, mean: Point[Mean, L], second_moment: Point[Mean, S]
+        self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, S]
     ) -> Point[Mean, Self]:
         """Join mean and second moment in mean coordinates.
 

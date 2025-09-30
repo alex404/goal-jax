@@ -142,7 +142,7 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
 
 @dataclass(frozen=True)
 class Normal[Rep: PositiveDefinite](
-    GeneralizedGaussian[Euclidean, Covariance[Rep]],
+    GeneralizedGaussian[Covariance[Rep]],
     LocationShape[Euclidean, Covariance[Rep]],
     Analytic,
 ):
