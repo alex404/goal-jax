@@ -200,19 +200,12 @@ class Boltzmann(GeneralizedGaussian[CouplingMatrix], CouplingMatrix):
         triangular_params = params.array
         n = self.n_neurons
 
-        # Extract diagonal elements directly from triangular storage
-        diagonal_indices = jnp.array([i * (i + 1) // 2 + i for i in range(n)])
+        # Compute off-diagonal indices statically
+        diagonal_set = {i * (i + 1) // 2 + i for i in range(n)}
+        off_diag_indices = jnp.array([i for i in range(len(triangular_params)) if i not in diagonal_set])
 
-        # Extract off-diagonal elements
-        off_diag_mask = jnp.ones(len(triangular_params), dtype=bool)
-        off_diag_mask = off_diag_mask.at[diagonal_indices].set(False)
-        off_diagonal = triangular_params[off_diag_mask]
-
-        # For Natural parameters, scale off-diagonal by 1/2
-        off_diagonal_scaled = off_diagonal / 2.0
-
-        # Reconstruct triangular array with scaled off-diagonal
-        new_triangular = triangular_params.at[off_diag_mask].set(off_diagonal_scaled)
+        # Scale off-diagonal by 1/2 for Natural parameters
+        new_triangular = triangular_params.at[off_diag_indices].divide(2.0)
 
         return Point(jnp.zeros(n)), Point(new_triangular)
 
@@ -226,23 +219,20 @@ class Boltzmann(GeneralizedGaussian[CouplingMatrix], CouplingMatrix):
         triangular_params = precision.array
         n = self.n_neurons
 
-        # Extract diagonal and off-diagonal directly
+        # Compute diagonal indices statically
         diagonal_indices = jnp.array([i * (i + 1) // 2 + i for i in range(n)])
         diagonal_terms = triangular_params[diagonal_indices]
 
-        off_diag_mask = jnp.ones(len(triangular_params), dtype=bool)
-        off_diag_mask = off_diag_mask.at[diagonal_indices].set(False)
-        off_diagonal_terms = triangular_params[off_diag_mask]
+        # Compute off-diagonal indices statically
+        diagonal_set = {i * (i + 1) // 2 + i for i in range(n)}
+        off_diag_indices = jnp.array([i for i in range(len(triangular_params)) if i not in diagonal_set])
 
         # ABSORPTION: Add diagonal terms to location
         absorbed_diagonal = location.array + diagonal_terms
 
         # Scale off-diagonal terms by 2 for Natural parameters
-        scaled_off_diagonal = 2.0 * off_diagonal_terms
-
-        # Reconstruct triangular array
         final_triangular = triangular_params.at[diagonal_indices].set(absorbed_diagonal)
-        final_triangular = final_triangular.at[off_diag_mask].set(scaled_off_diagonal)
+        final_triangular = final_triangular.at[off_diag_indices].multiply(2.0)
 
         return Point(final_triangular)
 
