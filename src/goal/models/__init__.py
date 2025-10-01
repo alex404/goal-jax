@@ -26,12 +26,16 @@ from .graphical.instances import (
     symmetric_hmog,
 )
 from .graphical.lgm import (
-    AnalyticLinearGaussianModel,
     DifferentiableLinearGaussianModel,
     FactorAnalysis,
+    NormalAnalyticLinearGaussianModel,
     NormalCovarianceEmbedding,
+    NormalDifferentiableLinearGaussianModel,
     PrincipalComponentAnalysis,
 )
+
+# Backward compatibility alias
+AnalyticLinearGaussianModel = NormalAnalyticLinearGaussianModel
 from .graphical.mixture import AnalyticMixture, DifferentiableMixture, Mixture
 
 __all__ = [

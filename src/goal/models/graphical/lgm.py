@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
-from typing import Self, override
+from typing import Any, Self, override
 
 import jax.numpy as jnp
 from jax import Array
@@ -24,11 +25,10 @@ from ...geometry import (
     PositiveDefinite,
     Rectangular,
     Scale,
-    TupleEmbedding,
     expand_dual,
     reduce_dual,
 )
-from ..base.gaussian.generalized import Euclidean
+from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
     FullNormal,
@@ -40,30 +40,43 @@ from ..base.gaussian.normal import (
 
 
 @dataclass(frozen=True)
-class NormalLocationEmbedding[Rep: PositiveDefinite](
-    TupleEmbedding[Euclidean, Normal[Rep]],
+class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any]](
+    LinearEmbedding[Euclidean, G],
 ):
-    """Embedding of the mean of a normal distribution into a normal with particular covariance structure."""
+    """Embedding of the Euclidean location component into a GeneralizedGaussian distribution.
 
-    nor_man: Normal[Rep]
-    """The normal distribution with the specified covariance structure."""
+    Projects a GeneralizedGaussian to its Euclidean location component, or embeds
+    a location vector into a GeneralizedGaussian with zero shape parameters.
+    """
 
-    @property
-    @override
-    def tup_idx(
-        self,
-    ) -> int:
-        return 0
+    gau_man: G
+    """The GeneralizedGaussian distribution."""
 
     @property
     @override
-    def amb_man(self) -> Normal[Rep]:
-        return self.nor_man
+    def amb_man(self) -> G:
+        return self.gau_man
 
     @property
     @override
     def sub_man(self) -> Euclidean:
-        return self.nor_man.loc_man
+        return self.gau_man.loc_man
+
+    @override
+    def project(self, p: Point[Mean, G]) -> Point[Mean, Euclidean]:
+        loc, _ = self.gau_man.split_mean_second_moment(p)
+        return loc
+
+    @override
+    def embed(self, p: Point[Natural, Euclidean]) -> Point[Natural, G]:
+        zero_shape = self.gau_man.shp_man.zeros()
+        return self.gau_man.join_location_precision(p, zero_shape)  # type: ignore[return-value]
+
+    @override
+    def translate(self, p: Point[Natural, G], q: Point[Natural, Euclidean]) -> Point[Natural, G]:
+        loc, shape = self.gau_man.split_location_precision(p)
+        new_loc = loc + q
+        return self.gau_man.join_location_precision(new_loc, shape)  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -121,11 +134,13 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbientRep: PositiveDe
 @dataclass(frozen=True)
 class DifferentiableLinearGaussianModel[
     ObsRep: PositiveDefinite,
-    PostRep: PositiveDefinite,
+    PostGaussian: GeneralizedGaussian[Any],
+    PriorGaussian: GeneralizedGaussian[Any],
 ](
     DifferentiableConjugated[
-        Rectangular, Normal[ObsRep], Euclidean, Euclidean, Normal[PostRep], FullNormal
+        Rectangular, Normal[ObsRep], Euclidean, Euclidean, PostGaussian, PriorGaussian
     ],
+    ABC,
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
 
@@ -162,21 +177,87 @@ class DifferentiableLinearGaussianModel[
     obs_rep: type[ObsRep]
     """Covariance structure of the observable variables."""
 
+    ### Methods ###
+
+    # Overrides
+
+    @property
+    @override
+    def int_rep(self) -> Rectangular:
+        return Rectangular()
+
+    @property
+    @override
+    def obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
+        return GeneralizedGaussianLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
+
+    @property
+    @override
+    def int_lat_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
+        """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
+        return GeneralizedGaussianLocationEmbedding(self.lat_man)
+
+    @override
+    def conjugation_parameters(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]
+        ],
+    ) -> Point[Natural, PriorGaussian]:
+        # Get parameters
+        obs_cov_man = self.obs_man.cov_man
+        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
+
+        # Intermediate computations
+        obs_sigma = obs_cov_man.inverse(obs_prec)
+        obs_mean = obs_cov_man(obs_sigma, expand_dual(obs_loc))
+
+        # Conjugation parameters
+        rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
+        _, rho_shape = _change_of_basis(
+            self.int_man, int_mat, obs_cov_man, cov_to_lin(obs_sigma)
+        )
+        rho_shape *= -1
+
+        # Join parameters into moment parameters
+        return self.con_lat_man.join_location_precision(rho_mean, rho_shape)
+
+
+@dataclass(frozen=True)
+class NormalDifferentiableLinearGaussianModel[
+    ObsRep: PositiveDefinite,
+](
+    DifferentiableLinearGaussianModel[ObsRep, FullNormal, FullNormal],
+):
+    """Differentiable Linear Gaussian Model with Normal latent variables.
+
+    Extends the abstract LGM with Normal-specific implementations for computing
+    observable distributions and converting to joint Normal form.
+    """
+
     lat_dim: int
     """Dimension of the latent variables."""
 
-    lat_rep: type[PostRep]
-    """Covariance structure of the latent variables."""
+    # Overrides
 
-    ### Methods ###
+    @property
+    @override
+    def pst_lat_emb(self) -> LinearEmbedding[FullNormal, FullNormal]:
+        """Embedding of posterior Normal into prior Normal via covariance structure."""
+        post_gau = Normal(self.lat_dim, PositiveDefinite)
+        prior_gau = Normal(self.lat_dim, PositiveDefinite)
+        return NormalCovarianceEmbedding(post_gau, prior_gau)
+
+    # Methods
 
     def observable_distribution(
         self, params: Point[Natural, Self]
     ) -> tuple[FullNormal, Point[Natural, FullNormal]]:
         """Returns the marginal normal distribution over observable variables."""
         # Build transposed LGM with full covariance observable variables
-        transposed_lgm = AnalyticLinearGaussianModel(
-            obs_dim=self.lat_dim,  # Original latent becomes observable
+        transposed_lgm = NormalAnalyticLinearGaussianModel(
+            obs_dim=self.lat_man.data_dim,  # Original latent becomes observable
             obs_rep=PositiveDefinite,
             lat_dim=self.obs_dim,  # Original observable becomes latent
         )
@@ -197,66 +278,15 @@ class DifferentiableLinearGaussianModel[
         # Use harmonium prior to get marginal distribution
         return nor_man, transposed_lgm.prior(transposed_params)
 
-    # Overrides
-
-    @property
-    @override
-    def int_rep(self) -> Rectangular:
-        return Rectangular()
-
-    @property
-    @override
-    def obs_emb(self) -> NormalLocationEmbedding[ObsRep]:
-        return NormalLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
-
-    @property
-    @override
-    def int_lat_emb(self) -> NormalLocationEmbedding[PostRep]:
-        return NormalLocationEmbedding(Normal(self.lat_dim, self.lat_rep))
-
-    @property
-    @override
-    def pst_lat_emb(self) -> NormalCovarianceEmbedding[PostRep, PositiveDefinite]:
-        return NormalCovarianceEmbedding(
-            Normal(self.lat_dim, self.lat_rep),
-            Normal(self.lat_dim, PositiveDefinite),
-        )
-
-    @override
-    def conjugation_parameters(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]
-        ],
-    ) -> Point[Natural, FullNormal]:
-        # Get parameters
-        obs_cov_man = self.obs_man.cov_man
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
-        obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
-
-        # Intermediate computations
-        obs_sigma = obs_cov_man.inverse(obs_prec)
-        obs_mean = obs_cov_man(obs_sigma, expand_dual(obs_loc))
-
-        # Conjugation parameters
-        rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
-        _, rho_shape = _change_of_basis(
-            self.int_man, int_mat, obs_cov_man, cov_to_lin(obs_sigma)
-        )
-        rho_shape *= -1
-
-        # Join parameters into moment parameters
-        return self.con_lat_man.join_location_precision(rho_mean, rho_shape)
-
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
-        new_man: DifferentiableLinearGaussianModel[
-            PositiveDefinite, PositiveDefinite
-        ] = DifferentiableLinearGaussianModel(
-            obs_dim=self.obs_man.data_dim,
-            obs_rep=PositiveDefinite,
-            lat_dim=self.con_lat_man.data_dim,
-            lat_rep=PositiveDefinite,
+        lat_dim = self.con_lat_man.data_dim
+        new_man: NormalDifferentiableLinearGaussianModel[PositiveDefinite] = (
+            NormalDifferentiableLinearGaussianModel(
+                obs_dim=self.obs_man.data_dim,
+                obs_rep=PositiveDefinite,
+                lat_dim=lat_dim,
+            )
         )
         obs_params, int_params, lat_params = self.split_params(p)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
@@ -280,16 +310,20 @@ class DifferentiableLinearGaussianModel[
 
 
 @dataclass(frozen=True)
-class AnalyticLinearGaussianModel[
+class NormalAnalyticLinearGaussianModel[
     ObsRep: PositiveDefinite,
 ](
-    DifferentiableLinearGaussianModel[ObsRep, PositiveDefinite],
+    NormalDifferentiableLinearGaussianModel[ObsRep],
     AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
 ):
     """Analytic Linear Gaussian Model that extends the differentiable LGM with full analytical tractability, adding conversions between mean and natural coordinates, and a closed-form implementation of EM."""
 
     def __init__(self, obs_dim: int, obs_rep: type[ObsRep], lat_dim: int):
-        super().__init__(obs_dim, obs_rep, lat_dim, PositiveDefinite)
+        super().__init__(
+            obs_dim=obs_dim,
+            obs_rep=obs_rep,
+            lat_dim=lat_dim,
+        )
 
     @override
     def to_natural_likelihood(
@@ -335,7 +369,7 @@ class AnalyticLinearGaussianModel[
 
 
 @dataclass(frozen=True)
-class FactorAnalysis(AnalyticLinearGaussianModel[Diagonal]):
+class FactorAnalysis(NormalAnalyticLinearGaussianModel[Diagonal]):
     """A factor analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
@@ -379,7 +413,7 @@ class FactorAnalysis(AnalyticLinearGaussianModel[Diagonal]):
 
 
 @dataclass(frozen=True)
-class PrincipalComponentAnalysis(AnalyticLinearGaussianModel[Scale]):
+class PrincipalComponentAnalysis(NormalAnalyticLinearGaussianModel[Scale]):
     """A principal component analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):

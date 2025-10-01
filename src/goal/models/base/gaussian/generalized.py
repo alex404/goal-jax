@@ -7,7 +7,7 @@ from typing import Self, override
 import jax.numpy as jnp
 from jax import Array
 
-from ....geometry import ExponentialFamily, Manifold, Mean, Natural, Point
+from ....geometry import Differentiable, ExponentialFamily, Manifold, Mean, Natural, Point
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class Euclidean(ExponentialFamily):
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
-class GeneralizedGaussian[S: ExponentialFamily](Manifold, ABC):
+class GeneralizedGaussian[S: ExponentialFamily](Differentiable, ABC):
     r"""ABC for exponential families with Gaussian-like sufficient statistics.
 
     This abc captures the shared structure between Normal distributions and
@@ -71,6 +71,16 @@ class GeneralizedGaussian[S: ExponentialFamily](Manifold, ABC):
     The location component is always Euclidean space, as both Normal and Boltzmann
     distributions use Euclidean for their first-order sufficient statistics.
     """
+
+    @property
+    @abstractmethod
+    def loc_man(self) -> Euclidean:
+        """Return the Euclidean location component manifold."""
+
+    @property
+    @abstractmethod
+    def shp_man(self) -> S:
+        """Return the shape component manifold."""
 
     # Core split/join operations for harmonium conjugation
 

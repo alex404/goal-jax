@@ -23,31 +23,32 @@ from ...geometry import (
 from ..base.gaussian.normal import FullNormal, Normal
 from ..base.poisson import CoMPoisson, CoMShape, Poisson
 from .lgm import (
-    AnalyticLinearGaussianModel,
     DifferentiableLinearGaussianModel,
+    NormalAnalyticLinearGaussianModel,
     NormalCovarianceEmbedding,
+    NormalDifferentiableLinearGaussianModel,
 )
 from .mixture import AnalyticMixture, DifferentiableMixture
 
 ### HMoGs ###
 
 
-type DifferentiableHMoG[ObsRep: PositiveDefinite, PostRep: PositiveDefinite] = (
+type DifferentiableHMoG[ObsRep: PositiveDefinite] = (
     DifferentiableUndirected[
-        DifferentiableLinearGaussianModel[ObsRep, PostRep],
-        AnalyticMixture[Normal[PostRep]],
-        DifferentiableMixture[FullNormal, Normal[PostRep]],
+        NormalDifferentiableLinearGaussianModel[ObsRep],
+        AnalyticMixture[FullNormal],
+        DifferentiableMixture[FullNormal, FullNormal],
     ]
 )
 
 type SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite] = (
     SymmetricUndirected[
-        AnalyticLinearGaussianModel[ObsRep],
+        NormalAnalyticLinearGaussianModel[ObsRep],
         DifferentiableMixture[FullNormal, Normal[LatRep]],
     ]
 )
 type AnalyticHMoG[ObsRep: PositiveDefinite] = AnalyticUndirected[
-    AnalyticLinearGaussianModel[ObsRep],
+    NormalAnalyticLinearGaussianModel[ObsRep],
     AnalyticMixture[FullNormal],
 ]
 
@@ -94,7 +95,7 @@ def symmetric_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     mid_lat_man = Normal(lat_dim, PositiveDefinite)
     sub_lat_man = Normal(lat_dim, lat_rep)
     mix_sub = NormalCovarianceEmbedding(sub_lat_man, mid_lat_man)
-    lwr_hrm = AnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
+    lwr_hrm = NormalAnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
     upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
     return SymmetricUndirected(
@@ -112,7 +113,7 @@ def analytic_hmog[ObsRep: PositiveDefinite](
     """Create an analytic hierarchical mixture of Gaussians model. The resulting model enables closed-form EM for learning and bidirectional parameter conversion, however requires mixtuers of full coviarance Gaussians in the latent space."""
 
     lat_man = Normal(lat_dim, PositiveDefinite)
-    lwr_hrm = AnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
+    lwr_hrm = NormalAnalyticLinearGaussianModel(obs_dim, obs_rep, lat_dim)
     upr_hrm = AnalyticMixture(lat_man, n_components)
 
     return AnalyticUndirected(
