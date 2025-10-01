@@ -14,7 +14,7 @@ from ....geometry import (
     Natural,
     Point,
 )
-from .generalized import Euclidean
+from .generalized import Euclidean, GeneralizedGaussian
 
 
 @dataclass(frozen=True)
@@ -161,7 +161,7 @@ class CouplingMatrix(Differentiable):
 
 
 @dataclass(frozen=True)
-class Boltzmann(CouplingMatrix):
+class Boltzmann(GeneralizedGaussian[CouplingMatrix], CouplingMatrix):
     """Boltzmann machine with GeneralizedGaussian interface for harmoniums.
 
     Extends CouplingMatrix with the GeneralizedGaussian-compatible interface methods
@@ -173,6 +173,19 @@ class Boltzmann(CouplingMatrix):
     # Inherits all core functionality from CouplingMatrix
     # Implements GeneralizedGaussian-compatible interface methods below
 
+    @property
+    @override
+    def loc_man(self) -> Euclidean:
+        """Return the Euclidean location component manifold."""
+        return Euclidean(self.n_neurons)
+
+    @property
+    @override
+    def shp_man(self) -> CouplingMatrix:
+        """Return the coupling matrix shape component manifold."""
+        return CouplingMatrix(self.n_neurons)
+
+    @override
     def split_location_precision(
         self, params: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, CouplingMatrix]]:
@@ -203,6 +216,7 @@ class Boltzmann(CouplingMatrix):
 
         return Point(jnp.zeros(n)), Point(new_triangular)
 
+    @override
     def join_location_precision(
         self,
         location: Point[Natural, Euclidean],
@@ -232,6 +246,7 @@ class Boltzmann(CouplingMatrix):
 
         return Point(final_triangular)
 
+    @override
     def split_mean_second_moment(
         self, params: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, CouplingMatrix]]:
@@ -251,6 +266,7 @@ class Boltzmann(CouplingMatrix):
 
         return Point(first_moment), Point(triangular_params)
 
+    @override
     def join_mean_second_moment(
         self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, CouplingMatrix]
     ) -> Point[Mean, Self]:

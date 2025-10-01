@@ -16,6 +16,7 @@ from ...geometry import (
     Diagonal,
     DifferentiableConjugated,
     Dual,
+    IdentityEmbedding,
     LinearEmbedding,
     LinearMap,
     MatrixRep,
@@ -28,6 +29,7 @@ from ...geometry import (
     expand_dual,
     reduce_dual,
 )
+from ..base.gaussian.boltzmann import Boltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
@@ -70,13 +72,15 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any]](
     @override
     def embed(self, p: Point[Natural, Euclidean]) -> Point[Natural, G]:
         zero_shape = self.gau_man.shp_man.zeros()
-        return self.gau_man.join_location_precision(p, zero_shape)  # type: ignore[return-value]
+        return self.gau_man.join_location_precision(p, zero_shape)
 
     @override
-    def translate(self, p: Point[Natural, G], q: Point[Natural, Euclidean]) -> Point[Natural, G]:
+    def translate(
+        self, p: Point[Natural, G], q: Point[Natural, Euclidean]
+    ) -> Point[Natural, G]:
         loc, shape = self.gau_man.split_location_precision(p)
         new_loc = loc + q
-        return self.gau_man.join_location_precision(new_loc, shape)  # type: ignore[return-value]
+        return self.gau_man.join_location_precision(new_loc, shape)
 
 
 @dataclass(frozen=True)
@@ -307,6 +311,40 @@ class NormalDifferentiableLinearGaussianModel[
         return nor_man.join_location_precision(
             nor_loc, nor_man.cov_man.from_dense(joint_shape_array)
         )
+
+
+@dataclass(frozen=True)
+class BoltzmannDifferentiableLinearGaussianModel[
+    ObsRep: PositiveDefinite,
+](
+    DifferentiableLinearGaussianModel[ObsRep, Boltzmann, Boltzmann],
+):
+    """Differentiable Linear Gaussian Model with Boltzmann latent variables.
+
+    This model combines a Normal observable distribution with Boltzmann (binary)
+    latent variables. The latent states are discrete binary vectors, making this
+    suitable for discrete representation learning and binary latent factor models.
+
+    The observable distribution remains Gaussian (continuous), while the latent
+    distribution is a Boltzmann machine (discrete binary). This enables learning
+    discrete latent representations of continuous data.
+    """
+
+    lat_dim: int
+    """Number of binary latent units."""
+
+    # Overrides
+
+    @property
+    @override
+    def pst_lat_emb(self) -> LinearEmbedding[Boltzmann, Boltzmann]:
+        """Embedding of posterior Boltzmann into prior Boltzmann.
+
+        For Boltzmann machines, both posterior and prior use the same manifold
+        structure (no covariance simplification like in Normal case), so we use
+        the identity embedding.
+        """
+        return IdentityEmbedding(Boltzmann(self.lat_dim))
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,5 @@
 from .base.categorical import Categorical
+from .base.gaussian.boltzmann import Boltzmann
 from .base.gaussian.normal import (
     Covariance,
     DiagonalCovariance,
@@ -26,6 +27,7 @@ from .graphical.instances import (
     symmetric_hmog,
 )
 from .graphical.lgm import (
+    BoltzmannDifferentiableLinearGaussianModel,
     DifferentiableLinearGaussianModel,
     FactorAnalysis,
     NormalAnalyticLinearGaussianModel,
@@ -42,6 +44,8 @@ __all__ = [
     "AnalyticHMoG",
     "AnalyticLinearGaussianModel",
     "AnalyticMixture",
+    "Boltzmann",
+    "BoltzmannDifferentiableLinearGaussianModel",
     "Categorical",
     "CoMPoisson",
     "CoMPoissonMixture",
