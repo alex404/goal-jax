@@ -317,5 +317,50 @@ def test_model_consistency(
     )
 
 
+def test_precision_is_inverse_of_covariance(
+    ground_truth_normal: Normal[PositiveDefinite],
+    ground_truth_params: Point[Mean, Normal[PositiveDefinite]],
+):
+    """Test that split_location_precision returns the actual precision matrix Σ^{-1}."""
+    # Convert to natural parameters
+    natural_params = ground_truth_normal.to_natural(ground_truth_params)
+
+    # Split to get precision
+    _, precision = ground_truth_normal.split_location_precision(natural_params)
+
+    # Get covariance from mean parameters
+    _, covariance = ground_truth_normal.split_mean_covariance(ground_truth_params)
+
+    # Convert both to dense matrices
+    precision_dense = ground_truth_normal.cov_man.to_dense(precision)
+    covariance_dense = ground_truth_normal.cov_man.to_dense(covariance)
+
+    # Compute actual inverse
+    actual_precision = jnp.linalg.inv(covariance_dense)
+
+    logger.info("\n=== Precision Matrix Test ===")
+    logger.info(f"Precision from split_location_precision:\n{precision_dense}")
+    logger.info(f"Actual precision (Σ^{{-1}}):\n{actual_precision}")
+    logger.info(f"Difference:\n{precision_dense - actual_precision}")
+
+    max_error = jnp.max(jnp.abs(precision_dense - actual_precision))
+    logger.info(f"Max absolute difference: {max_error:.2e}")
+
+    assert jnp.allclose(
+        precision_dense, actual_precision, rtol=relative_tol, atol=absolute_tol
+    ), f"Precision matrix is not the inverse of covariance! Max error: {max_error}"
+
+    # Also verify that Σ^{-1} @ Σ = I
+    identity_check = precision_dense @ covariance_dense
+    expected_identity = jnp.eye(ground_truth_normal.data_dim)
+
+    logger.info(f"Σ^{{-1}} @ Σ:\n{identity_check}")
+    logger.info(f"Expected identity:\n{expected_identity}")
+
+    assert jnp.allclose(
+        identity_check, expected_identity, rtol=relative_tol, atol=absolute_tol
+    ), "Precision @ Covariance does not equal identity!"
+
+
 if __name__ == "__main__":
     _ = pytest.main()

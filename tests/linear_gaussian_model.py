@@ -17,7 +17,7 @@ import pytest
 from jax import Array
 from jax.scipy import stats
 
-from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale
+from goal.geometry import Diagonal, Mean, Natural, Point, PositiveDefinite, Scale
 from goal.models import AnalyticLinearGaussianModel, Covariance, FactorAnalysis, Normal
 
 # Configure JAX
@@ -355,6 +355,69 @@ def test_model_consistency(
 
     assert jnp.allclose(iso_ne, dia_ne, rtol=relative_tol, atol=absolute_tol)
     assert jnp.allclose(dia_ne, pod_ne, rtol=relative_tol, atol=absolute_tol)
+
+
+def test_normal_lgm_conjugation_equation():
+    """Test the conjugation equation for Normal LGM.
+
+    For a conjugated harmonium, the following must hold for all latent states z:
+
+    ψ(θ_X + θ_{XZ} · s_Z(z)) = ρ · s_Z(z) + ψ_X(θ_X)
+
+    This is a fundamental property that must be satisfied.
+    """
+    # Create model
+    obs_dim, lat_dim = 3, 2
+    model = AnalyticLinearGaussianModel(obs_dim, PositiveDefinite, lat_dim)
+
+    # Initialize with random parameters
+    key = jax.random.PRNGKey(42)
+    params = model.initialize(key, location=0.0, shape=1.0)
+
+    # Split parameters
+    obs_params, int_params, _ = model.split_params(params)
+    lkl_params = model.lkl_man.join_params(obs_params, int_params)
+
+    # Compute conjugation parameters
+    rho = model.conjugation_parameters(lkl_params)
+
+    # Test equation for several random latent vectors
+    n_test = 5
+    errors = []
+
+    for i in range(n_test):
+        # Generate random latent vector
+        key_i = jax.random.fold_in(key, i)
+        z = jax.random.normal(key_i, (lat_dim,))
+
+        # Compute sufficient statistic of latent state
+        s_z = model.lat_man.sufficient_statistic(z)
+
+        # LHS: ψ(θ_X + θ_{XZ} · s_Z(z))
+        # This is the log partition function of the conditional p(x|z)
+        z_loc = model.lat_man.loc_man.point(z)
+        conditional_obs = model.lkl_man(lkl_params, z_loc)
+        lhs = model.obs_man.log_partition_function(conditional_obs)
+
+        # RHS: ρ · s_Z(z) + ψ_X(θ_X)
+        rhs_term1 = model.con_lat_man.dot(rho, s_z)
+        rhs_term2 = model.obs_man.log_partition_function(obs_params)
+        rhs = rhs_term1 + rhs_term2
+
+        error = float(jnp.abs(lhs - rhs))
+        errors.append(error)
+
+        logger.info(f"z={i}: LHS={lhs:.8f}, RHS={rhs:.8f}, error={error:.2e}")
+
+    max_error = max(errors)
+    mean_error = sum(errors) / len(errors)
+
+    logger.info(
+        f"Normal LGM conjugation: max_error={max_error:.2e}, mean_error={mean_error:.2e}"
+    )
+
+    # Should be very close to zero
+    assert max_error < 1e-5, f"Conjugation equation violated! Max error: {max_error:.2e}"
 
 
 if __name__ == "__main__":
