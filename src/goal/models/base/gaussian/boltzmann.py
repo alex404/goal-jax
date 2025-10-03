@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 from dataclasses import dataclass
 from typing import Self, override
 
@@ -34,10 +33,6 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
 
     def __init__(self, n_neurons: int):
         super().__init__(Symmetric(), Euclidean(n_neurons))
-        # Cache states for efficiency (computed once per instance)
-        self._states: Array = jnp.array(
-            list(itertools.product([0, 1], repeat=n_neurons))
-        )
 
     # Properties
 
@@ -54,8 +49,9 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
 
     @property
     def states(self) -> Array:
-        """All possible binary states."""
-        return self._states
+        """All possible binary states via bit manipulation."""
+        idx = jnp.arange(1 << self.n_neurons, dtype=jnp.uint32)
+        return ((idx[:, None] >> jnp.arange(self.n_neurons)) & 1).astype(jnp.float32)
 
     # Core exponential family
 
@@ -73,10 +69,8 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
         """Exact computation via enumeration."""
-        # Compute sufficient statistics for all states
         states = self.states
 
-        # Compute energies for all states using sufficient statistic
         def energy(state: Array) -> Array:
             suff_stat = self.sufficient_statistic(state)
             return self.dot(params, suff_stat)
@@ -115,7 +109,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         def update_unit(state: Array, unit_idx: int) -> tuple[Array, None]:
             prob = self.unit_conditional_prob(state, unit_idx, params)
             subkey = jax.random.fold_in(key, unit_idx)
-            new_val = jax.random.bernoulli(subkey, prob)
+            new_val = jax.random.bernoulli(subkey, prob).astype(state.dtype)
             return state.at[unit_idx].set(new_val), None
 
         final_state, _ = jax.lax.scan(update_unit, state, perm)  # pyright: ignore[reportArgumentType]
@@ -133,7 +127,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         """Generate samples using Gibbs sampling."""
         # Initialize
         init_key, sample_key = jax.random.split(key)
-        init_state = jax.random.bernoulli(init_key, 0.5, shape=(self.n_neurons,))
+        init_state = jax.random.bernoulli(init_key, 0.5, shape=(self.n_neurons,)).astype(jnp.float32)
 
         # Burn-in
         def burn_step(state: Array, step: int) -> tuple[Array, None]:
@@ -217,16 +211,8 @@ class Boltzmann(
 
     @override
     def log_partition_function(self, params: Point[Natural, Self]) -> Array:
-        """Exact computation via enumeration."""
-        # Compute energies for all states using sufficient statistic
-        states = self.states
-
-        def energy(state: Array) -> Array:
-            suff_stat = self.sufficient_statistic(state)
-            return self.dot(params, suff_stat)
-
-        energies = jax.vmap(energy)(states)
-        return jax.scipy.special.logsumexp(energies)
+        """Delegate to CouplingMatrix."""
+        return self.shp_man.log_partition_function(Point(params.array))
 
     @override
     def sample(
@@ -237,70 +223,10 @@ class Boltzmann(
         n_burnin: int = 1000,
         n_thin: int = 10,
     ) -> Array:
-        """Generate samples using Gibbs sampling."""
-        # Initialize
-        init_key, sample_key = jax.random.split(key)
-        init_state = jax.random.bernoulli(init_key, 0.5, shape=(self.n_neurons,))
-
-        # Burn-in
-        def burn_step(state: Array, step: int) -> tuple[Array, None]:
-            subkey = jax.random.fold_in(sample_key, step)
-            return self._gibbs_step(state, subkey, params), None
-
-        burned_state, _ = jax.lax.scan(burn_step, init_state, jnp.arange(n_burnin))  # pyright: ignore[reportArgumentType]
-
-        # Sample collection with thinning
-        def sample_with_thinning(state: Array, step: int) -> tuple[Array, Array]:
-            def thin_step(i: int, current_state: Array) -> Array:
-                subkey = jax.random.fold_in(sample_key, n_burnin + step * n_thin + i)
-                return self._gibbs_step(current_state, subkey, params)
-
-            final_state = jax.lax.fori_loop(0, n_thin, thin_step, state)
-            return final_state, final_state
-
-        _, samples = jax.lax.scan(
-            sample_with_thinning,
-            burned_state,
-            jnp.arange(n_samples),  # pyright: ignore[reportArgumentType]
+        """Delegate to CouplingMatrix."""
+        return self.shp_man.sample(
+            key, Point(params.array), n_samples, n_burnin, n_thin
         )
-        return samples
-
-    def _unit_conditional_energy_diff(
-        self, state: Array, unit_idx: int, params: Point[Natural, Self]
-    ) -> Array:
-        """Compute energy difference for unit being 1 vs 0 using sufficient statistics."""
-        # Create states with unit_idx = 0 and unit_idx = 1
-        state_0 = state.at[unit_idx].set(0.0)
-        state_1 = state.at[unit_idx].set(1.0)
-
-        # Compute sufficient statistics for both states
-        suff_stat_0 = self.sufficient_statistic(state_0)
-        suff_stat_1 = self.sufficient_statistic(state_1)
-
-        # Energy difference = $\\theta^T (s(x_1) - s(x_0))$
-        return jnp.dot(params.array, suff_stat_1.array - suff_stat_0.array)
-
-    def unit_conditional_prob(
-        self, state: Array, unit_idx: int, params: Point[Natural, Self]
-    ) -> Array:
-        """Compute P(x_unit = 1 | x_other) for a single unit."""
-        energy_diff = self._unit_conditional_energy_diff(state, unit_idx, params)
-        return jax.nn.sigmoid(energy_diff)
-
-    def _gibbs_step(
-        self, state: Array, key: Array, params: Point[Natural, Self]
-    ) -> Array:
-        """Single Gibbs sampling step updating all units in random order."""
-        perm = jax.random.permutation(key, self.n_neurons)
-
-        def update_unit(state: Array, unit_idx: int) -> tuple[Array, None]:
-            prob = self.unit_conditional_prob(state, unit_idx, params)
-            subkey = jax.random.fold_in(key, unit_idx)
-            new_val = jax.random.bernoulli(subkey, prob)
-            return state.at[unit_idx].set(new_val), None
-
-        final_state, _ = jax.lax.scan(update_unit, state, perm)  # pyright: ignore[reportArgumentType]
-        return final_state
 
     # GeneralizedGaussian interface
 
@@ -338,20 +264,19 @@ class Boltzmann(
         n = self.n_neurons
 
         # Boolean mask for diagonal elements in upper triangular storage
-        i_diag = jnp.triu_indices(n)[0] == jnp.triu_indices(n)[1]
+        rows, cols = jnp.triu_indices(n)
+        i_diag = rows == cols
 
-        # Extract diagonal terms for absorption
-        diagonal_terms = triangular_params[i_diag]
+        # Broadcast location array to match triangular storage
+        # For diagonal elements at position i in triangular array,
+        # rows[i] gives the corresponding index in location array
+        location_broadcast = location.array[rows]
 
-        # ABSORPTION: Add diagonal terms to location
-        absorbed_diagonal = location.array + diagonal_terms
-
-        # Scale off-diagonal by 2, then set diagonal to absorbed values
-        scaled_params = jnp.where(i_diag, triangular_params, triangular_params * 2.0)
-
-        # Replace diagonal values with absorbed values
-        diag_positions = jnp.where(i_diag)[0]
-        final_triangular = scaled_params.at[diag_positions].set(absorbed_diagonal)
+        final_triangular = jnp.where(
+            i_diag,
+            triangular_params + location_broadcast,  # diagonal: absorb location
+            triangular_params * 2.0,  # off-diagonal: scale by 2
+        )
 
         return Point(final_triangular)
 
@@ -369,10 +294,11 @@ class Boltzmann(
         triangular_params = params.array
         n = self.n_neurons
 
-        # Boolean mask for diagonal elements in upper triangular storage
-        i_diag = jnp.triu_indices(n)[0] == jnp.triu_indices(n)[1]
+        # Find diagonal positions in upper triangular storage
+        rows, cols = jnp.triu_indices(n)
+        i_diag = rows == cols
 
-        # Extract diagonal elements (first moments E[xᵢ])
+        # Extract diagonal elements (E[x_i] for binary variables)
         first_moment = triangular_params[i_diag]
 
         return Point(first_moment), Point(triangular_params)

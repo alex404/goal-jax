@@ -9,8 +9,8 @@ from jax import Array
 from goal.geometry import (
     AffineMap,
     Natural,
-    OptState,
     Optimizer,
+    OptState,
     Point,
     PositiveDefinite,
     Rectangular,
@@ -28,7 +28,7 @@ from .types import GaussianBoltzmannResults
 ### Constants ###
 
 # Model parameters
-N_LATENTS = 6
+N_LATENTS = 9
 OBS_DIM = 2
 
 # Data generation
@@ -98,9 +98,9 @@ def train_model(
 
     # Initialize parameters and optimizer
     params = model.initialize(key, location=0.0, shape=1.0)
-    optimizer: Optimizer[Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]] = (
-        Optimizer.adamw(man=model, learning_rate=LEARNING_RATE)
-    )
+    optimizer: Optimizer[
+        Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]
+    ] = Optimizer.adamw(man=model, learning_rate=LEARNING_RATE)
     opt_state = optimizer.init(params)
 
     # Define loss function
@@ -112,12 +112,18 @@ def train_model(
     # Define single gradient step
     def grad_step(
         opt_state_and_params: tuple[
-            OptState, Point[Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]]
+            OptState,
+            Point[
+                Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]
+            ],
         ],
         _: Any,
     ) -> tuple[
         tuple[
-            OptState, Point[Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]]
+            OptState,
+            Point[
+                Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]
+            ],
         ],
         Array,
     ]:
