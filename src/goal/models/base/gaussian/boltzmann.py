@@ -127,7 +127,9 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         """Generate samples using Gibbs sampling."""
         # Initialize
         init_key, sample_key = jax.random.split(key)
-        init_state = jax.random.bernoulli(init_key, 0.5, shape=(self.n_neurons,)).astype(jnp.float32)
+        init_state = jax.random.bernoulli(
+            init_key, 0.5, shape=(self.n_neurons,)
+        ).astype(jnp.float32)
 
         # Burn-in
         def burn_step(state: Array, step: int) -> tuple[Array, None]:
