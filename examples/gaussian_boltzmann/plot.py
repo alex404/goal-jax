@@ -16,7 +16,7 @@ from .types import GaussianBoltzmannResults
 
 # Color palettes
 POSTERIOR_COLORS = sns.color_palette("Set1", n_colors=4)
-OBSERVABLE_PALETTE = sns.color_palette("twilight", as_cmap=True)
+OBSERVABLE_PALETTE = sns.color_palette("mako", as_cmap=True)
 
 
 def plot_likelihood(ax: Axes, data: GaussianBoltzmannResults) -> None:
@@ -97,7 +97,7 @@ def plot_posterior(
     ax: gridspec.SubplotSpec,
     data: GaussianBoltzmannResults,
     fig: Figure
-) -> tuple[list, Axes]:
+) -> tuple[list, list[Axes]]:
     """Plot posterior moment matrices in 2x2 grid."""
     posterior_matrices = data["posterior_moment_matrices"]
 
@@ -145,7 +145,7 @@ def plot_posterior(
         fontsize=12, fontweight="normal"
     )
 
-    return heatmaps, axes_list[0]
+    return heatmaps, axes_list
 
 
 def plot_training_history(ax: Axes, data: GaussianBoltzmannResults) -> None:
@@ -192,9 +192,9 @@ def create_gaussian_boltzmann_plots(results: GaussianBoltzmannResults) -> Figure
     cbar_density = fig.colorbar(heatmap_density, ax=ax_density)
     cbar_density.set_label("Density")
 
-    heatmaps_posterior, ax_posterior = plot_posterior(ax_posterior_spec, results, fig)
-    # Add colorbar for posterior - use one of the heatmaps
-    cbar_posterior = fig.colorbar(heatmaps_posterior[0], ax=ax_posterior, fraction=0.046, pad=0.04)
+    heatmaps_posterior, axes_posterior = plot_posterior(ax_posterior_spec, results, fig)
+    # Add colorbar for posterior - span the height of all posterior axes
+    cbar_posterior = fig.colorbar(heatmaps_posterior[0], ax=axes_posterior, fraction=0.046, pad=0.04)
     cbar_posterior.set_label("Moment")
 
     # Add main title
