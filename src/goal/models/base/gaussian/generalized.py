@@ -7,7 +7,13 @@ from typing import Self, override
 import jax.numpy as jnp
 from jax import Array
 
-from ....geometry import Differentiable, ExponentialFamily, Manifold, Mean, Natural, Point
+from ....geometry import (
+    Differentiable,
+    ExponentialFamily,
+    Mean,
+    Natural,
+    Point,
+)
 
 
 @dataclass(frozen=True)

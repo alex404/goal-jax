@@ -1,10 +1,10 @@
 from .base.categorical import Categorical
 from .base.gaussian.boltzmann import Boltzmann
+from .base.gaussian.generalized import Euclidean
 from .base.gaussian.normal import (
     Covariance,
     DiagonalCovariance,
     DiagonalNormal,
-    Euclidean,
     FullCovariance,
     FullNormal,
     IsotropicCovariance,
@@ -13,32 +13,34 @@ from .base.gaussian.normal import (
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson
 from .base.von_mises import VonMises
-from .graphical.instances import (
+from .graphical import (
     AnalyticHMoG,
-    CoMPoissonMixture,
-    CoMPoissonPopulation,
     DifferentiableHMoG,
-    PoissonMixture,
     SymmetricHMoG,
     analytic_hmog,
-    com_poisson_mixture,
     differentiable_hmog,
-    poisson_mixture,
     symmetric_hmog,
 )
-from .graphical.lgm import (
+from .harmonium import (
+    AnalyticMixture,
     BoltzmannDifferentiableLinearGaussianModel,
+    CoMPoissonMixture,
+    CoMPoissonPopulation,
     DifferentiableLinearGaussianModel,
+    DifferentiableMixture,
     FactorAnalysis,
+    Mixture,
     NormalAnalyticLinearGaussianModel,
     NormalCovarianceEmbedding,
     NormalDifferentiableLinearGaussianModel,
+    PoissonMixture,
     PrincipalComponentAnalysis,
+    com_poisson_mixture,
+    poisson_mixture,
 )
 
 # Backward compatibility alias
 AnalyticLinearGaussianModel = NormalAnalyticLinearGaussianModel
-from .graphical.mixture import AnalyticMixture, DifferentiableMixture, Mixture
 
 __all__ = [
     "AnalyticHMoG",
@@ -66,7 +68,9 @@ __all__ = [
     "IsotropicNormal",
     "Mixture",
     "Normal",
+    "NormalAnalyticLinearGaussianModel",
     "NormalCovarianceEmbedding",
+    "NormalDifferentiableLinearGaussianModel",
     "Poisson",
     "PoissonMixture",
     "PrincipalComponentAnalysis",

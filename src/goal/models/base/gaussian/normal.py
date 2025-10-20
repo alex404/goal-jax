@@ -305,6 +305,7 @@ class Normal[Rep: PositiveDefinite](
     # Methods
 
     @property
+    @override
     def loc_man(self) -> Euclidean:
         """Location manifold."""
         return Euclidean(self._data_dim)

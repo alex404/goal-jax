@@ -20,12 +20,6 @@ from .exponential_family.harmonium import (
     Harmonium,
     SymmetricConjugated,
 )
-from .exponential_family.hierarchical import (
-    AnalyticUndirected,
-    DifferentiableUndirected,
-    ObservableEmbedding,
-    SymmetricUndirected,
-)
 from .manifold.base import (
     Coordinates,
     Dual,
@@ -69,7 +63,6 @@ __all__ = [
     "Analytic",
     "AnalyticConjugated",
     "AnalyticProduct",
-    "AnalyticUndirected",
     "ComposedEmbedding",
     "Conjugated",
     "Coordinates",
@@ -78,7 +71,6 @@ __all__ = [
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiableProduct",
-    "DifferentiableUndirected",
     "Dual",
     "Embedding",
     "ExponentialFamily",
@@ -94,7 +86,6 @@ __all__ = [
     "Mean",
     "Natural",
     "Null",
-    "ObservableEmbedding",
     "OptState",
     "Optimizer",
     "Pair",
@@ -109,7 +100,6 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
-    "SymmetricUndirected",
     "Triple",
     "TupleEmbedding",
     "expand_dual",
