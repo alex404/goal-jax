@@ -25,3 +25,5 @@ jobs:
           python -m pytest tests/normal.py
           python -m pytest tests/univariate.py
           python -m pytest tests/matrix.py
+          python -m pytest tests/boltzmann.py
+          python -m pytest tests/boltzmann_lgm.py
