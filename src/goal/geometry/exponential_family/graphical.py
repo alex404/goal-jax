@@ -14,7 +14,7 @@ Note: Implementation of these models pushes the boundaries of Python's type syst
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -201,7 +201,7 @@ def hierarchical_sample[
     # Sample from adjusted latent distribution p(z)
     nat_prior = harmonium.prior(params)  # pyright: ignore[reportAttributeAccessIssue]
     yz_sample = con_lat_man.sample(key1, nat_prior, n)  # pyright: ignore[reportAttributeAccessIssue]
-    y_sample = yz_sample[:, : lwr_hrm.con_lat_man.data_dim]
+    y_sample = yz_sample[:, : lwr_hrm.prr_lat_man.data_dim]
 
     # Vectorize sampling from conditional distributions
     x_params = jax.vmap(harmonium.likelihood_at, in_axes=(None, 0))(params, y_sample)

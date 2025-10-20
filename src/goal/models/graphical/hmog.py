@@ -78,8 +78,8 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite](
 
     def __post_init__(self):
         """Validate that component harmoniums are compatible."""
-        assert self.lwr_hrm.con_lat_man == self.con_upr_hrm.obs_man
-        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
+        assert self.lwr_hrm.prr_lat_man == self.con_upr_hrm.obs_man
+        assert self.lwr_hrm.pst_lat_man == self.upr_hrm.obs_man
 
     # Overrides from DifferentiableConjugated
 
@@ -121,7 +121,7 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite](
     @override
     def sample(self, key: Array, params: Point[Natural, Any], n: int = 1) -> Array:
         """Sample from the hierarchical model using ancestral sampling."""
-        return hierarchical_sample(self, self.lwr_hrm, self.con_lat_man, key, params, n)
+        return hierarchical_sample(self, self.lwr_hrm, self.prr_lat_man, key, params, n)
 
     @override
     def conjugation_parameters(
@@ -171,7 +171,7 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
 
     def __post_init__(self):
         """Validate that component harmoniums are compatible."""
-        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
+        assert self.lwr_hrm.pst_lat_man == self.upr_hrm.obs_man
 
     # Overrides from SymmetricConjugated
 
@@ -210,7 +210,7 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     @override
     def sample(self, key: Array, params: Point[Natural, Any], n: int = 1) -> Array:
         """Sample from the hierarchical model using ancestral sampling."""
-        return hierarchical_sample(self, self.lwr_hrm, self.con_lat_man, key, params, n)
+        return hierarchical_sample(self, self.lwr_hrm, self.prr_lat_man, key, params, n)
 
     @override
     def conjugation_parameters(

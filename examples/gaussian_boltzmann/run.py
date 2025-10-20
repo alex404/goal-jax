@@ -170,12 +170,12 @@ def compute_boltzmann_moment_matrix(
     Returns:
         Moment matrix of shape (n_latents, n_latents)
     """
-    states = model.lat_man.states  # All 2^n binary states
+    states = model.pst_lat_man.states  # All 2^n binary states
 
     # Compute log probabilities for each state
     def log_prob_at_state(z: Array) -> Array:
-        return model.lat_man.dot(
-            boltzmann_params, model.lat_man.sufficient_statistic(z)
+        return model.pst_lat_man.dot(
+            boltzmann_params, model.pst_lat_man.sufficient_statistic(z)
         )
 
     log_probs = jax.vmap(log_prob_at_state)(states)
@@ -209,7 +209,7 @@ def compute_confidence_ellipse(
         Array of shape (n_points, obs_dim) representing the ellipse
     """
     # Get conditional distribution p(x|z)
-    z_location = model.lat_man.loc_man.mean_point(latent_state)
+    z_location = model.pst_lat_man.loc_man.mean_point(latent_state)
     conditional_obs_params = model.lkl_man(likelihood_params, z_location)
 
     # Extract mean and covariance

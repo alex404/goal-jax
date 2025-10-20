@@ -77,7 +77,7 @@ class Harmonium[
     @property
     @abstractmethod
     def pst_lat_emb(self) -> LinearEmbedding[PostLatent, Latent]:
-        """Embedding of the posterior latent submanifold into the complete latent manifold."""
+        """Embedding of the posterior latent submanifold into the prior latent manifold."""
 
     # Templates
 
@@ -87,13 +87,13 @@ class Harmonium[
         return self.obs_emb.amb_man
 
     @property
-    def lat_man(self) -> PostLatent:
+    def pst_lat_man(self) -> PostLatent:
         """Manifold of posterior specific latent biases."""
         return self.pst_lat_emb.sub_man
 
     @property
-    def con_lat_man(self) -> Latent:
-        """Manifold of the conjugation parameters."""
+    def prr_lat_man(self) -> Latent:
+        """Manifold of the prior and conjugation parameters."""
         return self.pst_lat_emb.amb_man
 
     @property
@@ -172,13 +172,13 @@ class Harmonium[
     @property
     @override
     def trd_man(self) -> PostLatent:
-        return self.lat_man
+        return self.pst_lat_man
 
     @property
     @override
     def data_dim(self) -> int:
         """Total dimension of data points."""
-        return self.obs_man.data_dim + self.lat_man.data_dim
+        return self.obs_man.data_dim + self.pst_lat_man.data_dim
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
@@ -187,7 +187,7 @@ class Harmonium[
         lat_x = x[self.obs_man.data_dim :]
 
         obs_stats = self.obs_man.sufficient_statistic(obs_x)
-        lat_stats = self.lat_man.sufficient_statistic(lat_x)
+        lat_stats = self.pst_lat_man.sufficient_statistic(lat_x)
         int_stats = self.int_man.outer_product(
             self.obs_emb.project(obs_stats), self.int_lat_emb.project(lat_stats)
         )
@@ -200,7 +200,7 @@ class Harmonium[
         obs_x = x[..., self.obs_man.data_dim :]
         lat_x = x[self.obs_man.data_dim :]
 
-        return self.obs_man.log_base_measure(obs_x) + self.lat_man.log_base_measure(
+        return self.obs_man.log_base_measure(obs_x) + self.pst_lat_man.log_base_measure(
             lat_x
         )
 
@@ -213,7 +213,7 @@ class Harmonium[
 
         # Initialize biases using component initialization
         obs_params = self.obs_man.initialize(keys[0], location, shape)
-        lat_params = self.lat_man.initialize(keys[1], location, shape)
+        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
         obs_dim = self.obs_emb.sub_man.dim
@@ -240,7 +240,7 @@ class Harmonium[
         )
 
         # Use standard initialization for everything else
-        lat_params = self.lat_man.initialize(keys[1], location, shape)
+        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
         obs_dim = self.obs_emb.sub_man.dim
@@ -312,7 +312,7 @@ class Conjugated[
 
         # Sample from adjusted latent distribution p(z)
         nat_prior = self.prior(params)
-        z_sample = self.con_lat_man.sample(key1, nat_prior, n)
+        z_sample = self.prr_lat_man.sample(key1, nat_prior, n)
 
         # Vectorize sampling from conditional distributions
         x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z_sample)
@@ -370,7 +370,7 @@ class DifferentiableConjugated[
         adjusted_lat = self.pst_lat_emb.translate(rho, lat_params)
 
         # Use latent family's partition function
-        return self.con_lat_man.log_partition_function(adjusted_lat) + chi
+        return self.prr_lat_man.log_partition_function(adjusted_lat) + chi
 
     # Templates
     def log_observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
@@ -389,8 +389,10 @@ class DifferentiableConjugated[
         prr = self.prior(params)
 
         log_density = self.obs_man.dot(obs_params, obs_stats)
-        log_density += self.lat_man.log_partition_function(self.posterior_at(params, x))
-        log_density -= self.con_lat_man.log_partition_function(prr) + chi
+        log_density += self.pst_lat_man.log_partition_function(
+            self.posterior_at(params, x)
+        )
+        log_density -= self.prr_lat_man.log_partition_function(prr) + chi
 
         return log_density + self.obs_man.log_base_measure(x)
 
@@ -428,7 +430,7 @@ class DifferentiableConjugated[
         lat_params = self.pst_man(post_map, self.obs_emb.project(obs_stats))
 
         # Convert to mean parameters (expected sufficient statistics)
-        lat_means = self.lat_man.to_mean(lat_params)
+        lat_means = self.pst_lat_man.to_mean(lat_params)
 
         # Form interaction term via outer product
         int_means: Point[Mean, LinearMap[IntRep, IntLatent, IntObservable]] = (
@@ -517,7 +519,7 @@ class AnalyticConjugated[
         """
         lkl_params = self.to_natural_likelihood(means)
         mean_lat = self.split_params(means)[2]
-        nat_lat = self.lat_man.to_natural(mean_lat)
+        nat_lat = self.pst_lat_man.to_natural(mean_lat)
         return self.join_conjugated(lkl_params, nat_lat)
 
     @override

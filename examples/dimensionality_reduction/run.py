@@ -47,7 +47,7 @@ def ground_truth(
         obs_means = om.join_mean_covariance(obs_mean, obs_cov)
         obs_params = om.to_natural(obs_means)
 
-    prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
+    prr_params = fan_man.pst_lat_man.to_natural(fan_man.pst_lat_man.standard_normal())
 
     int_params: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = (
         fan_man.int_man.point(jnp.asarray([1.0, 0.5]))

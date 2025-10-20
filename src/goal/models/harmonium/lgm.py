@@ -199,7 +199,7 @@ class DifferentiableLinearGaussianModel[
     @override
     def int_lat_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
         """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
-        return GeneralizedGaussianLocationEmbedding(self.lat_man)
+        return GeneralizedGaussianLocationEmbedding(self.pst_lat_man)
 
     @override
     def conjugation_parameters(
@@ -225,7 +225,7 @@ class DifferentiableLinearGaussianModel[
         rho_shape *= -1
 
         # Join parameters into moment parameters
-        return self.con_lat_man.join_location_precision(rho_mean, rho_shape)
+        return self.prr_lat_man.join_location_precision(rho_mean, rho_shape)
 
 
 @dataclass(frozen=True)
@@ -261,16 +261,16 @@ class NormalDifferentiableLinearGaussianModel[
         """Returns the marginal normal distribution over observable variables."""
         # Build transposed LGM with full covariance observable variables
         transposed_lgm = NormalAnalyticLinearGaussianModel(
-            obs_dim=self.lat_man.data_dim,  # Original latent becomes observable
+            obs_dim=self.pst_lat_man.data_dim,  # Original latent becomes observable
             obs_rep=PositiveDefinite,
             lat_dim=self.obs_dim,  # Original observable becomes latent
         )
 
         # Construct parameters for transposed model
         obs_params, int_params, lat_params = self.split_params(params)
-        nor_man = transposed_lgm.con_lat_man
+        nor_man = transposed_lgm.prr_lat_man
         obs_params_emb = self.obs_man.embed_rep(nor_man, obs_params)
-        lat_params_emb = self.lat_man.embed_rep(transposed_lgm.obs_man, lat_params)
+        lat_params_emb = self.pst_lat_man.embed_rep(transposed_lgm.obs_man, lat_params)
 
         # Join parameters with interaction matrix transposed
         transposed_params = transposed_lgm.join_params(
@@ -284,7 +284,7 @@ class NormalDifferentiableLinearGaussianModel[
 
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
-        lat_dim = self.con_lat_man.data_dim
+        lat_dim = self.prr_lat_man.data_dim
         new_man: NormalDifferentiableLinearGaussianModel[PositiveDefinite] = (
             NormalDifferentiableLinearGaussianModel(
                 obs_dim=self.obs_man.data_dim,
@@ -294,16 +294,16 @@ class NormalDifferentiableLinearGaussianModel[
         )
         obs_params, int_params, lat_params = self.split_params(p)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
-        emb_lat_params = self.lat_man.embed_rep(new_man.con_lat_man, lat_params)
+        emb_lat_params = self.pst_lat_man.embed_rep(new_man.prr_lat_man, lat_params)
 
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(emb_obs_params)
-        lat_loc, lat_prs = new_man.con_lat_man.split_location_precision(emb_lat_params)
+        lat_loc, lat_prs = new_man.prr_lat_man.split_location_precision(emb_lat_params)
         nor_man = Normal(self.data_dim, PositiveDefinite)
         nor_loc: Point[Natural, Euclidean] = nor_man.loc_man.point(
             jnp.concatenate([obs_loc.array, lat_loc.array])
         )
         obs_prs_array = new_man.obs_man.cov_man.to_dense(obs_prs)
-        lat_prs_array = new_man.con_lat_man.cov_man.to_dense(lat_prs)
+        lat_prs_array = new_man.prr_lat_man.cov_man.to_dense(lat_prs)
         int_array = -self.int_man.to_dense(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
@@ -369,10 +369,10 @@ class NormalAnalyticLinearGaussianModel[
     ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]]:
         # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
-        lat_cov_man = self.lat_man.cov_man
+        lat_cov_man = self.pst_lat_man.cov_man
         obs_means, int_means, lat_means = self.split_params(params)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
-        lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
+        lat_mean, lat_cov = self.pst_lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
 
         # Construct precisions
@@ -422,7 +422,7 @@ class FactorAnalysis(NormalAnalyticLinearGaussianModel[Diagonal]):
         q = self.mean_posterior_statistics(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
-        z = self.lat_man.to_natural(self.lat_man.standard_normal())
+        z = self.pst_lat_man.to_natural(self.pst_lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
     def from_loadings(
@@ -446,7 +446,7 @@ class FactorAnalysis(NormalAnalyticLinearGaussianModel[Diagonal]):
 
         # Combine parameters
         lkl_params = self.lkl_man.join_params(obs_params, int_mat)
-        z = self.lat_man.to_natural(self.lat_man.standard_normal())
+        z = self.pst_lat_man.to_natural(self.pst_lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
 
@@ -466,7 +466,7 @@ class PrincipalComponentAnalysis(NormalAnalyticLinearGaussianModel[Scale]):
         q = self.mean_posterior_statistics(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
-        z = self.lat_man.to_natural(self.lat_man.standard_normal())
+        z = self.pst_lat_man.to_natural(self.pst_lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
 

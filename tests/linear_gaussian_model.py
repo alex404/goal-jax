@@ -17,7 +17,7 @@ import pytest
 from jax import Array
 from jax.scipy import stats
 
-from goal.geometry import Diagonal, Mean, Natural, Point, PositiveDefinite, Scale
+from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale
 from goal.models import AnalyticLinearGaussianModel, Covariance, FactorAnalysis, Normal
 
 # Configure JAX
@@ -391,16 +391,16 @@ def test_normal_lgm_conjugation_equation():
         z = jax.random.normal(key_i, (lat_dim,))
 
         # Compute sufficient statistic of latent state
-        s_z = model.lat_man.sufficient_statistic(z)
+        s_z = model.pst_lat_man.sufficient_statistic(z)
 
         # LHS: ψ(θ_X + θ_{XZ} · s_Z(z))
         # This is the log partition function of the conditional p(x|z)
-        z_loc = model.lat_man.loc_man.point(z)
+        z_loc = model.pst_lat_man.loc_man.point(z)
         conditional_obs = model.lkl_man(lkl_params, z_loc)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)
-        rhs_term1 = model.con_lat_man.dot(rho, s_z)
+        rhs_term1 = model.prr_lat_man.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2
 
@@ -417,7 +417,9 @@ def test_normal_lgm_conjugation_equation():
     )
 
     # Should be very close to zero
-    assert max_error < 1e-5, f"Conjugation equation violated! Max error: {max_error:.2e}"
+    assert max_error < 1e-5, (
+        f"Conjugation equation violated! Max error: {max_error:.2e}"
+    )
 
 
 if __name__ == "__main__":

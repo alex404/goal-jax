@@ -15,17 +15,12 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
-    AffineMap,
     Natural,
     Point,
     PositiveDefinite,
-    Rectangular,
 )
 from goal.models import (
-    Boltzmann,
     BoltzmannDifferentiableLinearGaussianModel,
-    Euclidean,
-    Normal,
 )
 
 # Configure JAX
@@ -93,7 +88,7 @@ def test_conjugation_equation(
     rho = model.conjugation_parameters(lkl_params)
 
     # Get all latent states
-    lat_man = model.lat_man
+    lat_man = model.pst_lat_man
     states = lat_man.states  # All binary states
 
     # Test equation for subset of states
@@ -109,21 +104,19 @@ def test_conjugation_equation(
 
         # LHS: ψ(θ_X + θ_{XZ} · s_Z(z))
         # This is the log partition function of the conditional p(x|z)
-        z_loc = model.lat_man.loc_man.point(state)
+        z_loc = model.pst_lat_man.loc_man.point(state)
         conditional_obs = model.lkl_man(lkl_params, z_loc)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)
-        rhs_term1 = model.con_lat_man.dot(rho, s_z)
+        rhs_term1 = model.prr_lat_man.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2
 
         error = jnp.abs(lhs - rhs)
         errors.append(float(error))
 
-        logger.info(
-            f"State {idx}: LHS={lhs:.8f}, RHS={rhs:.8f}, error={error:.2e}"
-        )
+        logger.info(f"State {idx}: LHS={lhs:.8f}, RHS={rhs:.8f}, error={error:.2e}")
 
     max_error = max(errors)
     mean_error = sum(errors) / len(errors)
@@ -132,9 +125,9 @@ def test_conjugation_equation(
         f"Conjugation equation: max_error={max_error:.2e}, mean_error={mean_error:.2e}"
     )
 
-    assert all(
-        e < absolute_tol for e in errors
-    ), f"Conjugation equation violated! Max error: {max_error:.2e}, mean error: {mean_error:.2e}"
+    assert all(e < absolute_tol for e in errors), (
+        f"Conjugation equation violated! Max error: {max_error:.2e}, mean error: {mean_error:.2e}"
+    )
 
 
 def test_observable_density_via_marginalization(
@@ -154,12 +147,12 @@ def test_observable_density_via_marginalization(
 
     # Compute via marginalization
     lkl_params, prior_params = model.split_conjugated(random_params)
-    lat_man = model.lat_man
+    lat_man = model.pst_lat_man
     states = lat_man.states
 
     def joint_density(state: Array) -> Array:
         # p(x|z)
-        z_loc = model.lat_man.loc_man.point(state)
+        z_loc = model.pst_lat_man.loc_man.point(state)
         conditional_obs = model.lkl_man(lkl_params, z_loc)
         p_x_given_z = model.obs_man.density(conditional_obs, obs)
 
@@ -179,7 +172,9 @@ def test_observable_density_via_marginalization(
 
     assert jnp.allclose(
         density_model, density_marginal, rtol=relative_tol, atol=absolute_tol
-    ), f"Observable density mismatch: {density_model:.8f} vs {density_marginal:.8f} (rel_error={rel_error:.2e})"
+    ), (
+        f"Observable density mismatch: {density_model:.8f} vs {density_marginal:.8f} (rel_error={rel_error:.2e})"
+    )
 
 
 def test_posterior_normalization(
@@ -192,7 +187,7 @@ def test_posterior_normalization(
     obs = jax.random.normal(key, (model.obs_dim,))
 
     # Get all latent states
-    lat_man = model.lat_man
+    lat_man = model.pst_lat_man
     states = lat_man.states
 
     # Compute posterior parameters
@@ -207,9 +202,9 @@ def test_posterior_normalization(
 
     logger.info(f"Posterior normalization: sum={total_prob:.10f}")
 
-    assert jnp.allclose(
-        total_prob, 1.0, rtol=relative_tol, atol=absolute_tol
-    ), f"Posterior doesn't sum to 1: {total_prob}"
+    assert jnp.allclose(total_prob, 1.0, rtol=relative_tol, atol=absolute_tol), (
+        f"Posterior doesn't sum to 1: {total_prob}"
+    )
 
 
 def test_log_observable_density_formula(
@@ -236,11 +231,11 @@ def test_log_observable_density_formula(
 
     # ψ_Z(posterior)
     posterior_params = model.posterior_at(random_params, obs)
-    term2 = model.lat_man.log_partition_function(posterior_params)
+    term2 = model.pst_lat_man.log_partition_function(posterior_params)
 
     # ψ_Z(prior)
     prior_params = model.prior(random_params)
-    term3 = model.con_lat_man.log_partition_function(prior_params)
+    term3 = model.prr_lat_man.log_partition_function(prior_params)
 
     # ψ_X(θ_X)
     term4 = model.obs_man.log_partition_function(obs_params)
@@ -272,8 +267,8 @@ def test_conjugation_parameters_shape(
 
     rho = model.conjugation_parameters(lkl_params)
 
-    expected_dim = model.con_lat_man.dim
+    expected_dim = model.prr_lat_man.dim
 
-    assert (
-        rho.array.shape[0] == expected_dim
-    ), f"Conjugation parameters dimension mismatch: {rho.array.shape[0]} vs {expected_dim}"
+    assert rho.array.shape[0] == expected_dim, (
+        f"Conjugation parameters dimension mismatch: {rho.array.shape[0]} vs {expected_dim}"
+    )
