@@ -31,11 +31,11 @@ class Harmonium[
     Observable: ExponentialFamily,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    PostLatent: ExponentialFamily,
-    Latent: ExponentialFamily,
+    Posterior: ExponentialFamily,
+    Prior: ExponentialFamily,
 ](
     ExponentialFamily,
-    Triple[Observable, LinearMap[IntRep, IntLatent, IntObservable], PostLatent],
+    Triple[Observable, LinearMap[IntRep, IntLatent, IntObservable], Posterior],
     ABC,
 ):
     """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The harmonium is also specified by a number lof internal embeddings to support the following features:
@@ -71,12 +71,12 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def int_lat_emb(self) -> LinearEmbedding[IntLatent, PostLatent]:
+    def int_lat_emb(self) -> LinearEmbedding[IntLatent, Posterior]:
         """Embedding of the interactive submanifold into the posterior latent manifold."""
 
     @property
     @abstractmethod
-    def pst_lat_emb(self) -> LinearEmbedding[PostLatent, Latent]:
+    def pst_lat_emb(self) -> LinearEmbedding[Posterior, Prior]:
         """Embedding of the posterior latent submanifold into the prior latent manifold."""
 
     # Templates
@@ -87,12 +87,12 @@ class Harmonium[
         return self.obs_emb.amb_man
 
     @property
-    def pst_lat_man(self) -> PostLatent:
+    def pst_lat_man(self) -> Posterior:
         """Manifold of posterior specific latent biases."""
         return self.pst_lat_emb.sub_man
 
     @property
-    def prr_lat_man(self) -> Latent:
+    def prr_lat_man(self) -> Prior:
         """Manifold of the prior and conjugation parameters."""
         return self.pst_lat_emb.amb_man
 
@@ -107,7 +107,7 @@ class Harmonium[
         return AffineMap(self.int_man.rep, self.int_lat_emb.sub_man, self.obs_emb)
 
     @property
-    def pst_man(self) -> AffineMap[IntRep, IntObservable, IntLatent, PostLatent]:
+    def pst_man(self) -> AffineMap[IntRep, IntObservable, IntLatent, Posterior]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
         return AffineMap(self.int_man.rep, self.obs_emb.sub_man, self.int_lat_emb)
 
@@ -123,7 +123,7 @@ class Harmonium[
 
     def posterior_function(
         self, params: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[IntRep, IntObservable, IntLatent, PostLatent]]:
+    ) -> Point[Natural, AffineMap[IntRep, IntObservable, IntLatent, Posterior]]:
         """Natural parameters of the posterior distribution as an affine function.
 
         The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}$.
@@ -146,7 +146,7 @@ class Harmonium[
 
     def posterior_at(
         self, params: Point[Natural, Self], x: Array
-    ) -> Point[Natural, PostLatent]:
+    ) -> Point[Natural, Posterior]:
         """Compute natural parameters of posterior distribution $p(z \\mid x)$.
 
         Given an observation $x$ with sufficient statistics $s(x)$, computes natural
@@ -171,7 +171,7 @@ class Harmonium[
 
     @property
     @override
-    def trd_man(self) -> PostLatent:
+    def trd_man(self) -> Posterior:
         return self.pst_lat_man
 
     @property
@@ -259,10 +259,10 @@ class Conjugated[
     Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    PostLatent: ExponentialFamily,
-    Latent: Differentiable,
+    Posterior: ExponentialFamily,
+    Prior: Differentiable,
 ](
-    Harmonium[IntRep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+    Harmonium[IntRep, Observable, IntObservable, IntLatent, Posterior, Prior],
     Differentiable,
     ABC,
 ):
@@ -276,7 +276,7 @@ class Conjugated[
         lkl_params: Point[
             Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
         ],
-    ) -> Point[Natural, Latent]:
+    ) -> Point[Natural, Prior]:
         """Compute conjugation parameters for the harmonium.
 
         Conjugated harmoniums have so called "conjugation parameters" $\\rho$ that simplify many of the computations in the model.
@@ -285,7 +285,7 @@ class Conjugated[
 
     # Templates
 
-    def prior(self, params: Point[Natural, Self]) -> Point[Natural, Latent]:
+    def prior(self, params: Point[Natural, Self]) -> Point[Natural, Prior]:
         """Natural parameters of the prior distribution $p(z)$."""
         obs_params, int_params, lat_params = self.split_params(params)
         lkl_params = self.lkl_man.join_params(obs_params, int_params)
@@ -296,7 +296,7 @@ class Conjugated[
         self, params: Point[Natural, Self]
     ) -> tuple[
         Point[Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]],
-        Point[Natural, Latent],
+        Point[Natural, Prior],
     ]:
         """Split conjugated harmonium into likelihood and prior."""
         lkl_params = self.likelihood_function(params)
@@ -339,10 +339,10 @@ class DifferentiableConjugated[
     Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    PostLatent: Differentiable,
-    Latent: Differentiable,
+    Posterior: Differentiable,
+    Prior: Differentiable,
 ](
-    Conjugated[IntRep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+    Conjugated[IntRep, Observable, IntObservable, IntLatent, Posterior, Prior],
     Differentiable,
     ABC,
 ):

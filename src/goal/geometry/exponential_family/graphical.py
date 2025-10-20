@@ -24,7 +24,7 @@ from ..manifold.base import Point
 from ..manifold.embedding import LinearEmbedding, TupleEmbedding
 from ..manifold.linear import AffineMap
 from ..manifold.matrix import MatrixRep
-from .base import ExponentialFamily, Mean, Natural
+from .base import Differentiable, ExponentialFamily, Mean, Natural
 from .harmonium import (
     AnalyticConjugated,
     DifferentiableConjugated,
@@ -40,19 +40,19 @@ class ObservableEmbedding[
     Observable: ExponentialFamily,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    PostLatent: ExponentialFamily,
-    Latent: ExponentialFamily,
+    Posterior: ExponentialFamily,
+    Prior: ExponentialFamily,
 ](
     TupleEmbedding[
         Observable,
-        Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+        Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior],
     ]
 ):
     """Embedding of the observable manifold of a harmonium in to the harmonium itself."""
 
     # Fields
 
-    hrm_man: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
+    hrm_man: Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior]
     """The harmonium that contains the observable manifold."""
 
     # Overrides
@@ -68,7 +68,7 @@ class ObservableEmbedding[
     @override
     def amb_man(
         self,
-    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
+    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior]:
         return self.hrm_man
 
     @property
@@ -84,12 +84,12 @@ class LatentHarmoniumEmbedding[
     PostObservable: ExponentialFamily,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
-    PostLatent: ExponentialFamily,
-    Latent: ExponentialFamily,
+    Posterior: ExponentialFamily,
+    Prior: ExponentialFamily,
 ](
     LinearEmbedding[
-        Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent],
-        Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+        Harmonium[Rep, PostObservable, IntObservable, IntLatent, Posterior, Prior],
+        Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior],
     ]
 ):
     """Embedding of one harmonium into another, where the observable space of the former can be embedded into the latter. This is designed for hierarchical harmoniums with constrained posterior spaces."""
@@ -99,10 +99,10 @@ class LatentHarmoniumEmbedding[
     pst_obs_emb: LinearEmbedding[PostObservable, Observable]
     """The embedding of the constrained observable manifold into the unconstrained observable manifold."""
 
-    hrm: Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent]
+    hrm: Harmonium[Rep, PostObservable, IntObservable, IntLatent, Posterior, Prior]
     """The harmonium that contains the contrained observable manifold."""
 
-    con_hrm: Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]
+    con_hrm: Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior]
     """The harmonium that contains the unconstrained observable manifold."""
 
     # Overrides
@@ -111,14 +111,14 @@ class LatentHarmoniumEmbedding[
     @override
     def sub_man(
         self,
-    ) -> Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent]:
+    ) -> Harmonium[Rep, PostObservable, IntObservable, IntLatent, Posterior, Prior]:
         return self.hrm
 
     @property
     @override
     def amb_man(
         self,
-    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent]:
+    ) -> Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior]:
         return self.con_hrm
 
     @override
@@ -126,11 +126,11 @@ class LatentHarmoniumEmbedding[
         self,
         p: Point[
             Mean,
-            Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+            Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior],
         ],
     ) -> Point[
         Mean,
-        Harmonium[Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent],
+        Harmonium[Rep, PostObservable, IntObservable, IntLatent, Posterior, Prior],
     ]:
         obs_params, int_params, lat_params = self.amb_man.split_params(p)
         prj_obs_params = self.pst_obs_emb.project(obs_params)
@@ -141,13 +141,11 @@ class LatentHarmoniumEmbedding[
         self,
         p: Point[
             Natural,
-            Harmonium[
-                Rep, PostObservable, IntObservable, IntLatent, PostLatent, Latent
-            ],
+            Harmonium[Rep, PostObservable, IntObservable, IntLatent, Posterior, Prior],
         ],
     ) -> Point[
         Natural,
-        Harmonium[Rep, Observable, IntObservable, IntLatent, PostLatent, Latent],
+        Harmonium[Rep, Observable, IntObservable, IntLatent, Posterior, Prior],
     ]:
         obs_params, int_params, lat_params = self.sub_man.split_params(p)
         emb_obs_params = self.pst_obs_emb.embed(obs_params)
@@ -216,35 +214,58 @@ def hierarchical_sample[
 
 
 def hierarchical_conjugation_parameters[
-    UpperHrm: ExponentialFamily,
+    # Lower harmonium type parameters
+    LwrIntRep: MatrixRep,
+    LwrObservable: Differentiable,
+    LwrIntObservable: ExponentialFamily,
+    LwrIntLatent: ExponentialFamily,
+    LwrPosterior: Differentiable,
+    LwrPrior: Differentiable,
+    # Upper harmonium type parameters
+    UprIntRep: MatrixRep,
+    UprIntObservable: ExponentialFamily,
+    UprIntLatent: ExponentialFamily,
+    UprPosterior: ExponentialFamily,
+    UprPrior: ExponentialFamily,
 ](
-    lwr_hrm: DifferentiableConjugated,  # pyright: ignore[reportMissingTypeArgument]
-    target_hrm: UpperHrm,
-    lkl_params: Point[Natural, AffineMap],  # pyright: ignore[reportMissingTypeArgument]
-) -> Point[Natural, UpperHrm]:
+    lwr_hrm: DifferentiableConjugated[
+        LwrIntRep, LwrObservable, LwrIntObservable, LwrIntLatent, LwrPosterior, LwrPrior
+    ],
+    upr_hrm: Harmonium[
+        UprIntRep, LwrPrior, UprIntObservable, UprIntLatent, UprPosterior, UprPrior
+    ],
+    lkl_params: Point[
+        Natural, AffineMap[LwrIntRep, LwrIntLatent, LwrIntObservable, LwrObservable]
+    ],
+) -> Point[
+    Natural,
+    Harmonium[
+        UprIntRep, LwrPrior, UprIntObservable, UprIntLatent, UprPosterior, UprPrior
+    ],
+]:
     """Compute conjugation parameters for hierarchical structure.
 
     This embeds the lower harmonium's conjugation parameters into the
     upper harmonium's parameter space. The embedding is always via the
     observable space of the upper harmonium, since in hierarchical models
-    the lower latent space = upper observable space.
+    the lower prior space = upper observable space.
 
     Parameters
     ----------
     lwr_hrm : DifferentiableConjugated
         The lower harmonium in the hierarchy
-    target_hrm : UpperHrm
-        The upper harmonium we're embedding into
+    upr_hrm : Harmonium
+        The upper harmonium we're embedding into (observable = lower prior)
     lkl_params : Point
         Likelihood parameters from the lower harmonium
 
     Returns
     -------
-    Point[Natural, UpperHrm]
+    Point[Natural, UprPrior]
         Conjugation parameters in the upper harmonium's space
     """
-    hrm_lat_emb = ObservableEmbedding(target_hrm)  # pyright: ignore[reportArgumentType]
-    return hrm_lat_emb.embed(lwr_hrm.conjugation_parameters(lkl_params))  # pyright: ignore[reportReturnType]
+    hrm_lat_emb = ObservableEmbedding(upr_hrm)
+    return hrm_lat_emb.embed(lwr_hrm.conjugation_parameters(lkl_params))
 
 
 def hierarchical_to_natural_likelihood[

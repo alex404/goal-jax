@@ -16,7 +16,7 @@ from ...geometry.exponential_family.base import Mean, Natural
 from ...geometry.exponential_family.graphical import (
     LatentHarmoniumEmbedding,
     ObservableEmbedding,
-    hierarchical_conjugation_parameters,  # pyright: ignore[reportUnknownVariableType]
+    hierarchical_conjugation_parameters,
     hierarchical_sample,  # pyright: ignore[reportUnknownVariableType]
     hierarchical_to_natural_likelihood,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -48,7 +48,7 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite](
         Normal[ObsRep],  # IntObservable
         FullNormal,  # IntLatent
         AnalyticMixture[FullNormal],  # PostLatent
-        DifferentiableMixture[FullNormal, FullNormal],  # Latent
+        DifferentiableMixture[FullNormal, FullNormal],  # PriorLatent
     ]
 ):
     """Differentiable Hierarchical Mixture of Gaussians.
@@ -143,7 +143,7 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
         Normal[ObsRep],  # Observable
         Normal[ObsRep],  # IntObservable
         FullNormal,  # IntLatent
-        DifferentiableMixture[FullNormal, Normal[LatRep]],  # Latent
+        DifferentiableMixture[FullNormal, Normal[LatRep]],  # PriorLatent
     ]
 ):
     """Symmetric Hierarchical Mixture of Gaussians.
@@ -232,7 +232,7 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](  # pyright: ignore[reportGeneralTy
         Normal[ObsRep],  # Observable
         Normal[ObsRep],  # IntObservable
         FullNormal,  # IntLatent
-        AnalyticMixture[FullNormal],  # Latent
+        AnalyticMixture[FullNormal],  # PriorLatent
     ],
     SymmetricHMoG[ObsRep, PositiveDefinite],
 ):
