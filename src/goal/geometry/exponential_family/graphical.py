@@ -14,32 +14,21 @@ Note: Implementation of these models pushes the boundaries of Python's type syst
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Self, override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Point
-from ..manifold.embedding import (
-    LinearComposedEmbedding,
-    LinearEmbedding,
-    TupleEmbedding,
-)
+from ..manifold.embedding import LinearEmbedding, TupleEmbedding
 from ..manifold.linear import AffineMap
 from ..manifold.matrix import MatrixRep
-from .base import (
-    Analytic,
-    Differentiable,
-    ExponentialFamily,
-    Mean,
-    Natural,
-)
+from .base import ExponentialFamily, Mean, Natural
 from .harmonium import (
     AnalyticConjugated,
     DifferentiableConjugated,
     Harmonium,
-    SymmetricConjugated,
 )
 
 ### Helper Classes ###
@@ -165,305 +154,130 @@ class LatentHarmoniumEmbedding[
         return self.amb_man.join_params(emb_obs_params, int_params, lat_params)
 
 
-### Undirected Harmoniums ###
+### Helper Functions ###
 
 
-@dataclass(frozen=True)
-class StrongDifferentiableUndirected[
-    IntRep: MatrixRep,
-    Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    PostLatent: Differentiable,
-    Latent: Differentiable,
-    LowerHarmonium: Differentiable,
-    PostUpperHarmonium: Differentiable,
-    UpperHarmonium: Differentiable,
+def hierarchical_sample[
+    HrmType: Harmonium,  # pyright: ignore[reportMissingTypeArgument]
+    LatType: ExponentialFamily,
 ](
-    DifferentiableConjugated[
-        IntRep, Observable, IntObservable, IntLatent, PostUpperHarmonium, UpperHarmonium
-    ],
-):
-    """Class for hierarchical harmoniums with deep conjugate structure.
+    harmonium: HrmType,
+    lwr_hrm: DifferentiableConjugated,  # pyright: ignore[reportMissingTypeArgument]
+    con_lat_man: LatType,
+    key: Array,
+    params: Point[Natural, HrmType],
+    n: int = 1,
+) -> Array:
+    """Sample from a hierarchical harmonium structure.
 
-    This class provides the algorithms needed for hierarchical harmoniums while ensuring proper typing and conjugate relationships between layers. It subclasses `DifferentiableConjugated` to maintain the exponential family structure while adding hierarchical capabilities.
+    This implements ancestral sampling:
+    1. Sample from the prior p(z) in the upper latent space
+    2. Extract the lower latent samples y from the upper samples yz
+    3. Sample from the conditional p(x|y) for each latent sample
 
-    Notes
-    -----
-    This class pushes past the boundary of the python type system, and requires a bit of fiddling to behave correctly. If python would support higher kinded types, its type parameters would rather be
+    Parameters
+    ----------
+    harmonium : HrmType
+        The full hierarchical harmonium
+    lwr_hrm : DifferentiableConjugated
+        The lower harmonium in the hierarchy
+    con_lat_man : LatType
+        The conjugated latent manifold (upper harmonium's observable space)
+    key : Array
+        JAX random key
+    params : Point[Natural, HrmType]
+        Natural parameters of the hierarchical model
+    n : int
+        Number of samples to generate
 
-        [ IntRep: MatrixRep,
-        Observable: Generative,
-        IntObservable: ExponentialFamily,
-        IntLatent: ExponentialFamily,
-        PostLatent: Differentiable,
-        Latent: Differentiable,
-        LowerHarmonium: DifferentiableConjugated,
-        PostUpperHarmonium: Differentiable,
-        UpperHarmonium: Differentiable ]
-
-    and `lwr_hrm` would have type
-
-        LowerHarmonium[IntRep, Observable, IntObservable, IntLatent, PostLatent, Latent]
-
-    instead of `LowerHarmonium`.
+    Returns
+    -------
+    Array
+        Samples from the joint distribution, concatenated as [x, y, z]
     """
+    # Split up the sampling key
+    key1, key2 = jax.random.split(key)
 
-    # Fields
+    # Sample from adjusted latent distribution p(z)
+    nat_prior = harmonium.prior(params)  # pyright: ignore[reportAttributeAccessIssue]
+    yz_sample = con_lat_man.sample(key1, nat_prior, n)  # pyright: ignore[reportAttributeAccessIssue]
+    y_sample = yz_sample[:, : lwr_hrm.con_lat_man.data_dim]
 
-    lwr_hrm: LowerHarmonium
-    """The lower harmonium in the hierarchy."""
+    # Vectorize sampling from conditional distributions
+    x_params = jax.vmap(harmonium.likelihood_at, in_axes=(None, 0))(params, y_sample)
 
-    upr_hrm: PostUpperHarmonium
-    """The posterior harmonium in the hierarchy. This is a harmonium with observable space given by the posterior harmonium."""
+    # Sample from conditionals p(x|z) in parallel
+    x_sample = jax.vmap(harmonium.obs_man.sample, in_axes=(0, 0, None))(
+        jax.random.split(key2, n), x_params, 1
+    ).reshape((n, -1))
 
-    con_upr_hrm: UpperHarmonium
-    """The upper harmonium in the hierarchy. This is a harmonium with that contains the conjugation parameters."""
-
-    # Private Properties
-
-    @property
-    def _abc_lwr_hrm(
-        self,
-    ) -> DifferentiableConjugated[
-        IntRep, Observable, IntObservable, IntLatent, PostLatent, Latent
-    ]:
-        """Accessor for the lower harmonium viewed as an instance of `DifferentiableConjugated`."""
-        return self.lwr_hrm  # pyright: ignore[reportReturnType]
-
-    @property
-    def _hrm_lat_emb(self) -> LinearEmbedding[Latent, UpperHarmonium]:
-        """The embedding of the shared latent manifold into the upper harmonium."""
-        return ObservableEmbedding(self.con_upr_hrm)  # pyright: ignore[reportReturnType, reportArgumentType]
-
-    # Overrides
-
-    @property
-    @override
-    def int_rep(self) -> IntRep:
-        return self._abc_lwr_hrm.snd_man.rep
-
-    @property
-    @override
-    def obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
-        return self._abc_lwr_hrm.obs_emb
-
-    @property
-    @override
-    def int_lat_emb(self) -> LinearEmbedding[IntLatent, UpperHarmonium]:
-        return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
-            ObservableEmbedding(self.upr_hrm),  # pyright: ignore[reportArgumentType]
-            self._abc_lwr_hrm.int_lat_emb,
-        )
-
-    @property
-    @override
-    def pst_lat_emb(self) -> LinearEmbedding[PostUpperHarmonium, UpperHarmonium]:
-        return LatentHarmoniumEmbedding(  # pyright: ignore[reportReturnType]
-            self._abc_lwr_hrm.pst_lat_emb,
-            self.upr_hrm,  # pyright: ignore[reportArgumentType]
-            self.con_upr_hrm,  # pyright: ignore[reportArgumentType]
-        )
-
-    @override
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        # Split up the sampling key
-        key1, key2 = jax.random.split(key)
-
-        # Sample from adjusted latent distribution p(z)
-        nat_prior = self.prior(params)
-        yz_sample = self.con_lat_man.sample(key1, nat_prior, n)
-        y_sample = yz_sample[:, : self._abc_lwr_hrm.con_lat_man.data_dim]
-
-        # Vectorize sampling from conditional distributions
-        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, y_sample)
-
-        # Sample from conditionals p(x|z) in parallel
-        x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
-            jax.random.split(key2, n), x_params, 1
-        ).reshape((n, -1))
-
-        # Concatenate samples along data dimension
-        return jnp.concatenate([x_sample, yz_sample], axis=-1)
-
-    @override
-    def conjugation_parameters(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
-        ],
-    ) -> Point[Natural, UpperHarmonium]:
-        return self._hrm_lat_emb.embed(
-            self._abc_lwr_hrm.conjugation_parameters(lkl_params)
-        )
+    # Concatenate samples along data dimension
+    return jnp.concatenate([x_sample, yz_sample], axis=-1)
 
 
-class StrongSymmetricUndirected[
-    IntRep: MatrixRep,
-    Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    Latent: Differentiable,
-    LowerHarmonium: Differentiable,
-    UpperHarmonium: Differentiable,
+def hierarchical_conjugation_parameters[
+    UpperHrm: ExponentialFamily,
 ](
-    SymmetricConjugated[IntRep, Observable, IntObservable, IntLatent, UpperHarmonium],
-    StrongDifferentiableUndirected[
-        IntRep,
-        Observable,
-        IntObservable,
-        IntLatent,
-        Latent,
-        Latent,
-        LowerHarmonium,
-        UpperHarmonium,
-        UpperHarmonium,
-    ],
-):
-    """This class simplifies hierarchical models where the posterior latent space is not restricted to a submanifold of the full latent space. This enables more direct parameter transformations and inference procedures by eliminating the need to handle embedding constraints."""
+    lwr_hrm: DifferentiableConjugated,  # pyright: ignore[reportMissingTypeArgument]
+    target_hrm: UpperHrm,
+    lkl_params: Point[Natural, AffineMap],  # pyright: ignore[reportMissingTypeArgument]
+) -> Point[Natural, UpperHrm]:
+    """Compute conjugation parameters for hierarchical structure.
 
-    def __init__(
-        self,
-        lwr_hrm: LowerHarmonium,
-        upr_hrm: UpperHarmonium,
-    ):
-        """Initialize hierarchical harmonium with conjugate structure."""
-        super().__init__(lwr_hrm, upr_hrm, upr_hrm)
+    This embeds the lower harmonium's conjugation parameters into the
+    upper harmonium's parameter space. The embedding is always via the
+    observable space of the upper harmonium, since in hierarchical models
+    the lower latent space = upper observable space.
 
-    # Overrides
+    Parameters
+    ----------
+    lwr_hrm : DifferentiableConjugated
+        The lower harmonium in the hierarchy
+    target_hrm : UpperHrm
+        The upper harmonium we're embedding into
+    lkl_params : Point
+        Likelihood parameters from the lower harmonium
 
-    @property
-    @override
-    def _abc_lwr_hrm(
-        self,
-    ) -> SymmetricConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
-        """Accessor for the lower harmonium viewed as an instance of `SymmetricConjugated`."""
-        return self.lwr_hrm  # pyright: ignore[reportReturnType]
-
-
-class StrongAnalyticUndirected[
-    IntRep: MatrixRep,
-    Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    Latent: Analytic,
-    LowerHarmonium: Analytic,
-    UpperHarmonium: Analytic,
-](
-    AnalyticConjugated[IntRep, Observable, IntObservable, IntLatent, UpperHarmonium],
-    StrongSymmetricUndirected[
-        IntRep,
-        Observable,
-        IntObservable,
-        IntLatent,
-        Latent,
-        LowerHarmonium,
-        UpperHarmonium,
-    ],
-):
-    """This class enables closed-form parameter conversion, entropy calculation, and efficient implementation of the EM algorithm for hierarchical models. It represents the most analytically tractable form of hierarchical harmoniums."""
-
-    # Overrides
-
-    @property
-    @override
-    def _abc_lwr_hrm(
-        self,
-    ) -> AnalyticConjugated[IntRep, Observable, IntObservable, IntLatent, Latent]:
-        """Accessor for the lower harmonium viewed as an instance of `AnalyticConjugated`."""
-        return self.lwr_hrm  # pyright: ignore[reportReturnType]
-
-    @override
-    def to_natural_likelihood(
-        self,
-        params: Point[Mean, Self],
-    ) -> Point[Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]]:
-        """Convert mean parameters to natural parameters for lower likelihood."""
-        obs_means, lwr_int_means, lat_means = self.split_params(params)
-        lwr_lat_means = self._hrm_lat_emb.project(lat_means)
-        lwr_means = self._abc_lwr_hrm.join_params(
-            obs_means, lwr_int_means, lwr_lat_means
-        )
-        return self._abc_lwr_hrm.to_natural_likelihood(lwr_means)
-
-
-### Front End Classes ###
-
-
-@dataclass(frozen=True)
-class DifferentiableUndirected[
-    LowerHarmonium: Differentiable,
-    PostUpperHarmonium: Differentiable,
-    UpperHarmonium: Differentiable,
-](
-    StrongDifferentiableUndirected[
-        Any, Any, Any, Any, Any, Any, LowerHarmonium, PostUpperHarmonium, UpperHarmonium
-    ]
-):
-    """This front-end class provides a simplified interface for creating hierarchical models, with runtime checks to ensure the provided components form a valid hierarchical structure. It handles the technical implementation details while exposing a clean interface for model building.
-
-    In theory, this wraps the strong implementation with appropriate runtime validation to ensure:
-    - `LowerHarmonium`, `PostUpperHarmonium`, and `UpperHarmonium` must be subtypes of `DifferentiableConjugated`
-    - The latent manifold of the lower harmonium must match the observable manifold of the upper harmonium and posterior harmoniums.
+    Returns
+    -------
+    Point[Natural, UpperHrm]
+        Conjugation parameters in the upper harmonium's space
     """
-
-    # Fields
-
-    def __post_init__(self):
-        # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
-        assert isinstance(self.lwr_hrm, DifferentiableConjugated)
-        assert isinstance(self.upr_hrm, DifferentiableConjugated)
-        assert isinstance(self.con_upr_hrm, DifferentiableConjugated)
-        assert self.lwr_hrm.con_lat_man == self.con_upr_hrm.obs_man
-        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man
+    hrm_lat_emb = ObservableEmbedding(target_hrm)  # pyright: ignore[reportArgumentType]
+    return hrm_lat_emb.embed(lwr_hrm.conjugation_parameters(lkl_params))  # pyright: ignore[reportReturnType]
 
 
-@dataclass(frozen=True)
-class SymmetricUndirected[
-    LowerHarmonium: Differentiable,
-    UpperHarmonium: Differentiable,
-](StrongSymmetricUndirected[Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium]):
-    """This front-end class provides a simplified interface for creating hierarchical models where posterior and prior spaces are the same. It incorporates runtime validation to ensure the component models satisfy the required properties."""
+def hierarchical_to_natural_likelihood[
+    HrmType: Harmonium,  # pyright: ignore[reportMissingTypeArgument]
+](
+    harmonium: HrmType,
+    lwr_hrm: AnalyticConjugated,  # pyright: ignore[reportMissingTypeArgument]
+    target_hrm: ExponentialFamily,
+    params: Point[Mean, HrmType],
+) -> Point[Natural, AffineMap]:  # pyright: ignore[reportMissingTypeArgument]
+    """Convert mean parameters to natural likelihood parameters for hierarchical models.
 
-    # Fields
+    This projects the hierarchical mean parameters down to the lower harmonium's
+    space and converts them to natural parameters.
 
-    def __init__(
-        self,
-        lwr_hrm: LowerHarmonium,
-        upr_hrm: UpperHarmonium,
-    ):
-        """Initialize hierarchical harmonium with conjugate structure."""
-        super().__init__(lwr_hrm, upr_hrm)
+    Parameters
+    ----------
+    harmonium : HrmType
+        The full hierarchical harmonium
+    lwr_hrm : AnalyticConjugated
+        The lower harmonium in the hierarchy
+    target_hrm : ExponentialFamily
+        The upper harmonium (for embedding construction)
+    params : Point[Mean, HrmType]
+        Mean parameters of the hierarchical model
 
-    def __post_init__(self):
-        # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
-        assert isinstance(self.lwr_hrm, SymmetricConjugated)
-        assert isinstance(self.con_upr_hrm, SymmetricConjugated)
-        assert self.lwr_hrm.lat_man == self.con_upr_hrm.obs_man
-
-
-@dataclass(frozen=True)
-class AnalyticUndirected[
-    LowerHarmonium: Analytic,
-    UpperHarmonium: Analytic,
-](StrongAnalyticUndirected[Any, Any, Any, Any, Any, LowerHarmonium, UpperHarmonium]):
-    """This front-end class provides a simplified interface for creating hierarchical models
-    where posterior and prior spaces are the same. It incorporates runtime validation to ensure the
-    component models satisfy the required properties.
+    Returns
+    -------
+    Point[Natural, AffineMap]
+        Natural parameters for the lower likelihood
     """
-
-    # Fields
-
-    def __init__(
-        self,
-        lwr_hrm: LowerHarmonium,
-        upr_hrm: UpperHarmonium,
-    ):
-        """Initialize hierarchical harmonium with conjugate structure."""
-        super().__init__(lwr_hrm, upr_hrm)
-
-    def __post_init__(self):
-        # Check that the subspaces are compatible - both should be DifferentiableConjugated, and lwr_hrm.lat_man should match upr_hrm.obs_man
-        assert isinstance(self.lwr_hrm, AnalyticConjugated)
-        assert isinstance(self.con_upr_hrm, AnalyticConjugated)
-        assert self.lwr_hrm.lat_man == self.con_upr_hrm.obs_man
+    obs_means, lwr_int_means, lat_means = harmonium.split_params(params)
+    hrm_lat_emb = ObservableEmbedding(target_hrm)  # pyright: ignore[reportArgumentType]
+    lwr_lat_means = hrm_lat_emb.project(lat_means)  # pyright: ignore[reportArgumentType]
+    lwr_means = lwr_hrm.join_params(obs_means, lwr_int_means, lwr_lat_means)
+    return lwr_hrm.to_natural_likelihood(lwr_means)
