@@ -314,8 +314,11 @@ class Conjugated[
         nat_prior = self.prior(params)
         z_sample = self.prr_lat_man.sample(key1, nat_prior, n)
 
+        # Extract the variables needed to evaluate the likelihood
+        z0_sample = self.extract_likelihood_input(z_sample)
+
         # Vectorize sampling from conditional distributions
-        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z_sample)
+        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z0_sample)
 
         # Sample from conditionals p(x|z) in parallel
         x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
@@ -324,6 +327,26 @@ class Conjugated[
 
         # Concatenate samples along data dimension
         return jnp.concatenate([x_sample, z_sample], axis=-1)
+
+    def extract_likelihood_input(self, z_sample: Array) -> Array:
+        """Extract data required to evaluate the likelihood from a prior sample.
+
+        This method takes a sample from the prior distribution p(z) and extracts
+        the variables needed for conditioning the likelihood p(x|·). In standard
+        harmoniums, this returns the full latent sample. In hierarchical models,
+        this extracts only the immediate child latent (e.g., y from a yz sample).
+
+        Parameters
+        ----------
+        z_sample : Array
+            A sample from the prior distribution, shape (n, prior_latent_dim)
+
+        Returns
+        -------
+        Array
+            Variables for likelihood conditioning, shape (n, ·)
+        """
+        return z_sample
 
     # Templates
 

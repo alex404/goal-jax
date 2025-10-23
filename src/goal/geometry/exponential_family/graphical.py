@@ -16,10 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, override
 
-import jax
-import jax.numpy as jnp
-from jax import Array
-
 from ..manifold.base import Point
 from ..manifold.combinators import Tuple
 from ..manifold.embedding import LinearEmbedding, TupleEmbedding
@@ -78,13 +74,13 @@ class LatentHarmoniumEmbedding[
 ](LinearEmbedding[PostHarmonium, PriorHarmonium]):
     """Embedding of one harmonium into another via observable space embedding.
 
-    This embeds a harmonium with constrained observable space (pst_hrm) into one with
-    unconstrained observable space (con_hrm). Designed for hierarchical harmoniums with
+    This embeds a harmonium with a constrained observable space (pst_hrm) into one with
+    unconstrained observable space (prr_hrm). Designed for hierarchical harmoniums with
     constrained posterior spaces.
 
     Runtime requirements:
-    - pst_obs_emb embeds pst_hrm.obs_man into con_hrm.obs_man
-    - pst_hrm and con_hrm have matching interaction and latent structures
+    - pst_obs_emb embeds pst_hrm.obs_man into prr_hrm.obs_man
+    - pst_hrm and prr_hrm have matching interaction and latent structures
     """
 
     # Fields
@@ -95,7 +91,7 @@ class LatentHarmoniumEmbedding[
     pst_hrm: PostHarmonium
     """The harmonium that contains the constrained observable manifold."""
 
-    con_hrm: PriorHarmonium
+    prr_hrm: PriorHarmonium
     """The harmonium that contains the unconstrained observable manifold."""
 
     # Overrides
@@ -108,7 +104,7 @@ class LatentHarmoniumEmbedding[
     @property
     @override
     def amb_man(self) -> PriorHarmonium:
-        return self.con_hrm
+        return self.prr_hrm
 
     @override
     def project(
@@ -130,64 +126,6 @@ class LatentHarmoniumEmbedding[
 
 
 ### Helper Functions ###
-
-
-def hierarchical_sample[
-    HrmType: Harmonium,  # pyright: ignore[reportMissingTypeArgument]
-    LatType: ExponentialFamily,
-](
-    harmonium: HrmType,
-    lwr_hrm: DifferentiableConjugated,  # pyright: ignore[reportMissingTypeArgument]
-    con_lat_man: LatType,
-    key: Array,
-    params: Point[Natural, HrmType],
-    n: int = 1,
-) -> Array:
-    """Sample from a hierarchical harmonium structure.
-
-    This implements ancestral sampling:
-    1. Sample from the prior p(z) in the upper latent space
-    2. Extract the lower latent samples y from the upper samples yz
-    3. Sample from the conditional p(x|y) for each latent sample
-
-    Parameters
-    ----------
-    harmonium : HrmType
-        The full hierarchical harmonium
-    lwr_hrm : DifferentiableConjugated
-        The lower harmonium in the hierarchy
-    con_lat_man : LatType
-        The conjugated latent manifold (upper harmonium's observable space)
-    key : Array
-        JAX random key
-    params : Point[Natural, HrmType]
-        Natural parameters of the hierarchical model
-    n : int
-        Number of samples to generate
-
-    Returns
-    -------
-    Array
-        Samples from the joint distribution, concatenated as [x, y, z]
-    """
-    # Split up the sampling key
-    key1, key2 = jax.random.split(key)
-
-    # Sample from adjusted latent distribution p(z)
-    nat_prior = harmonium.prior(params)  # pyright: ignore[reportAttributeAccessIssue]
-    yz_sample = con_lat_man.sample(key1, nat_prior, n)  # pyright: ignore[reportAttributeAccessIssue]
-    y_sample = yz_sample[:, : lwr_hrm.prr_lat_man.data_dim]
-
-    # Vectorize sampling from conditional distributions
-    x_params = jax.vmap(harmonium.likelihood_at, in_axes=(None, 0))(params, y_sample)
-
-    # Sample from conditionals p(x|z) in parallel
-    x_sample = jax.vmap(harmonium.obs_man.sample, in_axes=(0, 0, None))(
-        jax.random.split(key2, n), x_params, 1
-    ).reshape((n, -1))
-
-    # Concatenate samples along data dimension
-    return jnp.concatenate([x_sample, yz_sample], axis=-1)
 
 
 def hierarchical_conjugation_parameters[
@@ -229,13 +167,13 @@ def hierarchical_conjugation_parameters[
 
 
 def hierarchical_to_natural_likelihood[
-    HrmType: Harmonium,  # pyright: ignore[reportMissingTypeArgument]
+    UpperHarmonium: Harmonium[Any, Any, Any, Any, Any, Any],
 ](
-    harmonium: HrmType,
-    lwr_hrm: AnalyticConjugated,  # pyright: ignore[reportMissingTypeArgument]
-    target_hrm: ExponentialFamily,
-    params: Point[Mean, HrmType],
-) -> Point[Natural, AffineMap]:  # pyright: ignore[reportMissingTypeArgument]
+    harmonium: UpperHarmonium,
+    lwr_hrm: AnalyticConjugated[Any, Any, Any, Any, Any],
+    upr_hrm: Harmonium[Any, Any, Any, Any, Any, Any],
+    params: Point[Mean, UpperHarmonium],
+) -> Point[Natural, AffineMap[Any, Any, Any, Any]]:
     """Convert mean parameters to natural likelihood parameters for hierarchical models.
 
     This projects the hierarchical mean parameters down to the lower harmonium's
@@ -247,7 +185,7 @@ def hierarchical_to_natural_likelihood[
         The full hierarchical harmonium
     lwr_hrm : AnalyticConjugated
         The lower harmonium in the hierarchy
-    target_hrm : ExponentialFamily
+    upr_hrm : ExponentialFamily
         The upper harmonium (for embedding construction)
     params : Point[Mean, HrmType]
         Mean parameters of the hierarchical model
@@ -258,7 +196,7 @@ def hierarchical_to_natural_likelihood[
         Natural parameters for the lower likelihood
     """
     obs_means, lwr_int_means, lat_means = harmonium.split_params(params)
-    hrm_lat_emb = ObservableEmbedding(target_hrm)  # pyright: ignore[reportArgumentType]
-    lwr_lat_means = hrm_lat_emb.project(lat_means)  # pyright: ignore[reportArgumentType]
+    hrm_lat_emb = ObservableEmbedding(upr_hrm)
+    lwr_lat_means = hrm_lat_emb.project(lat_means)
     lwr_means = lwr_hrm.join_params(obs_means, lwr_int_means, lwr_lat_means)
     return lwr_hrm.to_natural_likelihood(lwr_means)

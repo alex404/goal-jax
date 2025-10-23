@@ -17,8 +17,7 @@ from ...geometry.exponential_family.graphical import (
     LatentHarmoniumEmbedding,
     ObservableEmbedding,
     hierarchical_conjugation_parameters,
-    hierarchical_sample,  # pyright: ignore[reportUnknownVariableType]
-    hierarchical_to_natural_likelihood,  # pyright: ignore[reportUnknownVariableType]
+    hierarchical_to_natural_likelihood,
 )
 from ...geometry.exponential_family.harmonium import (
     AnalyticConjugated,
@@ -122,9 +121,9 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
         )
 
     @override
-    def sample(self, key: Array, params: Point[Natural, Any], n: int = 1) -> Array:
-        """Sample from the hierarchical model using ancestral sampling."""
-        return hierarchical_sample(self, self.lwr_hrm, self.prr_lat_man, key, params, n)
+    def extract_likelihood_input(self, z_sample: Array) -> Array:
+        """Extract y (first latent) from yz sample for likelihood evaluation."""
+        return z_sample[:, : self.lwr_hrm.prr_lat_man.data_dim]
 
     @override
     def conjugation_parameters(
@@ -211,9 +210,9 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
         return IdentityEmbedding(self.upr_hrm)
 
     @override
-    def sample(self, key: Array, params: Point[Natural, Any], n: int = 1) -> Array:
-        """Sample from the hierarchical model using ancestral sampling."""
-        return hierarchical_sample(self, self.lwr_hrm, self.prr_lat_man, key, params, n)
+    def extract_likelihood_input(self, prr_sample: Array) -> Array:
+        """Extract y (first latent) from yz sample for likelihood evaluation."""
+        return prr_sample[:, : self.lwr_hrm.prr_lat_man.data_dim]
 
     @override
     def conjugation_parameters(
@@ -274,12 +273,13 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](  # pyright: ignore[reportGeneralTy
 ## Factory Functions ##
 
 
-def differentiable_hmog[ObsRep: PositiveDefinite](
+def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     obs_dim: int,
     obs_rep: type[ObsRep],
     lat_dim: int,
+    lat_rep: type[LatRep],
     n_components: int,
-) -> DifferentiableHMoG[ObsRep]:
+) -> DifferentiableHMoG[ObsRep, LatRep]:
     """Create a differentiable hierarchical mixture of Gaussians model.
 
     This function constructs a hierarchical model combining:
@@ -289,15 +289,17 @@ def differentiable_hmog[ObsRep: PositiveDefinite](
     This model supports optimization via log-likelihood gradient descent.
     Uses full covariance Gaussians in the latent space.
     """
-    lat_man = Normal(lat_dim, PositiveDefinite)
+    pst_y_man = Normal(lat_dim, lat_rep)
+    prr_y_man = Normal(lat_dim, PositiveDefinite)
     lwr_hrm = NormalDifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim)
-    upr_hrm = AnalyticMixture(lat_man, n_components)
-    con_upr_hrm = DifferentiableMixture(n_components, IdentityEmbedding(lat_man))
+    mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
+    pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
+    prr_upr_hrm = DifferentiableMixture(n_components, mix_sub)
 
     return DifferentiableHMoG(
         lwr_hrm,
-        upr_hrm,
-        con_upr_hrm,
+        pst_upr_hrm,
+        prr_upr_hrm,
     )
 
 
