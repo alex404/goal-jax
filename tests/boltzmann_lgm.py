@@ -13,6 +13,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from jax import Array
+from pytest import FixtureRequest
 
 from goal.geometry import (
     Natural,
@@ -22,6 +23,10 @@ from goal.geometry import (
 from goal.models import (
     BoltzmannDifferentiableLinearGaussianModel,
 )
+
+# Type aliases
+Model = BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]
+ModelParams = Point[Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]]
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -36,13 +41,13 @@ n_test_states = 10  # Number of random states to test
 
 
 @pytest.fixture(params=[(2, 3), (2, 4), (3, 5)])
-def model_dims(request) -> tuple[int, int]:
+def model_dims(request: FixtureRequest) -> tuple[int, int]:
     """Parametrize tests over different (obs_dim, lat_dim) combinations."""
     return request.param
 
 
 @pytest.fixture
-def model(model_dims: tuple[int, int]) -> BoltzmannDifferentiableLinearGaussianModel:
+def model(model_dims: tuple[int, int]) -> Model:
     """Create Boltzmann-LGM model."""
     obs_dim, lat_dim = model_dims
     return BoltzmannDifferentiableLinearGaussianModel(
@@ -52,8 +57,8 @@ def model(model_dims: tuple[int, int]) -> BoltzmannDifferentiableLinearGaussianM
 
 @pytest.fixture
 def random_params(
-    model: BoltzmannDifferentiableLinearGaussianModel,
-) -> Point[Natural, BoltzmannDifferentiableLinearGaussianModel]:
+    model: Model,
+) -> ModelParams:
     """Generate random model parameters."""
     key = jax.random.PRNGKey(123)
     # Initialize with small random values to ensure numerical stability
@@ -61,8 +66,8 @@ def random_params(
 
 
 def test_conjugation_equation(
-    model: BoltzmannDifferentiableLinearGaussianModel,
-    random_params: Point[Natural, BoltzmannDifferentiableLinearGaussianModel],
+    model: Model,
+    random_params: ModelParams,
 ):
     """Test the fundamental conjugation equation for Boltzmann-LGM.
 
@@ -131,8 +136,8 @@ def test_conjugation_equation(
 
 
 def test_observable_density_via_marginalization(
-    model: BoltzmannDifferentiableLinearGaussianModel,
-    random_params: Point[Natural, BoltzmannDifferentiableLinearGaussianModel],
+    model: Model,
+    random_params: ModelParams,
 ):
     """Test that observable density equals sum over latent states.
 
@@ -178,8 +183,8 @@ def test_observable_density_via_marginalization(
 
 
 def test_posterior_normalization(
-    model: BoltzmannDifferentiableLinearGaussianModel,
-    random_params: Point[Natural, BoltzmannDifferentiableLinearGaussianModel],
+    model: Model,
+    random_params: ModelParams,
 ):
     """Test that posterior p(z|x) sums to 1 over all latent states."""
     # Generate a random observation
@@ -208,8 +213,8 @@ def test_posterior_normalization(
 
 
 def test_log_observable_density_formula(
-    model: BoltzmannDifferentiableLinearGaussianModel,
-    random_params: Point[Natural, BoltzmannDifferentiableLinearGaussianModel],
+    model: Model,
+    random_params: ModelParams,
 ):
     """Test that log_observable_density follows harmonium formula.
 
@@ -258,8 +263,8 @@ def test_log_observable_density_formula(
 
 
 def test_conjugation_parameters_shape(
-    model: BoltzmannDifferentiableLinearGaussianModel,
-    random_params: Point[Natural, BoltzmannDifferentiableLinearGaussianModel],
+    model: Model,
+    random_params: ModelParams,
 ):
     """Test that conjugation parameters have correct dimension."""
     obs_params, int_params, _ = model.split_params(random_params)
