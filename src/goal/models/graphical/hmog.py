@@ -29,8 +29,10 @@ from ...geometry.manifold.base import Point
 from ...geometry.manifold.embedding import LinearComposedEmbedding, LinearEmbedding
 from ...geometry.manifold.linear import AffineMap
 from ...geometry.manifold.matrix import Rectangular
+from ..base.gaussian.generalized import Euclidean
 from ..base.gaussian.normal import FullNormal, Normal
 from ..harmonium.lgm import (
+    GeneralizedGaussianLocationEmbedding,
     NormalAnalyticLinearGaussianModel,
     NormalCovarianceEmbedding,
     NormalDifferentiableLinearGaussianModel,
@@ -41,14 +43,14 @@ from ..harmonium.mixture import AnalyticMixture, DifferentiableMixture
 
 
 @dataclass(frozen=True)
-class DifferentiableHMoG[ObsRep: PositiveDefinite](
+class DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     DifferentiableConjugated[
         Rectangular,  # IntRep
         Normal[ObsRep],  # Observable
-        Normal[ObsRep],  # IntObservable
-        FullNormal,  # IntLatent
-        AnalyticMixture[FullNormal],  # PostLatent
-        DifferentiableMixture[FullNormal, FullNormal],  # PriorLatent
+        Euclidean,  # IntObservable
+        Euclidean,
+        AnalyticMixture[Normal[LatRep]],  # PostLatent
+        DifferentiableMixture[FullNormal, Normal[LatRep]],  # PriorLatent
     ]
 ):
     """Differentiable Hierarchical Mixture of Gaussians.
@@ -70,16 +72,16 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite](
     lwr_hrm: NormalDifferentiableLinearGaussianModel[ObsRep]
     """Lower harmonium: linear Gaussian model from observations to first latents."""
 
-    upr_hrm: AnalyticMixture[FullNormal]
+    pst_upr_hrm: AnalyticMixture[Normal[LatRep]]
     """Upper harmonium: analytic mixture for posterior."""
 
-    con_upr_hrm: DifferentiableMixture[FullNormal, FullNormal]
+    prr_upr_hrm: DifferentiableMixture[FullNormal, Normal[LatRep]]
     """Conjugated upper harmonium: differentiable mixture for optimization."""
 
     def __post_init__(self):
         """Validate that component harmoniums are compatible."""
-        assert self.lwr_hrm.prr_lat_man == self.con_upr_hrm.obs_man
-        assert self.lwr_hrm.pst_lat_man == self.upr_hrm.obs_man
+        assert self.lwr_hrm.prr_lat_man == self.prr_upr_hrm.obs_man
+        assert self.lwr_hrm.pst_lat_man == self.pst_upr_hrm.obs_man
 
     # Overrides from DifferentiableConjugated
 
@@ -90,16 +92,16 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite](
 
     @property
     @override
-    def obs_emb(self) -> LinearEmbedding[Normal[ObsRep], Normal[ObsRep]]:
-        return self.lwr_hrm.obs_emb  # pyright: ignore[reportReturnType]
+    def obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
+        return self.lwr_hrm.obs_emb
 
     @property
     @override
     def int_lat_emb(
         self,
-    ) -> LinearEmbedding[FullNormal, DifferentiableMixture[FullNormal, FullNormal]]:
-        return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
-            ObservableEmbedding(self.upr_hrm),
+    ) -> LinearEmbedding[Euclidean, AnalyticMixture[Normal[LatRep]]]:
+        return LinearComposedEmbedding(
+            ObservableEmbedding(self.pst_upr_hrm),
             self.lwr_hrm.int_lat_emb,
         )
 
@@ -108,14 +110,15 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite](
     def pst_lat_emb(
         self,
     ) -> LinearEmbedding[
-        AnalyticMixture[FullNormal], DifferentiableMixture[FullNormal, FullNormal]
+        AnalyticMixture[Normal[LatRep]],
+        DifferentiableMixture[FullNormal, Normal[LatRep]],
     ]:
         # For DifferentiableHMoG, we need LatentHarmoniumEmbedding
 
-        return LatentHarmoniumEmbedding(  # pyright: ignore[reportReturnType]
+        return LatentHarmoniumEmbedding(
             self.lwr_hrm.pst_lat_emb,
-            self.upr_hrm,
-            self.con_upr_hrm,
+            self.pst_upr_hrm,
+            self.prr_upr_hrm,
         )
 
     @override
@@ -129,10 +132,10 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite](
         lkl_params: Point[
             Natural, AffineMap[Rectangular, FullNormal, Normal[ObsRep], Normal[ObsRep]]
         ],
-    ) -> Point[Natural, DifferentiableMixture[FullNormal, FullNormal]]:
+    ) -> Point[Natural, DifferentiableMixture[FullNormal, Normal[LatRep]]]:
         """Compute conjugation parameters for the hierarchical structure."""
         return hierarchical_conjugation_parameters(
-            self.lwr_hrm, self.con_upr_hrm, lkl_params
+            self.lwr_hrm, self.prr_upr_hrm, lkl_params
         )
 
 
@@ -182,15 +185,15 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
 
     @property
     @override
-    def obs_emb(self) -> LinearEmbedding[Normal[ObsRep], Normal[ObsRep]]:
-        return self.lwr_hrm.obs_emb  # pyright: ignore[reportReturnType]
+    def obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
+        return self.lwr_hrm.obs_emb
 
     @property
     @override
     def int_lat_emb(
         self,
-    ) -> LinearEmbedding[FullNormal, DifferentiableMixture[FullNormal, Normal[LatRep]]]:
-        return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
+    ) -> LinearEmbedding[Euclidean, DifferentiableMixture[FullNormal, Normal[LatRep]]]:
+        return LinearComposedEmbedding(
             ObservableEmbedding(self.upr_hrm),
             self.lwr_hrm.int_lat_emb,
         )
