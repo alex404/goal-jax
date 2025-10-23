@@ -1,4 +1,4 @@
-"""Count mixture models using COM-Poisson populations."""
+"""Poisson mixture models using COM-Poisson populations."""
 
 from __future__ import annotations
 
@@ -123,14 +123,43 @@ class PopulationLocationEmbedding(
         return AnalyticProduct(Poisson(), n_reps=self.n_neurons)
 
 
-# Constructors for common instances
+# Constructor-like factory functions for common instances
 def poisson_mixture(n_neurons: int, n_components: int) -> PoissonMixture:
-    """Create a mixture of independent Poisson populations."""
+    """Create a mixture of independent Poisson populations.
+
+    Parameters
+    ----------
+    n_neurons : int
+        Number of independent Poisson units in each population
+    n_components : int
+        Number of mixture components
+
+    Returns
+    -------
+    PoissonMixture
+        An analytic mixture of Poisson populations
+    """
     pop_man = AnalyticProduct(Poisson(), n_reps=n_neurons)
     return AnalyticMixture(pop_man, n_components)
 
 
 def com_poisson_mixture(n_neurons: int, n_components: int) -> CoMPoissonMixture:
-    """Create a COM-Poisson mixture with shared dispersion parameters."""
+    """Create a COM-Poisson mixture with shared dispersion parameters.
+
+    In this model, the location parameters vary across mixture components,
+    but the dispersion parameters are shared across all components.
+
+    Parameters
+    ----------
+    n_neurons : int
+        Number of independent COM-Poisson units in each population
+    n_components : int
+        Number of mixture components
+
+    Returns
+    -------
+    CoMPoissonMixture
+        A differentiable mixture with COM-Poisson components
+    """
     subspace = PopulationLocationEmbedding(n_neurons)
     return DifferentiableMixture(n_components, subspace)

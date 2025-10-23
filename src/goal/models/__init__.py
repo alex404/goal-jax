@@ -52,7 +52,6 @@ __all__ = [
     "CoMPoisson",
     "CoMPoissonMixture",
     "CoMPoissonPopulation",
-    "CoMPoissonPopulation",
     "CoMShape",
     "Covariance",
     "DiagonalCovariance",
