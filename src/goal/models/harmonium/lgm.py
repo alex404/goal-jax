@@ -231,8 +231,9 @@ class DifferentiableLinearGaussianModel[
 @dataclass(frozen=True)
 class NormalDifferentiableLinearGaussianModel[
     ObsRep: PositiveDefinite,
+    PostRep: PositiveDefinite,
 ](
-    DifferentiableLinearGaussianModel[ObsRep, FullNormal, FullNormal],
+    DifferentiableLinearGaussianModel[ObsRep, Normal[PostRep], FullNormal],
 ):
     """Differentiable Linear Gaussian Model with Normal latent variables.
 
@@ -243,13 +244,15 @@ class NormalDifferentiableLinearGaussianModel[
     lat_dim: int
     """Dimension of the latent variables."""
 
+    pst_lat_rep: type[PostRep]
+
     # Overrides
 
     @property
     @override
-    def pst_lat_emb(self) -> LinearEmbedding[FullNormal, FullNormal]:
+    def pst_lat_emb(self) -> LinearEmbedding[Normal[PostRep], FullNormal]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
-        post_gau = Normal(self.lat_dim, PositiveDefinite)
+        post_gau = Normal(self.lat_dim, self.pst_lat_rep)
         prior_gau = Normal(self.lat_dim, PositiveDefinite)
         return NormalCovarianceEmbedding(post_gau, prior_gau)
 
@@ -285,12 +288,13 @@ class NormalDifferentiableLinearGaussianModel[
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
         lat_dim = self.prr_lat_man.data_dim
-        new_man: NormalDifferentiableLinearGaussianModel[PositiveDefinite] = (
-            NormalDifferentiableLinearGaussianModel(
-                obs_dim=self.obs_man.data_dim,
-                obs_rep=PositiveDefinite,
-                lat_dim=lat_dim,
-            )
+        new_man: NormalDifferentiableLinearGaussianModel[
+            PositiveDefinite, PositiveDefinite
+        ] = NormalDifferentiableLinearGaussianModel(
+            obs_dim=self.obs_man.data_dim,
+            obs_rep=PositiveDefinite,
+            lat_dim=lat_dim,
+            pst_lat_rep=PositiveDefinite,
         )
         obs_params, int_params, lat_params = self.split_params(p)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
@@ -351,7 +355,7 @@ class BoltzmannDifferentiableLinearGaussianModel[
 class NormalAnalyticLinearGaussianModel[
     ObsRep: PositiveDefinite,
 ](
-    NormalDifferentiableLinearGaussianModel[ObsRep],
+    NormalDifferentiableLinearGaussianModel[ObsRep, PositiveDefinite],
     AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
 ):
     """Analytic Linear Gaussian Model that extends the differentiable LGM with full analytical tractability, adding conversions between mean and natural coordinates, and a closed-form implementation of EM."""
@@ -361,6 +365,7 @@ class NormalAnalyticLinearGaussianModel[
             obs_dim=obs_dim,
             obs_rep=obs_rep,
             lat_dim=lat_dim,
+            pst_lat_rep=PositiveDefinite,
         )
 
     @override
