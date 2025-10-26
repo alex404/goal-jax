@@ -223,7 +223,7 @@ class AffineMap[
     dom_man: Domain
     """The domain of the affine map."""
 
-    cod_sub: LinearEmbedding[SubCodomain, Codomain]
+    cod_emb: LinearEmbedding[SubCodomain, Codomain]
     """The submanifold of the codomain targetted by the affine map."""
 
     # Overrides
@@ -231,12 +231,12 @@ class AffineMap[
     @property
     @override
     def fst_man(self) -> Codomain:
-        return self.cod_sub.amb_man
+        return self.cod_emb.amb_man
 
     @property
     @override
     def snd_man(self) -> LinearMap[Rep, Domain, SubCodomain]:
-        return LinearMap(self.rep, self.dom_man, self.cod_sub.sub_man)
+        return LinearMap(self.rep, self.dom_man, self.cod_emb.sub_man)
 
     # Methods
 
@@ -249,4 +249,4 @@ class AffineMap[
         bias: Point[C, Codomain]
         bias, linear = self.split_params(f)
         subshift: Point[C, SubCodomain] = self.snd_man(linear, p)
-        return self.cod_sub.translate(bias, subshift)
+        return self.cod_emb.translate(bias, subshift)

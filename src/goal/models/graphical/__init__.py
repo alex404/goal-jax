@@ -8,6 +8,7 @@ from .hmog import (
     differentiable_hmog,
     symmetric_hmog,
 )
+from .mixture import harmonium_mixture_conjugation_parameters
 
 __all__ = [
     "AnalyticHMoG",
@@ -15,5 +16,6 @@ __all__ = [
     "SymmetricHMoG",
     "analytic_hmog",
     "differentiable_hmog",
+    "harmonium_mixture_conjugation_parameters",
     "symmetric_hmog",
 ]
