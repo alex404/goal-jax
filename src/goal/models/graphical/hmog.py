@@ -68,7 +68,7 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     """
 
     # Fields
-    lwr_hrm: NormalDifferentiableLinearGaussianModel[ObsRep]
+    lwr_hrm: NormalDifferentiableLinearGaussianModel[ObsRep, LatRep]
     """Lower harmonium: linear Gaussian model from observations to first latents."""
 
     pst_upr_hrm: AnalyticMixture[Normal[LatRep]]
@@ -277,7 +277,7 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     obs_dim: int,
     obs_rep: type[ObsRep],
     lat_dim: int,
-    lat_rep: type[LatRep],
+    pst_lat_rep: type[LatRep],
     n_components: int,
 ) -> DifferentiableHMoG[ObsRep, LatRep]:
     """Create a differentiable hierarchical mixture of Gaussians model.
@@ -289,9 +289,11 @@ def differentiable_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     This model supports optimization via log-likelihood gradient descent.
     Uses full covariance Gaussians in the latent space.
     """
-    pst_y_man = Normal(lat_dim, lat_rep)
+    pst_y_man = Normal(lat_dim, pst_lat_rep)
     prr_y_man = Normal(lat_dim, PositiveDefinite)
-    lwr_hrm = NormalDifferentiableLinearGaussianModel(obs_dim, obs_rep, lat_dim)
+    lwr_hrm = NormalDifferentiableLinearGaussianModel(
+        obs_dim, obs_rep, lat_dim, pst_lat_rep
+    )
     mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
     pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
     prr_upr_hrm = DifferentiableMixture(n_components, mix_sub)

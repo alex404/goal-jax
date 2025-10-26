@@ -98,11 +98,12 @@ def test_conjugation_equation(
 
     # Test equation for subset of states
     n_states_to_test = min(n_test_states, len(states))
-    test_indices = jnp.linspace(0, len(states) - 1, n_states_to_test, dtype=int)
+    step = max(1, len(states) // n_states_to_test)
+    test_indices = jnp.arange(0, len(states), step)
 
     errors = []
     for idx in test_indices:
-        state = states[idx]
+        state = states[int(idx)]
 
         # Compute sufficient statistic of latent state
         s_z = lat_man.sufficient_statistic(state)
