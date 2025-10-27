@@ -1,5 +1,5 @@
 Matrix Representations
-=====================
+======================
 
 .. automodule:: goal.geometry.manifold.matrix
    :noindex:
