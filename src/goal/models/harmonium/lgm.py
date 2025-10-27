@@ -508,12 +508,12 @@ def _dual_composition[
     """
     # First multiply g @ f
     rep_gf, shape_gf, params_gf = g.rep.matmat(
-        g.shape, g_params.array, f.rep, f.shape, f_params.array
+        g.matrix_shape, g_params.array, f.rep, f.matrix_shape, f_params.array
     )
 
     # Then multiply h @ (g @ f)
     rep_hgf, shape_hgf, params_hgf = h.rep.matmat(
-        h.shape, h_params.array, rep_gf, shape_gf, params_gf
+        h.matrix_shape, h_params.array, rep_gf, shape_gf, params_gf
     )
     dense_params_hgf = rep_hgf.to_dense(shape_hgf, params_hgf)
     dense_rep_hgf = Rectangular()
@@ -552,7 +552,7 @@ def _change_of_basis[
         f,
         f_params,
     )
-    cov_man = Covariance(fgf_man.shape[0], PositiveDefinite)
+    cov_man = Covariance(fgf_man.matrix_shape[0], PositiveDefinite)
     out_mat: Point[Coords, Covariance[PositiveDefinite]] = cov_man.from_dense(
         fgf_man.to_dense(fgf_params)
     )

@@ -201,3 +201,5 @@ class MixtureOfLGMs[
         the conjugation parameters in the (Y, K) latent space.
         """
         raise NotImplementedError
+
+    # Methods

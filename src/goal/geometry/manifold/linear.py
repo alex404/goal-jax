@@ -43,13 +43,31 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
     @property
     @override
     def dim(self) -> int:
-        return self.rep.num_params(self.shape)
+        return self.rep.num_params(self.matrix_shape)
 
     # Methods
 
     @property
-    def shape(self) -> tuple[int, int]:
-        """Shape of the linear maps."""
+    def matrix_shape(self) -> tuple[int, int]:
+        """Mathematical dimensions of the linear map $L: V \\to W$.
+
+        Returns the shape $(\\dim(W), \\dim(V))$ of the underlying matrix, which is
+        invariant across all matrix representations. This is distinct from the storage
+        shape of the Point array, which is always flat.
+
+        In practice, the matrix representation determines how the parameter array is
+        stored and interpreted:
+
+        - A scale matrix $L: \\mathbb{R}^3 \\to \\mathbb{R}^3$ has `matrix_shape = (3, 3)`
+          but stores only 1 parameter (the scaling factor)
+        - A diagonal matrix $L: \\mathbb{R}^3 \\to \\mathbb{R}^3$ with the same shape stores 3 parameters
+        - A general rectangular matrix $L: \\mathbb{R}^2 \\to \\mathbb{R}^3$ with `matrix_shape = (3, 2)`
+          stores $3 \\times 2 = 6$ parameters
+
+        The matrix representation methods use `matrix_shape` as metadata to interpret
+        the flat parameter array correctly, while `coordinates_shape` describes how
+        the array is physically stored.
+        """
         return (self.cod_man.dim, self.dom_man.dim)
 
     @property
@@ -73,7 +91,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         p: Point[Dual[C], Domain],
     ) -> Point[C, Codomain]:
         """Apply the linear map to transform a point."""
-        return self.cod_man.point(self.rep.matvec(self.shape, f.array, p.array))
+        return self.cod_man.point(self.rep.matvec(self.matrix_shape, f.array, p.array))
 
     def from_dense[C: Coordinates](self, matrix: Array) -> Point[C, Self]:
         """Create point from dense matrix."""
@@ -90,7 +108,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         f: Point[C, LinearMap[Rep, Domain, Codomain]],
     ) -> Point[C, LinearMap[Rep, Codomain, Domain]]:
         """Transpose of the linear map."""
-        return self.trn_man.point(self.rep.transpose(self.shape, f.array))
+        return self.trn_man.point(self.rep.transpose(self.matrix_shape, f.array))
 
     def transpose_apply[C: Coordinates](
         self: LinearMap[Rep, Domain, Codomain],
@@ -103,20 +121,20 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
 
     def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Convert to dense matrix representation."""
-        return self.rep.to_dense(self.shape, f.array)
+        return self.rep.to_dense(self.matrix_shape, f.array)
 
     def to_rows[C: Coordinates](
         self, f: Point[C, Self]
     ) -> Point[C, Replicated[Domain]]:
         """Split linear map into dense row vectors."""
-        matrix = self.rep.to_dense(self.shape, f.array)
+        matrix = self.rep.to_dense(self.matrix_shape, f.array)
         return self.row_man.point(matrix)
 
     def to_columns[C: Coordinates](
         self, f: Point[C, Self]
     ) -> Point[C, Replicated[Codomain]]:
         """Split linear map into dense column vectors."""
-        matrix = self.rep.to_dense(self.shape, f.array)
+        matrix = self.rep.to_dense(self.matrix_shape, f.array)
         return self.col_man.point(matrix.T)
 
     def from_rows[C: Coordinates](
@@ -135,7 +153,9 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         self, f: Point[C, Self], diagonal_fn: Callable[[Array], Array]
     ) -> Point[C, Self]:
         """Apply a function to the diagonal elements while preserving matrix structure."""
-        return self.point(self.rep.map_diagonal(self.shape, f.array, diagonal_fn))
+        return self.point(
+            self.rep.map_diagonal(self.matrix_shape, f.array, diagonal_fn)
+        )
 
     def embed_rep[C: Coordinates, NewRep: MatrixRep](
         self,
@@ -147,7 +167,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
     ]:
         """Embed linear map into more complex representation."""
         target_man = LinearMap(target_rep(), self.dom_man, self.cod_man)
-        params = self.rep.embed_params(self.shape, f.array, target_rep)
+        params = self.rep.embed_params(self.matrix_shape, f.array, target_rep)
         return target_man, target_man.point(params)
 
     def project_rep[C: Coordinates, NewRep: MatrixRep](
@@ -160,7 +180,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
     ]:
         """Project linear map to simpler representation."""
         target_man = LinearMap(target_rep(), self.dom_man, self.cod_man)
-        params = self.rep.project_params(self.shape, f.array, target_rep)
+        params = self.rep.project_params(self.matrix_shape, f.array, target_rep)
         return target_man, target_man.point(params)
 
 
@@ -177,15 +197,15 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
     def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
         """Matrix inverse (requires square matrix)."""
-        return self.point(self.rep.inverse(self.shape, f.array))
+        return self.point(self.rep.inverse(self.matrix_shape, f.array))
 
     def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
         """Log determinant (requires square matrix)."""
-        return self.rep.logdet(self.shape, f.array)
+        return self.rep.logdet(self.matrix_shape, f.array)
 
     def is_positive_definite[C: Coordinates](self, p: Point[C, Self]) -> Array:
         """Check if matrix is positive definite."""
-        return self.rep.is_positive_definite(self.shape, p.array)
+        return self.rep.is_positive_definite(self.matrix_shape, p.array)
 
 
 ### Affine Maps ###

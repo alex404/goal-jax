@@ -87,7 +87,24 @@ class Manifold(ABC):
 
     @property
     def coordinates_shape(self) -> list[int]:
-        """The shape of the coordinate array."""
+        """Shape of the flattened coordinate array for points on this manifold.
+
+        In practice, this describes how the parameter array is physically stored in
+        a Point. Most manifolds use a flat representation `[\\text{dim}]`, while
+        specialized manifolds like `Replicated` may use structured representations.
+
+        Important distinction: `coordinates_shape` describes **storage layout**, while
+        properties like `LinearMap.matrix_shape` describe **mathematical structure**.
+        These are intentionally separate because:
+
+        - Points must be flat to be joined together in composite manifolds (e.g., harmoniums)
+        - Yet manifolds need to carry shape metadata for operations (matrix multiplication, vmapping, etc.)
+
+        For example, a `LinearMap[Rectangular, \\mathbb{R}^2, \\mathbb{R}^3]` has:
+
+        - `coordinates_shape = [6]` (stores as a single flat vector)
+        - `matrix_shape = (3, 2)` (mathematical interpretation of those 6 parameters)
+        """
         return [self.dim]
 
     # Templates

@@ -95,7 +95,7 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
     @property
     @override
     def data_dim(self) -> int:
-        return self.shape[0]
+        return self.matrix_shape[0]
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
@@ -233,7 +233,7 @@ class Normal[Rep: PositiveDefinite](
 
         # Transform samples using Cholesky
         samples = self.snd_man.rep.cholesky_matvec(
-            self.snd_man.shape, covariance.array, z
+            self.snd_man.matrix_shape, covariance.array, z
         )
         return mean.array + samples
 
@@ -480,7 +480,7 @@ class Normal[Rep: PositiveDefinite](
         rel_mean, rel_cov = self.split_mean_covariance(relative)
 
         new_array, new_matrix = self.cov_man.rep.cholesky_whiten(
-            self.cov_man.shape,
+            self.cov_man.matrix_shape,
             old_mean.array,
             old_cov.array,
             rel_mean.array,

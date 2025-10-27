@@ -39,7 +39,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
     @property
     def n_neurons(self) -> int:
         """Number of neurons (dimensions)."""
-        return self.shape[0]
+        return self.matrix_shape[0]
 
     @property
     @override
