@@ -37,7 +37,20 @@ class ObservableEmbedding[
 ](TupleEmbedding[Observable, Harm]):
     """Embedding of the observable manifold of a harmonium into the harmonium itself.
 
-    This embeds hrm_man.obs_man into hrm_man as the first component of the triple.
+    This embedding projects a harmonium parameter point to its observable component,
+    or embeds an observable point into the full harmonium space by setting interaction
+    and latent parameters to zero.
+
+    Used in hierarchical models where a lower harmonium's prior (over latents) becomes
+    the upper harmonium's observable space. This embedding enables parameter transformations
+    across hierarchical levels.
+
+    The embedding maps between:
+    - Sub-manifold: The observable manifold :math:`\\text{Obs}` of the harmonium
+    - Ambient manifold: The full harmonium :math:`\\text{Harmonium} = \\text{Obs} \\times \\text{Int} \\times \\text{Latent}`
+
+    Mathematically, it embeds points on :math:`\\text{Obs}` as :math:`(p, 0, 0)` in the
+    harmonium space, and projects harmonium points :math:`(p, i, l)` to their first component :math:`p`.
     """
 
     # Fields
@@ -74,13 +87,42 @@ class LatentHarmoniumEmbedding[
 ](LinearEmbedding[PostHarmonium, PriorHarmonium]):
     """Embedding of one harmonium into another via observable space embedding.
 
-    This embeds a harmonium with a constrained observable space (pst_hrm) into one with
-    unconstrained observable space (prr_hrm). Designed for hierarchical harmoniums with
-    constrained posterior spaces.
+    This embedding connects two harmoniums that share the same interaction and latent structure
+    but differ in their observable parameterization. It's used in hierarchical models where
+    the posterior uses a restricted observable representation (e.g., diagonal covariance) for
+    computational efficiency, while the prior uses a fuller representation for conjugation
+    parameter computation.
 
-    Runtime requirements:
-    - pst_obs_emb embeds pst_hrm.obs_man into prr_hrm.obs_man
-    - pst_hrm and prr_hrm have matching interaction and latent structures
+    **Usage in hierarchical models**:
+
+    In a hierarchical harmonium, the lower harmonium's latent manifold equals the upper
+    harmonium's observable manifold. When the posterior and prior use different observable
+    parameterizations, this embedding maps between them by:
+
+    - Projecting prior parameters down to the restricted posterior observable space
+    - Embedding posterior observable parameters up to the fuller prior observable space
+
+    **Structure**:
+
+    Both harmoniums must have:
+
+    - The same interaction matrix representation and latent manifold
+    - Observable manifolds :math:`\\text{Obs}_1 \\subseteq \\text{Obs}_2` where the posterior
+      uses the restricted :math:`\\text{Obs}_1` and the prior uses the fuller :math:`\\text{Obs}_2`
+    - An embedding :math:`e: \\text{Obs}_1 \\to \\text{Obs}_2` provided via `pst_obs_emb`
+
+    **Parameters**:
+
+    For harmonium points :math:`(o, i, l)` where :math:`o` is observable,
+    :math:`i` is interaction, and :math:`l` is latent:
+
+    - Projection: :math:`(o_2, i, l) \\mapsto (e^{-1}(o_2), i, l)` where :math:`e^{-1}` projects to :math:`\\text{Obs}_1`
+    - Embedding: :math:`(o_1, i, l) \\mapsto (e(o_1), i, l)` where :math:`e` embeds into :math:`\\text{Obs}_2`
+
+    **Runtime requirements**:
+
+    - `pst_obs_emb` embeds `pst_hrm.obs_man` into `prr_hrm.obs_man`
+    - `pst_hrm` and `prr_hrm` have matching interaction and latent structures
     """
 
     # Fields

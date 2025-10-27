@@ -1,7 +1,33 @@
 """Hierarchical Mixture of Gaussians (HMoG) models.
 
-This module provides concrete implementations of hierarchical Gaussian models,
-avoiding the complexity of fully generic hierarchical harmoniums.
+This module provides concrete implementations of hierarchical Gaussian models that combine
+linear Gaussian dimensionality reduction with Gaussian mixture clustering, enabling joint
+learning of latent factor representations and cluster assignments.
+
+**Model structure**: HMoG models have two levels:
+
+- **Lower harmonium**: Maps observations :math:`X \\in \\mathbb{R}^p` to first-level latent factors
+  :math:`Y \\in \\mathbb{R}^d` using a linear Gaussian relationship (factor analysis/PCA)
+- **Upper harmonium**: Models a mixture of Gaussians over the latent space :math:`Y`
+
+The joint distribution factors as:
+
+.. math::
+
+    p(X, Y, Z) = p(Z) \\cdot p(Y | Z) \\cdot p(X | Y)
+
+where :math:`Z \\in \\{1,\\ldots,K\\}` are discrete cluster assignments.
+
+**Variants**: Three implementations with different analytical properties:
+
+- **DifferentiableHMoG**: Gradient-based optimization, uses restricted posterior covariance
+  for efficiency (e.g., diagonal)
+- **SymmetricHMoG**: Symmetric posterior/prior structure, additional functionality like
+  `join_conjugated`, but slower due to full covariance matrix operations
+- **AnalyticHMoG**: Fully analytic, enables closed-form EM and bidirectional parameter conversion
+
+Factory functions (`differentiable_hmog`, `symmetric_hmog`, `analytic_hmog`) provide
+convenient construction for common configurations.
 """
 
 from __future__ import annotations
@@ -305,7 +331,15 @@ def symmetric_hmog[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
     lat_rep: type[LatRep],
     n_components: int,
 ) -> SymmetricHMoG[ObsRep, LatRep]:
-    """Create a symmetric hierarchical mixture of Gaussians model. Supports optimization via log-likelihood gradient descent, but can be slower since requisite matrix inversions happen in the space of full covariance matrices over the latent space. Nevertheless, the supports additional functionality (e.g. join_conjugated) not available to `differentiableHMoG`."""
+    """Create a symmetric hierarchical mixture of Gaussians model.
+
+    Supports optimization via log-likelihood gradient descent with additional functionality
+    (e.g., `join_conjugated`) not available in `DifferentiableHMoG`. The symmetric structure
+    means posterior and prior use the same latent parameterization.
+
+    Trade-off: Matrix inversions happen in the space of full covariance matrices over the
+    latent space, which can be slower than `DifferentiableHMoG`.
+    """
     mid_lat_man = Normal(lat_dim, PositiveDefinite)
     sub_lat_man = Normal(lat_dim, lat_rep)
     mix_sub = NormalCovarianceEmbedding(sub_lat_man, mid_lat_man)
@@ -324,7 +358,12 @@ def analytic_hmog[ObsRep: PositiveDefinite](
     lat_dim: int,
     n_components: int,
 ) -> AnalyticHMoG[ObsRep]:
-    """Create an analytic hierarchical mixture of Gaussians model. The resulting model enables closed-form EM for learning and bidirectional parameter conversion, however requires mixtuers of full coviarance Gaussians in the latent space."""
+    """Create an analytic hierarchical mixture of Gaussians model.
+
+    Enables closed-form expectation-maximization for learning and bidirectional parameter
+    conversion between natural and mean coordinates. Requires full covariance Gaussians in
+    the latent space for complete analytical tractability.
+    """
 
     lat_man = Normal(lat_dim, PositiveDefinite)
     lwr_hrm = NormalAnalyticLGM(obs_dim, obs_rep, lat_dim)

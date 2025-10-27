@@ -14,7 +14,7 @@ Class Hierarchy
 \
 
 Base Matrix Classes
-------------------
+-------------------
 
 .. autoclass:: goal.geometry.manifold.matrix.MatrixRep
    :members:
@@ -32,7 +32,7 @@ Base Matrix Classes
    :show-inheritance:
 
 Structured Matrices
-------------------
+-------------------
 
 .. autoclass:: goal.geometry.manifold.matrix.Symmetric
    :members:
@@ -45,7 +45,7 @@ Structured Matrices
    :show-inheritance:
 
 Specialized Structures
----------------------
+----------------------
 
 .. autoclass:: goal.geometry.manifold.matrix.Diagonal
    :members:

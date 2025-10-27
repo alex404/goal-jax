@@ -22,7 +22,7 @@ More complex exponential families (e.g. harmoniums) recapitulate this class hier
    base
    combinators
    harmonium
-   hierarchical
+   graphical
 
 Mathematical Framework
 ----------------------

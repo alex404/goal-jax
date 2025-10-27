@@ -10,6 +10,7 @@ The models package provides a comprehensive hierarchy of statistical models, fro
    :caption: Subpackages:
 
    base/index
+   harmonium/index
    graphical/index
 
 Package Structure

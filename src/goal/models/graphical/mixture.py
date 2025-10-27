@@ -1,4 +1,19 @@
-"""Mixture model utilities for conjugated harmoniums."""
+"""Mixture model utilities for conjugated harmoniums.
+
+This module provides helper functions for computing conjugation parameters in hierarchical
+mixture models, enabling efficient inference in models where conjugated harmoniums are composed
+into mixture structures.
+
+**Key function**: `harmonium_mixture_conjugation_parameters` decomposes the joint conjugation
+parameters of a mixture of conjugated harmoniums into three components:
+
+1. **Y conjugation biases**: Base conjugation parameters from the first component
+2. **K conjugation biases**: Differences in log partition between components
+3. **K-Y interaction**: Changes in conjugation parameters across components
+
+This decomposition preserves the mixture structure and enables efficient conjugation parameter
+computation for hierarchical models where the upper level is a mixture over harmoniums.
+"""
 
 from __future__ import annotations
 

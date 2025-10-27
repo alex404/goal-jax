@@ -1,4 +1,29 @@
-"""Poisson mixture models using COM-Poisson populations."""
+"""Poisson mixture models for count data.
+
+This module provides mixture models specialized for count data, with support for both
+standard Poisson distributions (constant variance) and Conway-Maxwell-Poisson (COM-Poisson)
+distributions (flexible dispersion).
+
+**Model types**:
+
+- **Poisson Mixture**: Each mixture component is an independent Poisson population where
+  each unit has its own rate parameter. Suitable when variance approximately equals mean.
+
+- **COM-Poisson Mixture**: Each component is an independent COM-Poisson population with both
+  rate and dispersion parameters. The dispersion parameters are shared across components while
+  rates vary. Suitable for overdispersed or underdispersed count data.
+
+**Structure**: Both mixture types are implemented using the harmonium framework with:
+
+- Observable: Product of Poisson or COM-Poisson distributions
+- Latent: Categorical distribution over mixture components
+- Interaction matrix: Encodes component-specific parameters (rates for Poisson, rates and dispersions for COM-Poisson)
+
+**Type aliases** provide convenient configurations for common use cases:
+- `PoissonPopulation`: Analytic product of independent Poisson units
+- `PoissonMixture`: Analytic mixture of Poisson populations
+- `CoMPoissonMixture`: Mixture of COM-Poisson populations with shared dispersion
+"""
 
 from __future__ import annotations
 
@@ -34,16 +59,35 @@ type CoMPoissonMixture = DifferentiableMixture[CoMPoissonPopulation, PoissonPopu
 class CoMPoissonPopulation(
     DifferentiableProduct[CoMPoisson], LocationShape[PoissonPopulation, PopulationShape]
 ):
-    """A population of independent COM-Poisson units.
+    """A population of independent Conway-Maxwell-Poisson (COM-Poisson) units.
 
-    For $n$ independent COM-Poisson units, the joint density takes the form:
+    The COM-Poisson distribution generalizes the Poisson distribution by introducing a
+    dispersion parameter :math:`\\nu`, enabling flexible modeling of count data with
+    variance different from the mean.
 
-    $$p(x; \\mu, \\nu) = \\prod_{i=1}^n \\frac{\\mu_i^{x_i}}{(x_i!)^{\\nu_i} Z(\\mu_i, \\nu_i)}$$
+    For :math:`n` independent COM-Poisson units, the joint density takes the form:
 
-    where for each unit $i$:
-        - $\\mu_i$ is the mode parameter
-        - $\\nu_i$ is the dispersion parameter controlling variance relative to Poisson
-        - $Z(\\mu, \\nu)$ is the normalizing constant
+    .. math::
+
+        p(x; \\mu, \\nu) = \\prod_{i=1}^n \\frac{\\mu_i^{x_i}}{(x_i!)^{\\nu_i} Z(\\mu_i, \\nu_i)}
+
+    where for each unit :math:`i`:
+
+    - :math:`\\mu_i > 0` is the rate parameter (mode of the distribution)
+    - :math:`\\nu_i > 0` is the dispersion parameter:
+        - :math:`\\nu_i = 1`: standard Poisson distribution
+        - :math:`\\nu_i > 1`: underdispersed (variance :math:`< \\mu_i`)
+        - :math:`\\nu_i < 1`: overdispersed (variance :math:`> \\mu_i`)
+    - :math:`Z(\\mu_i, \\nu_i) = \\sum_{j=0}^{\\infty} \\frac{\\mu_i^j}{(j!)^{\\nu_i}}` is the normalizing constant
+
+    **Usage in mixtures**: When used as a mixture component, the rate parameters :math:`\\mu_i` vary
+    across mixture components while the dispersion parameters :math:`\\nu_i` are shared. This enables
+    flexible mixture models where each component captures both the mode and over/underdispersion
+    characteristics of subpopulations.
+
+    **Implementation note**: This class is a `LocationShape` split, where locations are Poisson
+    rates and shapes are COM-Poisson dispersion parameters. This enables efficient parameterization
+    in mixture models where dispersion is shared.
     """
 
     def __init__(self, n_reps: int):
@@ -91,16 +135,26 @@ class PopulationLocationEmbedding(
         CoMPoissonPopulation,
     ]
 ):
-    """Subspace relationship that projects only to location parameters of replicated location-shape manifolds.
+    """Embedding that projects COM-Poisson to Poisson via location parameters.
 
-    For a replicated location-shape manifold with parameters:
-    $((l_1,s_1),\\ldots,(l_n,s_n))$
+    For a replicated location-shape manifold with parameters :math:`((l_1,s_1),\\ldots,(l_n,s_n))`,
+    this embedding projects to just the location parameters: :math:`(l_1,\\ldots,l_n)`.
 
-    Projects to just the location parameters:
-    $(l_1,\\ldots,l_n)$
+    **Purpose**: In mixture models, components may need different rate parameters (locations) but
+    shared dispersion parameters (shapes). This embedding enables such structure by:
+    - Projecting COM-Poisson parameters down to their rate components (Poisson)
+    - Embedding Poisson rates up to full COM-Poisson by combining with shared dispersions
 
-    This enables mixture models where components only affect location parameters while
-    sharing shape parameters across components.
+    **Mathematical structure**: The embedding maps between:
+    - Sub-manifold: :math:`\\text{Poisson}^n` (location parameters only)
+    - Ambient manifold: :math:`\\text{CoMPoisson}^n` (location-shape pairs)
+
+    The first component of each tuple is extracted or preserved during transformations:
+    - Projection: :math:`((l_1, s_1), \\ldots, (l_n, s_n)) \\mapsto (l_1, \\ldots, l_n)`
+    - Embedding: :math:`(l_1, \\ldots, l_n) + \\text{shapes} \\mapsto ((l_1, s_1), \\ldots, (l_n, s_n))`
+
+    This enables efficient parameterization in mixture models where component-specific behavior
+    comes from varying rates while uniform dispersion is maintained across components.
     """
 
     n_neurons: int
