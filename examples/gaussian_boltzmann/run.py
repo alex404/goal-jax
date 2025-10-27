@@ -22,7 +22,7 @@ from goal.geometry import (
 )
 from goal.models import (
     Boltzmann,
-    BoltzmannDifferentiableLinearGaussianModel,
+    BoltzmannDifferentiableLGM,
     Euclidean,
     Normal,
 )
@@ -31,10 +31,8 @@ from ..shared import example_paths, initialize_jax
 from .types import GaussianBoltzmannResults
 
 # Type aliases for readability
-Model = BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]
-ModelParams = Point[
-    Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]
-]
+Model = BoltzmannDifferentiableLGM[PositiveDefinite]
+ModelParams = Point[Natural, BoltzmannDifferentiableLGM[PositiveDefinite]]
 BoltzmannParams = Point[Natural, Boltzmann]
 LikelihoodParams = Point[
     Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[PositiveDefinite]]
@@ -367,7 +365,7 @@ def compute_gaussian_boltzmann_results(key: Array) -> GaussianBoltzmannResults:
 
     # Create model
     print("\nCreating model...")
-    model = BoltzmannDifferentiableLinearGaussianModel(
+    model = BoltzmannDifferentiableLGM(
         obs_dim=OBS_DIM,
         obs_rep=PositiveDefinite,
         lat_dim=N_LATENTS,

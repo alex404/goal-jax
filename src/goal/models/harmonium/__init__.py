@@ -1,12 +1,12 @@
 """Bivariate harmonium models (LGMs, Mixtures) using generically-typed harmonium abstractions."""
 
 from .lgm import (
-    BoltzmannDifferentiableLinearGaussianModel,
-    DifferentiableLinearGaussianModel,
+    BoltzmannDifferentiableLGM,
+    DifferentiableLGM,
     FactorAnalysis,
-    NormalAnalyticLinearGaussianModel,
+    NormalAnalyticLGM,
     NormalCovarianceEmbedding,
-    NormalDifferentiableLinearGaussianModel,
+    NormalDifferentiableLGM,
     PrincipalComponentAnalysis,
 )
 from .mixture import AnalyticMixture, DifferentiableMixture, Mixture
@@ -20,16 +20,16 @@ from .poisson_mixture import (
 
 __all__ = [
     "AnalyticMixture",
-    "BoltzmannDifferentiableLinearGaussianModel",
+    "BoltzmannDifferentiableLGM",
     "CoMPoissonMixture",
     "CoMPoissonPopulation",
-    "DifferentiableLinearGaussianModel",
+    "DifferentiableLGM",
     "DifferentiableMixture",
     "FactorAnalysis",
     "Mixture",
-    "NormalAnalyticLinearGaussianModel",
+    "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",
-    "NormalDifferentiableLinearGaussianModel",
+    "NormalDifferentiableLGM",
     "PoissonMixture",
     "PrincipalComponentAnalysis",
     "com_poisson_mixture",

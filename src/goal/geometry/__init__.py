@@ -19,6 +19,7 @@ from .exponential_family.harmonium import (
     DifferentiableConjugated,
     Harmonium,
     SymmetricConjugated,
+    SymmetricHarmonium,
 )
 from .manifold.base import (
     Coordinates,
@@ -100,6 +101,7 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
+    "SymmetricHarmonium",
     "Triple",
     "TupleEmbedding",
     "expand_dual",

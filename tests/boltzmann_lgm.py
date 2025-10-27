@@ -21,12 +21,12 @@ from goal.geometry import (
     PositiveDefinite,
 )
 from goal.models import (
-    BoltzmannDifferentiableLinearGaussianModel,
+    BoltzmannDifferentiableLGM,
 )
 
 # Type aliases
-Model = BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]
-ModelParams = Point[Natural, BoltzmannDifferentiableLinearGaussianModel[PositiveDefinite]]
+Model = BoltzmannDifferentiableLGM[PositiveDefinite]
+ModelParams = Point[Natural, BoltzmannDifferentiableLGM[PositiveDefinite]]
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -50,7 +50,7 @@ def model_dims(request: FixtureRequest) -> tuple[int, int]:
 def model(model_dims: tuple[int, int]) -> Model:
     """Create Boltzmann-LGM model."""
     obs_dim, lat_dim = model_dims
-    return BoltzmannDifferentiableLinearGaussianModel(
+    return BoltzmannDifferentiableLGM(
         obs_dim=obs_dim, obs_rep=PositiveDefinite, lat_dim=lat_dim
     )
 

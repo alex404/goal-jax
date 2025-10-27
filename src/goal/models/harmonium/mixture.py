@@ -20,7 +20,6 @@ from ...geometry import (
     AnalyticConjugated,
     Differentiable,
     ExponentialFamily,
-    Harmonium,
     IdentityEmbedding,
     LinearEmbedding,
     Mean,
@@ -30,6 +29,7 @@ from ...geometry import (
     Rectangular,
     StatisticalMoments,
     SymmetricConjugated,
+    SymmetricHarmonium,
 )
 from ..base.categorical import (
     Categorical,
@@ -38,8 +38,8 @@ from ..base.categorical import (
 
 @dataclass(frozen=True)
 class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
-    Harmonium[
-        Rectangular, Observable, SubObservable, Categorical, Categorical, Categorical
+    SymmetricHarmonium[
+        Rectangular, Observable, SubObservable, Categorical, Categorical
     ],
 ):
     """Mixture models with exponential family observations.
@@ -81,7 +81,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
         **NB:** if only a submanifold of interactions on the observables are considered (i.e. obs_emb is not the IdentityEmbeddingSubspace), then the statistics outside of the interaction submanifold will simply be averaged.
         """
-        probs = self.pst_lat_man.to_probs(weights)
+        probs = self.lat_man.to_probs(weights)
         probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
         probs = probs.reshape(probs_shape)
 
@@ -107,7 +107,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
         """Split a mixture model in mean coordinates into components and weights."""
         obs_means, int_means, cat_means = self.split_params(p)
-        probs = self.pst_lat_man.to_probs(cat_means)  # shape: (n_categories,)
+        probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
         # Get interaction columns - shape: (n_categories-1, obs_dim)
         int_cols = self.int_man.to_columns(int_means)
@@ -142,12 +142,12 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     @property
     @override
-    def int_lat_emb(self) -> IdentityEmbedding[Categorical]:
-        return IdentityEmbedding(Categorical(self.n_categories))
+    def lat_man(self) -> Categorical:
+        return Categorical(self.n_categories)
 
     @property
     @override
-    def pst_lat_emb(self) -> IdentityEmbedding[Categorical]:
+    def int_lat_emb(self) -> IdentityEmbedding[Categorical]:
         return IdentityEmbedding(Categorical(self.n_categories))
 
 
@@ -206,7 +206,7 @@ class DifferentiableMixture[
             )
 
         comp_params, cat_params = self.split_natural_mixture(params)
-        weights = self.pst_lat_man.to_probs(self.pst_lat_man.to_mean(cat_params))
+        weights = self.lat_man.to_probs(self.lat_man.to_mean(cat_params))
 
         # Use statistical_mean/covariance instead of points to avoid type issues
         cmp_means = self.cmp_man.map(self.obs_man.statistical_mean, comp_params)  # pyright: ignore[reportArgumentType]
@@ -255,7 +255,7 @@ class DifferentiableMixture[
         # rho_z shape: (n_categories - 1,)
         rho_z = self.int_man.col_man.map(compute_rho, int_comps)
 
-        return self.pst_lat_man.natural_point(rho_z)
+        return self.lat_man.natural_point(rho_z)
 
 
 @dataclass(frozen=True)

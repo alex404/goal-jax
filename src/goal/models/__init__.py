@@ -23,16 +23,16 @@ from .graphical import (
 )
 from .harmonium import (
     AnalyticMixture,
-    BoltzmannDifferentiableLinearGaussianModel,
+    BoltzmannDifferentiableLGM,
     CoMPoissonMixture,
     CoMPoissonPopulation,
-    DifferentiableLinearGaussianModel,
+    DifferentiableLGM,
     DifferentiableMixture,
     FactorAnalysis,
     Mixture,
-    NormalAnalyticLinearGaussianModel,
+    NormalAnalyticLGM,
     NormalCovarianceEmbedding,
-    NormalDifferentiableLinearGaussianModel,
+    NormalDifferentiableLGM,
     PoissonMixture,
     PrincipalComponentAnalysis,
     com_poisson_mixture,
@@ -40,14 +40,14 @@ from .harmonium import (
 )
 
 # Backward compatibility alias
-AnalyticLinearGaussianModel = NormalAnalyticLinearGaussianModel
+AnalyticLinearGaussianModel = NormalAnalyticLGM
 
 __all__ = [
     "AnalyticHMoG",
     "AnalyticLinearGaussianModel",
     "AnalyticMixture",
     "Boltzmann",
-    "BoltzmannDifferentiableLinearGaussianModel",
+    "BoltzmannDifferentiableLGM",
     "Categorical",
     "CoMPoisson",
     "CoMPoissonMixture",
@@ -57,7 +57,7 @@ __all__ = [
     "DiagonalCovariance",
     "DiagonalNormal",
     "DifferentiableHMoG",
-    "DifferentiableLinearGaussianModel",
+    "DifferentiableLGM",
     "DifferentiableMixture",
     "Euclidean",
     "FactorAnalysis",
@@ -67,9 +67,9 @@ __all__ = [
     "IsotropicNormal",
     "Mixture",
     "Normal",
-    "NormalAnalyticLinearGaussianModel",
+    "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",
-    "NormalDifferentiableLinearGaussianModel",
+    "NormalDifferentiableLGM",
     "Poisson",
     "PoissonMixture",
     "PrincipalComponentAnalysis",

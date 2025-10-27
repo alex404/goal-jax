@@ -136,7 +136,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbientRep: PositiveDe
 
 
 @dataclass(frozen=True)
-class DifferentiableLinearGaussianModel[
+class DifferentiableLGM[
     ObsRep: PositiveDefinite,
     PostGaussian: GeneralizedGaussian[Any],
     PriorGaussian: GeneralizedGaussian[Any],
@@ -157,6 +157,8 @@ class DifferentiableLinearGaussianModel[
         - $A$ is the loading matrix mapping latent to observable space,
         - $\\mu$ is the observable bias term, and
         - $\\epsilon \\sim \\mathcal{N}(0, \\Sigma)$ is Gaussian noise.
+
+    **Posterior vs Prior Structure**: The posterior latent distribution (conditioned on observables) uses the `PostGaussian` parameterization, which may employ a restricted covariance structure (e.g., diagonal) for computational efficiency during frequent inference. The prior latent distribution uses the `PriorGaussian` parameterization, whose shape is dictated by the conjugation parameters. When `PostGaussian` is more restricted than `PriorGaussian`, the prior is constructed by embedding the restricted posterior covariance structure into the fuller prior structure, ensuring compatibility with the required conjugation parameter computation.
 
     As a harmonium, the joint distribution takes the form
 
@@ -229,11 +231,11 @@ class DifferentiableLinearGaussianModel[
 
 
 @dataclass(frozen=True)
-class NormalDifferentiableLinearGaussianModel[
+class NormalDifferentiableLGM[
     ObsRep: PositiveDefinite,
     PostRep: PositiveDefinite,
 ](
-    DifferentiableLinearGaussianModel[ObsRep, Normal[PostRep], FullNormal],
+    DifferentiableLGM[ObsRep, Normal[PostRep], FullNormal],
 ):
     """Differentiable Linear Gaussian Model with Normal latent variables.
 
@@ -263,7 +265,7 @@ class NormalDifferentiableLinearGaussianModel[
     ) -> tuple[FullNormal, Point[Natural, FullNormal]]:
         """Returns the marginal normal distribution over observable variables."""
         # Build transposed LGM with full covariance observable variables
-        transposed_lgm = NormalAnalyticLinearGaussianModel(
+        transposed_lgm = NormalAnalyticLGM(
             obs_dim=self.pst_lat_man.data_dim,  # Original latent becomes observable
             obs_rep=PositiveDefinite,
             lat_dim=self.obs_dim,  # Original observable becomes latent
@@ -288,13 +290,13 @@ class NormalDifferentiableLinearGaussianModel[
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
         lat_dim = self.prr_lat_man.data_dim
-        new_man: NormalDifferentiableLinearGaussianModel[
-            PositiveDefinite, PositiveDefinite
-        ] = NormalDifferentiableLinearGaussianModel(
-            obs_dim=self.obs_man.data_dim,
-            obs_rep=PositiveDefinite,
-            lat_dim=lat_dim,
-            pst_lat_rep=PositiveDefinite,
+        new_man: NormalDifferentiableLGM[PositiveDefinite, PositiveDefinite] = (
+            NormalDifferentiableLGM(
+                obs_dim=self.obs_man.data_dim,
+                obs_rep=PositiveDefinite,
+                lat_dim=lat_dim,
+                pst_lat_rep=PositiveDefinite,
+            )
         )
         obs_params, int_params, lat_params = self.split_params(p)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
@@ -318,10 +320,10 @@ class NormalDifferentiableLinearGaussianModel[
 
 
 @dataclass(frozen=True)
-class BoltzmannDifferentiableLinearGaussianModel[
+class BoltzmannDifferentiableLGM[
     ObsRep: PositiveDefinite,
 ](
-    DifferentiableLinearGaussianModel[ObsRep, Boltzmann, Boltzmann],
+    DifferentiableLGM[ObsRep, Boltzmann, Boltzmann],
 ):
     """Differentiable Linear Gaussian Model with Boltzmann latent variables.
 
@@ -352,11 +354,11 @@ class BoltzmannDifferentiableLinearGaussianModel[
 
 
 @dataclass(frozen=True)
-class NormalAnalyticLinearGaussianModel[
+class NormalAnalyticLGM[
     ObsRep: PositiveDefinite,
 ](
-    NormalDifferentiableLinearGaussianModel[ObsRep, PositiveDefinite],
     AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
+    NormalDifferentiableLGM[ObsRep, PositiveDefinite],
 ):
     """Analytic Linear Gaussian Model that extends the differentiable LGM with full analytical tractability, adding conversions between mean and natural coordinates, and a closed-form implementation of EM."""
 
@@ -368,16 +370,22 @@ class NormalAnalyticLinearGaussianModel[
             pst_lat_rep=PositiveDefinite,
         )
 
+    @property
+    @override
+    def lat_man(self) -> FullNormal:
+        """The latent manifold is a full Normal distribution."""
+        return Normal(self.lat_dim, PositiveDefinite)
+
     @override
     def to_natural_likelihood(
         self, params: Point[Mean, Self]
     ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]]:
         # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
-        lat_cov_man = self.pst_lat_man.cov_man
+        lat_cov_man = self.lat_man.cov_man
         obs_means, int_means, lat_means = self.split_params(params)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
-        lat_mean, lat_cov = self.pst_lat_man.split_mean_covariance(lat_means)
+        lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
 
         # Construct precisions
@@ -412,7 +420,7 @@ class NormalAnalyticLinearGaussianModel[
 
 
 @dataclass(frozen=True)
-class FactorAnalysis(NormalAnalyticLinearGaussianModel[Diagonal]):
+class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
     """A factor analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
@@ -427,7 +435,7 @@ class FactorAnalysis(NormalAnalyticLinearGaussianModel[Diagonal]):
         q = self.mean_posterior_statistics(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
-        z = self.pst_lat_man.to_natural(self.pst_lat_man.standard_normal())
+        z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
     def from_loadings(
@@ -451,12 +459,12 @@ class FactorAnalysis(NormalAnalyticLinearGaussianModel[Diagonal]):
 
         # Combine parameters
         lkl_params = self.lkl_man.join_params(obs_params, int_mat)
-        z = self.pst_lat_man.to_natural(self.pst_lat_man.standard_normal())
+        z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
 
 @dataclass(frozen=True)
-class PrincipalComponentAnalysis(NormalAnalyticLinearGaussianModel[Scale]):
+class PrincipalComponentAnalysis(NormalAnalyticLGM[Scale]):
     """A principal component analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
@@ -471,7 +479,7 @@ class PrincipalComponentAnalysis(NormalAnalyticLinearGaussianModel[Scale]):
         q = self.mean_posterior_statistics(params, xs)
         p1 = self.to_natural(q)
         lkl_params = self.likelihood_function(p1)
-        z = self.pst_lat_man.to_natural(self.pst_lat_man.standard_normal())
+        z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 
 

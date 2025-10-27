@@ -12,7 +12,7 @@ from jax import Array
 
 from ..manifold.base import Point
 from ..manifold.combinators import Triple
-from ..manifold.embedding import LinearEmbedding
+from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.linear import AffineMap, LinearMap
 from ..manifold.matrix import MatrixRep
 from ..manifold.util import batched_mean
@@ -38,10 +38,10 @@ class Harmonium[
     Triple[Observable, LinearMap[IntRep, IntLatent, IntObservable], Posterior],
     ABC,
 ):
-    """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The harmonium is also specified by a number lof internal embeddings to support the following features:
+    """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The harmonium is also specified by a number of internal embeddings to support the following features:
 
     1. The interactions between the observable and latent variables can be restricted to submanifolds (`IntObservable` and `IntLatent`) of either or both the observable and latent manifolds (`Observable` and `Latent`).
-    2. The latent posterior can be restricted to a submanifold (`PostLatent`) of the complete latent space (`Latent`), restricting the posterior to a more computationally tractable part of the latent space.
+    2. The latent posterior (`Posterior`) may use a computationally restricted parameterization (e.g., diagonal covariance) for efficiency during frequent inference. The latent prior (`Prior`) has a shape dictated by the conjugation parameters—it must accommodate the complete parameterization needed for conjugation parameter computation and optimization.
 
     In theory, the joint distribution of a harmonium takes the form
 
@@ -252,6 +252,40 @@ class Harmonium[
             self.int_man.point(self.int_man.rep.from_dense(noise))
         )
         return self.join_params(obs_params, int_params, lat_params)
+
+
+class SymmetricHarmonium[
+    IntRep: MatrixRep,
+    Observable: ExponentialFamily,
+    IntObservable: ExponentialFamily,
+    IntLatent: ExponentialFamily,
+    Latent: ExponentialFamily,
+](
+    Harmonium[IntRep, Observable, IntObservable, IntLatent, Latent, Latent],
+    ABC,
+):
+    @property
+    @abstractmethod
+    def lat_man(self) -> Latent:
+        """Manifold of latent biases."""
+
+    @property
+    @override
+    def pst_lat_emb(self) -> LinearEmbedding[Latent, Latent]:
+        """Embedding of the posterior latent submanifold into the prior latent manifold."""
+        return IdentityEmbedding(self.lat_man)
+
+    @property
+    @override
+    def pst_lat_man(self) -> Latent:
+        """Manifold of posterior specific latent biases."""
+        return self.lat_man
+
+    @property
+    @override
+    def prr_lat_man(self) -> Latent:
+        """Manifold of posterior specific latent biases."""
+        return self.lat_man
 
 
 class Conjugated[
@@ -486,6 +520,7 @@ class SymmetricConjugated[
     DifferentiableConjugated[
         IntRep, Observable, IntObservable, IntLatent, Latent, Latent
     ],
+    SymmetricHarmonium[IntRep, Observable, IntObservable, IntLatent, Latent],
     ABC,
 ):
     """A differentiable conjugated harmonium where the space of posteriors is the same as the space of priors (as opposed to a strict submanifold)."""
