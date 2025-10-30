@@ -79,7 +79,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         return jax.scipy.special.logsumexp(energies)
 
     def _unit_conditional_energy_diff(
-        self, state: Array, unit_idx: int, params: Point[Natural, Self]
+        self, state: Array, unit_idx: Array | int, params: Point[Natural, Self]
     ) -> Array:
         """Compute energy difference for unit being 1 vs 0 using sufficient statistics."""
         # Create states with unit_idx = 0 and unit_idx = 1
@@ -94,7 +94,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         return jnp.dot(params.array, suff_stat_1.array - suff_stat_0.array)
 
     def unit_conditional_prob(
-        self, state: Array, unit_idx: int, params: Point[Natural, Self]
+        self, state: Array, unit_idx: Array | int, params: Point[Natural, Self]
     ) -> Array:
         """Compute P(x_unit = 1 | x_other) for a single unit."""
         energy_diff = self._unit_conditional_energy_diff(state, unit_idx, params)
@@ -106,7 +106,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         """Single Gibbs sampling step updating all units in random order."""
         perm = jax.random.permutation(key, self.n_neurons)
 
-        def update_unit(state: Array, unit_idx: int) -> tuple[Array, None]:
+        def update_unit(state: Array, unit_idx: Array) -> tuple[Array, None]:
             prob = self.unit_conditional_prob(state, unit_idx, params)
             subkey = jax.random.fold_in(key, unit_idx)
             new_val = jax.random.bernoulli(subkey, prob).astype(state.dtype)
@@ -120,7 +120,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         self,
         key: Array,
         params: Point[Natural, Self],
-        n_samples: int = 1,
+        n: int = 1,
         n_burnin: int = 1000,
         n_thin: int = 10,
     ) -> Array:
@@ -132,14 +132,14 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         ).astype(jnp.float32)
 
         # Burn-in
-        def burn_step(state: Array, step: int) -> tuple[Array, None]:
+        def burn_step(state: Array, step: Array) -> tuple[Array, None]:
             subkey = jax.random.fold_in(sample_key, step)
             return self._gibbs_step(state, subkey, params), None
 
         burned_state, _ = jax.lax.scan(burn_step, init_state, jnp.arange(n_burnin))  # pyright: ignore[reportArgumentType]
 
         # Sample collection with thinning
-        def sample_with_thinning(state: Array, step: int) -> tuple[Array, Array]:
+        def sample_with_thinning(state: Array, step: Array) -> tuple[Array, Array]:
             def thin_step(i: int, current_state: Array) -> Array:
                 subkey = jax.random.fold_in(sample_key, n_burnin + step * n_thin + i)
                 return self._gibbs_step(current_state, subkey, params)
@@ -150,7 +150,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         _, samples = jax.lax.scan(
             sample_with_thinning,
             burned_state,
-            jnp.arange(n_samples),  # pyright: ignore[reportArgumentType]
+            jnp.arange(n),  # pyright: ignore[reportArgumentType]
         )
         return samples
 
@@ -221,13 +221,13 @@ class Boltzmann(
         self,
         key: Array,
         params: Point[Natural, Self],
-        n_samples: int = 1,
+        n: int = 1,
         n_burnin: int = 1000,
         n_thin: int = 10,
     ) -> Array:
         """Delegate to CouplingMatrix."""
         return self.shp_man.sample(
-            key, Point(params.array), n_samples, n_burnin, n_thin
+            key, Point(params.array), n, n_burnin, n_thin
         )
 
     # GeneralizedGaussian interface

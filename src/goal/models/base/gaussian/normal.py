@@ -342,10 +342,10 @@ class Normal[Rep: PositiveDefinite](
 
     @override
     def split_mean_second_moment(
-        self, p: Point[Mean, Self]
+        self, params: Point[Mean, Self]
     ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
         """Split parameters into mean and second-moment components."""
-        return self.split_params(p)
+        return self.split_params(params)
 
     @override
     def join_mean_second_moment(
@@ -356,7 +356,7 @@ class Normal[Rep: PositiveDefinite](
 
     @override
     def split_location_precision(
-        self, p: Point[Natural, Self]
+        self, params: Point[Natural, Self]
     ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[Rep]]]:
         """Join natural location and precision (inverse covariance) parameters. There's some subtle rescaling that has to happen to ensure that the natural parameters behaves correctly when used either as a vector in a dot product, or as a precision matrix.
 
@@ -376,7 +376,7 @@ class Normal[Rep: PositiveDefinite](
             - We store it in the sufficient statistic (hence its defined as an average), which requires that we divide the natural parameters by $d$ when converting to precision
         """
         # First do basic parameter split
-        loc, theta2 = self.split_params(p)
+        loc, theta2 = self.split_params(params)
 
         # We need to rescale off-precision params
         if not isinstance(self.snd_man.rep, Diagonal):
@@ -401,7 +401,7 @@ class Normal[Rep: PositiveDefinite](
     @override
     def join_location_precision(
         self,
-        loc: Point[Natural, Euclidean],
+        location: Point[Natural, Euclidean],
         precision: Point[Natural, Covariance[Rep]],
     ) -> Point[Natural, Self]:
         """Join natural location and precision (inverse covariance) parameters. Inverts the scaling in `split_natural_params`."""
@@ -422,7 +422,7 @@ class Normal[Rep: PositiveDefinite](
             scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
             theta2 = scaled_params
 
-        return self.join_params(loc, self.cov_man.natural_point(theta2))
+        return self.join_params(location, self.cov_man.natural_point(theta2))
 
     def embed_rep[TargetRep: PositiveDefinite](
         self, trg_man: Normal[TargetRep], p: Point[Natural, Self]
