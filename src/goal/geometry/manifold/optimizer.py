@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NewType
 
-from optax import (  # pyright: ignore[reportMissingTypeStubs]
+from optax import (
     GradientTransformation,
     ScalarOrSchedule,
     adamw,

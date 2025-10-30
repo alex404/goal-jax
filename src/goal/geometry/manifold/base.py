@@ -10,8 +10,9 @@ See the package index for additional mathematical background on manifolds.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Self
+from typing import Any, Self
 
 import jax
 import jax.numpy as jnp

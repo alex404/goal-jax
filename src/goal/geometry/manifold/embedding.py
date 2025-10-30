@@ -93,7 +93,9 @@ class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient],
     # Contract
 
     @abstractmethod
-    def project[C: Coordinates](self, p: Point[C, Ambient]) -> Point[C, Sub]:
+    def project[C: Coordinates](
+        self, p: Point[Dual[C], Ambient]
+    ) -> Point[Dual[C], Sub]:
         """Project a point from the ambient space to the subspace."""
 
     def translate[C: Coordinates](

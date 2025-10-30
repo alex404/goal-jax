@@ -134,7 +134,7 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
 
     @property
     @override
-    def pst_lat_emb(
+    def pst_prr_emb(
         self,
     ) -> LinearEmbedding[
         AnalyticMixture[Normal[LatRep]],
@@ -143,7 +143,7 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, LatRep: PositiveDefinite](
         # For DifferentiableHMoG, we need LatentHarmoniumEmbedding
 
         return LatentHarmoniumEmbedding(
-            self.lwr_hrm.pst_lat_emb,
+            self.lwr_hrm.pst_prr_emb,
             self.pst_upr_hrm,
             self.prr_upr_hrm,
         )

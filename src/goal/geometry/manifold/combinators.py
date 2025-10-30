@@ -6,8 +6,9 @@ This module provides ways to build complex manifolds from simpler ones, includin
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Self, override
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp

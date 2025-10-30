@@ -58,14 +58,19 @@ extraPaths = ["src"]
 typeCheckingMode = "recommended"
 venvPath = "."
 venv = ".venv"
+
+# External library typing issues - incomplete type stubs in JAX/optax/scipy
 reportUnknownParameterType = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
+
+# Intentional use of Any to work around Python type system limitations
+# (e.g., covariance/contravariance in generics, Self type inference in overrides)
 reportAny = "none"
 reportExplicitAny = "none"
-reportMissingSuperCall = "none"
-reportUnusedCallResult = "none"
-reportIncompatibleMethodOverride = "none"
+
+# Design limitations - Python's invariant generics prevent proper return-type specialization
+reportIncompatibleMethodOverride = "warning"
 
 [tool.ruff]
 src = ["src"]

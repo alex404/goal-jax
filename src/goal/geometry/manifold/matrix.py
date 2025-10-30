@@ -27,7 +27,8 @@ The following table provides an overview of the storage and computational comple
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable, override
+from collections.abc import Callable
+from typing import override
 
 import jax
 import jax.numpy as jnp
