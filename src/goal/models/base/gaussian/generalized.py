@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Self, override
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -17,7 +18,7 @@ from ....geometry import (
 
 
 @dataclass(frozen=True)
-class Euclidean(ExponentialFamily):
+class Euclidean(Differentiable):
     """Euclidean space $\\mathbb{R}^n$ of dimension $n$. Euclidean space consists of $n$-dimensional real vectors with the standard Euclidean distance metric
 
     $$d(x,y) = \\sqrt{\\sum_{i=1}^n (x_i - y_i)^2}.$$
@@ -53,6 +54,41 @@ class Euclidean(ExponentialFamily):
     def log_base_measure(self, x: Array) -> Array:
         """Standard normal base measure including normalizing constant."""
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
+
+    @override
+    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
+        """Sample from a standard normal distribution with mean given by natural parameters.
+
+        For Euclidean space with unit covariance, the natural parameters are the mean,
+        so we sample x ~ N(params.array, I).
+
+        Args:
+            key: JAX random key
+            params: Natural parameters (the mean)
+            n: Number of samples
+
+        Returns:
+            Array of shape (n, dim) with samples
+        """
+        noise = jax.random.normal(key, (n, self.dim))
+        return params.array + noise
+
+    @override
+    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
+        """Compute log partition function for standard normal with unit covariance.
+
+        For a normal distribution N(μ, I) with sufficient statistic s(x) = x
+        and natural parameter θ = μ:
+
+        ψ(θ) = 0.5 ||θ||² + (d/2) log(2π)
+
+        Args:
+            params: Natural parameters (the mean)
+
+        Returns:
+            Scalar log partition function value
+        """
+        return 0.5 * jnp.sum(params.array**2) + 0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
 class GeneralizedGaussian[S: ExponentialFamily](Differentiable, ABC):

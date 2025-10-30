@@ -44,6 +44,7 @@ from ..harmonium.lgm import (
 )
 from ..harmonium.mixture import (
     AnalyticMixture,
+    Mixture,
 )
 
 
@@ -55,7 +56,7 @@ class MixtureOfLGMs[
         Rectangular,
         Normal[ObsRep],
         Euclidean,
-        Euclidean,
+        Mixture[Euclidean, Euclidean],
         AnalyticMixture[FullNormal],
     ],
 ):
