@@ -31,7 +31,7 @@ Core Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.lgm.BoltzmannDifferentiableLGM
+.. autoclass:: goal.models.harmonium.lgm.BoltzmannLGM
    :members:
    :undoc-members:
    :show-inheritance:

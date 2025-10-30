@@ -56,7 +56,7 @@ def create_ground_truth_parameters(
     # Stack rows
     components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
 
-    weights = mix_man.pst_lat_man.mean_point(jnp.array([0.35, 0.25]))
+    weights = mix_man.lat_man.mean_point(jnp.array([0.35, 0.25]))
 
     mean_mix: Point[Mean, AnalyticMixture[FullNormal]] = mix_man.join_mean_mixture(
         components, weights
@@ -84,7 +84,7 @@ def goal_to_sklearn_mixture(
         covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
 
     # Get mixing weights
-    mixing_weights = mix_man.pst_lat_man.to_probs(weights)
+    mixing_weights = mix_man.lat_man.to_probs(weights)
 
     # Create and configure sklearn model
     n_components = len(components)

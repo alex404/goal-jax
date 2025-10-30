@@ -26,6 +26,7 @@ from ...geometry import (
     PositiveDefinite,
     Rectangular,
     Scale,
+    SymmetricConjugated,
     expand_dual,
     reduce_dual,
 )
@@ -136,7 +137,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbientRep: PositiveDe
 
 
 @dataclass(frozen=True)
-class DifferentiableLGM[
+class LGM[
     ObsRep: PositiveDefinite,
     PostGaussian: GeneralizedGaussian[Any],
     PriorGaussian: GeneralizedGaussian[Any],
@@ -194,14 +195,14 @@ class DifferentiableLGM[
 
     @property
     @override
-    def obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
+    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
         return GeneralizedGaussianLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
 
     @property
     @override
-    def int_lat_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
+    def int_pst_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
         """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
-        return GeneralizedGaussianLocationEmbedding(self.pst_lat_man)
+        return GeneralizedGaussianLocationEmbedding(self.pst_man)
 
     @override
     def conjugation_parameters(
@@ -212,7 +213,7 @@ class DifferentiableLGM[
     ) -> Point[Natural, PriorGaussian]:
         # Get parameters
         obs_cov_man = self.obs_man.cov_man
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        obs_bias, int_mat = self.lkl_fun_man.split_params(lkl_params)
         obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
 
         # Intermediate computations
@@ -227,15 +228,15 @@ class DifferentiableLGM[
         rho_shape *= -1
 
         # Join parameters into moment parameters
-        return self.prr_lat_man.join_location_precision(rho_mean, rho_shape)
+        return self.prr_man.join_location_precision(rho_mean, rho_shape)
 
 
 @dataclass(frozen=True)
-class NormalDifferentiableLGM[
+class NormalLGM[
     ObsRep: PositiveDefinite,
     PostRep: PositiveDefinite,
 ](
-    DifferentiableLGM[ObsRep, Normal[PostRep], FullNormal],
+    LGM[ObsRep, Normal[PostRep], FullNormal],
 ):
     """Differentiable Linear Gaussian Model with Normal latent variables.
 
@@ -252,7 +253,7 @@ class NormalDifferentiableLGM[
 
     @property
     @override
-    def pst_lat_emb(self) -> LinearEmbedding[Normal[PostRep], FullNormal]:
+    def pst_prr_emb(self) -> LinearEmbedding[Normal[PostRep], FullNormal]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         post_gau = Normal(self.lat_dim, self.pst_lat_rep)
         prior_gau = Normal(self.lat_dim, PositiveDefinite)
@@ -266,16 +267,16 @@ class NormalDifferentiableLGM[
         """Returns the marginal normal distribution over observable variables."""
         # Build transposed LGM with full covariance observable variables
         transposed_lgm = NormalAnalyticLGM(
-            obs_dim=self.pst_lat_man.data_dim,  # Original latent becomes observable
+            obs_dim=self.pst_man.data_dim,  # Original latent becomes observable
             obs_rep=PositiveDefinite,
             lat_dim=self.obs_dim,  # Original observable becomes latent
         )
 
         # Construct parameters for transposed model
         obs_params, int_params, lat_params = self.split_params(params)
-        nor_man = transposed_lgm.prr_lat_man
+        nor_man = transposed_lgm.prr_man
         obs_params_emb = self.obs_man.embed_rep(nor_man, obs_params)
-        lat_params_emb = self.pst_lat_man.embed_rep(transposed_lgm.obs_man, lat_params)
+        lat_params_emb = self.pst_man.embed_rep(transposed_lgm.obs_man, lat_params)
 
         # Join parameters with interaction matrix transposed
         transposed_params = transposed_lgm.join_params(
@@ -289,27 +290,25 @@ class NormalDifferentiableLGM[
 
     def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
         """Convert a linear model to a normal model."""
-        lat_dim = self.prr_lat_man.data_dim
-        new_man: NormalDifferentiableLGM[PositiveDefinite, PositiveDefinite] = (
-            NormalDifferentiableLGM(
-                obs_dim=self.obs_man.data_dim,
-                obs_rep=PositiveDefinite,
-                lat_dim=lat_dim,
-                pst_lat_rep=PositiveDefinite,
-            )
+        lat_dim = self.prr_man.data_dim
+        new_man: NormalLGM[PositiveDefinite, PositiveDefinite] = NormalLGM(
+            obs_dim=self.obs_man.data_dim,
+            obs_rep=PositiveDefinite,
+            lat_dim=lat_dim,
+            pst_lat_rep=PositiveDefinite,
         )
         obs_params, int_params, lat_params = self.split_params(p)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
-        emb_lat_params = self.pst_lat_man.embed_rep(new_man.prr_lat_man, lat_params)
+        emb_lat_params = self.pst_man.embed_rep(new_man.prr_man, lat_params)
 
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(emb_obs_params)
-        lat_loc, lat_prs = new_man.prr_lat_man.split_location_precision(emb_lat_params)
+        lat_loc, lat_prs = new_man.prr_man.split_location_precision(emb_lat_params)
         nor_man = Normal(self.data_dim, PositiveDefinite)
         nor_loc: Point[Natural, Euclidean] = nor_man.loc_man.point(
             jnp.concatenate([obs_loc.array, lat_loc.array])
         )
         obs_prs_array = new_man.obs_man.cov_man.to_dense(obs_prs)
-        lat_prs_array = new_man.prr_lat_man.cov_man.to_dense(lat_prs)
+        lat_prs_array = new_man.prr_man.cov_man.to_dense(lat_prs)
         int_array = -self.int_man.to_dense(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
@@ -320,10 +319,11 @@ class NormalDifferentiableLGM[
 
 
 @dataclass(frozen=True)
-class BoltzmannDifferentiableLGM[
+class BoltzmannLGM[
     ObsRep: PositiveDefinite,
 ](
-    DifferentiableLGM[ObsRep, Boltzmann, Boltzmann],
+    SymmetricConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, Boltzmann],
+    LGM[ObsRep, Boltzmann, Boltzmann],
 ):
     """Differentiable Linear Gaussian Model with Boltzmann latent variables.
 
@@ -343,7 +343,7 @@ class BoltzmannDifferentiableLGM[
 
     @property
     @override
-    def pst_lat_emb(self) -> LinearEmbedding[Boltzmann, Boltzmann]:
+    def pst_prr_emb(self) -> LinearEmbedding[Boltzmann, Boltzmann]:
         """Embedding of posterior Boltzmann into prior Boltzmann.
 
         For Boltzmann machines, both posterior and prior use the same manifold
@@ -352,13 +352,19 @@ class BoltzmannDifferentiableLGM[
         """
         return IdentityEmbedding(Boltzmann(self.lat_dim))
 
+    @property
+    @override
+    def lat_man(self) -> Boltzmann:
+        """The latent manifold is a Boltzmann machine."""
+        return Boltzmann(self.lat_dim)
+
 
 @dataclass(frozen=True)
 class NormalAnalyticLGM[
     ObsRep: PositiveDefinite,
 ](
     AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
-    NormalDifferentiableLGM[ObsRep, PositiveDefinite],
+    NormalLGM[ObsRep, PositiveDefinite],
 ):
     """Analytic Linear Gaussian Model that extends the differentiable LGM with full analytical tractability, adding conversions between mean and natural coordinates, and a closed-form implementation of EM."""
 
@@ -416,7 +422,7 @@ class NormalAnalyticLGM[
         obs_params = self.obs_man.join_location_precision(
             reduce_dual(obs_loc), reduce_dual(obs_prs)
         )
-        return self.lkl_man.join_params(obs_params, reduce_dual(int_params))
+        return self.lkl_fun_man.join_params(obs_params, reduce_dual(int_params))
 
 
 @dataclass(frozen=True)
@@ -458,7 +464,7 @@ class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
         )
 
         # Combine parameters
-        lkl_params = self.lkl_man.join_params(obs_params, int_mat)
+        lkl_params = self.lkl_fun_man.join_params(obs_params, int_mat)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 

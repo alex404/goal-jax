@@ -42,13 +42,13 @@ def create_ground_truth_model() -> tuple[
         lat_dim=1,
         n_components=2,
     )
-    with hmog.pst_lat_man.prr_lat_man as cm:
+    with hmog.pst_man.prr_man as cm:
         # Create latent categorical prior
         cat_params = cm.natural_point(jnp.array([0.5]))
         cat_means = cm.to_mean(cat_params)
 
     # Create latent Gaussian components
-    with hmog.pst_lat_man as um, um.obs_man as lm:
+    with hmog.pst_man as um, um.obs_man as lm:
         y0_means = lm.join_mean_covariance(
             lm.loc_man.mean_point(jnp.array([-SEP / 2])),
             lm.cov_man.mean_point(jnp.array([1.0])),
@@ -76,7 +76,7 @@ def create_ground_truth_model() -> tuple[
         obs_prs = om.split_location_precision(obs_params)[1]
         int_mat = hmog.int_man.from_dense(om.cov_man.to_dense(obs_prs) @ int_mat0)
 
-    lkl_params = hmog.lkl_man.join_params(obs_params, int_mat)
+    lkl_params = hmog.lkl_fun_man.join_params(obs_params, int_mat)
 
     hmog_params = hmog.join_conjugated(lkl_params, mix_params)
 
@@ -172,7 +172,7 @@ def compute_hmog_results(
         params: Point[Natural, AnalyticHMoG[R]],
     ):
         mix_model = model.split_conjugated(params)[1]
-        return jax.vmap(model.pst_lat_man.observable_density, in_axes=(None, 0))(
+        return jax.vmap(model.pst_man.observable_density, in_axes=(None, 0))(
             mix_model, y[:, None]
         )
 

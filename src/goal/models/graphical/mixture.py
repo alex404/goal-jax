@@ -49,9 +49,9 @@ def harmonium_mixture_conjugation_parameters[
 
     Parameters
     ----------
-    mixture_model : DifferentiableMixture[Observable, SubObservable]
+    mixture_model : Mixture[Observable, SubObservable]
         The mixture of conjugated harmoniums manifold
-    params : Point[Natural, DifferentiableMixture[Observable, SubObservable]]
+    params : Point[Natural, Mixture[Observable, SubObservable]]
         Natural parameters on the mixture
 
     Returns
@@ -72,13 +72,13 @@ def harmonium_mixture_conjugation_parameters[
 
     def compute_rho_ks(comp_params: Point[Natural, Harm]) -> Array:
         obs_params_k, _, _ = hrm_man.split_params(comp_params)
-        adjusted_obs = hrm_man.obs_emb.translate(obs_params_0, obs_params_k)
+        adjusted_obs = hrm_man.int_obs_emb.translate(obs_params_0, obs_params_k)
         return hrm_man.obs_man.log_partition_function(adjusted_obs) - lp_0
 
     def compute_rho_yks(
         comp_params: Point[Natural, Harm],
     ) -> Point[Natural, Harm]:
-        adjusted_hrm = hrm_man.obs_emb.translate(hrm_params_0, comp_params)
+        adjusted_hrm = hrm_man.int_obs_emb.translate(hrm_params_0, comp_params)
         adjusted_lkl = hrm_man.likelihood_function(adjusted_hrm)
         rho_yk0 = hrm_man.conjugation_parameters(adjusted_lkl)
         return rho_yk0 - rho_y

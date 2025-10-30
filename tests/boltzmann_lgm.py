@@ -21,12 +21,12 @@ from goal.geometry import (
     PositiveDefinite,
 )
 from goal.models import (
-    BoltzmannDifferentiableLGM,
+    BoltzmannLGM,
 )
 
 # Type aliases
-Model = BoltzmannDifferentiableLGM[PositiveDefinite]
-ModelParams = Point[Natural, BoltzmannDifferentiableLGM[PositiveDefinite]]
+Model = BoltzmannLGM[PositiveDefinite]
+ModelParams = Point[Natural, BoltzmannLGM[PositiveDefinite]]
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -50,9 +50,7 @@ def model_dims(request: FixtureRequest) -> tuple[int, int]:
 def model(model_dims: tuple[int, int]) -> Model:
     """Create Boltzmann-LGM model."""
     obs_dim, lat_dim = model_dims
-    return BoltzmannDifferentiableLGM(
-        obs_dim=obs_dim, obs_rep=PositiveDefinite, lat_dim=lat_dim
-    )
+    return BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite, lat_dim=lat_dim)
 
 
 @pytest.fixture
@@ -87,13 +85,13 @@ def test_conjugation_equation(
     """
     # Split parameters
     obs_params, int_params, _ = model.split_params(random_params)
-    lkl_params = model.lkl_man.join_params(obs_params, int_params)
+    lkl_params = model.lkl_fun_man.join_params(obs_params, int_params)
 
     # Compute conjugation parameters
     rho = model.conjugation_parameters(lkl_params)
 
     # Get all latent states
-    lat_man = model.pst_lat_man
+    lat_man = model.lat_man
     states = lat_man.states  # All binary states
 
     # Test equation for subset of states
@@ -110,12 +108,12 @@ def test_conjugation_equation(
 
         # LHS: ψ(θ_X + θ_{XZ} · s_Z(z))
         # This is the log partition function of the conditional p(x|z)
-        z_loc = model.pst_lat_man.loc_man.point(state)
-        conditional_obs = model.lkl_man(lkl_params, z_loc)
+        z_loc = model.lat_man.loc_man.point(state)
+        conditional_obs = model.lkl_fun_man(lkl_params, z_loc)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)
-        rhs_term1 = model.prr_lat_man.dot(rho, s_z)
+        rhs_term1 = model.prr_man.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2
 
@@ -153,13 +151,13 @@ def test_observable_density_via_marginalization(
 
     # Compute via marginalization
     lkl_params, prior_params = model.split_conjugated(random_params)
-    lat_man = model.pst_lat_man
+    lat_man = model.lat_man
     states = lat_man.states
 
     def joint_density(state: Array) -> Array:
         # p(x|z)
-        z_loc = model.pst_lat_man.loc_man.point(state)
-        conditional_obs = model.lkl_man(lkl_params, z_loc)
+        z_loc = model.lat_man.loc_man.point(state)
+        conditional_obs = model.lkl_fun_man(lkl_params, z_loc)
         p_x_given_z = model.obs_man.density(conditional_obs, obs)
 
         # p(z)
@@ -193,7 +191,7 @@ def test_posterior_normalization(
     obs = jax.random.normal(key, (model.obs_dim,))
 
     # Get all latent states
-    lat_man = model.pst_lat_man
+    lat_man = model.lat_man
     states = lat_man.states
 
     # Compute posterior parameters
@@ -237,11 +235,11 @@ def test_log_observable_density_formula(
 
     # ψ_Z(posterior)
     posterior_params = model.posterior_at(random_params, obs)
-    term2 = model.pst_lat_man.log_partition_function(posterior_params)
+    term2 = model.lat_man.log_partition_function(posterior_params)
 
     # ψ_Z(prior)
     prior_params = model.prior(random_params)
-    term3 = model.prr_lat_man.log_partition_function(prior_params)
+    term3 = model.prr_man.log_partition_function(prior_params)
 
     # ψ_X(θ_X)
     term4 = model.obs_man.log_partition_function(obs_params)
@@ -269,11 +267,11 @@ def test_conjugation_parameters_shape(
 ):
     """Test that conjugation parameters have correct dimension."""
     obs_params, int_params, _ = model.split_params(random_params)
-    lkl_params = model.lkl_man.join_params(obs_params, int_params)
+    lkl_params = model.lkl_fun_man.join_params(obs_params, int_params)
 
     rho = model.conjugation_parameters(lkl_params)
 
-    expected_dim = model.prr_lat_man.dim
+    expected_dim = model.prr_man.dim
 
     assert rho.array.shape[0] == expected_dim, (
         f"Conjugation parameters dimension mismatch: {rho.array.shape[0]} vs {expected_dim}"

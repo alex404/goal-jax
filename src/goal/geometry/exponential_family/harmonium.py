@@ -20,6 +20,7 @@ from .base import (
     Analytic,
     Differentiable,
     ExponentialFamily,
+    Generative,
     Mean,
     Natural,
 )
@@ -32,16 +33,12 @@ class Harmonium[
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
     Posterior: ExponentialFamily,
-    Prior: ExponentialFamily,
 ](
     ExponentialFamily,
     Triple[Observable, LinearMap[IntRep, IntLatent, IntObservable], Posterior],
     ABC,
 ):
-    """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The harmonium is also specified by a number of internal embeddings to support the following features:
-
-    1. The interactions between the observable and latent variables can be restricted to submanifolds (`IntObservable` and `IntLatent`) of either or both the observable and latent manifolds (`Observable` and `Latent`).
-    2. The latent posterior (`Posterior`) may use a computationally restricted parameterization (e.g., diagonal covariance) for efficiency during frequent inference. The latent prior (`Prior`) has a shape dictated by the conjugation parameters—it must accommodate the complete parameterization needed for conjugation parameter computation and optimization.
+    """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The interactions between the observable and latent variables can be restricted to submanifolds (`IntObservable` and `IntLatent`) of either or both the observable and latent manifolds (`Observable` and `Latent`).
 
     In theory, the joint distribution of a harmonium takes the form
 
@@ -66,50 +63,42 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
+    def int_obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
         """Embedding of the interactive submanifold into the observable manifold."""
 
     @property
     @abstractmethod
-    def int_lat_emb(self) -> LinearEmbedding[IntLatent, Posterior]:
+    def int_pst_emb(self) -> LinearEmbedding[IntLatent, Posterior]:
         """Embedding of the interactive submanifold into the posterior latent manifold."""
-
-    @property
-    @abstractmethod
-    def pst_lat_emb(self) -> LinearEmbedding[Posterior, Prior]:
-        """Embedding of the posterior latent submanifold into the prior latent manifold."""
 
     # Templates
 
     @property
-    def obs_man(self) -> Observable:
-        """Manifold of observable biases."""
-        return self.obs_emb.amb_man
-
-    @property
-    def pst_lat_man(self) -> Posterior:
-        """Manifold of posterior specific latent biases."""
-        return self.pst_lat_emb.sub_man
-
-    @property
-    def prr_lat_man(self) -> Prior:
-        """Manifold of the prior and conjugation parameters."""
-        return self.pst_lat_emb.amb_man
-
-    @property
     def int_man(self) -> LinearMap[IntRep, IntLatent, IntObservable]:
         """Manifold of interaction matrices."""
-        return LinearMap(self.int_rep, self.int_lat_emb.sub_man, self.obs_emb.sub_man)
+        return LinearMap(
+            self.int_rep, self.int_pst_emb.sub_man, self.int_obs_emb.sub_man
+        )
 
     @property
-    def lkl_man(self) -> AffineMap[IntRep, IntLatent, IntObservable, Observable]:
+    def obs_man(self) -> Observable:
+        """Manifold of observable biases."""
+        return self.int_obs_emb.amb_man
+
+    @property
+    def pst_man(self) -> Posterior:
+        """Manifold of posterior specific latent biases."""
+        return self.int_pst_emb.amb_man
+
+    @property
+    def lkl_fun_man(self) -> AffineMap[IntRep, IntLatent, IntObservable, Observable]:
         """Manifold of likelihood distributions $p(x \\mid z)$."""
-        return AffineMap(self.int_man.rep, self.int_lat_emb.sub_man, self.obs_emb)
+        return AffineMap(self.int_man.rep, self.int_pst_emb.sub_man, self.int_obs_emb)
 
     @property
-    def pst_man(self) -> AffineMap[IntRep, IntObservable, IntLatent, Posterior]:
+    def pst_fun_man(self) -> AffineMap[IntRep, IntObservable, IntLatent, Posterior]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.int_man.rep, self.obs_emb.sub_man, self.int_lat_emb)
+        return AffineMap(self.int_man.rep, self.int_obs_emb.sub_man, self.int_pst_emb)
 
     def likelihood_function(
         self, params: Point[Natural, Self]
@@ -119,7 +108,7 @@ class Harmonium[
         The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
         """
         obs_params, int_params, _ = self.split_params(params)
-        return self.lkl_man.join_params(obs_params, int_params)
+        return self.lkl_fun_man.join_params(obs_params, int_params)
 
     def posterior_function(
         self, params: Point[Natural, Self]
@@ -130,7 +119,7 @@ class Harmonium[
         """
         _, int_params, lat_params = self.split_params(params)
         int_mat_t = self.int_man.transpose(int_params)
-        return self.pst_man.join_params(lat_params, int_mat_t)
+        return self.pst_fun_man.join_params(lat_params, int_mat_t)
 
     def likelihood_at(
         self, params: Point[Natural, Self], z: Array
@@ -141,8 +130,8 @@ class Harmonium[
 
         $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mz = self.int_lat_emb.sub_man.sufficient_statistic(z)
-        return self.lkl_man(self.likelihood_function(params), mz)
+        mz = self.int_pst_emb.sub_man.sufficient_statistic(z)
+        return self.lkl_fun_man(self.likelihood_function(params), mz)
 
     def posterior_at(
         self, params: Point[Natural, Self], x: Array
@@ -154,8 +143,8 @@ class Harmonium[
 
         $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mx = self.obs_emb.sub_man.sufficient_statistic(x)
-        return self.pst_man(self.posterior_function(params), mx)
+        mx = self.int_obs_emb.sub_man.sufficient_statistic(x)
+        return self.pst_fun_man(self.posterior_function(params), mx)
 
     # Overrides
 
@@ -172,13 +161,13 @@ class Harmonium[
     @property
     @override
     def trd_man(self) -> Posterior:
-        return self.pst_lat_man
+        return self.pst_man
 
     @property
     @override
     def data_dim(self) -> int:
         """Total dimension of data points."""
-        return self.obs_man.data_dim + self.pst_lat_man.data_dim
+        return self.obs_man.data_dim + self.pst_man.data_dim
 
     @override
     def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
@@ -187,9 +176,9 @@ class Harmonium[
         lat_x = x[self.obs_man.data_dim :]
 
         obs_stats = self.obs_man.sufficient_statistic(obs_x)
-        lat_stats = self.pst_lat_man.sufficient_statistic(lat_x)
+        lat_stats = self.pst_man.sufficient_statistic(lat_x)
         int_stats = self.int_man.outer_product(
-            self.obs_emb.project(obs_stats), self.int_lat_emb.project(lat_stats)
+            self.int_obs_emb.project(obs_stats), self.int_pst_emb.project(lat_stats)
         )
 
         return self.join_params(obs_stats, int_stats, lat_stats)
@@ -200,7 +189,7 @@ class Harmonium[
         obs_x = x[..., self.obs_man.data_dim :]
         lat_x = x[self.obs_man.data_dim :]
 
-        return self.obs_man.log_base_measure(obs_x) + self.pst_lat_man.log_base_measure(
+        return self.obs_man.log_base_measure(obs_x) + self.pst_man.log_base_measure(
             lat_x
         )
 
@@ -213,11 +202,11 @@ class Harmonium[
 
         # Initialize biases using component initialization
         obs_params = self.obs_man.initialize(keys[0], location, shape)
-        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
+        lat_params = self.pst_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.obs_emb.sub_man.dim
-        lat_dim = self.int_lat_emb.sub_man.dim
+        obs_dim = self.int_obs_emb.sub_man.dim
+        lat_dim = self.int_pst_emb.sub_man.dim
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
@@ -240,11 +229,11 @@ class Harmonium[
         )
 
         # Use standard initialization for everything else
-        lat_params = self.pst_lat_man.initialize(keys[1], location, shape)
+        lat_params = self.pst_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.obs_emb.sub_man.dim
-        lat_dim = self.int_lat_emb.sub_man.dim
+        obs_dim = self.int_obs_emb.sub_man.dim
+        lat_dim = self.int_pst_emb.sub_man.dim
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
@@ -254,55 +243,26 @@ class Harmonium[
         return self.join_params(obs_params, int_params, lat_params)
 
 
-class SymmetricHarmonium[
-    IntRep: MatrixRep,
-    Observable: ExponentialFamily,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    Latent: ExponentialFamily,
-](
-    Harmonium[IntRep, Observable, IntObservable, IntLatent, Latent, Latent],
-    ABC,
-):
-    @property
-    @abstractmethod
-    def lat_man(self) -> Latent:
-        """Manifold of latent biases."""
-
-    @property
-    @override
-    def pst_lat_emb(self) -> LinearEmbedding[Latent, Latent]:
-        """Embedding of the posterior latent submanifold into the prior latent manifold."""
-        return IdentityEmbedding(self.lat_man)
-
-    @property
-    @override
-    def pst_lat_man(self) -> Latent:
-        """Manifold of posterior specific latent biases."""
-        return self.lat_man
-
-    @property
-    @override
-    def prr_lat_man(self) -> Latent:
-        """Manifold of posterior specific latent biases."""
-        return self.lat_man
-
-
 class Conjugated[
     IntRep: MatrixRep,
     Observable: Differentiable,
     IntObservable: ExponentialFamily,
     IntLatent: ExponentialFamily,
     Posterior: ExponentialFamily,
-    Prior: Differentiable,
+    Prior: Generative,
 ](
-    Harmonium[IntRep, Observable, IntObservable, IntLatent, Posterior, Prior],
-    Differentiable,
+    Harmonium[IntRep, Observable, IntObservable, IntLatent, Posterior],
+    Generative,
     ABC,
 ):
     """In general, the prior $p(x)$ of a harmonium model is not exponential family distribution. A conjugated harmonium, on the other hand, is one for which the prior $p(z)$ is in the same exponential family as the posterior $p(x \\mid z)$. It follows that a conjugated harmonium has so called "conjugation parameters" that complement the latent parameters, and facilitate a variety of computations and algorithms for harmoniums."""
 
     # Contract
+
+    @property
+    @abstractmethod
+    def pst_prr_emb(self) -> LinearEmbedding[Posterior, Prior]:
+        """Embedding of the posterior latent submanifold into the prior latent manifold."""
 
     @abstractmethod
     def conjugation_parameters(
@@ -319,12 +279,17 @@ class Conjugated[
 
     # Templates
 
+    @property
+    def prr_man(self) -> Prior:
+        """Manifold of the prior and conjugation parameters."""
+        return self.pst_prr_emb.amb_man
+
     def prior(self, params: Point[Natural, Self]) -> Point[Natural, Prior]:
         """Natural parameters of the prior distribution $p(z)$."""
         obs_params, int_params, lat_params = self.split_params(params)
-        lkl_params = self.lkl_man.join_params(obs_params, int_params)
+        lkl_params = self.lkl_fun_man.join_params(obs_params, int_params)
         rho = self.conjugation_parameters(lkl_params)
-        return self.pst_lat_emb.translate(rho, lat_params)
+        return self.pst_prr_emb.translate(rho, lat_params)
 
     def split_conjugated(
         self, params: Point[Natural, Self]
@@ -346,7 +311,7 @@ class Conjugated[
 
         # Sample from adjusted latent distribution p(z)
         nat_prior = self.prior(params)
-        z_sample = self.prr_lat_man.sample(key1, nat_prior, n)
+        z_sample = self.prr_man.sample(key1, nat_prior, n)
 
         # Extract the variables needed to evaluate the likelihood
         z0_sample = self.extract_likelihood_input(z_sample)
@@ -388,6 +353,55 @@ class Conjugated[
         return xzs[:, : self.obs_man.data_dim]
 
 
+class SymmetricConjugated[
+    IntRep: MatrixRep,
+    Observable: Differentiable,
+    IntObservable: ExponentialFamily,
+    IntLatent: ExponentialFamily,
+    Latent: Generative,
+](
+    Conjugated[IntRep, Observable, IntObservable, IntLatent, Latent, Latent],
+    ABC,
+):
+    """A differentiable conjugated harmonium where the space of posteriors is the same as the space of priors (as opposed to a strict submanifold)."""
+
+    @property
+    @abstractmethod
+    def lat_man(self) -> Latent:
+        """Manifold of latent biases."""
+
+    @property
+    @override
+    def pst_prr_emb(self) -> LinearEmbedding[Latent, Latent]:
+        """Embedding of the posterior latent submanifold into the prior latent manifold."""
+        return IdentityEmbedding(self.lat_man)
+
+    @property
+    @override
+    def pst_man(self) -> Latent:
+        """Manifold of posterior specific latent biases."""
+        return self.lat_man
+
+    @property
+    @override
+    def prr_man(self) -> Latent:
+        """Manifold of posterior specific latent biases."""
+        return self.lat_man
+
+    def join_conjugated(
+        self,
+        lkl_params: Point[
+            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
+        ],
+        prior_params: Point[Natural, Latent],
+    ) -> Point[Natural, Self]:
+        """Join likelihood and prior parameters into a conjugated harmonium."""
+        rho = self.conjugation_parameters(lkl_params)
+        lat_params = prior_params - rho
+        obs_params, int_params = self.lkl_fun_man.split_params(lkl_params)
+        return self.join_params(obs_params, int_params, lat_params)
+
+
 class DifferentiableConjugated[
     IntRep: MatrixRep,
     Observable: Differentiable,
@@ -414,17 +428,17 @@ class DifferentiableConjugated[
         """
         # Split parameters
         obs_params, int_params, lat_params = self.split_params(params)
-        lkl_params = self.lkl_man.join_params(obs_params, int_params)
+        lkl_params = self.lkl_fun_man.join_params(obs_params, int_params)
 
         # Get conjugation parameters
         chi = self.obs_man.log_partition_function(obs_params)
         rho = self.conjugation_parameters(lkl_params)
 
         # Compute adjusted latent parameters
-        adjusted_lat = self.pst_lat_emb.translate(rho, lat_params)
+        adjusted_lat = self.pst_prr_emb.translate(rho, lat_params)
 
         # Use latent family's partition function
-        return self.prr_lat_man.log_partition_function(adjusted_lat) + chi
+        return self.prr_man.log_partition_function(adjusted_lat) + chi
 
     # Templates
     def log_observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
@@ -443,10 +457,8 @@ class DifferentiableConjugated[
         prr = self.prior(params)
 
         log_density = self.obs_man.dot(obs_params, obs_stats)
-        log_density += self.pst_lat_man.log_partition_function(
-            self.posterior_at(params, x)
-        )
-        log_density -= self.prr_lat_man.log_partition_function(prr) + chi
+        log_density += self.pst_man.log_partition_function(self.posterior_at(params, x))
+        log_density -= self.prr_man.log_partition_function(prr) + chi
 
         return log_density + self.obs_man.log_base_measure(x)
 
@@ -481,15 +493,15 @@ class DifferentiableConjugated[
 
         # Get posterior parameters for this observation
         post_map = self.posterior_function(params)
-        lat_params = self.pst_man(post_map, self.obs_emb.project(obs_stats))
+        lat_params = self.pst_fun_man(post_map, self.int_obs_emb.project(obs_stats))
 
         # Convert to mean parameters (expected sufficient statistics)
-        lat_means = self.pst_lat_man.to_mean(lat_params)
+        lat_means = self.pst_man.to_mean(lat_params)
 
         # Form interaction term via outer product
         int_means: Point[Mean, LinearMap[IntRep, IntLatent, IntObservable]] = (
             self.int_man.outer_product(
-                self.obs_emb.project(obs_stats), self.int_lat_emb.project(lat_means)
+                self.int_obs_emb.project(obs_stats), self.int_pst_emb.project(lat_means)
             )
         )
 
@@ -510,35 +522,6 @@ class DifferentiableConjugated[
         return self.mean_point(batched_mean(infer_missing_expectations, xs, batch_size))
 
 
-class SymmetricConjugated[
-    IntRep: MatrixRep,
-    Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
-    Latent: Differentiable,
-](
-    DifferentiableConjugated[
-        IntRep, Observable, IntObservable, IntLatent, Latent, Latent
-    ],
-    SymmetricHarmonium[IntRep, Observable, IntObservable, IntLatent, Latent],
-    ABC,
-):
-    """A differentiable conjugated harmonium where the space of posteriors is the same as the space of priors (as opposed to a strict submanifold)."""
-
-    def join_conjugated(
-        self,
-        lkl_params: Point[
-            Natural, AffineMap[IntRep, IntLatent, IntObservable, Observable]
-        ],
-        prior_params: Point[Natural, Latent],
-    ) -> Point[Natural, Self]:
-        """Join likelihood and prior parameters into a conjugated harmonium."""
-        rho = self.conjugation_parameters(lkl_params)
-        lat_params = prior_params - rho
-        obs_params, int_params = self.lkl_man.split_params(lkl_params)
-        return self.join_params(obs_params, int_params, lat_params)
-
-
 class AnalyticConjugated[
     IntRep: MatrixRep,
     Observable: Differentiable,
@@ -547,6 +530,9 @@ class AnalyticConjugated[
     Latent: Analytic,
 ](
     SymmetricConjugated[IntRep, Observable, IntObservable, IntLatent, Latent],
+    DifferentiableConjugated[
+        IntRep, Observable, IntObservable, IntLatent, Latent, Latent
+    ],
     Analytic,
     ABC,
 ):
@@ -574,7 +560,7 @@ class AnalyticConjugated[
         """
         lkl_params = self.to_natural_likelihood(means)
         mean_lat = self.split_params(means)[2]
-        nat_lat = self.pst_lat_man.to_natural(mean_lat)
+        nat_lat = self.pst_man.to_natural(mean_lat)
         return self.join_conjugated(lkl_params, nat_lat)
 
     @override

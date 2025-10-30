@@ -42,7 +42,7 @@ from ...geometry import (
     TupleEmbedding,
 )
 from ..base.poisson import CoMPoisson, CoMShape, Poisson
-from .mixture import AnalyticMixture, DifferentiableMixture
+from .mixture import AnalyticMixture, Mixture
 
 ### Count Mixtures ###
 
@@ -50,7 +50,7 @@ from .mixture import AnalyticMixture, DifferentiableMixture
 type PoissonPopulation = AnalyticProduct[Poisson]
 type PopulationShape = Product[CoMShape]
 type PoissonMixture = AnalyticMixture[PoissonPopulation]
-type CoMPoissonMixture = DifferentiableMixture[CoMPoissonPopulation, PoissonPopulation]
+type CoMPoissonMixture = Mixture[CoMPoissonPopulation, PoissonPopulation]
 
 ## Factories ##
 
@@ -216,4 +216,4 @@ def com_poisson_mixture(n_neurons: int, n_components: int) -> CoMPoissonMixture:
         A differentiable mixture with COM-Poisson components
     """
     subspace = PopulationLocationEmbedding(n_neurons)
-    return DifferentiableMixture(n_components, subspace)
+    return Mixture(n_components, subspace)

@@ -173,18 +173,18 @@ class MixtureOfLGMs[
 
     @property
     @override
-    def obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
+    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
         """Embedding of Euclidean interactions into observable space."""
         return GeneralizedGaussianLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
 
     @property
     @override
-    def int_lat_emb(
+    def int_pst_emb(
         self,
     ) -> LinearEmbedding[Euclidean, AnalyticMixture[FullNormal]]:
         """Embedding of Euclidean interactions into posterior latent space."""
         return LinearComposedEmbedding(
-            ObservableEmbedding(self.pst_lat_man),
+            ObservableEmbedding(self.pst_man),
             GeneralizedGaussianLocationEmbedding(
                 Normal(self.lat_dim, PositiveDefinite)
             ),
@@ -194,7 +194,7 @@ class MixtureOfLGMs[
     def conjugation_parameters(
         self,
         lkl_params: Any,  # Point[Natural, AffineMap[...]]
-    ) -> Any:  # Point[Natural, DifferentiableMixture[FullNormal, Normal[PostRep]]]
+    ) -> Any:  # Point[Natural, Mixture[FullNormal, Normal[PostRep]]]
         """Compute conjugation parameters for the mixture of factor analyzers.
 
         Uses the harmonium_mixture_conjugation_parameters decomposition to compute

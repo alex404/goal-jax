@@ -47,12 +47,12 @@ def ground_truth(
         obs_means = om.join_mean_covariance(obs_mean, obs_cov)
         obs_params = om.to_natural(obs_means)
 
-    prr_params = fan_man.pst_lat_man.to_natural(fan_man.pst_lat_man.standard_normal())
+    prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
 
     int_params: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = (
         fan_man.int_man.point(jnp.asarray([1.0, 0.5]))
     )
-    lkl_params = fan_man.lkl_man.join_params(obs_params, int_params)
+    lkl_params = fan_man.lkl_fun_man.join_params(obs_params, int_params)
     fan_params = fan_man.join_conjugated(lkl_params, prr_params)
     sample = fan_man.observable_sample(key, fan_params, sample_size)
 

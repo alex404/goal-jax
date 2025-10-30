@@ -376,7 +376,7 @@ def test_normal_lgm_conjugation_equation():
 
     # Split parameters
     obs_params, int_params, _ = model.split_params(params)
-    lkl_params = model.lkl_man.join_params(obs_params, int_params)
+    lkl_params = model.lkl_fun_man.join_params(obs_params, int_params)
 
     # Compute conjugation parameters
     rho = model.conjugation_parameters(lkl_params)
@@ -391,16 +391,16 @@ def test_normal_lgm_conjugation_equation():
         z = jax.random.normal(key_i, (lat_dim,))
 
         # Compute sufficient statistic of latent state
-        s_z = model.pst_lat_man.sufficient_statistic(z)
+        s_z = model.pst_man.sufficient_statistic(z)
 
         # LHS: ψ(θ_X + θ_{XZ} · s_Z(z))
         # This is the log partition function of the conditional p(x|z)
-        z_loc = model.pst_lat_man.loc_man.point(z)
-        conditional_obs = model.lkl_man(lkl_params, z_loc)
+        z_loc = model.pst_man.loc_man.point(z)
+        conditional_obs = model.lkl_fun_man(lkl_params, z_loc)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)
-        rhs_term1 = model.prr_lat_man.dot(rho, s_z)
+        rhs_term1 = model.prr_man.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2
 

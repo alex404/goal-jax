@@ -2,6 +2,7 @@ from .exponential_family.base import (
     Analytic,
     Differentiable,
     ExponentialFamily,
+    Generative,
     Mean,
     Natural,
 )
@@ -19,7 +20,6 @@ from .exponential_family.harmonium import (
     DifferentiableConjugated,
     Harmonium,
     SymmetricConjugated,
-    SymmetricHarmonium,
 )
 from .manifold.base import (
     Coordinates,
@@ -75,6 +75,7 @@ __all__ = [
     "Dual",
     "Embedding",
     "ExponentialFamily",
+    "Generative",
     "GenerativeProduct",
     "Harmonium",
     "Identity",
@@ -101,7 +102,6 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
-    "SymmetricHarmonium",
     "Triple",
     "TupleEmbedding",
     "expand_dual",

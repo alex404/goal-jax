@@ -19,6 +19,7 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     Differentiable,
+    DifferentiableConjugated,
     ExponentialFamily,
     IdentityEmbedding,
     LinearEmbedding,
@@ -29,7 +30,6 @@ from ...geometry import (
     Rectangular,
     StatisticalMoments,
     SymmetricConjugated,
-    SymmetricHarmonium,
 )
 from ..base.categorical import (
     Categorical,
@@ -37,9 +37,12 @@ from ..base.categorical import (
 
 
 @dataclass(frozen=True)
-class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
-    SymmetricHarmonium[
+class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
+    SymmetricConjugated[
         Rectangular, Observable, SubObservable, Categorical, Categorical
+    ],
+    DifferentiableConjugated[
+        Rectangular, Observable, SubObservable, Categorical, Categorical, Categorical
     ],
 ):
     """Mixture models with exponential family observations.
@@ -62,7 +65,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
     n_categories: int
     """Number of mixture components."""
 
-    _obs_emb: LinearEmbedding[SubObservable, Observable]
+    _int_obs_emb: LinearEmbedding[SubObservable, Observable]
     """Embedding for observable manifold."""
 
     # Template Methods
@@ -81,7 +84,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
         **NB:** if only a submanifold of interactions on the observables are considered (i.e. obs_emb is not the IdentityEmbeddingSubspace), then the statistics outside of the interaction submanifold will simply be averaged.
         """
-        probs = self.lat_man.to_probs(weights)
+        probs = self.pst_man.to_probs(weights)
         probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
         probs = probs.reshape(probs_shape)
 
@@ -94,7 +97,7 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)
         projected_comps = cmp_man_minus.man_map(
-            self.obs_emb.project,
+            self.int_obs_emb.project,
             cmp_man_minus.mean_point(weighted_comps[1:]),
         )
         # int_means shape: (sub_obs_dim, n_categories-1)
@@ -137,8 +140,8 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     @property
     @override
-    def obs_emb(self) -> LinearEmbedding[SubObservable, Observable]:
-        return self._obs_emb
+    def int_obs_emb(self) -> LinearEmbedding[SubObservable, Observable]:
+        return self._int_obs_emb
 
     @property
     @override
@@ -147,29 +150,8 @@ class Mixture[Observable: ExponentialFamily, SubObservable: ExponentialFamily](
 
     @property
     @override
-    def int_lat_emb(self) -> IdentityEmbedding[Categorical]:
+    def int_pst_emb(self) -> IdentityEmbedding[Categorical]:
         return IdentityEmbedding(Categorical(self.n_categories))
-
-
-@dataclass(frozen=True)
-class DifferentiableMixture[
-    Observable: Differentiable,
-    SubObservable: ExponentialFamily,
-](
-    Mixture[Observable, SubObservable],
-    SymmetricConjugated[
-        Rectangular, Observable, SubObservable, Categorical, Categorical
-    ],
-):
-    """Mixture model with differentiable components.
-
-    This implementation adds numerical capabilities:
-
-    - Exact log-partition function calculation
-    - Density evaluation for observations
-    - Mean and covariance calculation
-    - Parameter estimation via posterior statistics/expectation step
-    """
 
     # Methods
 
@@ -179,7 +161,7 @@ class DifferentiableMixture[
         """Split a mixture model in natural coordinates into components and prior."""
 
         lkl_params, prr_params = self.split_conjugated(p)
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        obs_bias, int_mat = self.lkl_fun_man.split_params(lkl_params)
 
         # into_cols shape: (n_categories - 1, sub_obs_dim)
         int_cols = self.int_man.to_columns(int_mat)
@@ -187,7 +169,7 @@ class DifferentiableMixture[
         def translate_col(
             col: Point[Natural, SubObservable],
         ) -> Point[Natural, Observable]:
-            return self.obs_emb.translate(obs_bias, col)
+            return self.int_obs_emb.translate(obs_bias, col)
 
         # translated shape: (n_categories - 1, obs_dim)
         translated = self.int_man.col_man.man_map(translate_col, int_cols)
@@ -242,14 +224,14 @@ class DifferentiableMixture[
         $$\\rho_k = \\psi(\\theta_X + \\theta_{XZ,k}) - \\psi(\\theta_X)$$
         """
         # Compute base term from observable bias
-        obs_bias, int_mat = self.lkl_man.split_params(lkl_params)
+        obs_bias, int_mat = self.lkl_fun_man.split_params(lkl_params)
         rho_0 = self.obs_man.log_partition_function(obs_bias)
 
         # int_comps shape: (n_categories - 1, sub_obs_dim)
         int_comps = self.int_man.to_columns(int_mat)
 
         def compute_rho(comp_params: Point[Natural, SubObservable]) -> Array:
-            adjusted_obs = self.obs_emb.translate(obs_bias, comp_params)
+            adjusted_obs = self.int_obs_emb.translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
         # rho_z shape: (n_categories - 1,)
@@ -260,7 +242,7 @@ class DifferentiableMixture[
 
 @dataclass(frozen=True)
 class AnalyticMixture[Observable: Analytic](
-    DifferentiableMixture[Observable, Observable],
+    Mixture[Observable, Observable],
     AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
 ):
     """Mixture model with analytically tractable components. Amongst other things, this enables closed-form implementation of expectation-maximization."""
@@ -311,7 +293,7 @@ class AnalyticMixture[Observable: Analytic](
         # int_mat shape: (obs_dim, n_categories-1)
         int_mat = self.int_man.from_columns(int_cols)
 
-        return self.lkl_man.join_params(obs_bias, int_mat)  # Methods
+        return self.lkl_fun_man.join_params(obs_bias, int_mat)  # Methods
 
     def join_natural_mixture(
         self,
@@ -338,6 +320,6 @@ class AnalyticMixture[Observable: Analytic](
 
         # int_mat shape: (sub_obs_dim, n_categories-1)
         int_mat = self.int_man.from_columns(projected_comps)
-        lkl_params = self.lkl_man.join_params(obs_bias, int_mat)
+        lkl_params = self.lkl_fun_man.join_params(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
