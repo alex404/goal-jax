@@ -233,66 +233,9 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
 
 
 @dataclass(frozen=True)
-class AnalyticMixture[Observable: Analytic](
+class SymmetricMixture[Observable: Analytic](
     Mixture[Observable, Observable],
-    AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
 ):
-    """Mixture model with analytically tractable components. Amongst other things, this enables closed-form implementation of expectation-maximization."""
-
-    # Constructor
-
-    def __init__(self, obs_man: Observable, n_categories: int):
-        super().__init__(n_categories, IdentityEmbedding(obs_man))
-
-    # Overrides
-
-    @override
-    def to_natural_likelihood(
-        self, params: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[Rectangular, Categorical, Observable, Observable]]:
-        """Map mean harmonium parameters to natural likelihood parameters.
-
-        **Constraint:** This method requires $\\text{Observable} = \\text{SubObservable}$. This is
-        necessary because converting from mean to natural coordinates requires decomposing the
-        mixture into individual component parameters. In the general case where interactions are
-        restricted to a submanifold, information outside that submanifold is irreversibly lost
-        during `join_mean_mixture`, making the decomposition impossible.
-
-        Algorithm:
-        1. Recover component means using `split_mean_mixture` (requires full Observable recovery)
-        2. Convert each component mean parameter to natural parameters
-        3. Compute differences relative to first component (interaction matrix)
-        """
-        # Get component means - shape: (n_categories, obs_dim)
-        comp_means, _ = self.split_mean_mixture(params)
-
-        # Convert each component to natural parameters
-        def to_natural(mean: Point[Mean, Observable]) -> Array:
-            return self.obs_man.to_natural(mean).array
-
-        # nat_comps shape: (n_categories, obs_dim)
-        nat_comps = self.cmp_man.natural_point(self.cmp_man.map(to_natural, comp_means))
-
-        # Get anchor (first component) - shape: (obs_dim,)
-        obs_bias = self.cmp_man.get_replicate(nat_comps, jnp.asarray(0))
-
-        def to_interaction(
-            nat: Point[Natural, Observable],
-        ) -> Point[Natural, Observable]:
-            return nat - obs_bias
-
-        # Convert remaining components to interactions
-        cmp_man1 = replace(self.cmp_man, n_reps=self.n_categories - 1)
-        # int_cols shape: (n_categories-1, obs_dim)
-        int_cols = cmp_man1.man_map(
-            to_interaction, cmp_man1.natural_point(nat_comps.array[1:])
-        )
-
-        # int_mat shape: (obs_dim, n_categories-1)
-        int_mat = self.int_man.from_columns(int_cols)
-
-        return self.lkl_fun_man.join_params(obs_bias, int_mat)  # Methods
-
     def split_mean_mixture(
         self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
@@ -360,3 +303,65 @@ class AnalyticMixture[Observable: Analytic](
         lkl_params = self.lkl_fun_man.join_params(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
+
+
+@dataclass(frozen=True)
+class AnalyticMixture[Observable: Analytic](
+    SymmetricMixture[Observable],
+    AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
+):
+    """Mixture model with analytically tractable components. Amongst other things, this enables closed-form implementation of expectation-maximization."""
+
+    # Constructor
+
+    def __init__(self, obs_man: Observable, n_categories: int):
+        super().__init__(n_categories, IdentityEmbedding(obs_man))
+
+    # Overrides
+
+    @override
+    def to_natural_likelihood(
+        self, params: Point[Mean, Self]
+    ) -> Point[Natural, AffineMap[Rectangular, Categorical, Observable, Observable]]:
+        """Map mean harmonium parameters to natural likelihood parameters.
+
+        **Constraint:** This method requires $\\text{Observable} = \\text{SubObservable}$. This is
+        necessary because converting from mean to natural coordinates requires decomposing the
+        mixture into individual component parameters. In the general case where interactions are
+        restricted to a submanifold, information outside that submanifold is irreversibly lost
+        during `join_mean_mixture`, making the decomposition impossible.
+
+        Algorithm:
+        1. Recover component means using `split_mean_mixture` (requires full Observable recovery)
+        2. Convert each component mean parameter to natural parameters
+        3. Compute differences relative to first component (interaction matrix)
+        """
+        # Get component means - shape: (n_categories, obs_dim)
+        comp_means, _ = self.split_mean_mixture(params)
+
+        # Convert each component to natural parameters
+        def to_natural(mean: Point[Mean, Observable]) -> Array:
+            return self.obs_man.to_natural(mean).array
+
+        # nat_comps shape: (n_categories, obs_dim)
+        nat_comps = self.cmp_man.natural_point(self.cmp_man.map(to_natural, comp_means))
+
+        # Get anchor (first component) - shape: (obs_dim,)
+        obs_bias = self.cmp_man.get_replicate(nat_comps, jnp.asarray(0))
+
+        def to_interaction(
+            nat: Point[Natural, Observable],
+        ) -> Point[Natural, Observable]:
+            return nat - obs_bias
+
+        # Convert remaining components to interactions
+        cmp_man1 = replace(self.cmp_man, n_reps=self.n_categories - 1)
+        # int_cols shape: (n_categories-1, obs_dim)
+        int_cols = cmp_man1.man_map(
+            to_interaction, cmp_man1.natural_point(nat_comps.array[1:])
+        )
+
+        # int_mat shape: (obs_dim, n_categories-1)
+        int_mat = self.int_man.from_columns(int_cols)
+
+        return self.lkl_fun_man.join_params(obs_bias, int_mat)  # Methods
