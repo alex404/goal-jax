@@ -34,6 +34,7 @@ from .harmonium import (
     NormalLGM,
     PoissonMixture,
     PrincipalComponentAnalysis,
+    SymmetricMixture,
     com_poisson_mixture,
     poisson_mixture,
 )
@@ -72,6 +73,7 @@ __all__ = [
     "PoissonMixture",
     "PrincipalComponentAnalysis",
     "SymmetricHMoG",
+    "SymmetricMixture",
     "VonMises",
     "analytic_hmog",
     "com_poisson_mixture",

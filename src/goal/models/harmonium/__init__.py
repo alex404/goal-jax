@@ -9,7 +9,7 @@ from .lgm import (
     NormalLGM,
     PrincipalComponentAnalysis,
 )
-from .mixture import AnalyticMixture, Mixture
+from .mixture import AnalyticMixture, Mixture, SymmetricMixture
 from .poisson_mixture import (
     CoMPoissonMixture,
     CoMPoissonPopulation,
@@ -31,6 +31,7 @@ __all__ = [
     "NormalLGM",
     "PoissonMixture",
     "PrincipalComponentAnalysis",
+    "SymmetricMixture",
     "com_poisson_mixture",
     "poisson_mixture",
 ]
