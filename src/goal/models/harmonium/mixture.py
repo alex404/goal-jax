@@ -105,32 +105,6 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
 
         return self.join_params(obs_means, int_means, weights)
 
-    def split_mean_mixture(
-        self, p: Point[Mean, Self]
-    ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
-        """Split a mixture model in mean coordinates into components and weights."""
-        obs_means, int_means, cat_means = self.split_params(p)
-        probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
-
-        # Get interaction columns - shape: (n_categories-1, obs_dim)
-        int_cols = self.int_man.to_columns(int_means)
-
-        # Compute first component
-        # Sum interaction columns - shape: (obs_dim,)
-        sum_interactions = self.obs_man.mean_point(jnp.sum(int_cols.array, axis=0))
-        first_comp = (obs_means - sum_interactions) / probs[0]
-
-        # Scale remaining components by their probabilities
-        # shape: (n_categories-1, obs_dim)
-
-        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
-        other_comps = int_cols.array / probs[1:].reshape(probs_shape)
-
-        # Combine components - shape: (n_categories, obs_dim)
-        components = jnp.vstack([first_comp.array[None, :], other_comps])
-
-        return self.cmp_man.mean_point(components), cat_means
-
     # Overrides
 
     @property
@@ -295,6 +269,32 @@ class AnalyticMixture[Observable: Analytic](
 
         return self.lkl_fun_man.join_params(obs_bias, int_mat)  # Methods
 
+    def split_mean_mixture(
+        self, p: Point[Mean, Self]
+    ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
+        """Split a mixture model in mean coordinates into components and weights."""
+        obs_means, int_means, cat_means = self.split_params(p)
+        probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
+
+        # Get interaction columns - shape: (n_categories-1, obs_dim)
+        int_cols = self.int_man.to_columns(int_means)
+
+        # Compute first component
+        # Sum interaction columns - shape: (obs_dim,)
+        sum_interactions = self.obs_man.mean_point(jnp.sum(int_cols.array, axis=0))
+        first_comp = (obs_means - sum_interactions) / probs[0]
+
+        # Scale remaining components by their probabilities
+        # shape: (n_categories-1, obs_dim)
+
+        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
+        other_comps = int_cols.array / probs[1:].reshape(probs_shape)
+
+        # Combine components - shape: (n_categories, obs_dim)
+        components = jnp.vstack([first_comp.array[None, :], other_comps])
+
+        return self.cmp_man.mean_point(components), cat_means
+
     def join_natural_mixture(
         self,
         components: Point[Natural, Product[Observable]],
@@ -313,7 +313,7 @@ class AnalyticMixture[Observable: Analytic](
             return comp - obs_bias
 
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
-        # projected_comps shape: (n_categories-1, sub_obs_dim)
+        # projected_comps shape: (n_categories-1, obs_dim)
         projected_comps = cmp_man_minus.man_map(
             to_interaction, cmp_man_minus.natural_point(components.array[1:])
         )
