@@ -233,7 +233,7 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
 
 
 @dataclass(frozen=True)
-class SymmetricMixture[Observable: Analytic](
+class SymmetricMixture[Observable: Differentiable](
     Mixture[Observable, Observable],
 ):
     def split_mean_mixture(
