@@ -82,7 +82,15 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
     ) -> Point[Mean, Self]:
         """Create a mixture model in mean coordinates from components and weights.
 
-        **NB:** if only a submanifold of interactions on the observables are considered (i.e. obs_emb is not the IdentityEmbeddingSubspace), then the statistics outside of the interaction submanifold will simply be averaged.
+        In mean coordinates, projections are the correct operation because expectations
+        of sufficient statistics are preserved: $\\mathbb{E}[s_{\\text{sub}}(x)] = \\text{project}(\\mathbb{E}[s_{\\text{full}}(x)])$.
+        This method projects component parameters to the interaction submanifold, storing only
+        the submanifold portion while averaging out statistics outside it.
+
+        **Technical note:** When $\\text{Observable} \\neq \\text{SubObservable}$, component
+        statistics outside the interaction submanifold are irreversibly lost (aggregated into
+        observable biases). This is mathematically correct for mean coordinates but makes
+        the operation non-invertible without additional information.
         """
         probs = self.pst_man.to_probs(weights)
         probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
@@ -132,7 +140,17 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
     def split_natural_mixture(
         self, p: Point[Natural, Self]
     ) -> tuple[Point[Natural, Product[Observable]], Point[Natural, Categorical]]:
-        """Split a mixture model in natural coordinates into components and prior."""
+        """Split a mixture model in natural coordinates into components and prior.
+
+        In natural coordinates, embeddings are the correct operation because they preserve
+        the log-density form of exponential families. The interaction parameters in
+        $\\text{SubObservable}$ space are embedded into $\\text{Observable}$ space by
+        translating the observable bias: $\\theta_k = \\text{embed}(\\theta_X, \\delta_k)$
+        ensures that $\\log p(x|z=k) = \\theta_k \\cdot s(x) - \\psi(\\theta_k) + \\text{const}$.
+
+        This operation is invertible for general $\\text{SubObservable} \\subsetneq \\text{Observable}$
+        because zero-padding in natural space preserves the exponential family structure.
+        """
 
         lkl_params, prr_params = self.split_conjugated(p)
         obs_bias, int_mat = self.lkl_fun_man.split_params(lkl_params)
@@ -234,10 +252,16 @@ class AnalyticMixture[Observable: Analytic](
     ) -> Point[Natural, AffineMap[Rectangular, Categorical, Observable, Observable]]:
         """Map mean harmonium parameters to natural likelihood parameters.
 
-        For categorical mixtures, we:
-        1. Recover weights and component mean parameters
+        **Constraint:** This method requires $\\text{Observable} = \\text{SubObservable}$. This is
+        necessary because converting from mean to natural coordinates requires decomposing the
+        mixture into individual component parameters. In the general case where interactions are
+        restricted to a submanifold, information outside that submanifold is irreversibly lost
+        during `join_mean_mixture`, making the decomposition impossible.
+
+        Algorithm:
+        1. Recover component means using `split_mean_mixture` (requires full Observable recovery)
         2. Convert each component mean parameter to natural parameters
-        3. Extract base and interaction terms
+        3. Compute differences relative to first component (interaction matrix)
         """
         # Get component means - shape: (n_categories, obs_dim)
         comp_means, _ = self.split_mean_mixture(params)
@@ -272,7 +296,13 @@ class AnalyticMixture[Observable: Analytic](
     def split_mean_mixture(
         self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
-        """Split a mixture model in mean coordinates into components and weights."""
+        """Split a mixture model in mean coordinates into components and weights.
+
+        **Constraint:** This method is restricted to $\\text{Observable} = \\text{SubObservable}$.
+        Since `join_mean_mixture` projects component statistics to the interaction submanifold,
+        information outside that submanifold is irreversibly lost. Only when the full Observable
+        space is used for interactions can the decomposition perfectly invert the join operation.
+        """
         obs_means, int_means, cat_means = self.split_params(p)
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
@@ -302,7 +332,14 @@ class AnalyticMixture[Observable: Analytic](
     ) -> Point[Natural, Self]:
         """Create a mixture model in natural coordinates from components and prior.
 
-        Parameters in the mixing subspace use the first component as reference/anchor and store differences in the interaction matrix. Parameters outside the mixing subspace use the weighted average of all components.
+        **Constraint:** This method is restricted to $\\text{Observable} = \\text{SubObservable}$.
+        Component differences $\\theta_k - \\theta_0$ are computed in Observable space and stored
+        directly. For general submanifolds, these differences would need to be projected to
+        $\\text{SubObservable}$ space, but projection in natural coordinates does not preserve
+        the exponential family structure (would corrupt the log-density).
+
+        Algorithm: Uses the first component as an anchor, storing differences in the
+        interaction matrix: $\\Theta_{XZ,k} = \\theta_k - \\theta_0$.
         """
         # Get anchor (first component) - shape: (obs_dim,)
         obs_bias = self.cmp_man.get_replicate(components, jnp.asarray(0))
