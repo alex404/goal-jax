@@ -17,18 +17,114 @@ computation for hierarchical models where the upper level is a mixture over harm
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, override
 
 from jax import Array
 
 from ...geometry import (
     AffineMap,
     Conjugated,
+    Differentiable,
+    LinearEmbedding,
+    Mean,
     Natural,
     Point,
     Rectangular,
 )
 from ..base.categorical import Categorical
+from ..harmonium.mixture import CompleteMixture
+
+### Embeddings ###
+
+
+@dataclass(frozen=True)
+class MixtureComponentEmbedding[
+    SubComponent: Differentiable,
+    AmbientComponent: Differentiable,
+](LinearEmbedding[CompleteMixture[SubComponent], CompleteMixture[AmbientComponent]]):
+    """Embedding between complete mixtures via per-component observable embedding.
+
+    This embedding enables transformations on each component of a complete mixture (where
+    Observable = SubObservable). Both mixtures must have the same number of components.
+
+    **Example**: Embedding mixture parameters (Mixture[Euclidean, Euclidean])
+    into posterior distributions (Mixture[FullNormal, FullNormal]) by applying a
+    component embedding (Euclidean → FullNormal) to each mixture component.
+
+    **Structure**:
+    - Sub-manifold: Complete mixture with observable type SubComponent
+    - Ambient manifold: Complete mixture with observable type AmbientComponent
+    - Same number of components (n_categories)
+    - Derived from single component embedding: sub_man and amb_man are constructed from cmp_emb
+
+    **Coordinate Systems**:
+    - `embed`: Works in Natural coordinates
+    - `project`: Works in Mean coordinates
+
+    **Operations**: Applies component embedding/projection to observable parameters while
+    preserving interaction and latent parameters, since the interaction structure depends only
+    on the observable dimension (which is preserved in complete mixtures).
+    """
+
+    # Fields
+
+    n_categories: int
+    """Number of mixture components."""
+
+    cmp_emb: LinearEmbedding[SubComponent, AmbientComponent]
+    """The embedding to apply to each observable component."""
+
+    # Overrides
+
+    @property
+    @override
+    def sub_man(self) -> CompleteMixture[SubComponent]:
+        """The sub-manifold symmetric mixture."""
+        return CompleteMixture(
+            self.cmp_emb.sub_man,
+            n_categories=self.n_categories,
+        )
+
+    @property
+    @override
+    def amb_man(self) -> CompleteMixture[AmbientComponent]:
+        """The ambient manifold symmetric mixture."""
+        return CompleteMixture(
+            self.cmp_emb.amb_man,
+            n_categories=self.n_categories,
+        )
+
+    @override
+    def embed(
+        self, p: Point[Natural, CompleteMixture[SubComponent]]
+    ) -> Point[Natural, CompleteMixture[AmbientComponent]]:
+        """Embed by applying the component embedding to each component in Natural coordinates.
+
+        Decomposes the mixture into component natural parameters and prior using
+        `split_natural_mixture`. Maps the component embedding over the product of components.
+        Reconstructs the mixture using `join_natural_mixture`.
+        """
+        components, prior = self.sub_man.split_natural_mixture(p)
+        emb_components = self.sub_man.cmp_man.man_map(self.cmp_emb.embed, components)
+        return self.amb_man.join_natural_mixture(Point(emb_components.array), prior)
+
+    @override
+    def project(
+        self, p: Point[Mean, CompleteMixture[AmbientComponent]]
+    ) -> Point[Mean, CompleteMixture[SubComponent]]:
+        """Project by applying the component projection to each component in Mean coordinates.
+
+        Decomposes the mixture into component means and weights using `split_mean_mixture`.
+        Maps the component projection over the product of components. Reconstructs the
+        mixture using `join_mean_mixture`.
+        """
+        components, weights = self.amb_man.split_mean_mixture(p)
+        prj_components = self.amb_man.cmp_man.man_map(self.cmp_emb.project, components)
+        return self.sub_man.join_mean_mixture(Point(prj_components.array), weights)
+
+
+### Helper Functions ###
 
 
 def harmonium_mixture_conjugation_parameters[

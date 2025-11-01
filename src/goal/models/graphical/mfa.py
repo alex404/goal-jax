@@ -26,25 +26,25 @@ in place for complete implementation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any, Self, override
 
 from ...geometry import (
     LinearEmbedding,
+    Natural,
+    Point,
     PositiveDefinite,
     Rectangular,
     SymmetricConjugated,
 )
-from ...geometry.exponential_family.graphical import ObservableEmbedding
-from ...geometry.manifold.embedding import LinearComposedEmbedding
 from ..base.gaussian.generalized import Euclidean
 from ..base.gaussian.normal import FullNormal, Normal
+from ..graphical.mixture import MixtureComponentEmbedding
 from ..harmonium.lgm import (
     GeneralizedGaussianLocationEmbedding,
     NormalAnalyticLGM,
 )
 from ..harmonium.mixture import (
-    AnalyticMixture,
-    Mixture,
+    CompleteMixture,
 )
 
 
@@ -56,8 +56,8 @@ class MixtureOfLGMs[
         Rectangular,
         Normal[ObsRep],
         Euclidean,
-        Mixture[Euclidean, Euclidean],
-        AnalyticMixture[FullNormal],
+        CompleteMixture[Euclidean],
+        CompleteMixture[FullNormal],
     ],
 ):
     """Mixture of Factor Analyzers (MFA) as a conjugated harmonium.
@@ -95,11 +95,11 @@ class MixtureOfLGMs[
 
     - Observable: :math:`\\text{Normal}[\\text{ObsRep}]` (observable distribution family)
     - Interaction matrix: Encodes component-specific offsets in factor space
-    - Latent: :math:`\\text{AnalyticMixture}[\\text{FullNormal}]` (mixture of Gaussians over factors and components)
+    - Latent: :math:`\\text{CompleteMixture}[\\text{FullNormal}]` (mixture of Gaussians over factors and components)
 
     **Posterior vs Prior Structure**:
 
-    The posterior latent distribution uses an `AnalyticMixture` with full covariance for
+    The posterior latent distribution uses an `CompleteMixture` with full covariance for
     closed-form inference. The prior uses the same parameterization in the symmetric structure,
     enabling bidirectional parameter transformations and the `join_conjugated` method for
     constructing models from marginal likelihood and prior parameters.
@@ -130,20 +130,20 @@ class MixtureOfLGMs[
 
     @property
     @override
-    def lat_man(self) -> AnalyticMixture[FullNormal]:
+    def lat_man(self) -> CompleteMixture[FullNormal]:
         """Posterior latent manifold: analytic mixture with restricted covariance.
 
         Uses the restricted covariance structure (PostRep, e.g., diagonal) for computational
         efficiency, since the posterior is evaluated frequently during inference for each data point.
         """
-        return AnalyticMixture(
+        return CompleteMixture(
             Normal(self.lat_dim, PositiveDefinite), self.n_categories
         )
 
     @property
     def mix_hrm(
         self,
-    ) -> AnalyticMixture[NormalAnalyticLGM[ObsRep]]:
+    ) -> CompleteMixture[NormalAnalyticLGM[ObsRep]]:
         """Reinterpret MFA as a Mixture[LGM].
 
         This provides access to all the mixture machinery (conjugation parameters,
@@ -159,7 +159,7 @@ class MixtureOfLGMs[
             lat_dim=self.lat_dim,
         )
 
-        return AnalyticMixture(
+        return CompleteMixture(
             lgm_man,
             self.n_categories,
         )
@@ -182,11 +182,14 @@ class MixtureOfLGMs[
     @override
     def int_pst_emb(
         self,
-    ) -> LinearEmbedding[Euclidean, AnalyticMixture[FullNormal]]:
-        """Embedding of Euclidean interactions into posterior latent space."""
-        return LinearComposedEmbedding(
-            ObservableEmbedding(self.pst_man),
-            GeneralizedGaussianLocationEmbedding(
+    ) -> LinearEmbedding[CompleteMixture[Euclidean], CompleteMixture[FullNormal]]:
+        """Embedding of Euclidean interactions into posterior latent space.
+
+        Uses MixtureComponentEmbedding to embed each component from Euclidean to FullNormal.
+        """
+        return MixtureComponentEmbedding(
+            n_categories=self.n_categories,
+            cmp_emb=GeneralizedGaussianLocationEmbedding(
                 Normal(self.lat_dim, PositiveDefinite)
             ),
         )
@@ -204,3 +207,15 @@ class MixtureOfLGMs[
         raise NotImplementedError
 
     # Methods
+
+    def to_mixture_of_lgms(
+        self, params: Point[Natural, Self]
+    ) -> Point[Natural, CompleteMixture[NormalAnalyticLGM[ObsRep]]]:
+        """Convert MFA to Mixture of LGMs representation.
+
+        This allows leveraging mixture machinery for inference and sampling.
+        """
+        obs_params, int_params, lat_params = self.split_params(params)
+        lat_obs_params, lat_int_params, lat_prior = self.lat_man.split_params(
+            lat_params
+        )

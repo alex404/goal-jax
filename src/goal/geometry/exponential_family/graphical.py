@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from typing import Any, override
 
 from ..manifold.base import Point
-from ..manifold.combinators import Tuple
 from ..manifold.embedding import LinearEmbedding, TupleEmbedding
 from ..manifold.linear import AffineMap
 from .base import ExponentialFamily, Mean, Natural
@@ -71,7 +70,7 @@ class ObservableEmbedding[
     @override
     def amb_man(
         self,
-    ) -> Tuple:
+    ) -> Harm:
         return self.hrm_man
 
     @property

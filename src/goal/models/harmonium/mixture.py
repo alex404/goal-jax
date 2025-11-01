@@ -58,6 +58,8 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
         - A categorical latent variable $z$ representing component assignment
         - An observable distribution family for component distributions
         - An interaction matrix between $z$ and $x$ that that contain component specific parameters
+
+    In this most general formulation, the interaction parameters may be restricted to a submanifold of the observable manifold.
     """
 
     # Fields
@@ -232,10 +234,16 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
         return self.lat_man.natural_point(rho_z)
 
 
-@dataclass(frozen=True)
-class SymmetricMixture[Observable: Differentiable](
+class CompleteMixture[Observable: Differentiable](
     Mixture[Observable, Observable],
 ):
+    """Mixture models where the complete observable manifold is mixed."""
+
+    # Constructor
+
+    def __init__(self, obs_man: Observable, n_categories: int):
+        super().__init__(n_categories, IdentityEmbedding(obs_man))
+
     def split_mean_mixture(
         self, p: Point[Mean, Self]
     ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
@@ -305,17 +313,11 @@ class SymmetricMixture[Observable: Differentiable](
         return self.join_conjugated(lkl_params, prior)
 
 
-@dataclass(frozen=True)
 class AnalyticMixture[Observable: Analytic](
-    SymmetricMixture[Observable],
+    CompleteMixture[Observable],
     AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
 ):
     """Mixture model with analytically tractable components. Amongst other things, this enables closed-form implementation of expectation-maximization."""
-
-    # Constructor
-
-    def __init__(self, obs_man: Observable, n_categories: int):
-        super().__init__(n_categories, IdentityEmbedding(obs_man))
 
     # Overrides
 
