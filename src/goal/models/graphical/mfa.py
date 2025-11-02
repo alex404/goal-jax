@@ -216,6 +216,9 @@ class MixtureOfLGMs[
         This allows leveraging mixture machinery for inference and sampling.
         """
         obs_params, int_params, lat_params = self.split_params(params)
-        lat_obs_params, lat_int_params, lat_prior = self.lat_man.split_params(
+        lat_obs_params, lat_int_params, lat_lat_params = self.lat_man.split_params(
             lat_params
         )
+        mix_obs_params = self.mix_hrm.obs_man.join_params(obs_params, 0, lat_obs_params)
+
+        return self.mix_hrm.join_params(mix_obs_params, mix_int_params, lat_lat_params)

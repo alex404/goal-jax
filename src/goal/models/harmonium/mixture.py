@@ -37,12 +37,12 @@ from ..base.categorical import (
 
 
 @dataclass(frozen=True)
-class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
+class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
     SymmetricConjugated[
-        Rectangular, Observable, SubObservable, Categorical, Categorical
+        Rectangular, Observable, IntObservable, Categorical, Categorical
     ],
     DifferentiableConjugated[
-        Rectangular, Observable, SubObservable, Categorical, Categorical, Categorical
+        Rectangular, Observable, IntObservable, Categorical, Categorical, Categorical
     ],
 ):
     """Mixture models with exponential family observations.
@@ -67,7 +67,7 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
     n_categories: int
     """Number of mixture components."""
 
-    _int_obs_emb: LinearEmbedding[SubObservable, Observable]
+    _int_obs_emb: LinearEmbedding[IntObservable, Observable]
     """Embedding for observable manifold."""
 
     # Template Methods
@@ -89,7 +89,7 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
         This method projects component parameters to the interaction submanifold, storing only
         the submanifold portion while averaging out statistics outside it.
 
-        **Technical note:** When $\\text{Observable} \\neq \\text{SubObservable}$, component
+        **Technical note:** When $\\text{Observable} \\neq \\text{IntObservable}$, component
         statistics outside the interaction submanifold are irreversibly lost (aggregated into
         observable biases). This is mathematically correct for mean coordinates but makes
         the operation non-invertible without additional information.
@@ -124,7 +124,7 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
 
     @property
     @override
-    def int_obs_emb(self) -> LinearEmbedding[SubObservable, Observable]:
+    def int_obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
         return self._int_obs_emb
 
     @property
@@ -146,11 +146,11 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
 
         In natural coordinates, embeddings are the correct operation because they preserve
         the log-density form of exponential families. The interaction parameters in
-        $\\text{SubObservable}$ space are embedded into $\\text{Observable}$ space by
+        $\\text{IntObservable}$ space are embedded into $\\text{Observable}$ space by
         translating the observable bias: $\\theta_k = \\text{embed}(\\theta_X, \\delta_k)$
         ensures that $\\log p(x|z=k) = \\theta_k \\cdot s(x) - \\psi(\\theta_k) + \\text{const}$.
 
-        This operation is invertible for general $\\text{SubObservable} \\subsetneq \\text{Observable}$
+        This operation is invertible for general $\\text{IntObservable} \\subsetneq \\text{Observable}$
         because zero-padding in natural space preserves the exponential family structure.
         """
 
@@ -161,7 +161,7 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
         int_cols = self.int_man.to_columns(int_mat)
 
         def translate_col(
-            col: Point[Natural, SubObservable],
+            col: Point[Natural, IntObservable],
         ) -> Point[Natural, Observable]:
             return self.int_obs_emb.translate(obs_bias, col)
 
@@ -210,7 +210,7 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
     def conjugation_parameters(
         self,
         lkl_params: Point[
-            Natural, AffineMap[Rectangular, Categorical, SubObservable, Observable]
+            Natural, AffineMap[Rectangular, Categorical, IntObservable, Observable]
         ],
     ) -> Point[Natural, Categorical]:
         """Compute conjugation parameters for categorical mixture. In particular,
@@ -224,7 +224,7 @@ class Mixture[Observable: Differentiable, SubObservable: ExponentialFamily](
         # int_comps shape: (n_categories - 1, sub_obs_dim)
         int_comps = self.int_man.to_columns(int_mat)
 
-        def compute_rho(comp_params: Point[Natural, SubObservable]) -> Array:
+        def compute_rho(comp_params: Point[Natural, IntObservable]) -> Array:
             adjusted_obs = self.int_obs_emb.translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
@@ -249,7 +249,7 @@ class CompleteMixture[Observable: Differentiable](
     ) -> tuple[Point[Mean, Product[Observable]], Point[Mean, Categorical]]:
         """Split a mixture model in mean coordinates into components and weights.
 
-        **Constraint:** This method is restricted to $\\text{Observable} = \\text{SubObservable}$.
+        **Constraint:** This method is restricted to $\\text{Observable} = \\text{IntObservable}$.
         Since `join_mean_mixture` projects component statistics to the interaction submanifold,
         information outside that submanifold is irreversibly lost. Only when the full Observable
         space is used for interactions can the decomposition perfectly invert the join operation.
@@ -283,10 +283,10 @@ class CompleteMixture[Observable: Differentiable](
     ) -> Point[Natural, Self]:
         """Create a mixture model in natural coordinates from components and prior.
 
-        **Constraint:** This method is restricted to $\\text{Observable} = \\text{SubObservable}$.
+        **Constraint:** This method is restricted to $\\text{Observable} = \\text{IntObservable}$.
         Component differences $\\theta_k - \\theta_0$ are computed in Observable space and stored
         directly. For general submanifolds, these differences would need to be projected to
-        $\\text{SubObservable}$ space, but projection in natural coordinates does not preserve
+        $\\text{IntObservable}$ space, but projection in natural coordinates does not preserve
         the exponential family structure (would corrupt the log-density).
 
         Algorithm: Uses the first component as an anchor, storing differences in the
@@ -327,7 +327,7 @@ class AnalyticMixture[Observable: Analytic](
     ) -> Point[Natural, AffineMap[Rectangular, Categorical, Observable, Observable]]:
         """Map mean harmonium parameters to natural likelihood parameters.
 
-        **Constraint:** This method requires $\\text{Observable} = \\text{SubObservable}$. This is
+        **Constraint:** This method requires $\\text{Observable} = \\text{IntObservable}$. This is
         necessary because converting from mean to natural coordinates requires decomposing the
         mixture into individual component parameters. In the general case where interactions are
         restricted to a submanifold, information outside that submanifold is irreversibly lost
