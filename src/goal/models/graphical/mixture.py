@@ -18,27 +18,25 @@ computation for hierarchical models where the upper level is a mixture over harm
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Self, override
+from typing import Self, override
 
-import jax
-import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
     AffineMap,
-    AnalyticConjugated,
-    Conjugated,
     Differentiable,
     DifferentiableConjugated,
+    ExponentialFamily,
     LinearEmbedding,
+    MatrixRep,
     Mean,
     Natural,
     Point,
-    Product,
     Rectangular,
+    SymmetricConjugated,
 )
 from ..base.categorical import Categorical
-from ..harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
+from ..harmonium.mixture import CompleteMixture
 
 ### Embeddings ###
 
@@ -132,15 +130,19 @@ class MixtureComponentEmbedding[
 ### Mixture of Conjugated Harmoniums ###
 
 
-class MixtureOfConjugated[
+class LatentMixtureOfConjugated[
+    IntRep: MatrixRep,
     Observable: Differentiable,
-    Component: DifferentiableConjugated[Any, Any, Any, Any, Any, Any],
-    IntComponent: DifferentiableConjugated[Any, Any, Any, Any, Any, Any],
-    ComponentPosterior: Differentiable,
-    IntComponentPosterior: Differentiable,
-    ComponentPrior: Differentiable,
+    IntObservable: ExponentialFamily,
+    IntLatent: ExponentialFamily,
+    Posterior: Differentiable,
+    Prior: Differentiable,
 ](
-    Mixture[Component, IntComponent],
+    CompleteMixture[
+        DifferentiableConjugated[
+            IntRep, Observable, IntObservable, IntLatent, Posterior, Prior
+        ]
+    ],
 ):
     """Mixture of conjugated harmoniums where each component is an independent harmonium.
 
@@ -161,188 +163,267 @@ class MixtureOfConjugated[
     independent component harmoniums.
     """
 
-    def component_posteriors_at(
-        self, params: Point[Natural, Self], x: Array
-    ) -> tuple[
-        Point[Natural, Product[ComponentPosterior]], Point[Natural, Categorical]
-    ]:
-        hrm_cmps, cat_params = self.split_natural_mixture(params)
-
-        def component_posterior_at_x(
-            hrm_params: Point[Natural, Component],
-        ) -> Point[Natural, ComponentPosterior]:
-            return self.int_obs_emb.amb_man.posterior_at(hrm_params, x)
-
-        pst_cmps = self.cmp_man.man_map(component_posterior_at_x, hrm_cmps)
-        return pst_cmps, cat_params  # pyright: ignore[reportReturnType]
-
-    def component_likelihoods_at(
-        self, params: Point[Natural, Self], y: Array
-    ) -> tuple[Point[Natural, Product[Observable]], Point[Natural, Categorical]]:
-        hrm_cmps, cat_params = self.split_natural_mixture(params)
-
-        def component_likelihood_at_x(
-            hrm_params: Point[Natural, Component],
-        ) -> Point[Natural, Observable]:
-            return self.int_obs_emb.amb_man.likelihood_at(hrm_params, y)
-
-        lkl_cmps = self.cmp_man.man_map(component_likelihood_at_x, hrm_cmps)
-        return lkl_cmps, cat_params  # pyright: ignore[reportReturnType]
-
-    @override
-    def log_observable_density(
+    @property
+    def mix_pst_man(
         self,
-        params: Point[Natural, Self],
-        x: Array,
-    ) -> Array:
-        hrm_cmps, cat_params = self.split_natural_mixture(params)
+    ) -> CompleteMixture[Posterior]:
+        """Latent manifold representing the mixture component assignments."""
+        return CompleteMixture(
+            self.obs_man.pst_man,
+            self.n_categories,
+        )
 
-        def harmonium_log_density_at_x(
-            hrm_params: Point[Natural, Component],
+    @property
+    def mix_prr_man(
+        self,
+    ) -> CompleteMixture[Prior]:
+        """Latent manifold representing the mixture component assignments."""
+        return CompleteMixture(
+            self.obs_man.prr_man,
+            self.n_categories,
+        )
+
+    def mix_posterior_at(
+        self, params: Point[Natural, Self], x: Array
+    ) -> Point[Natural, CompleteMixture[Posterior]]:
+        """Compute natural parameters of posterior distribution $p(z \\mid x)$.
+
+        Given an observation $x$ with sufficient statistics $s(x)$, computes natural
+        parameters $\\theta_Z$ of the conditional distribution:
+
+        $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
+        """
+        ssx = self.obs_man.obs_man.sufficient_statistic(x)
+        prj_ssx = self.obs_man.int_obs_emb.project(ssx)
+        obs_params, int_params, lat_params = self.split_params(params)
+        _, obs_int_params, obs_lat_params = self.obs_man.split_params(obs_params)
+
+        def component_int_fun0(
+            comp_params: Point[
+                Natural,
+                DifferentiableConjugated[
+                    IntRep, Observable, IntObservable, IntLatent, Posterior, Prior
+                ],
+            ],
+        ) -> Point[Natural, Posterior]:
+            _, _, lat_params = self.obs_man.split_params(comp_params)
+            return lat_params
+
+        def component_int_fun1(
+            comp_params: Point[
+                Natural,
+                DifferentiableConjugated[
+                    IntRep, Observable, IntObservable, IntLatent, Posterior, Prior
+                ],
+            ],
+        ) -> Point[Natural, Posterior]:
+            _, int_params, _ = self.obs_man.split_params(comp_params)
+            prj_int_params = self.obs_man.int_man.transpose_apply(int_params, prj_ssx)
+            return self.obs_man.int_pst_emb.embed(prj_int_params)
+
+        def component_lat_fun(
+            comp_params: Point[
+                Natural,
+                DifferentiableConjugated[
+                    IntRep, Observable, IntObservable, IntLatent, Posterior, Prior
+                ],
+            ],
         ) -> Array:
-            return self.obs_man.log_observable_density(hrm_params, x)
+            obs_params, _, _ = self.obs_man.split_params(comp_params)
+            return self.obs_man.obs_man.dot(obs_params, ssx)
 
-        lds = self.cmp_man.map(harmonium_log_density_at_x, hrm_cmps)
-        wghts = self.lat_man.to_probs(self.lat_man.to_mean(cat_params))
-        return jax.scipy.special.logsumexp(lds + jnp.log(wghts))
+        pst_obs_params0 = self.obs_man.int_man.transpose_apply(obs_int_params, prj_ssx)
+        pst_obs_params = obs_lat_params + self.obs_man.int_pst_emb.embed(
+            pst_obs_params0
+        )
+
+        int_cols = self.int_man.to_columns(int_params)
+
+        pst_int_params0 = self.int_man.col_man.man_map(component_int_fun0, int_cols)
+        pst_int_params = self.mix_pst_man.int_man.from_columns(pst_int_params0)
+        pst_int_params1 = self.int_man.col_man.man_map(component_int_fun1, int_cols)
+        pst_int_params += self.mix_pst_man.int_man.from_columns(pst_int_params1)
+
+        pst_lat_params0 = self.int_man.col_man.map(component_lat_fun, int_cols)
+        pst_lat_params = lat_params + self.mix_pst_man.lat_man.natural_point(
+            pst_lat_params0
+        )
+
+        return self.mix_pst_man.join_params(
+            pst_obs_params, pst_int_params, pst_lat_params
+        )
+
+    def mix_conjugation_parameters(
+        self,
+        lkl_params: Point[
+            Natural,
+            AffineMap[
+                Rectangular,
+                Categorical,
+                DifferentiableConjugated[
+                    IntRep,
+                    Observable,
+                    IntObservable,
+                    IntLatent,
+                    Posterior,
+                    Prior,
+                ],
+                DifferentiableConjugated[
+                    IntRep,
+                    Observable,
+                    IntObservable,
+                    IntLatent,
+                    Posterior,
+                    Prior,
+                ],
+            ],
+        ],
+    ) -> Point[Natural, CompleteMixture[Prior]]:
+        """Compute conjugation parameters for a mixture of conjugated harmoniums.
+
+        This decomposes the joint conjugation parameters into three components:
+        1. Y conjugation biases (latent variable biases from component 0)
+        2. K conjugation biases (categorical variable biases from observable component differences)
+        3. K-Y interaction columns (differences in conjugation parameters across components)
+
+        The function extracts observable biases from each component harmonium and computes
+        a mixture-like conjugation parameter structure encoding the joint (Y, K) latent space.
+
+        Parameters
+        ----------
+        mixture_model : Mixture[Observable, IntObservable]
+            The mixture of conjugated harmoniums manifold
+        params : Point[Natural, Mixture[Observable, IntObservable]]
+            Natural parameters on the mixture
+
+        Returns
+        -------
+        Point[Natural, Any]
+            Conjugation parameters for the mixture of harmoniums
+        """
+        # Split mixture parameters into component harmonium parameters and categorical prior
+        hrm_params_0, int_mat = self.lkl_fun_man.split_params(lkl_params)
+        int_man = self.lkl_fun_man.snd_man
+        int_cols = int_man.to_columns(int_mat)
+
+        hrm_man = self.lkl_fun_man.cod_emb.amb_man
+        lkl_params_0 = hrm_man.likelihood_function(hrm_params_0)
+        rho_y = hrm_man.conjugation_parameters(lkl_params_0)
+        obs_params_0, _, _ = hrm_man.split_params(hrm_params_0)
+        lp_0 = hrm_man.obs_man.log_partition_function(obs_params_0)
+
+        def compute_rho_ks(
+            comp_params: Point[
+                Natural,
+                DifferentiableConjugated[
+                    IntRep,
+                    Observable,
+                    IntObservable,
+                    IntLatent,
+                    Posterior,
+                    Prior,
+                ],
+            ],
+        ) -> Array:
+            obs_params_k, _, _ = hrm_man.split_params(comp_params)
+            adjusted_obs = obs_params_0 + obs_params_k
+            return hrm_man.obs_man.log_partition_function(adjusted_obs) - lp_0
+
+        def compute_rho_yks(
+            comp_params: Point[
+                Natural,
+                DifferentiableConjugated[
+                    IntRep,
+                    Observable,
+                    IntObservable,
+                    IntLatent,
+                    Posterior,
+                    Prior,
+                ],
+            ],
+        ) -> Point[
+            Natural,
+            Prior,
+        ]:
+            adjusted_hrm = hrm_params_0 + comp_params
+            adjusted_lkl = hrm_man.likelihood_function(adjusted_hrm)
+            rho_yk0 = hrm_man.conjugation_parameters(adjusted_lkl)
+            return rho_yk0 - rho_y
+
+        # rho_z shape: (n_categories - 1,)
+        rho_k0 = int_man.col_man.map(compute_rho_ks, int_cols)
+        rho_k = self.lkl_fun_man.dom_man.natural_point(rho_k0)
+
+        rho_yk_comps = int_man.col_man.man_map(compute_rho_yks, int_cols)
+        rho_yk = self.mix_prr_man.int_man.from_columns(rho_yk_comps)
+
+        return self.mix_prr_man.join_params(rho_y, rho_yk, rho_k)
 
 
-class CompleteMixtureOfConjugated[
+class MixtureOfConjugated[
+    IntRep: MatrixRep,
     Observable: Differentiable,
-    Component: DifferentiableConjugated[Any, Any, Any, Any, Any, Any],
-    ComponentPosterior: Differentiable,
-    ComponentPrior: Differentiable,
+    IntObservable: Differentiable,
+    IntLatent: Differentiable,
+    Latent: Differentiable,
 ](
-    MixtureOfConjugated[
-        Observable,
-        Component,
-        Component,
-        ComponentPosterior,
-        ComponentPosterior,
-        ComponentPrior,
+    DifferentiableConjugated[
+        IntRep, Observable, IntObservable, IntLatent, Latent, Latent
     ],
-    CompleteMixture[Component],
+    SymmetricConjugated[
+        IntRep,
+        Observable,
+        IntObservable,
+        IntLatent,
+        Latent,
+    ],
 ):
     @property
-    def mix_pst_man(
-        self,
-    ) -> CompleteMixture[ComponentPosterior]:
-        """Latent manifold for the mixture of conjugated harmoniums."""
-        return CompleteMixture(self.obs_man.pst_man, self.n_categories)
-
-    @property
-    def mix_prr_man(
-        self,
-    ) -> CompleteMixture[ComponentPrior]:
-        """Latent manifold for the mixture of conjugated harmoniums."""
-        return CompleteMixture(self.obs_man.prr_man, self.n_categories)
-
     @override
-    def posterior_at(
-        self, params: Point[Natural, Self], x: Array
-    ) -> Point[Natural, CompleteMixture[ComponentPosterior]]:
-        pst_cmps, cat_params = self.component_posteriors_at(params, x)
-        return self.mix_pst_man.join_natural_mixture(pst_cmps, cat_params)
-
-
-class AnalyticMixtureOfConjugated[
-    Observable: Differentiable,
-    Component: AnalyticConjugated[Any, Any, Any, Any, Any],
-    ComponentPosterior: Differentiable,
-    ComponentPrior: Differentiable,
-](
-    MixtureOfConjugated[
-        Observable,
-        Component,
-        Component,
-        ComponentPosterior,
-        ComponentPosterior,
-        ComponentPrior,
-    ],
-    AnalyticMixture[Component],
-):
-    @property
-    def mix_pst_man(
-        self,
-    ) -> CompleteMixture[ComponentPosterior]:
-        """Latent manifold for the mixture of conjugated harmoniums."""
-        return CompleteMixture(self.obs_man.pst_man, self.n_categories)
+    def int_rep(self) -> Rectangular:
+        return 0
 
     @property
-    def mix_prr_man(
-        self,
-    ) -> CompleteMixture[ComponentPrior]:
-        """Latent manifold for the mixture of conjugated harmoniums."""
-        return CompleteMixture(self.obs_man.prr_man, self.n_categories)
-
     @override
-    def posterior_at(
-        self, params: Point[Natural, Self], x: Array
-    ) -> Point[Natural, CompleteMixture[ComponentPosterior]]:
-        pst_cmps, cat_params = self.component_posteriors_at(params, x)
-        return self.mix_pst_man.join_natural_mixture(pst_cmps, cat_params)
+    def int_obs_emb(
+        self,
+    ) -> LinearEmbedding[
+        CompleteMixture[IntObservable],
+        CompleteMixture[Observable],
+    ]:
+        return 0
+
+    @property
+    @override
+    def int_pst_emb(
+        self,
+    ) -> LinearEmbedding[
+        CompleteMixture[IntLatent],
+        CompleteMixture[Latent],
+    ]:
+        return 0
+
+    # def mix_log_observable_density(
+    #     self,
+    #     params: Point[Natural, Self],
+    #     x: Array,
+    # ) -> Array:
+    #     hrm_cmps, cat_params = self.split_natural_mixture(params)
+    #
+    #     def harmonium_log_density_at_x(
+    #         hrm_params: Point[
+    #             Natural,
+    #             DifferentiableConjugated[
+    #                 IntRep, Observable, IntObservable, IntLatent, Posterior, Prior
+    #             ],
+    #         ],
+    #     ) -> Array:
+    #         return self.obs_man.log_observable_density(hrm_params, x)
+    #
+    #     lds = self.cmp_man.map(harmonium_log_density_at_x, hrm_cmps)
+    #     wghts = self.lat_man.to_probs(self.lat_man.to_mean(cat_params))
+    #     return jax.scipy.special.logsumexp(lds + jnp.log(wghts))
+    #
 
 
 ### Helper Functions ###
-
-
-def harmonium_mixture_conjugation_parameters[
-    Harm: Conjugated[Any, Any, Any, Any, Any, Any],
-](
-    mixture_likelihood: AffineMap[Rectangular, Categorical, Harm, Harm],
-    lkl_params: Point[Natural, AffineMap[Rectangular, Categorical, Harm, Harm]],
-) -> tuple[Point[Natural, Any], Point[Natural, Any], Point[Natural, Any]]:
-    """Compute conjugation parameters for a mixture of conjugated harmoniums.
-
-    This decomposes the joint conjugation parameters into three components:
-    1. Y conjugation biases (latent variable biases from component 0)
-    2. K conjugation biases (categorical variable biases from observable component differences)
-    3. K-Y interaction columns (differences in conjugation parameters across components)
-
-    The function extracts observable biases from each component harmonium and computes
-    a mixture-like conjugation parameter structure encoding the joint (Y, K) latent space.
-
-    Parameters
-    ----------
-    mixture_model : Mixture[Observable, IntObservable]
-        The mixture of conjugated harmoniums manifold
-    params : Point[Natural, Mixture[Observable, IntObservable]]
-        Natural parameters on the mixture
-
-    Returns
-    -------
-    Point[Natural, Any]
-        Conjugation parameters for the mixture of harmoniums
-    """
-    # Split mixture parameters into component harmonium parameters and categorical prior
-    hrm_params_0, int_mat = mixture_likelihood.split_params(lkl_params)
-    int_man = mixture_likelihood.snd_man
-    int_comps = int_man.to_columns(int_mat)
-
-    hrm_man = mixture_likelihood.cod_emb.amb_man
-    lkl_params_0 = hrm_man.likelihood_function(hrm_params_0)
-    rho_y = hrm_man.conjugation_parameters(lkl_params_0)
-    obs_params_0, _, _ = hrm_man.split_params(hrm_params_0)
-    lp_0 = hrm_man.obs_man.log_partition_function(obs_params_0)
-
-    def compute_rho_ks(comp_params: Point[Natural, Harm]) -> Array:
-        obs_params_k, _, _ = hrm_man.split_params(comp_params)
-        adjusted_obs = hrm_man.int_obs_emb.translate(obs_params_0, obs_params_k)
-        return hrm_man.obs_man.log_partition_function(adjusted_obs) - lp_0
-
-    def compute_rho_yks(
-        comp_params: Point[Natural, Harm],
-    ) -> Point[Natural, Harm]:
-        adjusted_hrm = hrm_man.int_obs_emb.translate(hrm_params_0, comp_params)
-        adjusted_lkl = hrm_man.likelihood_function(adjusted_hrm)
-        rho_yk0 = hrm_man.conjugation_parameters(adjusted_lkl)
-        return rho_yk0 - rho_y
-
-    # rho_z shape: (n_categories - 1,)
-    rho_k0 = int_man.col_man.map(compute_rho_ks, int_comps)
-    rho_k = mixture_likelihood.dom_man.natural_point(rho_k0)
-
-    rho_yk_comps = int_man.col_man.man_map(compute_rho_yks, int_comps)
-    rho_yk = int_man.from_columns(rho_yk_comps)
-
-    return (rho_y, rho_yk, rho_k)
