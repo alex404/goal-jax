@@ -13,7 +13,7 @@ from .base.gaussian.normal import (
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson
 from .base.von_mises import VonMises
-from .graphical import (
+from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
     SymmetricHMoG,
@@ -21,20 +21,20 @@ from .graphical import (
     differentiable_hmog,
     symmetric_hmog,
 )
-from .harmonium import (
+from .harmonium.lgm import (
     LGM,
-    AnalyticMixture,
     BoltzmannLGM,
-    CompleteMixture,
-    CoMPoissonMixture,
-    CoMPoissonPopulation,
     FactorAnalysis,
-    Mixture,
     NormalAnalyticLGM,
     NormalCovarianceEmbedding,
     NormalLGM,
-    PoissonMixture,
     PrincipalComponentAnalysis,
+)
+from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
+from .harmonium.poisson_mixture import (
+    CoMPoissonMixture,
+    CoMPoissonPopulation,
+    PoissonMixture,
     com_poisson_mixture,
     poisson_mixture,
 )
