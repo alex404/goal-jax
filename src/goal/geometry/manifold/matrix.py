@@ -45,35 +45,92 @@ def _matmat(
     right_shape: tuple[int, int],
     right_params: Array,
 ) -> tuple[MatrixRep, tuple[int, int], Array]:
+    """Compute matrix-matrix product while maintaining optimal representation.
+
+    This function implements efficient matrix multiplication by choosing the most
+    specialized representation for the result. Given two matrices A (shape, params, rep)
+    and B (right_shape, right_params, right_rep), computes A @ B and returns the result
+    with the tightest applicable representation.
+
+    The key insight is that the result's representation depends on both the input
+    representations and the output shape:
+    - Identity times anything returns the other matrix
+    - Scale (diagonal with repeated values) scales the other matrix
+    - Diagonal times Diagonal yields Diagonal
+    - Diagonal times general/rectangular yields Rectangular or Square depending on shape
+    - General times special matrix can be optimized by swapping (A * S = S^T * A^T)
+    - General times general yields Rectangular or Square depending on output shape
+
+    The representation hierarchy from most to least general is:
+        Rectangular > Square > Symmetric > PositiveDefinite > Diagonal > Scale > Identity
+
+    When multiplying across hierarchy levels, the result type is determined by the
+    output shape and the specific input representations, ensuring we always return
+    the most specialized representation that is mathematically guaranteed by the inputs.
+
+    Args:
+        rep: Left matrix representation
+        shape: Left matrix shape (m, n)
+        params: Left matrix parameters (1D array)
+        right_rep: Right matrix representation
+        right_shape: Right matrix shape (n, p)
+        right_params: Right matrix parameters (1D array)
+
+    Returns:
+        Tuple of (output_rep, output_shape, output_params) where:
+        - output_rep: Most specialized applicable representation for the result
+        - output_shape: Shape of result (m, p)
+        - output_params: Parameters of result matrix
+    """
     out_shape = (shape[0], right_shape[1])
     out_rep: MatrixRep
     out_params: Array
     match rep:
         case Identity():
+            # Identity * B = B, so result has same rep as right matrix
             out_rep = right_rep
             out_params = right_params
         case Scale():
+            # Scale (αI) * B = αB, so just scale the right matrix parameters
             out_rep = right_rep
             out_params = params[0] * right_params
         case Diagonal():
+            # Diagonal multiplication: D * X
             match right_rep:
                 case Diagonal():
+                    # Diagonal * Diagonal = Diagonal (element-wise product of diagonals)
                     out_rep = Diagonal()
                     out_params = params * right_params
                 case _:
+                    # Diagonal * (non-Diagonal): result is dense
+                    # Convert right matrix to dense and multiply: diag(params) @ right_dense
+                    # Broadcasting: params[:, None] * right_dense treats params as column vector
                     right_dense = right_rep.to_dense(right_shape, right_params)
                     out_dense = params[:, None] * right_dense
-                    out_rep = Rectangular() if right_rep is Rectangular() else Square()
+                    # Determine output representation based on output shape
+                    # If output is square, use Square; otherwise use Rectangular
+                    out_rep = Square() if out_shape[0] == out_shape[1] else Rectangular()
                     out_params = out_rep.from_dense(out_dense)
         case _:
+            # General matrix (Rectangular/Square/Symmetric/PositiveDefinite) multiplication
             match right_rep:
                 case Identity() | Scale() | Diagonal():
+                    # Optimization: A * S = (S^T * A^T)^T, so swap, recurse, and transpose back
+                    # This lets us handle special-right matrices more efficiently by moving special to left
                     right_params_t = right_rep.transpose(right_shape, right_params)
                     right_shape_t = (right_shape[1], right_shape[0])
-                    return _matmat(
+                    result_rep, result_shape, result_params = _matmat(
                         right_rep, right_shape_t, right_params_t, rep, shape, params
                     )
+                    # Transpose result back to correct orientation
+                    result_params_t = result_rep.transpose(result_shape, result_params)
+                    result_shape_t = (result_shape[1], result_shape[0])
+                    return result_rep, result_shape_t, result_params_t
                 case _:
+                    # Both general matrices: fall back to dense multiplication
+                    # Determine output representation based on output shape:
+                    # - If m == p, result is Square (can support additional operations)
+                    # - Otherwise, result is Rectangular (general m×p matrix)
                     left_dense = rep.to_dense(shape, params)
                     right_dense = right_rep.to_dense(right_shape, right_params)
                     out_rep = (
