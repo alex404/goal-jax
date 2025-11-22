@@ -91,7 +91,7 @@ def _matmat(
             out_rep = right_rep
             out_params = right_params
         case Scale():
-            # Scale (αI) * B = αB, so just scale the right matrix parameters
+            # Scale (aI) * B = aB, so just scale the right matrix parameters
             out_rep = right_rep
             out_params = params[0] * right_params
         case Diagonal():
@@ -109,7 +109,9 @@ def _matmat(
                     out_dense = params[:, None] * right_dense
                     # Determine output representation based on output shape
                     # If output is square, use Square; otherwise use Rectangular
-                    out_rep = Square() if out_shape[0] == out_shape[1] else Rectangular()
+                    out_rep = (
+                        Square() if out_shape[0] == out_shape[1] else Rectangular()
+                    )
                     out_params = out_rep.from_dense(out_dense)
         case _:
             # General matrix (Rectangular/Square/Symmetric/PositiveDefinite) multiplication
@@ -130,7 +132,7 @@ def _matmat(
                     # Both general matrices: fall back to dense multiplication
                     # Determine output representation based on output shape:
                     # - If m == p, result is Square (can support additional operations)
-                    # - Otherwise, result is Rectangular (general m×p matrix)
+                    # - Otherwise, result is Rectangular (general m x p matrix)
                     left_dense = rep.to_dense(shape, params)
                     right_dense = right_rep.to_dense(right_shape, right_params)
                     out_rep = (
