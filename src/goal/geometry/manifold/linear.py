@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Self, override
 
+import jax.numpy as jnp
 from jax import Array
 
 from .base import Coordinates, Dual, Manifold, Point
@@ -14,6 +15,124 @@ from .embedding import LinearEmbedding
 from .matrix import MatrixRep, Square
 
 ### Linear Maps ###
+
+
+@dataclass(frozen=True)
+class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
+    """LinearMap provides a type-safe way to represent and compute linear transformations between manifolds. The representation strategy (Rep) determines how matrix data is stored and manipulated, enabling efficient operations for special matrix structures like diagonal or symmetric matrices.
+
+    In theory, a linear map $L: V \\to W$ between vector spaces satisfies:
+
+    $$L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$$
+
+    for all $x, y \\in V$ and scalars $\\alpha, \\beta$. The map preserves vector space operations like addition and scalar multiplication.
+
+    """
+
+    # Fields
+
+    blocks: list[
+        tuple[
+            LinearEmbedding[Manifold, Codomain],
+            MatrixRep,
+            LinearEmbedding[Manifold, Domain],
+        ]
+    ]
+    """The matrix representations of the submaps."""
+
+    @property
+    def dom_man(self) -> Domain:
+        """The domain manifold."""
+        return self.blocks[0][2].amb_man
+
+    @property
+    def cod_man(self) -> Codomain:
+        """The codomain manifold."""
+        return self.blocks[0][0].amb_man
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return sum(
+            rep.num_params((cod_emb.sub_man.dim, dom_emb.sub_man.dim))
+            for cod_emb, rep, dom_emb in self.blocks
+        )
+
+    def __call__[C: Coordinates](
+        self,
+        f: Point[C, Self],
+        p: Point[Dual[C], Domain],
+    ) -> Point[C, Codomain]:
+        result: Point[C, Codomain] = self.cod_man.zeros()
+        param_offset = 0
+
+        for cod_emb, rep, dom_emb in self.blocks:
+            block_param_size = rep.num_params(
+                (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
+            )
+            sub_map = LinearMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            sub_params: Point[C, LinearMap[Manifold, Manifold]] = sub_map.point(
+                f.array[param_offset : param_offset + block_param_size]
+            )
+
+            # Extract this block's portion of the domain
+            block_dom_point = dom_emb.project(p)
+
+            # Apply the block's linear map: parameters x domain_point → codomain_point
+            block_output = sub_map(sub_params, block_dom_point)
+
+            # Embed back to full codomain and accumulate
+            result += cod_emb.embed(block_output)
+
+            param_offset += block_param_size
+
+        return result
+
+    @property
+    def trn_man(self) -> BlockMap[Codomain, Domain]:
+        """Manifold of transposed linear maps."""
+        transposed_blocks = [
+            (dom_emb, rep, cod_emb) for cod_emb, rep, dom_emb in self.blocks
+        ]
+        return BlockMap(transposed_blocks)
+
+    def transpose[C: Coordinates](
+        self,
+        f: Point[C, Self],
+    ) -> Point[C, BlockMap[Codomain, Domain]]:
+        """Transpose of the block linear map."""
+        transposed_params = []
+        param_offset = 0
+        for cod_emb, rep, dom_emb in self.blocks:
+            block_param_size = rep.num_params(
+                (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
+            )
+            sub_map = LinearMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            sub_params: Point[C, LinearMap[Manifold, Manifold]] = sub_map.point(
+                f.array[param_offset : param_offset + block_param_size]
+            )
+            sub_trn = sub_map.transpose(sub_params)
+            transposed_params.append(sub_trn.array)
+            param_offset += block_param_size
+
+        transposed_array = jnp.concatenate(transposed_params)
+        return self.trn_man.point(transposed_array)
+
+    def outer_product[C: Coordinates](
+        self, w: Point[Dual[C], Codomain], v: Point[Dual[C], Domain]
+    ) -> Point[C, Self]:
+        """Outer product of points."""
+        outer_params = []
+        for cod_emb, rep, dom_emb in self.blocks:
+            block_w = cod_emb.project(w)
+            block_v = dom_emb.project(v)
+            sub_map = LinearMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            block_outer = sub_map.outer_product(block_w, block_v)
+            outer_params.append(block_outer.array)
+        outer_array = jnp.concatenate(outer_params)
+        return self.point(outer_array)
 
 
 @dataclass(frozen=True)
