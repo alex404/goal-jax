@@ -123,7 +123,7 @@ def create_mixture_plots(results: MixtureResults) -> Figure:
     )
     plot_density_comparison(
         "Diagonal Fit",
-        ["Ground Truth", "Diagonal"],
+        ["Ground Truth", "Diagonal()"],
         ax_diag,
         sample,
         xs,
@@ -144,7 +144,7 @@ def create_mixture_plots(results: MixtureResults) -> Figure:
 
     plot_density_comparison(
         "Initial Densities",
-        ["Positive Definite", "Diagonal", "Isotropic"],
+        ["Positive Definite", "Diagonal()", "Isotropic"],
         ax_ini,
         sample,
         xs,

@@ -161,6 +161,18 @@ class MatrixRep(ABC):
     All matrix parameters are stored as 1D arrays for compatibility with Point. The flattened representation enables unified parameter handling across different matrix structures, while each operation respects the specific matrix type's constraints.
     """
 
+    def __eq__(self, other: object) -> bool:
+        """Compare matrix representations by type (not instance identity).
+
+        Since MatrixRep instances are stateless, two instances are equal if they
+        have the same class type.
+        """
+        return type(self) == type(other)
+
+    def __hash__(self) -> int:
+        """Hash by class type to maintain hash/equality contract."""
+        return hash(type(self))
+
     @classmethod
     @abstractmethod
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
@@ -212,30 +224,30 @@ class MatrixRep(ABC):
 
     @classmethod
     def embed_params(
-        cls, shape: tuple[int, int], params: Array, target_rep: type[MatrixRep]
+        cls, shape: tuple[int, int], params: Array, target_rep: MatrixRep
     ) -> Array:
         """Recursively embed params into more complex representation."""
-        if not issubclass(cls, target_rep):
+        if not issubclass(cls, type(target_rep)):
             raise TypeError(f"Cannot embed {cls} into {target_rep}")
 
         cur_rep = cls
         cur_params = params
-        while cur_rep is not target_rep:
+        while cur_rep is not type(target_rep):
             cur_params = cur_rep.embed_in_super(shape, cur_params)
             cur_rep: type[MatrixRep] = cur_rep.__base__  # pyright: ignore[reportAssignmentType]
         return cur_params
 
     @classmethod
     def project_params(
-        cls, shape: tuple[int, int], params: Array, target_rep: type[MatrixRep]
+        cls, shape: tuple[int, int], params: Array, target_rep: MatrixRep
     ) -> Array:
         """Recursively project params to simpler representation."""
-        if not issubclass(target_rep, cls):
+        if not issubclass(type(target_rep), cls):
             raise TypeError(f"Cannot project {cls} to {target_rep}")
 
         # Build path of representations from target up to cls
         path: list[type[MatrixRep]] = []
-        cur_rep: type[MatrixRep] = target_rep
+        cur_rep: type[MatrixRep] = type(target_rep)
         while cur_rep != cls:
             path.append(cur_rep)
             cur_rep = cur_rep.__base__  # pyright: ignore[reportAssignmentType]

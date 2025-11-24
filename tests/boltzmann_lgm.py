@@ -25,8 +25,8 @@ from goal.models import (
 )
 
 # Type aliases
-Model = BoltzmannLGM[PositiveDefinite]
-ModelParams = Point[Natural, BoltzmannLGM[PositiveDefinite]]
+Model = BoltzmannLGM
+ModelParams = Point[Natural, BoltzmannLGM]
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -50,7 +50,7 @@ def model_dims(request: FixtureRequest) -> tuple[int, int]:
 def model(model_dims: tuple[int, int]) -> Model:
     """Create Boltzmann-LGM model."""
     obs_dim, lat_dim = model_dims
-    return BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite, lat_dim=lat_dim)
+    return BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
 
 
 @pytest.fixture

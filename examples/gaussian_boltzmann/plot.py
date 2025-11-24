@@ -2,14 +2,15 @@
 
 from typing import cast
 
-import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from matplotlib import gridspec
 from matplotlib.axes import Axes
+from matplotlib.contour import QuadContourSet
 from matplotlib.figure import Figure
+from matplotlib.image import AxesImage
 from matplotlib.patches import Rectangle
-from numpy.typing import NDArray
 
 from ..shared import example_paths
 from .types import GaussianBoltzmannResults
@@ -36,7 +37,7 @@ def plot_likelihood(ax: Axes, data: GaussianBoltzmannResults) -> None:
     ax.legend(fontsize="small")
 
 
-def plot_observable_density(ax: Axes, data: GaussianBoltzmannResults) -> None:
+def plot_observable_density(ax: Axes, data: GaussianBoltzmannResults) -> QuadContourSet:
     """Plot learned observable density with posterior observation markers."""
     plot_xs = np.array(data["plot_range_x"])
     plot_ys = np.array(data["plot_range_y"])
@@ -47,7 +48,9 @@ def plot_observable_density(ax: Axes, data: GaussianBoltzmannResults) -> None:
     heatmap = ax.contourf(X1, X2, density, levels=100, cmap=OBSERVABLE_PALETTE)
 
     for color, (obs1, obs2) in zip(POSTERIOR_COLORS, posterior_obs):
-        ax.scatter(obs1, obs2, color=color, s=100, edgecolors="white", linewidths=2, zorder=10)
+        ax.scatter(
+            obs1, obs2, color=color, s=100, edgecolors="white", linewidths=2, zorder=10
+        )
 
     ax.set_xlabel("x₁")
     ax.set_ylabel("x₂")
@@ -55,7 +58,7 @@ def plot_observable_density(ax: Axes, data: GaussianBoltzmannResults) -> None:
     return heatmap
 
 
-def plot_prior(ax: Axes, data: GaussianBoltzmannResults) -> None:
+def plot_prior(ax: Axes, data: GaussianBoltzmannResults) -> AxesImage:
     """Plot prior correlation matrix from moment matrix."""
     moment_matrix = np.array(data["prior_moment_matrix"])
 
@@ -75,11 +78,7 @@ def plot_prior(ax: Axes, data: GaussianBoltzmannResults) -> None:
 
     # Plot with red-blue diverging colormap
     heatmap = ax.imshow(
-        correlation,
-        cmap="RdBu_r",
-        interpolation="nearest",
-        vmin=-1,
-        vmax=1
+        correlation, cmap="RdBu_r", interpolation="nearest", vmin=-1, vmax=1
     )
     ax.set_xlabel("Neuron Index")
     ax.set_ylabel("Neuron Index")
@@ -94,10 +93,8 @@ def plot_prior(ax: Axes, data: GaussianBoltzmannResults) -> None:
 
 
 def plot_posterior(
-    ax: gridspec.SubplotSpec,
-    data: GaussianBoltzmannResults,
-    fig: Figure
-) -> tuple[list, list[Axes]]:
+    ax: gridspec.SubplotSpec, data: GaussianBoltzmannResults, fig: Figure
+) -> tuple[list[AxesImage], list[Axes]]:
     """Plot posterior moment matrices in 2x2 grid."""
     posterior_matrices = data["posterior_moment_matrices"]
 
@@ -105,8 +102,8 @@ def plot_posterior(
     inner_grid = gridspec.GridSpecFromSubplotSpec(
         2, 2, subplot_spec=ax, wspace=0.05, hspace=0.05
     )
-    heatmaps = []
-    axes_list = []
+    heatmaps: list[AxesImage] = []
+    axes_list: list[Axes] = []
 
     for i, matrix in enumerate(posterior_matrices):
         matrix_arr = np.array(matrix)
@@ -114,11 +111,7 @@ def plot_posterior(
         axes_list.append(inner_ax)
 
         heatmap = inner_ax.imshow(
-            matrix_arr,
-            cmap="viridis",
-            interpolation="nearest",
-            vmin=0,
-            vmax=1
+            matrix_arr, cmap="viridis", interpolation="nearest", vmin=0, vmax=1
         )
         heatmaps.append(heatmap)
 
@@ -140,9 +133,13 @@ def plot_posterior(
     # Add title to the subplot spec region
     # We'll use the first axis to add a suptitle-like text
     fig.text(
-        0.745, 0.475, "Posterior",
-        ha="center", va="top",
-        fontsize=12, fontweight="normal"
+        0.745,
+        0.475,
+        "Posterior",
+        ha="center",
+        va="top",
+        fontsize=12,
+        fontweight="normal",
     )
 
     return heatmaps, axes_list
@@ -194,7 +191,9 @@ def create_gaussian_boltzmann_plots(results: GaussianBoltzmannResults) -> Figure
 
     heatmaps_posterior, axes_posterior = plot_posterior(ax_posterior_spec, results, fig)
     # Add colorbar for posterior - span the height of all posterior axes
-    cbar_posterior = fig.colorbar(heatmaps_posterior[0], ax=axes_posterior, fraction=0.046, pad=0.04)
+    cbar_posterior = fig.colorbar(
+        heatmaps_posterior[0], ax=axes_posterior, fraction=0.046, pad=0.04
+    )
     cbar_posterior.set_label("Moment")
 
     # Add main title

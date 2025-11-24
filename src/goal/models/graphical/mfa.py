@@ -30,6 +30,7 @@ from typing import Any, Self, override
 
 from ...geometry import (
     LinearEmbedding,
+    LinearMap,
     Natural,
     Point,
     PositiveDefinite,
@@ -37,7 +38,7 @@ from ...geometry import (
     SymmetricConjugated,
 )
 from ..base.gaussian.generalized import Euclidean
-from ..base.gaussian.normal import FullNormal, Normal
+from ..base.gaussian.normal import Normal
 from ..graphical.mixture import MixtureComponentEmbedding
 from ..harmonium.lgm import (
     GeneralizedGaussianLocationEmbedding,
@@ -49,15 +50,12 @@ from ..harmonium.mixture import (
 
 
 @dataclass(frozen=True)
-class MixtureOfLGMs[
-    ObsRep: PositiveDefinite,
-](
+class MixtureOfLGMs(
     SymmetricConjugated[
-        Rectangular,
-        Normal[ObsRep],
+        Normal,
         Euclidean,
         CompleteMixture[Euclidean],
-        CompleteMixture[FullNormal],
+        CompleteMixture[Normal],
     ],
 ):
     """Mixture of Factor Analyzers (MFA) as a conjugated harmonium.
@@ -95,7 +93,7 @@ class MixtureOfLGMs[
 
     - Observable: :math:`\\text{Normal}[\\text{ObsRep}]` (observable distribution family)
     - Interaction matrix: Encodes component-specific offsets in factor space
-    - Latent: :math:`\\text{CompleteMixture}[\\text{FullNormal}]` (mixture of Gaussians over factors and components)
+    - Latent: :math:`\\text{CompleteMixture}[\\text{Normal}]` (mixture of Gaussians over factors and components)
 
     **Posterior vs Prior Structure**:
 
@@ -117,7 +115,7 @@ class MixtureOfLGMs[
     obs_dim: int
     """Dimension of observable variables."""
 
-    obs_rep: type[ObsRep]
+    obs_rep: PositiveDefinite
     """Covariance structure of observable variables."""
 
     lat_dim: int
@@ -130,20 +128,20 @@ class MixtureOfLGMs[
 
     @property
     @override
-    def lat_man(self) -> CompleteMixture[FullNormal]:
+    def lat_man(self) -> CompleteMixture[Normal]:
         """Posterior latent manifold: analytic mixture with restricted covariance.
 
         Uses the restricted covariance structure (PostRep, e.g., diagonal) for computational
         efficiency, since the posterior is evaluated frequently during inference for each data point.
         """
         return CompleteMixture(
-            Normal(self.lat_dim, PositiveDefinite), self.n_categories
+            Normal(self.lat_dim, PositiveDefinite()), self.n_categories
         )
 
     @property
     def mix_hrm(
         self,
-    ) -> CompleteMixture[NormalAnalyticLGM[ObsRep]]:
+    ) -> CompleteMixture[NormalAnalyticLGM]:
         """Reinterpret MFA as a Mixture[LGM].
 
         This provides access to all the mixture machinery (conjugation parameters,
@@ -168,13 +166,13 @@ class MixtureOfLGMs[
 
     @property
     @override
-    def int_rep(self) -> Rectangular:
+    def int_man(self) -> LinearMap[CompleteMixture[Euclidean], Euclidean]:
         """Matrix representation of interaction matrix."""
         return Rectangular()
 
     @property
     @override
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
+    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal]:
         """Embedding of Euclidean interactions into observable space."""
         return GeneralizedGaussianLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
 
@@ -182,15 +180,15 @@ class MixtureOfLGMs[
     @override
     def int_pst_emb(
         self,
-    ) -> LinearEmbedding[CompleteMixture[Euclidean], CompleteMixture[FullNormal]]:
+    ) -> LinearEmbedding[CompleteMixture[Euclidean], CompleteMixture[Normal]]:
         """Embedding of Euclidean interactions into posterior latent space.
 
-        Uses MixtureComponentEmbedding to embed each component from Euclidean to FullNormal.
+        Uses MixtureComponentEmbedding to embed each component from Euclidean to Normal.
         """
         return MixtureComponentEmbedding(
             n_categories=self.n_categories,
             cmp_emb=GeneralizedGaussianLocationEmbedding(
-                Normal(self.lat_dim, PositiveDefinite)
+                Normal(self.lat_dim, PositiveDefinite())
             ),
         )
 
@@ -198,7 +196,7 @@ class MixtureOfLGMs[
     def conjugation_parameters(
         self,
         lkl_params: Any,  # Point[Natural, AffineMap[...]]
-    ) -> Any:  # Point[Natural, Mixture[FullNormal, Normal[PostRep]]]
+    ) -> Any:  # Point[Natural, Mixture[Normal, Normal[PostRep]]]
         """Compute conjugation parameters for the mixture of factor analyzers.
 
         Uses the harmonium_mixture_conjugation_parameters decomposition to compute
@@ -210,7 +208,7 @@ class MixtureOfLGMs[
 
     def to_mixture_of_lgms(
         self, params: Point[Natural, Self]
-    ) -> Point[Natural, CompleteMixture[NormalAnalyticLGM[ObsRep]]]:
+    ) -> Point[Natural, CompleteMixture[NormalAnalyticLGM]]:
         """Convert MFA to Mixture of LGMs representation.
 
         This allows leveraging mixture machinery for inference and sampling.

@@ -15,21 +15,19 @@ from goal.geometry import (
 
 # Test parameters
 N_TRIALS = 10
-SHAPES = [(2, 2), (3, 3), (4, 4)]  # Square matrices for now
+SHAPES = [(2, 2), (3, 3), (4, 4)]  # Square() matrices for now
 SEED = 0
 
 
-def generate_random_params(
-    rep: type[MatrixRep], shape: tuple[int, int], key: Array
-) -> Array:
+def generate_random_params(rep: MatrixRep, shape: tuple[int, int], key: Array) -> Array:
     n = shape[0]
-    if rep is Identity:
+    if rep is Identity():
         return jnp.array([])
-    if rep is Scale:
+    if rep is Scale():
         return jax.random.normal(key, (1,))
-    if rep is Diagonal:
+    if rep is Diagonal():
         return jax.random.normal(key, (n,))
-    if issubclass(rep, PositiveDefinite):
+    if isinstance(rep, PositiveDefinite):
         # Generate valid PD matrix and convert to params
         ell = jax.random.normal(key, (n, n))
         return rep.from_dense(ell @ ell.T)
@@ -40,8 +38,8 @@ def test_embed_project_cycle():
     """Test that embed followed by project returns original params."""
     key = jax.random.PRNGKey(SEED)
 
-    # Test hierarchy up: Identity -> Scale -> Diagonal -> PositiveDefinite
-    reps = [Identity, Scale, Diagonal, PositiveDefinite]
+    # Test hierarchy up: Identity() -> Scale() -> Diagonal() -> PositiveDefinite()
+    reps = [Identity(), Scale(), Diagonal(), PositiveDefinite()]
 
     for shape in SHAPES:
         keys = jax.random.split(key, len(reps))
@@ -68,7 +66,7 @@ def test_embed_project_cycle():
 def test_embed_project_vs_dense():
     """Test that embed/project matches going through dense representation."""
     key = jax.random.PRNGKey(SEED)
-    reps = [Identity, Scale, Diagonal, PositiveDefinite]
+    reps = [Identity(), Scale(), Diagonal(), PositiveDefinite()]
 
     for shape in SHAPES:
         keys = jax.random.split(key, len(reps))
@@ -96,7 +94,7 @@ def test_embed_project_vs_dense():
 def test_composition():
     """Test that embedding two steps matches going directly."""
     key = jax.random.PRNGKey(SEED)
-    reps = [Identity, Scale, Diagonal, PositiveDefinite]
+    reps = [Identity(), Scale(), Diagonal(), PositiveDefinite()]
 
     for shape in SHAPES:
         keys = jax.random.split(key, len(reps))

@@ -24,7 +24,6 @@ from goal.geometry import Analytic, Differentiable, Natural, Point, PositiveDefi
 from goal.models import (
     Categorical,
     CoMPoisson,
-    FullNormal,
     Normal,
     Poisson,
     VonMises,
@@ -214,7 +213,7 @@ class PoissonTest[M: Poisson](AnalyticUnivariateTest[M]):
 
 
 @dataclass
-class NormalTest[M: FullNormal](AnalyticUnivariateTest[M]):
+class NormalTest[M: Normal](AnalyticUnivariateTest[M]):
     """Test harness for Normal distribution."""
 
     @override
@@ -337,7 +336,7 @@ def test_poisson(caplog: pytest.LogCaptureFixture) -> None:
 def test_normal(caplog: pytest.LogCaptureFixture) -> None:
     """Test normal distribution."""
     caplog.set_level(logging.INFO)
-    model = Normal(1, PositiveDefinite)
+    model = Normal(1, PositiveDefinite())
     test = NormalTest(model)
     stats = test.run_all_trials()
     analyze_stats(stats)

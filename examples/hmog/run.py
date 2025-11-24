@@ -10,7 +10,6 @@ from goal.geometry import (
     Diagonal,
     Natural,
     Point,
-    PositiveDefinite,
     Scale,
 )
 from goal.models import (
@@ -32,13 +31,13 @@ SEP = 3.0  # Separation parameter
 
 
 def create_ground_truth_model() -> tuple[
-    AnalyticHMoG[Diagonal],
-    Point[Natural, AnalyticHMoG[Diagonal]],
+    AnalyticHMoG,
+    Point[Natural, AnalyticHMoG],
 ]:
     """Create ground truth hierarchical mixture of Gaussians model."""
     hmog = analytic_hmog(
         obs_dim=2,
-        obs_rep=Diagonal,
+        obs_rep=Diagonal(),
         lat_dim=1,
         n_components=2,
     )
@@ -86,22 +85,22 @@ def create_ground_truth_model() -> tuple[
 ### Training ###
 
 
-def fit_hmog[R: PositiveDefinite](
+def fit_hmog(
     key: Array,
-    hmog: AnalyticHMoG[R],
+    hmog: AnalyticHMoG,
     n_steps: int,
     sample: Array,
 ) -> tuple[
     Array,
-    Point[Natural, AnalyticHMoG[R]],
-    Point[Natural, AnalyticHMoG[R]],
+    Point[Natural, AnalyticHMoG],
+    Point[Natural, AnalyticHMoG],
 ]:
     """Train HMoG model using expectation maximization."""
     init_params = hmog.initialize_from_sample(key, sample, shape=2)
 
     def em_step(
-        carry: Point[Natural, AnalyticHMoG[R]], _: Any
-    ) -> tuple[Point[Natural, AnalyticHMoG[R]], Array]:
+        carry: Point[Natural, AnalyticHMoG], _: Any
+    ) -> tuple[Point[Natural, AnalyticHMoG], Array]:
         params = carry
         ll = hmog.average_log_observable_density(params, sample)
         next_params = hmog.expectation_maximization(params, sample)
@@ -132,8 +131,8 @@ def compute_hmog_results(
     sample = gt_hmog.observable_sample(key_sample, gt_hmog_params, sample_size)
 
     # Create HMoG model
-    iso_hmog = analytic_hmog(2, Scale, 1, 2)
-    dia_hmog = analytic_hmog(2, Diagonal, 1, 2)
+    iso_hmog = analytic_hmog(2, Scale(), 1, 2)
+    dia_hmog = analytic_hmog(2, Diagonal(), 1, 2)
 
     # Train model
     iso_lls, init_iso_params, final_iso_params = fit_hmog(
@@ -152,9 +151,9 @@ def compute_hmog_results(
     y = jnp.linspace(-6, 6, n_points)
 
     # Compute densities
-    def compute_observable_density[R: PositiveDefinite](
-        model: AnalyticHMoG[R],
-        params: Point[Natural, AnalyticHMoG[R]],
+    def compute_observable_density(
+        model: AnalyticHMoG,
+        params: Point[Natural, AnalyticHMoG],
     ):
         return jax.vmap(model.observable_density, in_axes=(None, 0))(
             params, grid_points
@@ -167,9 +166,9 @@ def compute_hmog_results(
     final_dia_density = compute_observable_density(dia_hmog, final_dia_params)
 
     # Get mixture densities
-    def compute_mixture_density[R: PositiveDefinite](
-        model: AnalyticHMoG[R],
-        params: Point[Natural, AnalyticHMoG[R]],
+    def compute_mixture_density(
+        model: AnalyticHMoG,
+        params: Point[Natural, AnalyticHMoG],
     ):
         mix_model = model.split_conjugated(params)[1]
         return jax.vmap(model.pst_man.observable_density, in_axes=(None, 0))(
@@ -186,7 +185,7 @@ def compute_hmog_results(
         plot_range_x1=x1.tolist(),
         plot_range_x2=x2.tolist(),
         observations=sample.tolist(),
-        log_likelihoods={"Isotropic": iso_lls.tolist(), "Diagonal": dia_lls.tolist()},
+        log_likelihoods={"Isotropic": iso_lls.tolist(), "Diagonal()": dia_lls.tolist()},
         observable_densities={
             "Ground Truth": true_density.tolist(),
             "Isotropic Initial": init_iso_density.tolist(),

@@ -1,7 +1,7 @@
 """Tests for Linear Gaussian Model parameterizations.
 
 This module tests the core functionality of Linear Gaussian Models across different
-covariance representations (Scale, Diagonal, PositiveDefinite). Tests cover:
+covariance representations (Scale(), Diagonal(), PositiveDefinite()). Tests cover:
 
 1. Parameter conversion and recovery
 2. Likelihood computation
@@ -18,7 +18,7 @@ from jax import Array
 from jax.scipy import stats
 
 from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale
-from goal.models import AnalyticLinearGaussianModel, Covariance, FactorAnalysis, Normal
+from goal.models import Covariance, FactorAnalysis, Normal, NormalAnalyticLGM
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -51,16 +51,16 @@ absolute_tol = 1e-4
 
 
 @pytest.fixture
-def ground_truth_normal() -> Normal[PositiveDefinite]:
+def ground_truth_normal() -> Normal:
     """Create ground truth normal model."""
     joint_dim = obs_mean.shape[0] + lat_mean.shape[0]
-    return Normal(joint_dim, PositiveDefinite)
+    return Normal(joint_dim, PositiveDefinite())
 
 
 @pytest.fixture
 def ground_truth_params(
-    ground_truth_normal: Normal[PositiveDefinite],
-) -> Point[Mean, Normal[PositiveDefinite]]:
+    ground_truth_normal: Normal,
+) -> Point[Mean, Normal]:
     """Create ground truth parameters in mean coordinates."""
     # Create joint mean
     joint_mean = jnp.concatenate([obs_mean, lat_mean])
@@ -74,16 +74,14 @@ def ground_truth_params(
     )
 
     mu = ground_truth_normal.loc_man.mean_point(joint_mean)
-    cov: Point[Mean, Covariance[PositiveDefinite]] = (
-        ground_truth_normal.cov_man.from_dense(joint_cov)
-    )
+    cov: Point[Mean, Covariance] = ground_truth_normal.cov_man.from_dense(joint_cov)
     return ground_truth_normal.join_mean_covariance(mu, cov)
 
 
 @pytest.fixture
 def sample_data(
-    ground_truth_normal: Normal[PositiveDefinite],
-    ground_truth_params: Point[Mean, Normal[PositiveDefinite]],
+    ground_truth_normal: Normal,
+    ground_truth_params: Point[Mean, Normal],
 ) -> Array:
     """Generate sample data from ground truth distribution."""
     key = jax.random.PRNGKey(0)
@@ -164,7 +162,7 @@ def test_observable_distributions(
     # Create model
     obs_dim = obs_mean.shape[0]
     lat_dim = lat_mean.shape[0]
-    lgm = AnalyticLinearGaussianModel(obs_dim, Diagonal, lat_dim)
+    lgm = NormalAnalyticLGM(obs_dim, Diagonal(), lat_dim)
 
     # Get model parameters
     means = lgm.average_sufficient_statistic(sample_data)
@@ -185,9 +183,9 @@ def test_observable_distributions(
     )
 
 
-@pytest.mark.parametrize("rep", [Scale, Diagonal, PositiveDefinite])
+@pytest.mark.parametrize("rep", [Scale(), Diagonal(), PositiveDefinite()])
 def test_single_model(
-    rep: type[Scale | Diagonal | PositiveDefinite],
+    rep: Scale | Diagonal | PositiveDefinite,
     sample_data: Array,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -199,13 +197,13 @@ def test_single_model(
         caplog: Pytest fixture for capturing logs
     """
     caplog.set_level(logging.INFO)
-    logger.info(f"\nTesting {rep.__name__} representation")
+    logger.info(f"\nTesting {type(rep).__name__} representation")
 
     # Create models
     obs_dim = obs_mean.shape[0]
     lat_dim = lat_mean.shape[0]
-    lgm_man = AnalyticLinearGaussianModel(obs_dim, rep, lat_dim)
-    nor_man = Normal(obs_dim + lat_dim, PositiveDefinite)
+    lgm_man = NormalAnalyticLGM(obs_dim, rep, lat_dim)
+    nor_man = Normal(obs_dim + lat_dim, PositiveDefinite())
 
     # Fit LGM model
     means = lgm_man.average_sufficient_statistic(sample_data)
@@ -294,9 +292,9 @@ def test_model_consistency(
     # Create models
     obs_dim = obs_mean.shape[0]
     lat_dim = lat_mean.shape[0]
-    iso_model = AnalyticLinearGaussianModel(obs_dim, Scale, lat_dim)
-    dia_model = AnalyticLinearGaussianModel(obs_dim, Diagonal, lat_dim)
-    pod_model = AnalyticLinearGaussianModel(obs_dim, PositiveDefinite, lat_dim)
+    iso_model = NormalAnalyticLGM(obs_dim, Scale(), lat_dim)
+    dia_model = NormalAnalyticLGM(obs_dim, Diagonal(), lat_dim)
+    pod_model = NormalAnalyticLGM(obs_dim, PositiveDefinite(), lat_dim)
 
     # Fit isotropic model
     iso_means = iso_model.average_sufficient_statistic(sample_data)
@@ -368,7 +366,7 @@ def test_normal_lgm_conjugation_equation():
     """
     # Create model
     obs_dim, lat_dim = 3, 2
-    model = AnalyticLinearGaussianModel(obs_dim, PositiveDefinite, lat_dim)
+    model = NormalAnalyticLGM(obs_dim, PositiveDefinite(), lat_dim)
 
     # Initialize with random parameters
     key = jax.random.PRNGKey(42)

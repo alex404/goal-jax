@@ -17,8 +17,7 @@ from goal.geometry import (
     Optimizer,
     OptState,
     Point,
-    PositiveDefinite,
-    Rectangular,
+    PositiveDefinite(),
 )
 from goal.models import (
     Boltzmann,
@@ -31,12 +30,10 @@ from ..shared import example_paths, initialize_jax
 from .types import GaussianBoltzmannResults
 
 # Type aliases for readability
-Model = BoltzmannLGM[PositiveDefinite]
-ModelParams = Point[Natural, BoltzmannLGM[PositiveDefinite]]
+Model = BoltzmannLGM
+ModelParams = Point[Natural, BoltzmannLGM]
 BoltzmannParams = Point[Natural, Boltzmann]
-LikelihoodParams = Point[
-    Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[PositiveDefinite]]
-]
+LikelihoodParams = Point[Natural, AffineMap[Euclidean, Euclidean, Normal]]
 
 
 ### Constants ###
@@ -367,7 +364,7 @@ def compute_gaussian_boltzmann_results(key: Array) -> GaussianBoltzmannResults:
     print("\nCreating model...")
     model = BoltzmannLGM(
         obs_dim=OBS_DIM,
-        obs_rep=PositiveDefinite,
+        obs_rep=PositiveDefinite(),
         lat_dim=N_LATENTS,
     )
     print(

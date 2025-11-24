@@ -32,7 +32,7 @@ from .harmonium import (
 @dataclass(frozen=True)
 class ObservableEmbedding[
     Observable: ExponentialFamily,
-    Harm: Harmonium[Any, Any, Any, Any, Any],
+    Harm: Harmonium[Any, Any, Any, Any],
 ](TupleEmbedding[Observable, Harm]):
     """Embedding of the observable manifold of a harmonium into the harmonium itself.
 
@@ -81,8 +81,8 @@ class ObservableEmbedding[
 
 @dataclass(frozen=True)
 class LatentHarmoniumEmbedding[
-    PostHarmonium: Harmonium[Any, Any, Any, Any, Any],
-    PriorHarmonium: Harmonium[Any, Any, Any, Any, Any],
+    PostHarmonium: Harmonium[Any, Any, Any, Any],
+    PriorHarmonium: Harmonium[Any, Any, Any, Any],
 ](LinearEmbedding[PostHarmonium, PriorHarmonium]):
     """Embedding of one harmonium into another via observable space embedding.
 
@@ -170,11 +170,11 @@ class LatentHarmoniumEmbedding[
 
 
 def hierarchical_conjugation_parameters[
-    UpperHarmonium: Harmonium[Any, Any, Any, Any, Any],
+    UpperHarmonium: Harmonium[Any, Any, Any, Any],
 ](
-    lwr_hrm: DifferentiableConjugated[Any, Any, Any, Any, Any, Any],
+    lwr_hrm: DifferentiableConjugated[Any, Any, Any, Any, Any],
     upr_hrm: UpperHarmonium,
-    lkl_params: Point[Natural, AffineMap[Any, Any, Any, Any]],
+    lkl_params: Point[Natural, AffineMap[Any, Any, Any]],
 ) -> Point[Natural, UpperHarmonium]:
     """Compute conjugation parameters for hierarchical structure.
 
@@ -208,13 +208,13 @@ def hierarchical_conjugation_parameters[
 
 
 def hierarchical_to_natural_likelihood[
-    UpperHarmonium: Harmonium[Any, Any, Any, Any, Any],
+    UpperHarmonium: Harmonium[Any, Any, Any, Any],
 ](
     harmonium: UpperHarmonium,
-    lwr_hrm: AnalyticConjugated[Any, Any, Any, Any, Any],
-    upr_hrm: Harmonium[Any, Any, Any, Any, Any],
+    lwr_hrm: AnalyticConjugated[Any, Any, Any, Any],
+    upr_hrm: Harmonium[Any, Any, Any, Any],
     params: Point[Mean, UpperHarmonium],
-) -> Point[Natural, AffineMap[Any, Any, Any, Any]]:
+) -> Point[Natural, AffineMap[Any, Any, Any]]:
     """Convert mean parameters to natural likelihood parameters for hierarchical models.
 
     This projects the hierarchical mean parameters down to the lower harmonium's

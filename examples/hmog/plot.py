@@ -120,7 +120,7 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
 
     # Get log likelihoods
     iso_lls = np.array(results["log_likelihoods"]["Isotropic"])
-    dia_lls = np.array(results["log_likelihoods"]["Diagonal"])
+    dia_lls = np.array(results["log_likelihoods"]["Diagonal()"])
 
     # Plot initial observable distributions
     plot_density_comparison(
@@ -145,7 +145,7 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     )
 
     plot_density_comparison(
-        "Initial Diagonal Model",
+        "Initial Diagonal() Model",
         ["True", "Initial"],
         ax_dia_init,
         sample,
@@ -166,7 +166,7 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     )
 
     plot_density_comparison(
-        "Final Diagonal Model",
+        "Final Diagonal() Model",
         ["True", "Final"],
         ax_dia_final,
         sample,
@@ -178,7 +178,7 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     # Plot training histories
     steps = np.arange(len(iso_lls))
     ax_ll.plot(steps, iso_lls, label="Isotropic", color="tab:blue")
-    ax_ll.plot(steps, dia_lls, label="Diagonal", color="tab:orange")
+    ax_ll.plot(steps, dia_lls, label="Diagonal()", color="tab:orange")
     ax_ll.set_xlabel("EM Step")
     ax_ll.set_ylabel("Average Log Likelihood")
     ax_ll.set_title("Training History")
@@ -188,7 +188,7 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     # Plot initial latent distributions
     plot_latent_density(
         "Initial Latent Distributions",
-        ["True", "Isotropic", "Diagonal"],
+        ["True", "Isotropic", "Diagonal()"],
         ax_lat_init,
         ys,
         [true_mix, iso_init_mix, dia_init_mix],
@@ -198,7 +198,7 @@ def create_hmog_plots(results: HMoGResults) -> Figure:
     # Plot final latent distributions
     plot_latent_density(
         "Final Latent Distributions",
-        ["True", "Isotropic", "Diagonal"],
+        ["True", "Isotropic", "Diagonal()"],
         ax_lat_final,
         ys,
         [true_mix, iso_final_mix, dia_final_mix],

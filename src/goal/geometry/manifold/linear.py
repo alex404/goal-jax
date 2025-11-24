@@ -17,7 +17,7 @@ from .matrix import MatrixRep, Square
 
 
 @dataclass(frozen=True)
-class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
+class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
     """LinearMap provides a type-safe way to represent and compute linear transformations between manifolds. The representation strategy (Rep) determines how matrix data is stored and manipulated, enabling efficient operations for special matrix structures like diagonal or symmetric matrices.
 
     In theory, a linear map $L: V \\to W$ between vector spaces satisfies:
@@ -30,8 +30,8 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
 
     # Fields
 
-    rep: Rep
-    """The matrix representation for this linear map."""
+    rep: MatrixRep
+    """The matrix representation strategy for this linear map."""
 
     dom_man: Domain
     """The domain of the linear map."""
@@ -72,7 +72,7 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         return (self.cod_man.dim, self.dom_man.dim)
 
     @property
-    def trn_man(self) -> LinearMap[Rep, Codomain, Domain]:
+    def trn_man(self) -> LinearMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
         return LinearMap(self.rep, self.cod_man, self.dom_man)
 
@@ -105,15 +105,15 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
         return self.point(self.rep.outer_product(w.array, v.array))
 
     def transpose[C: Coordinates](
-        self: LinearMap[Rep, Domain, Codomain],
-        f: Point[C, LinearMap[Rep, Domain, Codomain]],
-    ) -> Point[C, LinearMap[Rep, Codomain, Domain]]:
+        self: LinearMap[Domain, Codomain],
+        f: Point[C, LinearMap[Domain, Codomain]],
+    ) -> Point[C, LinearMap[Codomain, Domain]]:
         """Transpose of the linear map."""
         return self.trn_man.point(self.rep.transpose(self.matrix_shape, f.array))
 
     def transpose_apply[C: Coordinates](
-        self: LinearMap[Rep, Domain, Codomain],
-        f: Point[C, LinearMap[Rep, Domain, Codomain]],
+        self: LinearMap[Domain, Codomain],
+        f: Point[C, LinearMap[Domain, Codomain]],
         p: Point[Dual[C], Codomain],
     ) -> Point[C, Domain]:
         """Apply the transpose of the linear map."""
@@ -158,40 +158,46 @@ class LinearMap[Rep: MatrixRep, Domain: Manifold, Codomain: Manifold](Manifold):
             self.rep.map_diagonal(self.matrix_shape, f.array, diagonal_fn)
         )
 
-    def embed_rep[C: Coordinates, NewRep: MatrixRep](
+    def embed_rep[C: Coordinates](
         self,
         f: Point[C, Self],
-        target_rep: type[NewRep],
+        target_rep: MatrixRep,
     ) -> tuple[
-        LinearMap[NewRep, Domain, Codomain],
-        Point[C, LinearMap[NewRep, Domain, Codomain]],
+        LinearMap[Domain, Codomain],
+        Point[C, LinearMap[Domain, Codomain]],
     ]:
         """Embed linear map into more complex representation."""
-        target_man = LinearMap(target_rep(), self.dom_man, self.cod_man)
+        target_man = LinearMap(target_rep, self.dom_man, self.cod_man)
         params = self.rep.embed_params(self.matrix_shape, f.array, target_rep)
         return target_man, target_man.point(params)
 
-    def project_rep[C: Coordinates, NewRep: MatrixRep](
+    def project_rep[C: Coordinates](
         self,
         f: Point[C, Self],
-        target_rep: type[NewRep],
+        target_rep: MatrixRep,
     ) -> tuple[
-        LinearMap[NewRep, Domain, Codomain],
-        Point[C, LinearMap[NewRep, Domain, Codomain]],
+        LinearMap[Domain, Codomain],
+        Point[C, LinearMap[Domain, Codomain]],
     ]:
         """Project linear map to simpler representation."""
-        target_man = LinearMap(target_rep(), self.dom_man, self.cod_man)
+        target_man = LinearMap(target_rep, self.dom_man, self.cod_man)
         params = self.rep.project_params(self.matrix_shape, f.array, target_rep)
         return target_man, target_man.point(params)
 
 
 @dataclass(frozen=True)
-class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
+class SquareMap[M: Manifold](LinearMap[M, M]):
     """SquareMap provides specialized operations for square matrices, like determinants, inverses, and tests for positive definiteness."""
 
     # Constructor
 
-    def __init__(self, rep: R, dom_man: M):
+    rep: Square
+
+    def __init__(self, rep: MatrixRep, dom_man: M):
+        # Check that the representation is square
+        if not issubclass(type(rep), Square):
+            raise TypeError("SquareMap requires a square matrix representation.")
+
         super().__init__(rep, dom_man, dom_man)
 
     # Methods
@@ -214,12 +220,11 @@ class SquareMap[R: Square, M: Manifold](LinearMap[R, M, M]):
 
 @dataclass(frozen=True)
 class AffineMap[
-    Rep: MatrixRep,
     Domain: Manifold,
     SubCodomain: Manifold,
     Codomain: Manifold,
 ](
-    Pair[Codomain, LinearMap[Rep, Domain, SubCodomain]],
+    Pair[Codomain, LinearMap[Domain, SubCodomain]],
 ):
     """AffineMap combines a linear transformation with a translation component. The codomain is represented as an :class:`~geometry.manifold.embedding.Embedding` to allow transformations that translate only a subset of the codomain.
 
@@ -238,7 +243,7 @@ class AffineMap[
 
     # Fields
 
-    rep: Rep
+    map_man: LinearMap[Domain, SubCodomain]
     """The matrix representation for this affine map."""
 
     dom_man: Domain
@@ -256,8 +261,8 @@ class AffineMap[
 
     @property
     @override
-    def snd_man(self) -> LinearMap[Rep, Domain, SubCodomain]:
-        return LinearMap(self.rep, self.dom_man, self.cod_emb.sub_man)
+    def snd_man(self) -> LinearMap[Domain, SubCodomain]:
+        return self.map_man
 
     # Methods
 

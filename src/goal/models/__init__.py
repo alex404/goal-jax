@@ -3,12 +3,6 @@ from .base.gaussian.boltzmann import Boltzmann
 from .base.gaussian.generalized import Euclidean
 from .base.gaussian.normal import (
     Covariance,
-    DiagonalCovariance,
-    DiagonalNormal,
-    FullCovariance,
-    FullNormal,
-    IsotropicCovariance,
-    IsotropicNormal,
     Normal,
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson
@@ -39,13 +33,9 @@ from .harmonium.poisson_mixture import (
     poisson_mixture,
 )
 
-# Backward compatibility alias
-AnalyticLinearGaussianModel = NormalAnalyticLGM
-
 __all__ = [
     "LGM",
     "AnalyticHMoG",
-    "AnalyticLinearGaussianModel",
     "AnalyticMixture",
     "Boltzmann",
     "BoltzmannLGM",
@@ -56,15 +46,9 @@ __all__ = [
     "CoMShape",
     "CompleteMixture",
     "Covariance",
-    "DiagonalCovariance",
-    "DiagonalNormal",
     "DifferentiableHMoG",
     "Euclidean",
     "FactorAnalysis",
-    "FullCovariance",
-    "FullNormal",
-    "IsotropicCovariance",
-    "IsotropicNormal",
     "Mixture",
     "Normal",
     "NormalAnalyticLGM",

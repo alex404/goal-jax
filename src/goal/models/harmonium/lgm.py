@@ -19,7 +19,6 @@ from ...geometry import (
     IdentityEmbedding,
     LinearEmbedding,
     LinearMap,
-    MatrixRep,
     Mean,
     Natural,
     Point,
@@ -34,7 +33,6 @@ from ..base.gaussian.boltzmann import Boltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
-    FullNormal,
     Normal,
     cov_to_lin,
 )
@@ -85,66 +83,57 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any]](
 
 
 @dataclass(frozen=True)
-class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbientRep: PositiveDefinite](
-    LinearEmbedding[Normal[SubRep], Normal[AmbientRep]]
-):
+class NormalCovarianceEmbedding(LinearEmbedding[Normal, Normal]):
     """Embedding of a normal distribution with a simpler covariance structure into a more complex one."""
 
     # Fields
 
-    _sub_man: Normal[SubRep]
+    _sub_man: Normal
     """The sub-manifold with the simpler covariance structure."""
 
-    _amb_man: Normal[AmbientRep]
+    _amb_man: Normal
     """The super-manifold with the more complex covariance structure."""
 
     def __post_init__(self):
-        if not isinstance(self.sub_man.cov_man.rep, self.amb_man.cov_man.rep.__class__):
+        if not isinstance(self.sub_man.cov_man.rep, type(self.amb_man.cov_man.rep)):
             raise TypeError(
                 f"Sub-manifold rep {self.sub_man.cov_man.rep} must be simpler than super-manifold rep {self.amb_man.cov_man.rep}"
             )
 
     @property
     @override
-    def amb_man(self) -> Normal[AmbientRep]:
+    def amb_man(self) -> Normal:
         """Super-manifold."""
         return self._amb_man
 
     @property
     @override
-    def sub_man(self) -> Normal[SubRep]:
+    def sub_man(self) -> Normal:
         """Sub-manifold."""
         return self._sub_man
 
     @override
-    def project(
-        self, p: Point[Mean, Normal[AmbientRep]]
-    ) -> Point[Mean, Normal[SubRep]]:
+    def project(self, p: Point[Mean, Normal]) -> Point[Mean, Normal]:
         return self.amb_man.project_rep(self.sub_man, p)
 
     @override
-    def embed(
-        self, p: Point[Natural, Normal[SubRep]]
-    ) -> Point[Natural, Normal[AmbientRep]]:
+    def embed(self, p: Point[Natural, Normal]) -> Point[Natural, Normal]:
         return self.sub_man.embed_rep(self.amb_man, p)
 
     @override
     def translate(
-        self, p: Point[Natural, Normal[AmbientRep]], q: Point[Natural, Normal[SubRep]]
-    ) -> Point[Natural, Normal[AmbientRep]]:
+        self, p: Point[Natural, Normal], q: Point[Natural, Normal]
+    ) -> Point[Natural, Normal]:
         embedded_q = self.sub_man.embed_rep(self.amb_man, q)
         return p + embedded_q
 
 
 @dataclass(frozen=True)
 class LGM[
-    ObsRep: PositiveDefinite,
     PostGaussian: GeneralizedGaussian[Any],
     PriorGaussian: GeneralizedGaussian[Any],
 ](
-    DifferentiableConjugated[
-        Rectangular, Normal[ObsRep], Euclidean, Euclidean, PostGaussian, PriorGaussian
-    ],
+    DifferentiableConjugated[Normal, Euclidean, Euclidean, PostGaussian, PriorGaussian],
     ABC,
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
@@ -181,7 +170,7 @@ class LGM[
     obs_dim: int
     """Dimension of the observable variables."""
 
-    obs_rep: type[ObsRep]
+    obs_rep: PositiveDefinite
     """Covariance structure of the observable variables."""
 
     ### Methods ###
@@ -190,12 +179,7 @@ class LGM[
 
     @property
     @override
-    def int_rep(self) -> Rectangular:
-        return Rectangular()
-
-    @property
-    @override
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
+    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal]:
         return GeneralizedGaussianLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
 
     @property
@@ -204,12 +188,19 @@ class LGM[
         """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
         return GeneralizedGaussianLocationEmbedding(self.pst_man)
 
+    @property
+    @override
+    def int_man(self) -> LinearMap[Euclidean, Euclidean]:
+        return LinearMap(
+            Rectangular(),
+            self.pst_man.loc_man,
+            self.obs_man.loc_man,
+        )
+
     @override
     def conjugation_parameters(
         self,
-        lkl_params: Point[
-            Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]
-        ],
+        lkl_params: Point[Natural, AffineMap[Euclidean, Euclidean, Normal]],
     ) -> Point[Natural, PriorGaussian]:
         # Get parameters
         obs_cov_man = self.obs_man.cov_man
@@ -232,11 +223,8 @@ class LGM[
 
 
 @dataclass(frozen=True)
-class NormalLGM[
-    ObsRep: PositiveDefinite,
-    PostRep: PositiveDefinite,
-](
-    LGM[ObsRep, Normal[PostRep], FullNormal],
+class NormalLGM(
+    LGM[Normal, Normal],
 ):
     """Differentiable Linear Gaussian Model with Normal latent variables.
 
@@ -247,28 +235,28 @@ class NormalLGM[
     lat_dim: int
     """Dimension of the latent variables."""
 
-    pst_lat_rep: type[PostRep]
+    pst_lat_rep: PositiveDefinite
 
     # Overrides
 
     @property
     @override
-    def pst_prr_emb(self) -> LinearEmbedding[Normal[PostRep], FullNormal]:
+    def pst_prr_emb(self) -> LinearEmbedding[Normal, Normal]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         post_gau = Normal(self.lat_dim, self.pst_lat_rep)
-        prior_gau = Normal(self.lat_dim, PositiveDefinite)
+        prior_gau = Normal(self.lat_dim, PositiveDefinite())
         return NormalCovarianceEmbedding(post_gau, prior_gau)
 
     # Methods
 
     def observable_distribution(
         self, params: Point[Natural, Self]
-    ) -> tuple[FullNormal, Point[Natural, FullNormal]]:
+    ) -> tuple[Normal, Point[Natural, Normal]]:
         """Returns the marginal normal distribution over observable variables."""
         # Build transposed LGM with full covariance observable variables
         transposed_lgm = NormalAnalyticLGM(
             obs_dim=self.pst_man.data_dim,  # Original latent becomes observable
-            obs_rep=PositiveDefinite,
+            obs_rep=PositiveDefinite(),
             lat_dim=self.obs_dim,  # Original observable becomes latent
         )
 
@@ -288,14 +276,14 @@ class NormalLGM[
         # Use harmonium prior to get marginal distribution
         return nor_man, transposed_lgm.prior(transposed_params)
 
-    def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, FullNormal]:
+    def to_normal(self, p: Point[Natural, Self]) -> Point[Natural, Normal]:
         """Convert a linear model to a normal model."""
         lat_dim = self.prr_man.data_dim
-        new_man: NormalLGM[PositiveDefinite, PositiveDefinite] = NormalLGM(
+        new_man: NormalLGM = NormalLGM(
             obs_dim=self.obs_man.data_dim,
-            obs_rep=PositiveDefinite,
+            obs_rep=PositiveDefinite(),
             lat_dim=lat_dim,
-            pst_lat_rep=PositiveDefinite,
+            pst_lat_rep=PositiveDefinite(),
         )
         obs_params, int_params, lat_params = self.split_params(p)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
@@ -303,7 +291,7 @@ class NormalLGM[
 
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(emb_obs_params)
         lat_loc, lat_prs = new_man.prr_man.split_location_precision(emb_lat_params)
-        nor_man = Normal(self.data_dim, PositiveDefinite)
+        nor_man = Normal(self.data_dim, PositiveDefinite())
         nor_loc: Point[Natural, Euclidean] = nor_man.loc_man.point(
             jnp.concatenate([obs_loc.array, lat_loc.array])
         )
@@ -319,11 +307,9 @@ class NormalLGM[
 
 
 @dataclass(frozen=True)
-class BoltzmannLGM[
-    ObsRep: PositiveDefinite,
-](
-    SymmetricConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, Boltzmann],
-    LGM[ObsRep, Boltzmann, Boltzmann],
+class BoltzmannLGM(
+    SymmetricConjugated[Normal, Euclidean, Euclidean, Boltzmann],
+    LGM[Boltzmann, Boltzmann],
 ):
     """Differentiable Linear Gaussian Model with Boltzmann latent variables.
 
@@ -360,32 +346,30 @@ class BoltzmannLGM[
 
 
 @dataclass(frozen=True)
-class NormalAnalyticLGM[
-    ObsRep: PositiveDefinite,
-](
-    AnalyticConjugated[Rectangular, Normal[ObsRep], Euclidean, Euclidean, FullNormal],
-    NormalLGM[ObsRep, PositiveDefinite],
+class NormalAnalyticLGM(
+    AnalyticConjugated[Normal, Euclidean, Euclidean, Normal],
+    NormalLGM,
 ):
     """Analytic Linear Gaussian Model that extends the differentiable LGM with full analytical tractability, adding conversions between mean and natural coordinates, and a closed-form implementation of EM."""
 
-    def __init__(self, obs_dim: int, obs_rep: type[ObsRep], lat_dim: int):
+    def __init__(self, obs_dim: int, obs_rep: PositiveDefinite, lat_dim: int):
         super().__init__(
             obs_dim=obs_dim,
             obs_rep=obs_rep,
             lat_dim=lat_dim,
-            pst_lat_rep=PositiveDefinite,
+            pst_lat_rep=PositiveDefinite(),
         )
 
     @property
     @override
-    def lat_man(self) -> FullNormal:
+    def lat_man(self) -> Normal:
         """The latent manifold is a full Normal distribution."""
-        return Normal(self.lat_dim, PositiveDefinite)
+        return Normal(self.lat_dim, PositiveDefinite())
 
     @override
     def to_natural_likelihood(
         self, params: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[Rectangular, Euclidean, Euclidean, Normal[ObsRep]]]:
+    ) -> Point[Natural, AffineMap[Euclidean, Euclidean, Normal]]:
         # Deconstruct parameters
         obs_cov_man = self.obs_man.cov_man
         lat_cov_man = self.lat_man.cov_man
@@ -401,7 +385,7 @@ class NormalAnalyticLGM[
         cob_man, cob = _change_of_basis(
             int_man_t, int_cov_t, lat_cov_man, cov_to_lin(lat_prs)
         )
-        shaped_cob: Point[Mean, Covariance[ObsRep]] = obs_cov_man.from_dense(
+        shaped_cob: Point[Mean, Covariance] = obs_cov_man.from_dense(
             cob_man.to_dense(cob)
         )
         obs_prs = obs_cov_man.inverse(obs_cov - shaped_cob)
@@ -426,11 +410,11 @@ class NormalAnalyticLGM[
 
 
 @dataclass(frozen=True)
-class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
+class FactorAnalysis(NormalAnalyticLGM):
     """A factor analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
-        super().__init__(obs_dim, Diagonal, lat_dim)
+        super().__init__(obs_dim, Diagonal(), lat_dim)
 
     @override
     def expectation_maximization(
@@ -459,7 +443,7 @@ class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
             obs_prs = om.split_location_precision(obs_params)[1]
             dns_prs = om.cov_man.to_dense(obs_prs)
 
-        int_mat: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = (
+        int_mat: Point[Natural, LinearMap[Euclidean, Euclidean]] = (
             self.int_man.from_dense(dns_prs @ loadings)
         )
 
@@ -470,11 +454,11 @@ class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
 
 
 @dataclass(frozen=True)
-class PrincipalComponentAnalysis(NormalAnalyticLGM[Scale]):
+class PrincipalComponentAnalysis(NormalAnalyticLGM):
     """A principal component analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
-        super().__init__(obs_dim, Scale, lat_dim)
+        super().__init__(obs_dim, Scale(), lat_dim)
 
     @override
     def expectation_maximization(
@@ -494,19 +478,16 @@ class PrincipalComponentAnalysis(NormalAnalyticLGM[Scale]):
 
 def _dual_composition[
     Coords: Coordinates,
-    HRep: MatrixRep,
-    GRep: MatrixRep,
-    FRep: MatrixRep,
 ](
-    h: LinearMap[HRep, Euclidean, Euclidean],
-    h_params: Point[Coords, LinearMap[HRep, Euclidean, Euclidean]],
-    g: LinearMap[GRep, Euclidean, Euclidean],
-    g_params: Point[Dual[Coords], LinearMap[GRep, Euclidean, Euclidean]],
-    f: LinearMap[FRep, Euclidean, Euclidean],
-    f_params: Point[Coords, LinearMap[FRep, Euclidean, Euclidean]],
+    h: LinearMap[Euclidean, Euclidean],
+    h_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
+    g: LinearMap[Euclidean, Euclidean],
+    g_params: Point[Dual[Coords], LinearMap[Euclidean, Euclidean]],
+    f: LinearMap[Euclidean, Euclidean],
+    f_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
 ) -> tuple[
-    LinearMap[Rectangular, Euclidean, Euclidean],
-    Point[Coords, LinearMap[Rectangular, Euclidean, Euclidean]],
+    LinearMap[Euclidean, Euclidean],
+    Point[Coords, LinearMap[Euclidean, Euclidean]],
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
 
@@ -525,24 +506,20 @@ def _dual_composition[
     dense_rep_hgf = Rectangular()
     params_hgf1 = dense_rep_hgf.from_dense(dense_params_hgf)
     out_man = LinearMap(dense_rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
-    out_mat: Point[Coords, LinearMap[Rectangular, Euclidean, Euclidean]] = (
-        out_man.point(params_hgf1)
-    )
+    out_mat: Point[Coords, LinearMap[Euclidean, Euclidean]] = out_man.point(params_hgf1)
     return out_man, out_mat
 
 
 def _change_of_basis[
     Coords: Coordinates,
-    LinearRep: MatrixRep,
-    CovRep: PositiveDefinite,
 ](
-    f: LinearMap[LinearRep, Euclidean, Euclidean],
-    f_params: Point[Coords, LinearMap[LinearRep, Euclidean, Euclidean]],
-    g: LinearMap[CovRep, Euclidean, Euclidean],
-    g_params: Point[Dual[Coords], LinearMap[CovRep, Euclidean, Euclidean]],
+    f: LinearMap[Euclidean, Euclidean],
+    f_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
+    g: LinearMap[Euclidean, Euclidean],
+    g_params: Point[Dual[Coords], LinearMap[Euclidean, Euclidean]],
 ) -> tuple[
-    Covariance[PositiveDefinite],
-    Point[Coords, Covariance[PositiveDefinite]],
+    Covariance,
+    Point[Coords, Covariance],
 ]:
     """Linear change of basis transformation.
 
@@ -558,8 +535,8 @@ def _change_of_basis[
         f,
         f_params,
     )
-    cov_man = Covariance(fgf_man.matrix_shape[0], PositiveDefinite)
-    out_mat: Point[Coords, Covariance[PositiveDefinite]] = cov_man.from_dense(
+    cov_man = Covariance(fgf_man.matrix_shape[0], PositiveDefinite())
+    out_mat: Point[Coords, Covariance] = cov_man.from_dense(
         fgf_man.to_dense(fgf_params)
     )
     return cov_man, out_mat

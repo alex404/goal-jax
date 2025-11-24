@@ -10,12 +10,11 @@ from goal.geometry import (
     LinearMap,
     Natural,
     Point,
-    Rectangular,
 )
 from goal.models import (
-    AnalyticLinearGaussianModel,
     Euclidean,
     FactorAnalysis,
+    NormalAnalyticLGM,
     PrincipalComponentAnalysis,
 )
 
@@ -49,8 +48,8 @@ def ground_truth(
 
     prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
 
-    int_params: Point[Natural, LinearMap[Rectangular, Euclidean, Euclidean]] = (
-        fan_man.int_man.point(jnp.asarray([1.0, 0.5]))
+    int_params: Point[Natural, LinearMap[Euclidean, Euclidean]] = fan_man.int_man.point(
+        jnp.asarray([1.0, 0.5])
     )
     lkl_params = fan_man.lkl_fun_man.join_params(obs_params, int_params)
     fan_params = fan_man.join_conjugated(lkl_params, prr_params)
@@ -59,7 +58,7 @@ def ground_truth(
     return fan_man, fan_params, sample
 
 
-def fit_model[Model: AnalyticLinearGaussianModel[Any]](
+def fit_model[Model: NormalAnalyticLGM](
     key: Array,
     model: Model,
     n_steps: int,

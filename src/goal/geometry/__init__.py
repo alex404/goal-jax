@@ -14,6 +14,12 @@ from .exponential_family.combinators import (
     Product,
     StatisticalMoments,
 )
+from .exponential_family.graphical import (
+    LatentHarmoniumEmbedding,
+    ObservableEmbedding,
+    hierarchical_conjugation_parameters,
+    hierarchical_to_natural_likelihood,
+)
 from .exponential_family.harmonium import (
     AnalyticConjugated,
     Conjugated,
@@ -80,6 +86,7 @@ __all__ = [
     "Harmonium",
     "Identity",
     "IdentityEmbedding",
+    "LatentHarmoniumEmbedding",
     "LinearEmbedding",
     "LinearMap",
     "LocationShape",
@@ -88,6 +95,7 @@ __all__ = [
     "Mean",
     "Natural",
     "Null",
+    "ObservableEmbedding",
     "OptState",
     "Optimizer",
     "Pair",
@@ -105,5 +113,7 @@ __all__ = [
     "Triple",
     "TupleEmbedding",
     "expand_dual",
+    "hierarchical_conjugation_parameters",
+    "hierarchical_to_natural_likelihood",
     "reduce_dual",
 ]

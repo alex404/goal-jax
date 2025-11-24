@@ -1,12 +1,6 @@
 """This module provides implementations of multivariate normal distributions in an exponential family framework. Each normal is build out of the base components:
-    - `Euclidean`: The location component ($\\mathbb{R}^n$)
-    - `Covariance`: The shape component with flexible structure
-
-The matrix representation used for the `Covariance` yields the following variants of normal distribution:
-    - `FullNormal`: Unrestricted positive definite covariance
-    - `DiagonalNormal`: Diagonal covariance matrix
-    - `IsotropicNormal`: Scalar multiple of identity
-    - `StandardNormal`: Unit covariance (identity matrix)
+- `Euclidean`: The location component ($\\mathbb{R}^n$)
+- `Covariance`: The shape component with flexible structure
 """
 
 from __future__ import annotations
@@ -23,7 +17,6 @@ from ....geometry import (
     Coordinates,
     Diagonal,
     ExponentialFamily,
-    Identity,
     LinearMap,
     LocationShape,
     Mean,
@@ -36,37 +29,10 @@ from ....geometry import (
 )
 from .generalized import Euclidean, GeneralizedGaussian
 
-type FullNormal = Normal[PositiveDefinite]
-type DiagonalNormal = Normal[Diagonal]
-type IsotropicNormal = Normal[Scale]
-type StandardNormal = Normal[Identity]
-
-type FullCovariance = Covariance[PositiveDefinite]
-type DiagonalCovariance = Covariance[Diagonal]
-type IsotropicCovariance = Covariance[Scale]
-
-
-# Type Hacks
-
-
-def cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
-    p: Point[C, Covariance[Rep]],
-) -> Point[C, LinearMap[Rep, Euclidean, Euclidean]]:
-    """Convert a covariance to a linear map."""
-    return Point(p.array)
-
-
-def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
-    p: Point[C, LinearMap[Rep, Euclidean, Euclidean]],
-) -> Point[C, Covariance[Rep]]:
-    """Convert a linear map to a covariance."""
-    return Point(p.array)
-
-
 # Component Classes
 
 
-class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFamily):
+class Covariance(SquareMap[Euclidean], ExponentialFamily):
     """Shape component of a Normal distribution.
 
     This represents the covariance structure of a Normal distribution through different matrix representations:
@@ -87,8 +53,10 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
 
     # Constructor
 
-    def __init__(self, data_dim: int, rep: type[Rep]):
-        super().__init__(rep(), Euclidean(data_dim))
+    rep: PositiveDefinite
+
+    def __init__(self, data_dim: int, rep: PositiveDefinite):
+        super().__init__(rep, Euclidean(data_dim))
 
     # Overrides
 
@@ -140,10 +108,27 @@ class Covariance[Rep: PositiveDefinite](SquareMap[Rep, Euclidean], ExponentialFa
         return self.map_diagonal(params, lambda x: x + epsilon)
 
 
+# Type Hacks
+
+
+def cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
+    p: Point[C, Covariance],
+) -> Point[C, LinearMap[Euclidean, Euclidean]]:
+    """Convert a covariance to a linear map."""
+    return Point(p.array)
+
+
+def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
+    p: Point[C, LinearMap[Euclidean, Euclidean]],
+) -> Point[C, Covariance]:
+    """Convert a linear map to a covariance."""
+    return Point(p.array)
+
+
 @dataclass(frozen=True)
-class Normal[Rep: PositiveDefinite](
-    GeneralizedGaussian[Covariance[Rep]],
-    LocationShape[Euclidean, Covariance[Rep]],
+class Normal(
+    GeneralizedGaussian[Covariance],
+    LocationShape[Euclidean, Covariance],
     Analytic,
 ):
     """(Multivariate) Normal distributions.
@@ -173,7 +158,7 @@ class Normal[Rep: PositiveDefinite](
 
     _data_dim: int
 
-    rep: type[Rep]
+    rep: PositiveDefinite
     """Covariance representation type."""
 
     # Overrides
@@ -186,7 +171,7 @@ class Normal[Rep: PositiveDefinite](
         x_point: Point[Mean, Euclidean] = self.loc_man.mean_point(x)
 
         # Compute outer product with appropriate structure
-        second_moment: Point[Mean, Covariance[Rep]] = self.snd_man.outer_product(
+        second_moment: Point[Mean, Covariance] = self.snd_man.outer_product(
             x_point, x_point
         )
 
@@ -284,7 +269,7 @@ class Normal[Rep: PositiveDefinite](
         # Add multiplicative noise to second moment
         noise = shape * jax.random.normal(key_cov, (self.data_dim, self.data_dim))
         noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
-        noise_matrix: Point[Mean, Covariance[Rep]] = self.cov_man.from_dense(noise)
+        noise_matrix: Point[Mean, Covariance] = self.cov_man.from_dense(noise)
         second_moment = self.cov_man.mean_point(
             second_moment.array * noise_matrix.array
         )
@@ -311,14 +296,14 @@ class Normal[Rep: PositiveDefinite](
         return Euclidean(self._data_dim)
 
     @property
-    def cov_man(self) -> Covariance[Rep]:
+    def cov_man(self) -> Covariance:
         """Covariance manifold."""
         return Covariance(self._data_dim, self.rep)
 
     def join_mean_covariance(
         self,
         mean: Point[Mean, Euclidean],
-        covariance: Point[Mean, Covariance[Rep]],
+        covariance: Point[Mean, Covariance],
     ) -> Point[Mean, Self]:
         """Construct a `Point` in `Mean` coordinates from the mean $\\mu$ and covariance $\\Sigma$."""
         # Create the second moment $\\eta_2 = \\mu\\mu^T + \\Sigma$
@@ -329,7 +314,7 @@ class Normal[Rep: PositiveDefinite](
 
     def split_mean_covariance(
         self, p: Point[Mean, Self]
-    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance]]:
         """Extract the mean $\\mu$ and covariance $\\Sigma$ from a `Point` in `Mean` coordinates."""
         # Split into $\\mu$ and $\\eta_2$
         mean, second_moment = self.split_params(p)
@@ -343,13 +328,13 @@ class Normal[Rep: PositiveDefinite](
     @override
     def split_mean_second_moment(
         self, params: Point[Mean, Self]
-    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance[Rep]]]:
+    ) -> tuple[Point[Mean, Euclidean], Point[Mean, Covariance]]:
         """Split parameters into mean and second-moment components."""
         return self.split_params(params)
 
     @override
     def join_mean_second_moment(
-        self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance[Rep]]
+        self, mean: Point[Mean, Euclidean], second_moment: Point[Mean, Covariance]
     ) -> Point[Mean, Self]:
         """Join mean and second-moment parameters."""
         return self.join_params(mean, second_moment)
@@ -357,7 +342,7 @@ class Normal[Rep: PositiveDefinite](
     @override
     def split_location_precision(
         self, params: Point[Natural, Self]
-    ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance[Rep]]]:
+    ) -> tuple[Point[Natural, Euclidean], Point[Natural, Covariance]]:
         """Join natural location and precision (inverse covariance) parameters. There's some subtle rescaling that has to happen to ensure that the natural parameters behaves correctly when used either as a vector in a dot product, or as a precision matrix.
 
         For a multivariate normal distribution, the natural parameters $(\\theta_1,\\theta_2)$ are related to the standard parameters $(\\mu,\\Sigma)$ by, $\\theta_1 = \\Sigma^{-1}\\mu$ and $\\theta_2 = -\\frac{1}{2}\\Sigma^{-1}$. matrix representations require different scaling to maintain these relationships:
@@ -387,7 +372,7 @@ class Normal[Rep: PositiveDefinite](
 
             scaled_params = precision_params / 2
             scaled_params = jnp.where(i_diag, scaled_params * 2, scaled_params)
-            theta2: Point[Natural, Covariance[Rep]] = self.cov_man.natural_point(
+            theta2: Point[Natural, Covariance] = self.cov_man.natural_point(
                 scaled_params
             )
 
@@ -402,7 +387,7 @@ class Normal[Rep: PositiveDefinite](
     def join_location_precision(
         self,
         location: Point[Natural, Euclidean],
-        precision: Point[Natural, Covariance[Rep]],
+        precision: Point[Natural, Covariance],
     ) -> Point[Natural, Self]:
         """Join natural location and precision (inverse covariance) parameters. Inverts the scaling in `split_natural_params`."""
         scl = -0.5
@@ -424,23 +409,21 @@ class Normal[Rep: PositiveDefinite](
 
         return self.join_params(location, self.cov_man.natural_point(theta2))
 
-    def embed_rep[TargetRep: PositiveDefinite](
-        self, trg_man: Normal[TargetRep], p: Point[Natural, Self]
-    ) -> Point[Natural, Normal[TargetRep]]:
+    def embed_rep(
+        self, trg_man: Normal, p: Point[Natural, Self]
+    ) -> Point[Natural, Normal]:
         """Embed natural parameters into a more complex representation. For example, a diagonal matrix can be embedded as a full matrix with zeros off the diagonal."""
         # Embedding in natural coordinates means embedding precision matrix
         loc, prs = self.split_location_precision(p)
-        _, trg_prs = self.cov_man.embed_rep(prs, type(trg_man.cov_man.rep))
+        _, trg_prs = self.cov_man.embed_rep(prs, trg_man.cov_man.rep)
         return trg_man.join_location_precision(loc, lin_to_cov(trg_prs))
 
     def project_rep[TargetRep: PositiveDefinite](
-        self, trg_man: Normal[TargetRep], p: Point[Mean, Self]
-    ) -> Point[Mean, Normal[TargetRep]]:
+        self, trg_man: Normal, p: Point[Mean, Self]
+    ) -> Point[Mean, Normal]:
         """Project mean parameters to a simpler representation. For example, a full matrix can be projected to a diagonal one. In Mean coordinates this this corresponds to the information (moment matching) projection."""
         mean, second_moment = self.split_mean_second_moment(p)
-        _, target_second = self.cov_man.project_rep(
-            second_moment, type(trg_man.cov_man.rep)
-        )
+        _, target_second = self.cov_man.project_rep(second_moment, trg_man.cov_man.rep)
         return trg_man.join_mean_second_moment(mean, lin_to_cov(target_second))
 
     def regularize_covariance(
@@ -513,7 +496,7 @@ class Normal[Rep: PositiveDefinite](
 
     @property
     @override
-    def shp_man(self) -> Covariance[Rep]:
+    def shp_man(self) -> Covariance:
         """Shape component: covariance manifold."""
         return self.cov_man
 
@@ -525,6 +508,6 @@ class Normal[Rep: PositiveDefinite](
 
     @property
     @override
-    def snd_man(self) -> Covariance[Rep]:
+    def snd_man(self) -> Covariance:
         """Second component: shape manifold (covariance structure)."""
         return self.cov_man

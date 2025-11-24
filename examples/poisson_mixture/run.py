@@ -30,7 +30,6 @@ from goal.geometry import (
 from goal.models import (
     CoMPoissonMixture,
     FactorAnalysis,
-    FullNormal,
     Normal,
     PoissonMixture,
     com_poisson_mixture,
@@ -53,7 +52,7 @@ LEARNING_RATE = 3e-3
 PSN_MIX_MAN = poisson_mixture(N_NEURONS, N_COMPONENTS)
 COM_MIX_MAN = com_poisson_mixture(N_NEURONS, N_COMPONENTS)
 FAN_MAN = FactorAnalysis(N_NEURONS, N_FACTORS)
-NOR_MAN = Normal(N_NEURONS, PositiveDefinite)
+NOR_MAN = Normal(N_NEURONS, PositiveDefinite())
 
 
 def create_ground_truth_loadings() -> Array:
@@ -87,7 +86,7 @@ def compute_sample_statistics(sample: Array) -> CovarianceStatistics:
 
 
 def compute_normal_statistics(
-    nor_means: Point[Mean, FullNormal],
+    nor_means: Point[Mean, Normal],
 ) -> CovarianceStatistics:
     mean, cov = NOR_MAN.split_mean_covariance(nor_means)
     return compute_dense_statistics(mean.array, NOR_MAN.cov_man.to_dense(cov))

@@ -19,8 +19,8 @@ from ..shared import (
 from .types import BivariateResults
 
 
-def compute_densities[R: PositiveDefinite](
-    model: Normal[R], natural_point: Point[Natural, Normal[R]], xs: Array, ys: Array
+def compute_densities(
+    model: Normal, natural_point: Point[Natural, Normal], xs: Array, ys: Array
 ) -> Array:
     points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
     zs = jax.vmap(model.density, in_axes=(None, 0))(natural_point, points)
@@ -47,9 +47,9 @@ def compute_gaussian_results(
     sp_dens = sp_dens.reshape(xs.shape).tolist()
 
     # Models
-    pod_model = Normal(2, PositiveDefinite)
-    dia_model = Normal(2, Diagonal)
-    iso_model = Normal(2, Scale)
+    pod_model = Normal(2, PositiveDefinite())
+    dia_model = Normal(2, Diagonal())
+    iso_model = Normal(2, Scale())
 
     # Ground truth
     gt_cov = pod_model.cov_man.from_dense(covariance)
@@ -62,8 +62,8 @@ def compute_gaussian_results(
     sample = pod_model.sample(key, gt_natural_point, sample_size)
 
     # Models
-    def process_normal[R: PositiveDefinite](
-        model: Normal[R],
+    def process_normal(
+        model: Normal,
         sample: Array,
     ) -> Array:
         mean_point = model.average_sufficient_statistic(sample)

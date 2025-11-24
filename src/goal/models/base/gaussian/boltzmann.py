@@ -18,7 +18,7 @@ from ....geometry import (
 from .generalized import Euclidean, GeneralizedGaussian
 
 
-class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
+class CouplingMatrix(SquareMap[Euclidean], Differentiable):
     """Exponential family over moment matrices.
 
     Core implementation of Boltzmann machines as exponential family distributions
@@ -112,7 +112,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
             new_val = jax.random.bernoulli(subkey, prob).astype(state.dtype)
             return state.at[unit_idx].set(new_val), None
 
-        final_state, _ = jax.lax.scan(update_unit, state, perm)  # pyright: ignore[reportArgumentType]
+        final_state, _ = jax.lax.scan(update_unit, state, perm)
         return final_state
 
     @override
@@ -136,7 +136,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
             subkey = jax.random.fold_in(sample_key, step)
             return self._gibbs_step(state, subkey, params), None
 
-        burned_state, _ = jax.lax.scan(burn_step, init_state, jnp.arange(n_burnin))  # pyright: ignore[reportArgumentType]
+        burned_state, _ = jax.lax.scan(burn_step, init_state, jnp.arange(n_burnin))
 
         # Sample collection with thinning
         def sample_with_thinning(state: Array, step: Array) -> tuple[Array, Array]:
@@ -150,7 +150,7 @@ class CouplingMatrix(SquareMap[Symmetric, Euclidean], Differentiable):
         _, samples = jax.lax.scan(
             sample_with_thinning,
             burned_state,
-            jnp.arange(n),  # pyright: ignore[reportArgumentType]
+            jnp.arange(n),
         )
         return samples
 
@@ -226,9 +226,7 @@ class Boltzmann(
         n_thin: int = 10,
     ) -> Array:
         """Delegate to CouplingMatrix."""
-        return self.shp_man.sample(
-            key, Point(params.array), n, n_burnin, n_thin
-        )
+        return self.shp_man.sample(key, Point(params.array), n, n_burnin, n_thin)
 
     # GeneralizedGaussian interface
 

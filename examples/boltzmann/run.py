@@ -35,15 +35,15 @@ def create_ground_truth_model() -> tuple[Boltzmann, Point[Natural, Boltzmann]]:
     # Triangular storage (row-major): [(0,0), (1,0), (1,1), (2,0), (2,1), (2,2), (3,0), (3,1), (3,2), (3,3)]
     ground_truth_params = jnp.array(
         [
-            0.5,   # (0,0) - bias for unit 0
-            1.2,   # (1,0) - interaction between units 0 and 1
+            0.5,  # (0,0) - bias for unit 0
+            1.2,  # (1,0) - interaction between units 0 and 1
             -0.2,  # (1,1) - bias for unit 1
-            0.8,   # (2,0) - interaction between units 0 and 2
-            0.6,   # (2,1) - interaction between units 1 and 2
-            0.3,   # (2,2) - bias for unit 2
+            0.8,  # (2,0) - interaction between units 0 and 2
+            0.6,  # (2,1) - interaction between units 1 and 2
+            0.3,  # (2,2) - bias for unit 2
             -0.5,  # (3,0) - interaction between units 0 and 3
             -0.3,  # (3,1) - interaction between units 1 and 3
-            0.4,   # (3,2) - interaction between units 2 and 3
+            0.4,  # (3,2) - interaction between units 2 and 3
             -0.1,  # (3,3) - bias for unit 3
         ]
     )
@@ -59,7 +59,7 @@ def generate_training_data(
     n_samples: int = 1000,
 ) -> Array:
     """Generate training data from ground truth Boltzmann machine."""
-    return ground_truth_model.sample(key, ground_truth_params, n_samples=n_samples)
+    return ground_truth_model.sample(key, ground_truth_params, n=n_samples)
 
 
 def fit_boltzmann_machine(
@@ -188,7 +188,7 @@ def test_sampling_convergence(
             # Generate samples using Gibbs sampling
             key, subkey = jax.random.split(key)
             samples = model.sample(
-                subkey, params, n_samples=n_samples, n_burnin=50, n_thin=n_thin
+                subkey, params, n=n_samples, n_burnin=50, n_thin=n_thin
             )
 
             # Compute empirical probabilities

@@ -1,7 +1,7 @@
 """Tests for normal distribution parameterizations.
 
 This module tests the core functionality of Normal distributions across different
-covariance representations (Scale, Diagonal, PositiveDefinite). Tests cover:
+covariance representations (Scale(), Diagonal(), PositiveDefinite()). Tests cover:
 
 1. Parameter conversion and recovery
 2. Likelihood computation
@@ -40,18 +40,18 @@ absolute_tol = 1e-7
 
 
 @pytest.fixture
-def ground_truth_normal() -> Normal[PositiveDefinite]:
+def ground_truth_normal() -> Normal:
     """Create ground truth normal model."""
-    return Normal(sampling_mean.shape[0], PositiveDefinite)
+    return Normal(sampling_mean.shape[0], PositiveDefinite())
 
 
 @pytest.fixture
 def ground_truth_params(
-    ground_truth_normal: Normal[PositiveDefinite],
-) -> Point[Mean, Normal[PositiveDefinite]]:
+    ground_truth_normal: Normal,
+) -> Point[Mean, Normal]:
     """Create ground truth parameters in mean coordinates."""
-    gt_cov: Point[Mean, Covariance[PositiveDefinite]] = (
-        ground_truth_normal.cov_man.from_dense(sampling_covariance)
+    gt_cov: Point[Mean, Covariance] = ground_truth_normal.cov_man.from_dense(
+        sampling_covariance
     )
     mu = ground_truth_normal.loc_man.mean_point(sampling_mean)
     return ground_truth_normal.join_mean_covariance(mu, gt_cov)
@@ -59,8 +59,8 @@ def ground_truth_params(
 
 @pytest.fixture
 def sample_data(
-    ground_truth_normal: Normal[PositiveDefinite],
-    ground_truth_params: Point[Mean, Normal[PositiveDefinite]],
+    ground_truth_normal: Normal,
+    ground_truth_params: Point[Mean, Normal],
 ) -> Array:
     """Generate sample data from ground truth distribution."""
     key = jax.random.PRNGKey(0)
@@ -77,9 +77,9 @@ def scipy_log_likelihood(x: Array, mean: Array, cov: Array) -> Array:
     )
 
 
-@pytest.mark.parametrize("rep", [Scale, Diagonal, PositiveDefinite])
+@pytest.mark.parametrize("rep", [Scale(), Diagonal(), PositiveDefinite()])
 def test_single_model(
-    rep: type[Scale | Diagonal | PositiveDefinite],
+    rep: Scale | Diagonal | PositiveDefinite,
     sample_data: Array,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -91,7 +91,7 @@ def test_single_model(
         caplog: Pytest fixture for capturing logs
     """
     caplog.set_level(logging.INFO)
-    logger.info(f"\nTesting {rep.__name__} representation")
+    logger.info(f"\nTesting {type(rep).__name__} representation")
 
     # Create model
     model = Normal(sampling_mean.shape[0], rep)
@@ -136,8 +136,8 @@ def test_single_model(
 
 
 def test_whiten(
-    ground_truth_normal: Normal[PositiveDefinite],
-    ground_truth_params: Point[Mean, Normal[PositiveDefinite]],
+    ground_truth_normal: Normal,
+    ground_truth_params: Point[Mean, Normal],
 ) -> None:
     """Test whitening of normal distributions."""
     # Extract ground truth mean and covariance
@@ -209,13 +209,6 @@ def test_whiten(
     # Whiten third_dist with respect to test_dist
     whitened_third = ground_truth_normal.whiten(third_dist, test_dist)
 
-    # Now whiten ground_truth with respect to test_dist
-    whitened_gt = ground_truth_normal.whiten(ground_truth_params, test_dist)
-
-    # The distance between whitened_third and whitened_gt should be the same as
-    # the Mahalanobis distance between third_dist and ground_truth in the original space
-    # This is a more complex property test that verifies whitening preserves distances correctly
-
 
 def test_model_consistency(
     sample_data: Array, caplog: pytest.LogCaptureFixture
@@ -229,9 +222,9 @@ def test_model_consistency(
     logger.info("\nTesting model consistency")
 
     # Create models
-    iso_model = Normal(sampling_mean.shape[0], Scale)
-    dia_model = Normal(sampling_mean.shape[0], Diagonal)
-    pod_model = Normal(sampling_mean.shape[0], PositiveDefinite)
+    iso_model = Normal(sampling_mean.shape[0], Scale())
+    dia_model = Normal(sampling_mean.shape[0], Diagonal())
+    pod_model = Normal(sampling_mean.shape[0], PositiveDefinite())
 
     # Fit isotropic model
     iso_means = iso_model.average_sufficient_statistic(sample_data)
@@ -318,8 +311,8 @@ def test_model_consistency(
 
 
 def test_precision_is_inverse_of_covariance(
-    ground_truth_normal: Normal[PositiveDefinite],
-    ground_truth_params: Point[Mean, Normal[PositiveDefinite]],
+    ground_truth_normal: Normal,
+    ground_truth_params: Point[Mean, Normal],
 ):
     """Test that split_location_precision returns the actual precision matrix Σ^{-1}."""
     # Convert to natural parameters

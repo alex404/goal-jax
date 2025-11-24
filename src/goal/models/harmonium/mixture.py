@@ -23,6 +23,7 @@ from ...geometry import (
     ExponentialFamily,
     IdentityEmbedding,
     LinearEmbedding,
+    LinearMap,
     Mean,
     Natural,
     Point,
@@ -38,11 +39,9 @@ from ..base.categorical import (
 
 @dataclass(frozen=True)
 class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
-    SymmetricConjugated[
-        Rectangular, Observable, IntObservable, Categorical, Categorical
-    ],
+    SymmetricConjugated[Observable, IntObservable, Categorical, Categorical],
     DifferentiableConjugated[
-        Rectangular, Observable, IntObservable, Categorical, Categorical, Categorical
+        Observable, IntObservable, Categorical, Categorical, Categorical
     ],
 ):
     """Mixture models with exponential family observations.
@@ -119,11 +118,6 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
 
     @property
     @override
-    def int_rep(self) -> Rectangular:
-        return Rectangular()
-
-    @property
-    @override
     def int_obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
         return self._int_obs_emb
 
@@ -135,7 +129,12 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
     @property
     @override
     def int_pst_emb(self) -> IdentityEmbedding[Categorical]:
-        return IdentityEmbedding(Categorical(self.n_categories))
+        return IdentityEmbedding(self.lat_man)
+
+    @property
+    @override
+    def int_man(self) -> LinearMap[Categorical, IntObservable]:
+        return LinearMap(Rectangular, self.lat_man, self.int_obs_emb.sub_man)
 
     # Methods
 
@@ -209,9 +208,7 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
     @override
     def conjugation_parameters(
         self,
-        lkl_params: Point[
-            Natural, AffineMap[Rectangular, Categorical, IntObservable, Observable]
-        ],
+        lkl_params: Point[Natural, AffineMap[Categorical, IntObservable, Observable]],
     ) -> Point[Natural, Categorical]:
         """Compute conjugation parameters for categorical mixture. In particular,
 
@@ -315,7 +312,7 @@ class CompleteMixture[Observable: Differentiable](
 
 class AnalyticMixture[Observable: Analytic](
     CompleteMixture[Observable],
-    AnalyticConjugated[Rectangular, Observable, Observable, Categorical, Categorical],
+    AnalyticConjugated[Observable, Observable, Categorical, Categorical],
 ):
     """Mixture model with analytically tractable components. Amongst other things, this enables closed-form implementation of expectation-maximization."""
 
@@ -324,7 +321,7 @@ class AnalyticMixture[Observable: Analytic](
     @override
     def to_natural_likelihood(
         self, params: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[Rectangular, Categorical, Observable, Observable]]:
+    ) -> Point[Natural, AffineMap[Categorical, Observable, Observable]]:
         """Map mean harmonium parameters to natural likelihood parameters.
 
         **Constraint:** This method requires $\\text{Observable} = \\text{IntObservable}$. This is

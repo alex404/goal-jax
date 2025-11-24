@@ -7,9 +7,8 @@ from jax import Array
 from goal.geometry import Mean, Natural, Point, PositiveDefinite
 from goal.models import (
     Categorical,
+    Covariance,
     Euclidean,
-    FullCovariance,
-    FullNormal,
     Normal,
     Poisson,
 )
@@ -25,9 +24,9 @@ from .types import (
 
 def compute_gaussian_results(
     key: Array,
-    model: FullNormal,
+    model: Normal,
     mu: Point[Mean, Euclidean],
-    sigma: Point[Mean, FullCovariance],
+    sigma: Point[Mean, Covariance],
     xs: Array,
     sample_size: int,
 ) -> tuple[Array, Array, Array]:
@@ -132,7 +131,7 @@ def main():
     # # Normal test
     print("\nTesting Normal Distribution...")
 
-    normal = Normal(1, PositiveDefinite)
+    normal = Normal(1, PositiveDefinite())
     mu0 = 2.0
     sigma = 1.5
     mu = normal.loc_man.mean_point(jnp.atleast_1d(mu0))

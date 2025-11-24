@@ -43,7 +43,7 @@ def test_sufficient_statistic(boltzmann: Boltzmann):
     """Test sufficient statistic is upper triangular outer product x ⊗ x."""
     state = jax.random.bernoulli(jax.random.PRNGKey(0), 0.5, (boltzmann.n_neurons,))
     suff_stat = boltzmann.sufficient_statistic(state)
-    expected = Symmetric.from_dense(jnp.outer(state, state))
+    expected = Symmetric().from_dense(jnp.outer(state, state))
 
     assert jnp.allclose(suff_stat.array, expected, rtol=relative_tol, atol=absolute_tol)
 
