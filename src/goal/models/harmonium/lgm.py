@@ -479,11 +479,11 @@ class PrincipalComponentAnalysis(NormalAnalyticLGM):
 def _dual_composition[
     Coords: Coordinates,
 ](
-    h: LinearMap[Euclidean, Euclidean],
+    h_man: LinearMap[Euclidean, Euclidean],
     h_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
-    g: LinearMap[Euclidean, Euclidean],
+    g_man: LinearMap[Euclidean, Euclidean],
     g_params: Point[Dual[Coords], LinearMap[Euclidean, Euclidean]],
-    f: LinearMap[Euclidean, Euclidean],
+    f_man: LinearMap[Euclidean, Euclidean],
     f_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
 ) -> tuple[
     LinearMap[Euclidean, Euclidean],
@@ -494,19 +494,20 @@ def _dual_composition[
     Computes h @ g @ f where g is in dual coordinates.
     """
     # First multiply g @ f
-    rep_gf, shape_gf, params_gf = g.rep.matmat(
-        g.matrix_shape, g_params.array, f.rep, f.matrix_shape, f_params.array
+    rep_gf, shape_gf, params_gf = g_man.rep.matmat(
+        g_man.matrix_shape,
+        g_params.array,
+        f_man.rep,
+        f_man.matrix_shape,
+        f_params.array,
     )
 
     # Then multiply h @ (g @ f)
-    rep_hgf, shape_hgf, params_hgf = h.rep.matmat(
-        h.matrix_shape, h_params.array, rep_gf, shape_gf, params_gf
+    rep_hgf, shape_hgf, params_hgf = h_man.rep.matmat(
+        h_man.matrix_shape, h_params.array, rep_gf, shape_gf, params_gf
     )
-    dense_params_hgf = rep_hgf.to_dense(shape_hgf, params_hgf)
-    dense_rep_hgf = Rectangular()
-    params_hgf1 = dense_rep_hgf.from_dense(dense_params_hgf)
-    out_man = LinearMap(dense_rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
-    out_mat: Point[Coords, LinearMap[Euclidean, Euclidean]] = out_man.point(params_hgf1)
+    out_man = LinearMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
+    out_mat: Point[Coords, LinearMap[Euclidean, Euclidean]] = out_man.point(params_hgf)
     return out_man, out_mat
 
 
