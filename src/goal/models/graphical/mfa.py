@@ -30,11 +30,11 @@ from typing import Any, Self, override
 
 from ...geometry import (
     LinearEmbedding,
-    LinearMap,
     Natural,
     Point,
     PositiveDefinite,
     Rectangular,
+    RectangularMap,
     SymmetricConjugated,
 )
 from ..base.gaussian.generalized import Euclidean
@@ -166,7 +166,7 @@ class MixtureOfLGMs(
 
     @property
     @override
-    def int_man(self) -> LinearMap[CompleteMixture[Euclidean], Euclidean]:
+    def int_man(self) -> RectangularMap[CompleteMixture[Euclidean], Euclidean]:
         """Matrix representation of interaction matrix."""
         return Rectangular()
 

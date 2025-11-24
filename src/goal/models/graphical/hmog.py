@@ -41,11 +41,11 @@ from ...geometry import (
     AnalyticConjugated,
     DifferentiableConjugated,
     LatentHarmoniumEmbedding,
-    LinearMap,
     Mean,
     Natural,
     ObservableEmbedding,
     PositiveDefinite,
+    RectangularMap,
     SymmetricConjugated,
     hierarchical_conjugation_parameters,
     hierarchical_to_natural_likelihood,
@@ -112,7 +112,7 @@ class DifferentiableHMoG(
 
     @property
     @override
-    def int_man(self) -> LinearMap[Euclidean, Euclidean]:
+    def int_man(self) -> RectangularMap[Euclidean, Euclidean]:
         return self.lwr_hrm.int_man
 
     @property
@@ -203,7 +203,7 @@ class SymmetricHMoG(
 
     @property
     @override
-    def int_man(self) -> LinearMap[Euclidean, Euclidean]:
+    def int_man(self) -> RectangularMap[Euclidean, Euclidean]:
         return self.lwr_hrm.int_man
 
     @property

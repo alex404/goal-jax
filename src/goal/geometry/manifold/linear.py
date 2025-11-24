@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Self, override
@@ -9,7 +10,7 @@ from typing import Self, override
 import jax.numpy as jnp
 from jax import Array
 
-from .base import Coordinates, Dual, Manifold, Point
+from .base import Coordinates, Dual, Manifold, Point, expand_dual
 from .combinators import Pair, Replicated
 from .embedding import LinearEmbedding
 from .matrix import MatrixRep, Square
@@ -18,15 +19,70 @@ from .matrix import MatrixRep, Square
 
 
 @dataclass(frozen=True)
-class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
-    """LinearMap provides a type-safe way to represent and compute linear transformations between manifolds. The representation strategy (Rep) determines how matrix data is stored and manipulated, enabling efficient operations for special matrix structures like diagonal or symmetric matrices.
+class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
+    """Abstract base class for linear transformations between manifolds.
 
-    In theory, a linear map $L: V \\to W$ between vector spaces satisfies:
+    A linear map $L: V \\to W$ between vector spaces satisfies:
 
     $$L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$$
 
-    for all $x, y \\in V$ and scalars $\\alpha, \\beta$. The map preserves vector space operations like addition and scalar multiplication.
+    for all $x, y \\in V$ and scalars $\\alpha, \\beta$. The map preserves vector space
+    operations like addition and scalar multiplication.
 
+    Concrete implementations include RectangularMap (explicit matrix representation) and
+    BlockMap (composition of submaps).
+    """
+
+    @property
+    @abstractmethod
+    def dom_man(self) -> Domain:
+        """The domain manifold."""
+        pass
+
+    @property
+    @abstractmethod
+    def cod_man(self) -> Codomain:
+        """The codomain manifold."""
+        pass
+
+    @property
+    @abstractmethod
+    def trn_man(self) -> LinearMap[Codomain, Domain]:
+        """Manifold of transposed linear maps."""
+        pass
+
+    @abstractmethod
+    def __call__[C: Coordinates](
+        self,
+        f: Point[C, Self],
+        p: Point[Dual[C], Domain],
+    ) -> Point[C, Codomain]:
+        """Apply the linear map to transform a point."""
+        pass
+
+    @abstractmethod
+    def transpose[C: Coordinates](
+        self,
+        f: Point[C, Self],
+    ) -> Point[C, LinearMap[Codomain, Domain]]:
+        """Transpose of the linear map."""
+        pass
+
+    @abstractmethod
+    def outer_product[C: Coordinates](
+        self, w: Point[C, Codomain], v: Point[C, Domain]
+    ) -> Point[C, Self]:
+        """Outer product of points."""
+        pass
+
+
+@dataclass(frozen=True)
+class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
+    """BlockMap represents a linear transformation as a block diagonal composition of submaps.
+
+    Each block is a linear map from a subdomain to a subcodomain, and the overall
+    transformation is the sum of these block contributions. This enables efficient
+    composition of heterogeneous linear maps.
     """
 
     # Fields
@@ -41,11 +97,13 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
     """The matrix representations of the submaps."""
 
     @property
+    @override
     def dom_man(self) -> Domain:
         """The domain manifold."""
         return self.blocks[0][2].amb_man
 
     @property
+    @override
     def cod_man(self) -> Codomain:
         """The codomain manifold."""
         return self.blocks[0][0].amb_man
@@ -60,6 +118,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
             for cod_emb, rep, dom_emb in self.blocks
         )
 
+    @override
     def __call__[C: Coordinates](
         self,
         f: Point[C, Self],
@@ -72,25 +131,21 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
             block_param_size = rep.num_params(
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
-            sub_map = LinearMap(rep, dom_emb.sub_man, cod_emb.sub_man)
-            sub_params: Point[C, LinearMap[Manifold, Manifold]] = sub_map.point(
+            sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            sub_params: Point[C, RectangularMap[Manifold, Manifold]] = sub_map.point(
                 f.array[param_offset : param_offset + block_param_size]
             )
 
-            # Extract this block's portion of the domain
             block_dom_point = dom_emb.project(p)
-
-            # Apply the block's linear map: parameters x domain_point → codomain_point
             block_output = sub_map(sub_params, block_dom_point)
 
-            # Embed back to full codomain and accumulate
             result += cod_emb.embed(block_output)
-
             param_offset += block_param_size
 
         return result
 
     @property
+    @override
     def trn_man(self) -> BlockMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
         transposed_blocks = [
@@ -98,6 +153,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
         ]
         return BlockMap(transposed_blocks)
 
+    @override
     def transpose[C: Coordinates](
         self,
         f: Point[C, Self],
@@ -109,8 +165,8 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
             block_param_size = rep.num_params(
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
-            sub_map = LinearMap(rep, dom_emb.sub_man, cod_emb.sub_man)
-            sub_params: Point[C, LinearMap[Manifold, Manifold]] = sub_map.point(
+            sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            sub_params: Point[C, RectangularMap[Manifold, Manifold]] = sub_map.point(
                 f.array[param_offset : param_offset + block_param_size]
             )
             sub_trn = sub_map.transpose(sub_params)
@@ -120,15 +176,16 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
         transposed_array = jnp.concatenate(transposed_params)
         return self.trn_man.point(transposed_array)
 
+    @override
     def outer_product[C: Coordinates](
-        self, w: Point[Dual[C], Codomain], v: Point[Dual[C], Domain]
+        self, w: Point[C, Codomain], v: Point[C, Domain]
     ) -> Point[C, Self]:
         """Outer product of points."""
         outer_params = []
         for cod_emb, rep, dom_emb in self.blocks:
-            block_w = cod_emb.project(w)
-            block_v = dom_emb.project(v)
-            sub_map = LinearMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            block_w = cod_emb.project(expand_dual(w))
+            block_v = dom_emb.project(expand_dual(v))
+            sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
             block_outer = sub_map.outer_product(block_w, block_v)
             outer_params.append(block_outer.array)
         outer_array = jnp.concatenate(outer_params)
@@ -136,15 +193,11 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](Manifold):
 
 
 @dataclass(frozen=True)
-class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
-    """LinearMap provides a type-safe way to represent and compute linear transformations between manifolds. The representation strategy (Rep) determines how matrix data is stored and manipulated, enabling efficient operations for special matrix structures like diagonal or symmetric matrices.
+class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
+    """RectangularMap represents a linear transformation with an explicit matrix representation.
 
-    In theory, a linear map $L: V \\to W$ between vector spaces satisfies:
-
-    $$L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$$
-
-    for all $x, y \\in V$ and scalars $\\alpha, \\beta$. The map preserves vector space operations like addition and scalar multiplication.
-
+    The representation strategy (Rep) determines how matrix data is stored and manipulated,
+    enabling efficient operations for special matrix structures like diagonal or symmetric matrices.
     """
 
     # Fields
@@ -152,13 +205,23 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
     rep: MatrixRep
     """The matrix representation strategy for this linear map."""
 
-    dom_man: Domain
+    _dom_man: Domain
     """The domain of the linear map."""
 
-    cod_man: Codomain
+    _cod_man: Codomain
     """The codomain of the linear map."""
 
     # Overrides
+
+    @property
+    @override
+    def dom_man(self) -> Domain:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Codomain:
+        return self._cod_man
 
     @property
     @override
@@ -191,9 +254,10 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
         return (self.cod_man.dim, self.dom_man.dim)
 
     @property
-    def trn_man(self) -> LinearMap[Codomain, Domain]:
+    @override
+    def trn_man(self) -> RectangularMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
-        return LinearMap(self.rep, self.cod_man, self.dom_man)
+        return RectangularMap(self.rep, self.cod_man, self.dom_man)
 
     @property
     def row_man(self) -> Replicated[Domain]:
@@ -205,6 +269,7 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
         """The manifold of column vectors."""
         return Replicated(self.cod_man, self.dom_man.dim)
 
+    @override
     def __call__[C: Coordinates](
         self,
         f: Point[C, Self],
@@ -217,22 +282,24 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
         """Create point from dense matrix."""
         return self.point(self.rep.from_dense(matrix))
 
+    @override
     def outer_product[C: Coordinates](
         self, w: Point[C, Codomain], v: Point[C, Domain]
     ) -> Point[C, Self]:
         """Outer product of points."""
         return self.point(self.rep.outer_product(w.array, v.array))
 
+    @override
     def transpose[C: Coordinates](
-        self: LinearMap[Domain, Codomain],
-        f: Point[C, LinearMap[Domain, Codomain]],
-    ) -> Point[C, LinearMap[Codomain, Domain]]:
+        self: RectangularMap[Domain, Codomain],
+        f: Point[C, RectangularMap[Domain, Codomain]],
+    ) -> Point[C, RectangularMap[Codomain, Domain]]:
         """Transpose of the linear map."""
         return self.trn_man.point(self.rep.transpose(self.matrix_shape, f.array))
 
     def transpose_apply[C: Coordinates](
-        self: LinearMap[Domain, Codomain],
-        f: Point[C, LinearMap[Domain, Codomain]],
+        self: RectangularMap[Domain, Codomain],
+        f: Point[C, RectangularMap[Domain, Codomain]],
         p: Point[Dual[C], Codomain],
     ) -> Point[C, Domain]:
         """Apply the transpose of the linear map."""
@@ -282,11 +349,11 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
         f: Point[C, Self],
         target_rep: MatrixRep,
     ) -> tuple[
-        LinearMap[Domain, Codomain],
-        Point[C, LinearMap[Domain, Codomain]],
+        RectangularMap[Domain, Codomain],
+        Point[C, RectangularMap[Domain, Codomain]],
     ]:
         """Embed linear map into more complex representation."""
-        target_man = LinearMap(target_rep, self.dom_man, self.cod_man)
+        target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
         params = self.rep.embed_params(self.matrix_shape, f.array, target_rep)
         return target_man, target_man.point(params)
 
@@ -295,17 +362,17 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold):
         f: Point[C, Self],
         target_rep: MatrixRep,
     ) -> tuple[
-        LinearMap[Domain, Codomain],
-        Point[C, LinearMap[Domain, Codomain]],
+        RectangularMap[Domain, Codomain],
+        Point[C, RectangularMap[Domain, Codomain]],
     ]:
         """Project linear map to simpler representation."""
-        target_man = LinearMap(target_rep, self.dom_man, self.cod_man)
+        target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
         params = self.rep.project_params(self.matrix_shape, f.array, target_rep)
         return target_man, target_man.point(params)
 
 
 @dataclass(frozen=True)
-class SquareMap[M: Manifold](LinearMap[M, M]):
+class SquareMap[M: Manifold](RectangularMap[M, M]):
     """SquareMap provides specialized operations for square matrices, like determinants, inverses, and tests for positive definiteness."""
 
     # Constructor
@@ -363,7 +430,7 @@ class AffineMap[
     # Fields
 
     map_man: LinearMap[Domain, SubCodomain]
-    """The matrix representation for this affine map."""
+    """The linear transformation for this affine map."""
 
     dom_man: Domain
     """The domain of the affine map."""

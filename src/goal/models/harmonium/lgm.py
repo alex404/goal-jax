@@ -18,12 +18,12 @@ from ...geometry import (
     Dual,
     IdentityEmbedding,
     LinearEmbedding,
-    LinearMap,
     Mean,
     Natural,
     Point,
     PositiveDefinite,
     Rectangular,
+    RectangularMap,
     Scale,
     SymmetricConjugated,
     expand_dual,
@@ -190,8 +190,8 @@ class LGM[
 
     @property
     @override
-    def int_man(self) -> LinearMap[Euclidean, Euclidean]:
-        return LinearMap(
+    def int_man(self) -> RectangularMap[Euclidean, Euclidean]:
+        return RectangularMap(
             Rectangular(),
             self.pst_man.loc_man,
             self.obs_man.loc_man,
@@ -443,7 +443,7 @@ class FactorAnalysis(NormalAnalyticLGM):
             obs_prs = om.split_location_precision(obs_params)[1]
             dns_prs = om.cov_man.to_dense(obs_prs)
 
-        int_mat: Point[Natural, LinearMap[Euclidean, Euclidean]] = (
+        int_mat: Point[Natural, RectangularMap[Euclidean, Euclidean]] = (
             self.int_man.from_dense(dns_prs @ loadings)
         )
 
@@ -479,15 +479,15 @@ class PrincipalComponentAnalysis(NormalAnalyticLGM):
 def _dual_composition[
     Coords: Coordinates,
 ](
-    h_man: LinearMap[Euclidean, Euclidean],
-    h_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
-    g_man: LinearMap[Euclidean, Euclidean],
-    g_params: Point[Dual[Coords], LinearMap[Euclidean, Euclidean]],
-    f_man: LinearMap[Euclidean, Euclidean],
-    f_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
+    h_man: RectangularMap[Euclidean, Euclidean],
+    h_params: Point[Coords, RectangularMap[Euclidean, Euclidean]],
+    g_man: RectangularMap[Euclidean, Euclidean],
+    g_params: Point[Dual[Coords], RectangularMap[Euclidean, Euclidean]],
+    f_man: RectangularMap[Euclidean, Euclidean],
+    f_params: Point[Coords, RectangularMap[Euclidean, Euclidean]],
 ) -> tuple[
-    LinearMap[Euclidean, Euclidean],
-    Point[Coords, LinearMap[Euclidean, Euclidean]],
+    RectangularMap[Euclidean, Euclidean],
+    Point[Coords, RectangularMap[Euclidean, Euclidean]],
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
 
@@ -506,18 +506,20 @@ def _dual_composition[
     rep_hgf, shape_hgf, params_hgf = h_man.rep.matmat(
         h_man.matrix_shape, h_params.array, rep_gf, shape_gf, params_gf
     )
-    out_man = LinearMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
-    out_mat: Point[Coords, LinearMap[Euclidean, Euclidean]] = out_man.point(params_hgf)
+    out_man = RectangularMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
+    out_mat: Point[Coords, RectangularMap[Euclidean, Euclidean]] = out_man.point(
+        params_hgf
+    )
     return out_man, out_mat
 
 
 def _change_of_basis[
     Coords: Coordinates,
 ](
-    f: LinearMap[Euclidean, Euclidean],
-    f_params: Point[Coords, LinearMap[Euclidean, Euclidean]],
-    g: LinearMap[Euclidean, Euclidean],
-    g_params: Point[Dual[Coords], LinearMap[Euclidean, Euclidean]],
+    f: RectangularMap[Euclidean, Euclidean],
+    f_params: Point[Coords, RectangularMap[Euclidean, Euclidean]],
+    g: RectangularMap[Euclidean, Euclidean],
+    g_params: Point[Dual[Coords], RectangularMap[Euclidean, Euclidean]],
 ) -> tuple[
     Covariance,
     Point[Coords, Covariance],

@@ -23,12 +23,12 @@ from ...geometry import (
     ExponentialFamily,
     IdentityEmbedding,
     LinearEmbedding,
-    LinearMap,
     Mean,
     Natural,
     Point,
     Product,
     Rectangular,
+    RectangularMap,
     StatisticalMoments,
     SymmetricConjugated,
 )
@@ -133,8 +133,8 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
 
     @property
     @override
-    def int_man(self) -> LinearMap[Categorical, IntObservable]:
-        return LinearMap(Rectangular, self.lat_man, self.int_obs_emb.sub_man)
+    def int_man(self) -> RectangularMap[Categorical, IntObservable]:
+        return RectangularMap(Rectangular, self.lat_man, self.int_obs_emb.sub_man)
 
     # Methods
 

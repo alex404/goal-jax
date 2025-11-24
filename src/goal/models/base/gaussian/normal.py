@@ -17,12 +17,12 @@ from ....geometry import (
     Coordinates,
     Diagonal,
     ExponentialFamily,
-    LinearMap,
     LocationShape,
     Mean,
     Natural,
     Point,
     PositiveDefinite,
+    RectangularMap,
     Scale,
     SquareMap,
     expand_dual,
@@ -113,13 +113,13 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
 
 def cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
     p: Point[C, Covariance],
-) -> Point[C, LinearMap[Euclidean, Euclidean]]:
+) -> Point[C, RectangularMap[Euclidean, Euclidean]]:
     """Convert a covariance to a linear map."""
     return Point(p.array)
 
 
 def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
-    p: Point[C, LinearMap[Euclidean, Euclidean]],
+    p: Point[C, RectangularMap[Euclidean, Euclidean]],
 ) -> Point[C, Covariance]:
     """Convert a linear map to a covariance."""
     return Point(p.array)

@@ -51,6 +51,7 @@ from .manifold.embedding import (
 from .manifold.linear import (
     AffineMap,
     LinearMap,
+    RectangularMap,
     SquareMap,
 )
 from .manifold.matrix import (
@@ -103,6 +104,7 @@ __all__ = [
     "PositiveDefinite",
     "Product",
     "Rectangular",
+    "RectangularMap",
     "Replicated",
     "Scale",
     "Square",
