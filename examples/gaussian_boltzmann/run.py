@@ -17,7 +17,7 @@ from goal.geometry import (
     Optimizer,
     OptState,
     Point,
-    PositiveDefinite(),
+    PositiveDefinite,
 )
 from goal.models import (
     Boltzmann,
