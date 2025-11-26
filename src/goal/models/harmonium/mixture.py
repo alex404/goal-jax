@@ -134,7 +134,7 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
     @property
     @override
     def int_man(self) -> RectangularMap[Categorical, IntObservable]:
-        return RectangularMap(Rectangular, self.lat_man, self.int_obs_emb.sub_man)
+        return RectangularMap(Rectangular(), self.lat_man, self.int_obs_emb.sub_man)
 
     # Methods
 

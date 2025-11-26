@@ -202,9 +202,9 @@ class Harmonium[
         lat_dim = self.int_pst_emb.sub_man.dim
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
-        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
+        noise = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
         int_params: Point[Natural, LinearMap[IntLatent, IntObservable]] = (
-            self.int_man.point(self.int_man.rep.from_dense(noise))
+            self.int_man.point(noise)
         )
 
         return self.join_params(obs_params, int_params, lat_params)
@@ -229,9 +229,9 @@ class Harmonium[
         lat_dim = self.int_pst_emb.sub_man.dim
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
-        noise = scaling * jax.random.normal(keys[2], shape=(obs_dim, lat_dim))
+        noise = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
         int_params: Point[Natural, LinearMap[IntLatent, IntObservable]] = (
-            self.int_man.point(self.int_man.rep.from_dense(noise))
+            self.int_man.point(noise)
         )
         return self.join_params(obs_params, int_params, lat_params)
 
