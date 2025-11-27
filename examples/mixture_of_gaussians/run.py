@@ -74,7 +74,7 @@ def goal_to_sklearn_mixture(
     means = []
     covariances: list[Array] = []
     for i in range(components.shape[0]):
-        comp = mix_man.cmp_man.get_replicate(components, jnp.asarray(i))
+        comp = components[i]
         mean, cov = mix_man.obs_man.split_mean_covariance(comp)
         means.append(mean)
         covariances.append(mix_man.obs_man.cov_man.to_dense(cov))

@@ -170,9 +170,9 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
 
 @dataclass(frozen=True)
 class Replicated[M: Manifold](Manifold):
-    """Replicated allows working with collections of parameters each of which lives on the same fundamental manifold, like mixture model components or time series observations. It provides special methods for mapping functions across the copies. In contrast with most manifolds, coordinates are represented as multidimensional (as opposed to flat) arrays.
+    """Replicated allows working with collections of parameters each of which lives on the same fundamental manifold, like mixture model components or time series observations. It provides special methods for mapping functions across the copies.
 
-    In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$, with special handling for the array structure.
+    In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$. Coordinates are stored as flat arrays of shape `[n_reps * rep_man.dim]`, with efficient mapping operations via vmap.
     """
 
     # Fields
@@ -184,41 +184,51 @@ class Replicated[M: Manifold](Manifold):
 
     # Array operations
 
-    def get_replicate(self, p: Array, idx: Array) -> Array:
+    def get_replicate(self, p: Array, idx: int) -> Array:
         """Get parameters for a specific replicate.
 
         Args:
-            p: Array of replicated parameters
+            p: Array of replicated parameters (flat, shape [n_reps * rep_man.dim])
             idx: Index of the replicate to extract
 
         Returns:
-            Array of parameters for that replicate
+            Array of parameters for that replicate (shape [rep_man.dim])
         """
-        return p[idx]
+        start = idx * self.rep_man.dim
+        end = start + self.rep_man.dim
+        return p[start:end]
 
     def map(self, f: Callable[[Array], Array], p: Array) -> Array:
         """Map a function across replicates, returning stacked array results.
 
         Args:
-            f: Function that takes parameters for one replicate
-            p: Array of replicated parameters
+            f: Function that takes parameters for one replicate (shape [rep_man.dim])
+            p: Array of replicated parameters (flat, shape [n_reps * rep_man.dim])
 
         Returns:
-            Stacked results from applying f to each replicate
+            Stacked results with shape [n_reps, *f_result_shape]
         """
-        return jax.vmap(f)(p)
+        # Reshape from flat to [n_reps, rep_man.dim] for vmap
+        p_shaped = p.reshape([self.n_reps, self.rep_man.dim])
+        result = jax.vmap(f)(p_shaped)
+        # Result has shape [n_reps, *f_result_shape], keep structured
+        return result
 
     def man_map(self, f: Callable[[Array], Array], p: Array) -> Array:
         """Map a function across replicates, returning array in replicated codomain.
 
         Args:
             f: Function that takes parameters and returns array
-            p: Array of replicated parameters
+            p: Array of replicated parameters (flat, shape [n_reps * rep_man.dim])
 
         Returns:
-            Array with results stacked across replicates
+            Array with shape [n_reps, *f_result_shape]
         """
-        return jax.vmap(f)(p)
+        # Reshape from flat to [n_reps, rep_man.dim] for vmap
+        p_shaped = p.reshape([self.n_reps, self.rep_man.dim])
+        result = jax.vmap(f)(p_shaped)
+        # Result has shape [n_reps, *f_result_shape], keep structured
+        return result
 
     # Overrides
 
@@ -231,5 +241,5 @@ class Replicated[M: Manifold](Manifold):
     @property
     @override
     def coordinates_shape(self) -> list[int]:
-        """Shape of the coordinates array is `[n_reps, *rep_man.coordinates_shape]`."""
-        return [self.n_reps, *self.rep_man.coordinates_shape]
+        """Shape of the coordinates array - flat representation."""
+        return [self.dim]

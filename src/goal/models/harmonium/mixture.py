@@ -91,11 +91,9 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
         the operation non-invertible without additional information.
         """
         probs = self.pst_man.to_probs(weights)
-        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
-        probs = probs.reshape(probs_shape)
-
         # Scale components - shape: (n_categories, obs_dim)
-        weighted_comps = components * probs
+        # Reshape probs from (n_categories,) to (n_categories, 1) for broadcasting
+        weighted_comps = components * probs[:, None]
 
         # Sum for observable means - shape: (obs_dim,)
         obs_means = jnp.sum(weighted_comps, axis=0)
@@ -262,21 +260,9 @@ class CompleteMixture[Observable: Differentiable](
 
         # Scale remaining components by their probabilities
         # shape: (n_categories-1, obs_dim)
-
-        probs_shape = [-1] + [1] * (len(self.cmp_man.coordinates_shape) - 1)
-        other_comps = int_cols / probs[1:].reshape(probs_shape)
-
-        print("probs_shape:", probs_shape)
-        print("cmp_man.coordinates_shape:", self.cmp_man.coordinates_shape)
-        print("obs_man.coordinates_shape:", self.obs_man.coordinates_shape)
-        jax.debug.print("probs_shape: {}", probs_shape)
-        jax.debug.print("probs shape: {}", probs.shape)
-        print("probs shape:", probs.shape)
-        print("first_comp shape:", first_comp[None, :])
-        print("other_comps shape:", other_comps)
-        # Somehow force the above calls to be evaluated before the next line
-        jax.block_until_ready(first_comp)
-        jax.block_until_ready(other_comps)
+        # int_cols has shape (n_categories-1, obs_dim)
+        # probs[1:] has shape (n_categories-1,), reshape to (n_categories-1, 1) for broadcasting
+        other_comps = int_cols / probs[1:, None]
 
         # Combine components - shape: (n_categories, obs_dim)
         components = jnp.vstack([first_comp[None, :], other_comps])
