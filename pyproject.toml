@@ -63,14 +63,11 @@ venv = ".venv"
 reportUnknownParameterType = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
 
 # Intentional use of Any to work around Python type system limitations
 # (e.g., covariance/contravariance in generics, Self type inference in overrides)
 reportAny = "none"
-reportExplicitAny = "none"
-
-# Design limitations - Python's invariant generics prevent proper return-type specialization
-reportIncompatibleMethodOverride = "warning"
 
 [tool.ruff]
 src = ["src"]

@@ -28,16 +28,15 @@ distributions (flexible dispersion).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self, override
+from typing import override
 
 import jax.numpy as jnp
+from jax import Array
 
 from ...geometry import (
     AnalyticProduct,
     DifferentiableProduct,
     LocationShape,
-    Natural,
-    Point,
     Product,
     TupleEmbedding,
 )
@@ -111,20 +110,46 @@ class CoMPoissonPopulation(
     @override
     def join_params(
         self,
-        first: Point[Natural, PoissonPopulation],
-        second: Point[Natural, PopulationShape],
-    ) -> Point[Natural, Self]:
-        params_matrix = jnp.stack([first.array, second.array])
-        return self.natural_point(params_matrix.T.reshape(-1))
+        first: Array,  # Natural[PoissonPopulation]
+        second: Array,  # Natural[PopulationShape]
+    ) -> Array:  # Natural[Self]
+        """Join location and shape parameters.
+
+        Parameters
+        ----------
+        first : Array
+            Natural parameters for Poisson location (rates).
+        second : Array
+            Natural parameters for shape (dispersion).
+
+        Returns
+        -------
+        Array
+            Natural parameters for COM-Poisson population.
+        """
+        params_matrix = jnp.stack([first, second])
+        return params_matrix.T.reshape(-1)
 
     @override
     def split_params(
         self,
-        params: Point[Natural, Self],
-    ) -> tuple[Point[Natural, PoissonPopulation], Point[Natural, PopulationShape]]:
-        matrix = params.array.reshape(self.n_reps, 2).T
-        loc_params = self.fst_man.natural_point(matrix[0])
-        shp_params = self.snd_man.natural_point(matrix[1])
+        natural_params: Array,  # Natural[Self]
+    ) -> tuple[Array, Array]:  # (Natural[PoissonPopulation], Natural[PopulationShape])
+        """Split into location and shape parameters.
+
+        Parameters
+        ----------
+        natural_params : Array
+            Natural parameters for COM-Poisson population.
+
+        Returns
+        -------
+        tuple[Array, Array]
+            Location parameters (Poisson rates) and shape parameters (dispersion).
+        """
+        matrix = natural_params.reshape(self.n_reps, 2).T
+        loc_params = matrix[0]
+        shp_params = matrix[1]
         return loc_params, shp_params
 
 

@@ -28,10 +28,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Self, override
 
+from jax import Array
+
 from ...geometry import (
     LinearEmbedding,
     Natural,
-    Point,
     PositiveDefinite,
     Rectangular,
     RectangularMap,
@@ -195,25 +196,45 @@ class MixtureOfLGMs(
     @override
     def conjugation_parameters(
         self,
-        lkl_params: Any,  # Point[Natural, AffineMap[...]]
-    ) -> Any:  # Point[Natural, Mixture[Normal, Normal[PostRep]]]
+        lkl_params: Array,  # Natural[AffineMap[...]]
+    ) -> Array:  # Natural[Mixture[Normal, Normal[PostRep]]]
         """Compute conjugation parameters for the mixture of factor analyzers.
 
         Uses the harmonium_mixture_conjugation_parameters decomposition to compute
         the conjugation parameters in the (Y, K) latent space.
+
+        Parameters
+        ----------
+        lkl_params : Array
+            Natural parameters for likelihood function.
+
+        Returns
+        -------
+        Array
+            Natural parameters for conjugation in Mixture[Normal, Normal[PostRep]] space.
         """
         raise NotImplementedError
 
     # Methods
 
     def to_mixture_of_lgms(
-        self, params: Point[Natural, Self]
-    ) -> Point[Natural, CompleteMixture[NormalAnalyticLGM]]:
+        self, natural_params: Array  # Natural[Self]
+    ) -> Array:  # Natural[CompleteMixture[NormalAnalyticLGM]]
         """Convert MFA to Mixture of LGMs representation.
 
         This allows leveraging mixture machinery for inference and sampling.
+
+        Parameters
+        ----------
+        natural_params : Array
+            Natural parameters for the MFA model.
+
+        Returns
+        -------
+        Array
+            Natural parameters for the Mixture of LGMs representation.
         """
-        obs_params, int_params, lat_params = self.split_params(params)
+        obs_params, int_params, lat_params = self.split_params(natural_params)
         lat_obs_params, lat_int_params, lat_lat_params = self.lat_man.split_params(
             lat_params
         )

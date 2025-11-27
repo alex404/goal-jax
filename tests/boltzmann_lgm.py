@@ -16,8 +16,6 @@ from jax import Array
 from pytest import FixtureRequest
 
 from goal.geometry import (
-    Natural,
-    Point,
     PositiveDefinite,
 )
 from goal.models import (
@@ -26,7 +24,6 @@ from goal.models import (
 
 # Type aliases
 Model = BoltzmannLGM
-ModelParams = Point[Natural, BoltzmannLGM]
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -56,7 +53,7 @@ def model(model_dims: tuple[int, int]) -> Model:
 @pytest.fixture
 def random_params(
     model: Model,
-) -> ModelParams:
+) -> Array:
     """Generate random model parameters."""
     key = jax.random.PRNGKey(123)
     # Initialize with small random values to ensure numerical stability
@@ -65,7 +62,7 @@ def random_params(
 
 def test_conjugation_equation(
     model: Model,
-    random_params: ModelParams,
+    random_params: Array,
 ):
     """Test the fundamental conjugation equation for Boltzmann-LGM.
 
@@ -108,8 +105,7 @@ def test_conjugation_equation(
 
         # LHS: ψ(θ_X + θ_{XZ} · s_Z(z))
         # This is the log partition function of the conditional p(x|z)
-        z_loc = model.lat_man.loc_man.point(state)
-        conditional_obs = model.lkl_fun_man(lkl_params, z_loc)
+        conditional_obs = model.lkl_fun_man(lkl_params, state)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)
@@ -136,7 +132,7 @@ def test_conjugation_equation(
 
 def test_observable_density_via_marginalization(
     model: Model,
-    random_params: ModelParams,
+    random_params: Array,
 ):
     """Test that observable density equals sum over latent states.
 
@@ -156,8 +152,7 @@ def test_observable_density_via_marginalization(
 
     def joint_density(state: Array) -> Array:
         # p(x|z)
-        z_loc = model.lat_man.loc_man.point(state)
-        conditional_obs = model.lkl_fun_man(lkl_params, z_loc)
+        conditional_obs = model.lkl_fun_man(lkl_params, state)
         p_x_given_z = model.obs_man.density(conditional_obs, obs)
 
         # p(z)
@@ -183,7 +178,7 @@ def test_observable_density_via_marginalization(
 
 def test_posterior_normalization(
     model: Model,
-    random_params: ModelParams,
+    random_params: Array,
 ):
     """Test that posterior p(z|x) sums to 1 over all latent states."""
     # Generate a random observation
@@ -213,7 +208,7 @@ def test_posterior_normalization(
 
 def test_log_observable_density_formula(
     model: Model,
-    random_params: ModelParams,
+    random_params: Array,
 ):
     """Test that log_observable_density follows harmonium formula.
 
@@ -263,7 +258,7 @@ def test_log_observable_density_formula(
 
 def test_conjugation_parameters_shape(
     model: Model,
-    random_params: ModelParams,
+    random_params: Array,
 ):
     """Test that conjugation parameters have correct dimension."""
     obs_params, int_params, _ = model.split_params(random_params)
@@ -273,6 +268,6 @@ def test_conjugation_parameters_shape(
 
     expected_dim = model.prr_man.dim
 
-    assert rho.array.shape[0] == expected_dim, (
-        f"Conjugation parameters dimension mismatch: {rho.array.shape[0]} vs {expected_dim}"
+    assert rho.shape[0] == expected_dim, (
+        f"Conjugation parameters dimension mismatch: {rho.shape[0]} vs {expected_dim}"
     )

@@ -8,7 +8,6 @@ from jax import Array
 
 from goal.geometry import (
     Natural,
-    Point,
     RectangularMap,
 )
 from goal.models import (
@@ -30,7 +29,7 @@ from .types import LGMResults
 def ground_truth(
     key: Array,
     sample_size: int,
-) -> tuple[FactorAnalysis, Point[Natural, FactorAnalysis], Array]:
+) -> tuple[FactorAnalysis, Array, Array]:
     """Generate synthetic data from a ground truth FA model.
 
     Creates data by:
@@ -41,16 +40,14 @@ def ground_truth(
     fan_man = FactorAnalysis(2, 1)
 
     with fan_man.obs_man as om:
-        obs_mean = om.loc_man.mean_point(jnp.asarray([-0.5, 1.5]))
-        obs_cov = om.cov_man.mean_point(jnp.asarray([2, 0.5]))
+        obs_mean = jnp.asarray([-0.5, 1.5])
+        obs_cov = jnp.asarray([2, 0.5])
         obs_means = om.join_mean_covariance(obs_mean, obs_cov)
         obs_params = om.to_natural(obs_means)
 
     prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
 
-    int_params: Point[Natural, RectangularMap[Euclidean, Euclidean]] = (
-        fan_man.int_man.point(jnp.asarray([1.0, 0.5]))
-    )
+    int_params = jnp.asarray([1.0, 0.5])
     lkl_params = fan_man.lkl_fun_man.join_params(obs_params, int_params)
     fan_params = fan_man.join_conjugated(lkl_params, prr_params)
     sample = fan_man.observable_sample(key, fan_params, sample_size)
@@ -63,13 +60,13 @@ def fit_model[Model: NormalAnalyticLGM](
     model: Model,
     n_steps: int,
     sample: Array,
-) -> tuple[Array, Point[Natural, Model], Point[Natural, Model]]:
+) -> tuple[Array, Array, Array]:
     """Fit model using EM algorithm."""
     params0 = model.initialize(key)
 
     def em_step(
-        carry: Point[Natural, Model], _: Any
-    ) -> tuple[Point[Natural, Model], Array]:
+        carry: Array, _: Any
+    ) -> tuple[Array, Array]:
         params = carry
         ll = model.average_log_observable_density(params, sample)
         next_params = model.expectation_maximization(params, sample)

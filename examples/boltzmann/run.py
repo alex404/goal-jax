@@ -20,14 +20,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Natural, Optimizer, OptState, Point
+from goal.geometry import Natural, Optimizer, OptState
 from goal.models.base.gaussian.boltzmann import Boltzmann
 
 from ..shared import example_paths, initialize_jax
 from .types import BoltzmannPatternResults
 
 
-def create_ground_truth_model() -> tuple[Boltzmann, Point[Natural, Boltzmann]]:
+def create_ground_truth_model() -> tuple[Boltzmann, Array]:
     """Create a ground truth Boltzmann machine with meaningful correlations."""
     model = Boltzmann(n_neurons=4)
 
@@ -48,23 +48,23 @@ def create_ground_truth_model() -> tuple[Boltzmann, Point[Natural, Boltzmann]]:
         ]
     )
 
-    params = model.natural_point(ground_truth_params)
+    params = ground_truth_params
     return model, params
 
 
 def generate_training_data(
     key: Array,
     ground_truth_model: Boltzmann,
-    ground_truth_params: Point[Natural, Boltzmann],
+    ground_truth_natural_params: Array,
     n_samples: int = 1000,
 ) -> Array:
     """Generate training data from ground truth Boltzmann machine."""
-    return ground_truth_model.sample(key, ground_truth_params, n=n_samples)
+    return ground_truth_model.sample(key, ground_truth_natural_params, n=n_samples)
 
 
 def fit_boltzmann_machine(
     training_data: Array, n_steps: int = 2000, learning_rate: float = 0.01
-) -> tuple[Boltzmann, Point[Natural, Boltzmann], Array]:
+) -> tuple[Boltzmann, Array, Array]:
     """Fit a Boltzmann machine to the training data using gradient descent.
 
     Args:
@@ -74,7 +74,7 @@ def fit_boltzmann_machine(
 
     Returns:
         model: Fitted Boltzmann machine
-        params: Learned parameters in natural coordinates
+        natural_params: Learned parameters in natural coordinates
         losses: Training loss history
     """
     model = Boltzmann(n_neurons=4)
@@ -91,47 +91,47 @@ def fit_boltzmann_machine(
     # Initialize parameters at small random values (triangular storage)
     key = jax.random.PRNGKey(42)
     init_params_flat = jax.random.normal(key, (model.dim,)) * 0.1
-    init_params = model.natural_point(init_params_flat)
+    init_natural_params = init_params_flat
 
     # Setup optimizer
     optimizer: Optimizer[Natural, Boltzmann] = Optimizer.adamw(
         model, learning_rate=learning_rate
     )
-    opt_state = optimizer.init(init_params)
+    opt_state = optimizer.init(init_natural_params)
 
-    def cross_entropy_loss(params: Point[Natural, Boltzmann]) -> Array:
+    def cross_entropy_loss(natural_params: Array) -> Array:
         """Negative log-likelihood loss using exponential family interface."""
-        return -model.average_log_density(params, training_data)
+        return -model.average_log_density(natural_params, training_data)
 
     def grad_step(
-        opt_state_and_params: tuple[OptState, Point[Natural, Boltzmann]], _: Any
-    ) -> tuple[tuple[OptState, Point[Natural, Boltzmann]], Array]:
+        opt_state_and_params: tuple[OptState, Array], _: Any
+    ) -> tuple[tuple[OptState, Array], Array]:
         # Compute loss and gradients
-        opt_state, params = opt_state_and_params
-        loss_val, grads = model.value_and_grad(cross_entropy_loss, params)
+        opt_state, natural_params = opt_state_and_params
+        loss_val, grads = model.value_and_grad(cross_entropy_loss, natural_params)
 
         # Get updates from optimizer
-        opt_state, params = optimizer.update(opt_state, grads, params)
+        opt_state, natural_params = optimizer.update(opt_state, grads, natural_params)
 
-        return (opt_state, params), loss_val
+        return (opt_state, natural_params), loss_val
 
     print(f"Starting optimization with {n_steps} steps...")
-    (_, final_params), losses = jax.lax.scan(
-        grad_step, (opt_state, init_params), None, length=n_steps
+    (_, final_natural_params), losses = jax.lax.scan(
+        grad_step, (opt_state, init_natural_params), None, length=n_steps
     )
 
     print(f"Initial loss: {losses[0]:.4f}")
     print(f"Final loss: {losses[-1]:.4f}")
 
     # Extract final parameters for inspection
-    print(f"Final parameters shape: {final_params.array.shape}")
-    print(f"Final parameters: {final_params.array}")
+    print(f"Final parameters shape: {final_natural_params.shape}")
+    print(f"Final parameters: {final_natural_params}")
 
-    return model, final_params, losses
+    return model, final_natural_params, losses
 
 
 def evaluate_model(
-    model: Boltzmann, params: Point[Natural, Boltzmann]
+    model: Boltzmann, natural_params: Array
 ) -> tuple[Array, Array, Array]:
     """Evaluate the fitted model on all possible 2x2 binary states.
 
@@ -144,18 +144,18 @@ def evaluate_model(
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))
 
     # Use exponential family interface directly
-    log_probs = jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states)
+    log_probs = jax.vmap(model.log_density, in_axes=(None, 0))(natural_params, all_states)
     probabilities = jnp.exp(log_probs)
 
     # Energies are negative log unnormalized probabilities
-    log_partition = model.log_partition_function(params)
+    log_partition = model.log_partition_function(natural_params)
     energies = -(log_probs + log_partition)
 
     return all_states, probabilities, energies
 
 
 def test_sampling_convergence(
-    key: Array, model: Boltzmann, params: Point[Natural, Boltzmann]
+    key: Array, model: Boltzmann, natural_params: Array
 ) -> tuple[list[int], list[int], list[list[float]]]:
     """Test that Gibbs sampling converges to exact probabilities.
 
@@ -166,7 +166,7 @@ def test_sampling_convergence(
     # Get exact probabilities using exponential family interface
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))
     exact_probs = jnp.exp(
-        jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states)
+        jax.vmap(model.log_density, in_axes=(None, 0))(natural_params, all_states)
     )
 
     # Test different sample sizes and thinning levels (reduced for speed)
@@ -188,7 +188,7 @@ def test_sampling_convergence(
             # Generate samples using Gibbs sampling
             key, subkey = jax.random.split(key)
             samples = model.sample(
-                subkey, params, n=n_samples, n_burnin=50, n_thin=n_thin
+                subkey, natural_params, n=n_samples, n_burnin=50, n_thin=n_thin
             )
 
             # Compute empirical probabilities

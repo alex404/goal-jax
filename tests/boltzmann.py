@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import Natural, Point, Symmetric
+from goal.geometry import Symmetric
 from goal.models import Boltzmann
 
 # Configure JAX
@@ -32,11 +32,11 @@ def boltzmann(n_neurons: int) -> Boltzmann:
 
 
 @pytest.fixture
-def random_params(boltzmann: Boltzmann) -> Point[Natural, Boltzmann]:
+def random_params(boltzmann: Boltzmann) -> Array:
     """Generate random Boltzmann parameters."""
     key = jax.random.PRNGKey(42)
     params_array = jax.random.uniform(key, (boltzmann.dim,), minval=-2.0, maxval=2.0)
-    return boltzmann.natural_point(params_array)
+    return params_array
 
 
 def test_sufficient_statistic(boltzmann: Boltzmann):
@@ -45,11 +45,11 @@ def test_sufficient_statistic(boltzmann: Boltzmann):
     suff_stat = boltzmann.sufficient_statistic(state)
     expected = Symmetric().from_dense(jnp.outer(state, state))
 
-    assert jnp.allclose(suff_stat.array, expected, rtol=relative_tol, atol=absolute_tol)
+    assert jnp.allclose(suff_stat, expected, rtol=relative_tol, atol=absolute_tol)
 
 
 def test_log_partition_function(
-    boltzmann: Boltzmann, random_params: Point[Natural, Boltzmann]
+    boltzmann: Boltzmann, random_params: Array
 ):
     """Test log partition function equals log(∑ exp(θ·s(x))) over all states."""
     log_Z = boltzmann.log_partition_function(random_params)
@@ -64,7 +64,7 @@ def test_log_partition_function(
 
 
 def test_density_normalization(
-    boltzmann: Boltzmann, random_params: Point[Natural, Boltzmann]
+    boltzmann: Boltzmann, random_params: Array
 ):
     """Test densities sum to 1 over all binary states."""
     densities = jax.vmap(lambda s: boltzmann.density(random_params, s))(
@@ -75,9 +75,9 @@ def test_density_normalization(
     assert jnp.allclose(total_prob, 1.0, rtol=relative_tol, atol=absolute_tol)
 
 
-def test_split_join_round_trip(boltzmann: Boltzmann, random_params: Point[Natural, Boltzmann]):
+def test_split_join_round_trip(boltzmann: Boltzmann, random_params: Array):
     """Test that split_location_precision then join_location_precision recovers parameters."""
     loc, prec = boltzmann.split_location_precision(random_params)
     recovered = boltzmann.join_location_precision(loc, prec)
 
-    assert jnp.allclose(random_params.array, recovered.array, rtol=relative_tol, atol=absolute_tol)
+    assert jnp.allclose(random_params, recovered, rtol=relative_tol, atol=absolute_tol)

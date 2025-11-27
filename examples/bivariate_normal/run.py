@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.stats import multivariate_normal
 
-from goal.geometry import Diagonal, Natural, Point, PositiveDefinite, Scale
+from goal.geometry import Diagonal, Natural, PositiveDefinite, Scale
 from goal.models import (
     Normal,
 )
@@ -20,7 +20,7 @@ from .types import BivariateResults
 
 
 def compute_densities(
-    model: Normal, natural_point: Point[Natural, Normal], xs: Array, ys: Array
+    model: Normal, natural_point: Array, xs: Array, ys: Array
 ) -> Array:
     points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
     zs = jax.vmap(model.density, in_axes=(None, 0))(natural_point, points)
@@ -53,8 +53,7 @@ def compute_gaussian_results(
 
     # Ground truth
     gt_cov = pod_model.cov_man.from_dense(covariance)
-    mu = pod_model.loc_man.mean_point(mean)
-    gt_mean_point = pod_model.join_mean_covariance(mu, gt_cov)
+    gt_mean_point = pod_model.join_mean_covariance(mean, gt_cov)
 
     gt_natural_point = pod_model.to_natural(gt_mean_point)
     gt_dens = compute_densities(pod_model, gt_natural_point, xs, ys)

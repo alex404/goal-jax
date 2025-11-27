@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Mean, Natural, Point, PositiveDefinite
+from goal.geometry import Natural, PositiveDefinite
 from goal.models import (
     Categorical,
     Covariance,
@@ -25,8 +25,8 @@ from .types import (
 def compute_gaussian_results(
     key: Array,
     model: Normal,
-    mu: Point[Mean, Euclidean],
-    sigma: Point[Mean, Covariance],
+    mu: Array,
+    sigma: Array,
     xs: Array,
     sample_size: int,
 ) -> tuple[Array, Array, Array]:
@@ -73,7 +73,7 @@ def compute_categorical_results(
     # Compute densities using vmap
     categories = jnp.arange(probs.shape[0])
 
-    def compute_prob(p: Point[Natural, Categorical], k: Array) -> Array:
+    def compute_prob(p: Array, k: Array) -> Array:
         return model.density(p, k)
 
     true_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural, categories)
@@ -95,8 +95,7 @@ def compute_poisson_results(
         sample, true_pmf, estimated_pmf
     """
     # Create ground truth distribution
-
-    p_mean = model.mean_point(jnp.atleast_1d(rate))
+    p_mean = jnp.atleast_1d(rate)
     p_natural = model.to_natural(p_mean)
 
     # Sample and estimate
@@ -104,7 +103,7 @@ def compute_poisson_results(
     p_mean_est = model.average_sufficient_statistic(sample)
     p_natural_est = model.to_natural(p_mean_est)
 
-    def compute_pmf(p: Point[Natural, Poisson], k: Array) -> Array:
+    def compute_pmf(p: Array, k: Array) -> Array:
         return model.density(p, k)
 
     true_pmf = jax.vmap(compute_pmf, in_axes=(None, 0))(p_natural, ks)
@@ -134,8 +133,8 @@ def main():
     normal = Normal(1, PositiveDefinite())
     mu0 = 2.0
     sigma = 1.5
-    mu = normal.loc_man.mean_point(jnp.atleast_1d(mu0))
-    cov = normal.cov_man.mean_point(jnp.atleast_1d(sigma**2))
+    mu = jnp.atleast_1d(mu0)
+    cov = jnp.atleast_1d(sigma**2)
     xs = jnp.linspace(mu0 - 4 * sigma, mu0 + 4 * sigma, 200)
 
     sample, true_dens, est_dens = compute_gaussian_results(

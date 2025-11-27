@@ -11,13 +11,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 import jax
-import jax.numpy as jnp
 from jax import Array
 
-from .base import Coordinates, Dual, Manifold, Point
+from .base import Manifold
 from .combinators import Tuple
 
 ### Linear Subspaces ###
@@ -43,39 +42,50 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
         """The ambient manifold."""
 
     @abstractmethod
-    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Ambient]:
-        """Embed a point from the submanifold in the ambient manifold."""
+    def embed(self, p: Array) -> Array:
+        """Embed a point from the submanifold in the ambient manifold.
 
-    def pullback[C: Coordinates](
-        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Ambient]
-    ) -> Point[Dual[C], Sub]:
+        Args:
+            p: Point on the submanifold
+
+        Returns:
+            Embedded point on the ambient manifold
+        """
+
+    def pullback(self, at_point: Array, cotangent_vector: Array) -> Array:
         """Pull back a cotangent vector from the ambient manifold to the submanifold.
 
-        In practice, this transforms gradients computed in the larger model space to the constrained model space, enabling optimization in the lower-dimensional space. It's essential for efficiently computing natural gradients on submodels and implementing constrained optimization.
+        In practice, this transforms gradients computed in the larger model space to the constrained model space,
+        enabling optimization in the lower-dimensional space. It's essential for efficiently computing natural
+        gradients on submodels and implementing constrained optimization.
 
         In theory, given the embedding $\\phi: \\mathcal M \\to \\mathcal N$. At $w = \\phi(v)$, the pullback is the mapping
         $$
         \\phi^*: T^*_w \\mathcal N \\to T^*_v \\mathcal M
         $$
-        from the cotangent space on $\\mathcal N$ at $w$ to the cotangent space on $\\mathcal M$ at $v$. Where $\\omega \\in T^*_w \\mathcal N$ is a cotangent vector, the pullback is given by
+        from the cotangent space on $\\mathcal N$ at $w$ to the cotangent space on $\\mathcal M$ at $v$. Where
+        $\\omega \\in T^*_w \\mathcal N$ is a cotangent vector, the pullback is given by
         $$
         \\phi^*(\\omega) = \\omega \\cdot \\frac{\\partial \\phi}{\\partial v},
         $$
         where $\\frac{\\partial \\phi}{\\partial v}$ is the Jacobian of $\\phi$ at $v$.
+
+        Args:
+            at_point: Point on the submanifold
+            cotangent_vector: Cotangent vector on the ambient manifold
+
+        Returns:
+            Pulled back cotangent vector on the submanifold
         """
 
         def embed_func(sub_array: Array) -> Array:
-            sub_point: Point[C, Sub] = self.sub_man.point(sub_array)
-            embedded_point = self.embed(sub_point)
-            return embedded_point.array
+            return self.embed(sub_array)
 
         # Compute VJP function at the current point
-        _, vjp_fn = jax.vjp(embed_func, at_point.array)  # pyright: ignore[reportUnknownVariableType]
+        _, vjp_fn = jax.vjp(embed_func, at_point)
 
         # Apply VJP to transform the cotangent vector
-        pulled_back_array = vjp_fn(cotangent_vector.array)[0]  # pyright: ignore[reportUnknownVariableType]
-
-        return self.sub_man.point(pulled_back_array)
+        return vjp_fn(cotangent_vector)[0]
 
 
 @dataclass(frozen=True)
@@ -93,24 +103,41 @@ class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient],
     # Contract
 
     @abstractmethod
-    def project[C: Coordinates](
-        self, p: Point[Dual[C], Ambient]
-    ) -> Point[Dual[C], Sub]:
-        """Project a point from the ambient space to the subspace."""
+    def project(self, p: Array) -> Array:
+        """Project a point from the ambient space to the subspace.
 
-    def translate[C: Coordinates](
-        self, p: Point[C, Ambient], q: Point[C, Sub]
-    ) -> Point[C, Ambient]:
-        """Translate point by subspace components."""
+        Args:
+            p: Point on the ambient manifold
+
+        Returns:
+            Projected point on the submanifold
+        """
+
+    def translate(self, p: Array, q: Array) -> Array:
+        """Translate point by subspace components.
+
+        Args:
+            p: Point on the ambient manifold
+            q: Point on the submanifold
+
+        Returns:
+            Translated point on the ambient manifold
+        """
         return p + self.embed(q)
 
     # Overrides
 
     @override
-    def pullback[C: Coordinates](
-        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Ambient]
-    ) -> Point[Dual[C], Sub]:
-        """For linear subspaces, pullback is location-independent."""
+    def pullback(self, at_point: Array, cotangent_vector: Array) -> Array:
+        """For linear subspaces, pullback is location-independent.
+
+        Args:
+            at_point: Point on the submanifold
+            cotangent_vector: Cotangent vector on the ambient manifold
+
+        Returns:
+            Pulled back cotangent vector on the submanifold
+        """
         return self.project(cotangent_vector)
 
 
@@ -131,15 +158,40 @@ class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
         return self.man
 
     @override
-    def project[C: Coordinates](self, p: Point[Dual[C], M]) -> Point[Dual[C], M]:
+    def project(self, p: Array) -> Array:
+        """Project a point (identity operation).
+
+        Args:
+            p: Point on the manifold
+
+        Returns:
+            Same point
+        """
         return p
 
     @override
-    def embed[C: Coordinates](self, p: Point[C, M]) -> Point[C, M]:
+    def embed(self, p: Array) -> Array:
+        """Embed a point (identity operation).
+
+        Args:
+            p: Point on the manifold
+
+        Returns:
+            Same point
+        """
         return p
 
     @override
-    def translate[C: Coordinates](self, p: Point[C, M], q: Point[C, M]) -> Point[C, M]:
+    def translate(self, p: Array, q: Array) -> Array:
+        """Translate point by adding (identity operation).
+
+        Args:
+            p: First point
+            q: Second point
+
+        Returns:
+            Sum of the two points
+        """
         return p + q
 
 
@@ -177,14 +229,29 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
         return self.sub_emb.sub_man
 
     @override
-    def embed[C: Coordinates](self, p: Point[C, Sub]) -> Point[C, Ambient]:
+    def embed(self, p: Array) -> Array:
+        """Embed through composed embeddings.
+
+        Args:
+            p: Point on the submanifold
+
+        Returns:
+            Embedded point on the ambient manifold
+        """
         mid = self.sub_emb.embed(p)
         return self.mid_emb.embed(mid)
 
     @override
-    def pullback[C: Coordinates](
-        self, at_point: Point[C, Sub], cotangent_vector: Point[Dual[C], Ambient]
-    ) -> Point[Dual[C], Sub]:
+    def pullback(self, at_point: Array, cotangent_vector: Array) -> Array:
+        """Pull back through composed embeddings.
+
+        Args:
+            at_point: Point on the submanifold
+            cotangent_vector: Cotangent vector on the ambient manifold
+
+        Returns:
+            Pulled back cotangent vector on the submanifold
+        """
         # First, embed the point to get its location in the middle space
         mid_point = self.sub_emb.embed(at_point)
 
@@ -217,19 +284,30 @@ class LinearComposedEmbedding[
     # Overrides
 
     @override
-    def project[C: Coordinates](
-        self, p: Point[Dual[C], Ambient]
-    ) -> Point[Dual[C], Sub]:
+    def project(self, p: Array) -> Array:
+        """Project through composed linear embeddings.
+
+        Args:
+            p: Point on the ambient manifold
+
+        Returns:
+            Projected point on the submanifold
+        """
         mid = self.mid_emb.project(p)
         return self.sub_emb.project(mid)
 
     @override
-    def translate[C: Coordinates](
-        self, p: Point[C, Ambient], q: Point[C, Sub]
-    ) -> Point[C, Ambient]:
-        mid_zero: Point[C, Mid] = self.mid_man.point(
-            jnp.zeros(self.mid_emb.sub_man.dim)
-        )
+    def translate(self, p: Array, q: Array) -> Array:
+        """Translate through composed linear embeddings.
+
+        Args:
+            p: Point on the ambient manifold
+            q: Point on the submanifold
+
+        Returns:
+            Translated point on the ambient manifold
+        """
+        mid_zero = self.mid_man.zeros()
         mid = self.sub_emb.translate(mid_zero, q)
         return self.mid_emb.translate(p, mid)
 
@@ -252,9 +330,9 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
 
     def __post_init__(self):
         """Validate that the component manifold matches the expected component at the given index."""
-        # Get all components (using Any coordinates since this is just validation)
-        zero_tuple: Point[Any, TupleMan] = self.amb_man.zeros()
-        components: tuple[Point[Any, Any], ...] = self.amb_man.split_params(zero_tuple)
+        # Get all components
+        zero_tuple = self.amb_man.zeros()
+        components = self.amb_man.split_params(zero_tuple)
 
         # Check if index is valid
         if self.tup_idx >= len(components):
@@ -277,18 +355,32 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         return self.sub_man
 
     @override
-    def project[C: Coordinates](self, p: Point[C, TupleMan]) -> Point[C, Component]:
-        """Project a point from the tuple manifold to the specified component."""
+    def project(self, p: Array) -> Array:
+        """Project a point from the tuple manifold to the specified component.
+
+        Args:
+            p: Point on the tuple manifold
+
+        Returns:
+            Component at the specified index
+        """
         # Split the tuple and get the component at the specified index
         components = self.amb_man.split_params(p)
-        return components[self.tup_idx]  # type: ignore[return-value]
+        return components[self.tup_idx]
 
     @override
-    def embed[C: Coordinates](self, p: Point[C, Component]) -> Point[C, TupleMan]:
-        """Creates a new point in the tuple manifold with the specified component set to p and all other components set to zero."""
+    def embed(self, p: Array) -> Array:
+        """Creates a new point in the tuple manifold with the specified component set to p and all other components set to zero.
+
+        Args:
+            p: Point on the component manifold
+
+        Returns:
+            Point on the tuple manifold
+        """
         # Split a zero tuple to get zero components
-        zero_tuple: Point[C, TupleMan] = self.amb_man.zeros()
-        components: list[Point[C, Any]] = list(self.amb_man.split_params(zero_tuple))
+        zero_tuple = self.amb_man.zeros()
+        components = list(self.amb_man.split_params(zero_tuple))
 
         # Replace the component at the specified index
         components[self.tup_idx] = p
@@ -297,10 +389,16 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         return self.amb_man.join_params(*components)
 
     @override
-    def translate[C: Coordinates](
-        self, p: Point[C, TupleMan], q: Point[C, Component]
-    ) -> Point[C, TupleMan]:
-        """Updates the component at the specified index by adding q, leaving other components unchanged."""
+    def translate(self, p: Array, q: Array) -> Array:
+        """Updates the component at the specified index by adding q, leaving other components unchanged.
+
+        Args:
+            p: Point on the tuple manifold
+            q: Point on the component manifold
+
+        Returns:
+            Updated point on the tuple manifold
+        """
         # Split the tuple into components
         components = list(self.amb_man.split_params(p))
 

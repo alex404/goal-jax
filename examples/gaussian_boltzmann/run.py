@@ -16,7 +16,6 @@ from goal.geometry import (
     Natural,
     Optimizer,
     OptState,
-    Point,
     PositiveDefinite,
 )
 from goal.models import (
@@ -31,9 +30,6 @@ from .types import GaussianBoltzmannResults
 
 # Type aliases for readability
 Model = BoltzmannLGM
-ModelParams = Point[Natural, BoltzmannLGM]
-BoltzmannParams = Point[Natural, Boltzmann]
-LikelihoodParams = Point[Natural, AffineMap[Euclidean, Euclidean, Normal]]
 
 
 ### Constants ###

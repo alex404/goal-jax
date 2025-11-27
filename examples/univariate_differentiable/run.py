@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Natural, Optimizer, OptState, Point
+from goal.geometry import Natural, Optimizer, OptState
 from goal.models import CoMPoisson, VonMises
 
 from ..shared import example_paths, initialize_jax
@@ -35,12 +35,12 @@ def fit_von_mises(
     )
     opt_state = optimizer.init(init_params)
 
-    def cross_entropy_loss(params: Point[Natural, VonMises]) -> Array:
+    def cross_entropy_loss(params: Array) -> Array:
         return -von_man.average_log_density(params, sample)
 
     def grad_step(
-        opt_state_and_params: tuple[OptState, Point[Natural, VonMises]], _: Any
-    ) -> tuple[tuple[OptState, Point[Natural, VonMises]], Array]:
+        opt_state_and_params: tuple[OptState, Array], _: Any
+    ) -> tuple[tuple[OptState, Array], Array]:
         # Compute loss and gradients
         opt_state, params = opt_state_and_params
         loss_val, grads = von_man.value_and_grad(cross_entropy_loss, params)
@@ -111,12 +111,12 @@ def fit_com_poisson(
     )
     opt_state = optimizer.init(init_params)
 
-    def cross_entropy_loss(params: Point[Natural, CoMPoisson]) -> Array:
+    def cross_entropy_loss(params: Array) -> Array:
         return -com_man.average_log_density(params, sample)
 
     def grad_step(
-        opt_state_and_params: tuple[OptState, Point[Natural, CoMPoisson]], _: Any
-    ) -> tuple[tuple[OptState, Point[Natural, CoMPoisson]], Array]:
+        opt_state_and_params: tuple[OptState, Array], _: Any
+    ) -> tuple[tuple[OptState, Array], Array]:
         opt_state, params = opt_state_and_params
         loss_val, grads = com_man.value_and_grad(cross_entropy_loss, params)
         opt_state, params = optimizer.update(opt_state, grads, params)

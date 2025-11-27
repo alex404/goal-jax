@@ -18,8 +18,6 @@ from jax.scipy import stats
 
 from goal.geometry import (
     Diagonal,
-    Mean,
-    Point,
     PositiveDefinite,
     Scale,
 )
@@ -48,19 +46,19 @@ def ground_truth_normal() -> Normal:
 @pytest.fixture
 def ground_truth_params(
     ground_truth_normal: Normal,
-) -> Point[Mean, Normal]:
+) -> Array:
     """Create ground truth parameters in mean coordinates."""
-    gt_cov: Point[Mean, Covariance] = ground_truth_normal.cov_man.from_dense(
+    gt_cov = ground_truth_normal.cov_man.from_dense(
         sampling_covariance
     )
-    mu = ground_truth_normal.loc_man.mean_point(sampling_mean)
+    mu = sampling_mean
     return ground_truth_normal.join_mean_covariance(mu, gt_cov)
 
 
 @pytest.fixture
 def sample_data(
     ground_truth_normal: Normal,
-    ground_truth_params: Point[Mean, Normal],
+    ground_truth_params: Array,
 ) -> Array:
     """Generate sample data from ground truth distribution."""
     key = jax.random.PRNGKey(0)
@@ -98,11 +96,11 @@ def test_single_model(
 
     # Fit model
     means = model.average_sufficient_statistic(sample_data)
-    logger.info(f"Mean parameters: {means.array}")
+    logger.info(f"Mean parameters: {means}")
 
     # Convert to natural parameters
     params = model.to_natural(means)
-    logger.info(f"Natural parameters: {params.array}")
+    logger.info(f"Natural parameters: {params}")
 
     valid = bool(model.check_natural_parameters(params))
 
@@ -118,8 +116,8 @@ def test_single_model(
     # Test parameter recovery
     recovered_means = model.to_mean(params)
     assert jnp.allclose(
-        recovered_means.array,
-        means.array,
+        recovered_means,
+        means,
         rtol=relative_tol,
         atol=absolute_tol,
     ), "Failed to recover mean parameters"
@@ -127,7 +125,7 @@ def test_single_model(
     # Compare to scipy implementation
     mean, cov = model.split_mean_covariance(means)
     dense_cov = model.cov_man.to_dense(cov)
-    scipy_ll = scipy_log_likelihood(sample_data, mean.array, dense_cov)
+    scipy_ll = scipy_log_likelihood(sample_data, mean, dense_cov)
     logger.info(f"Scipy average log-density: {scipy_ll}")
 
     assert jnp.allclose(log_density, scipy_ll, rtol=relative_tol, atol=absolute_tol), (
@@ -137,22 +135,21 @@ def test_single_model(
 
 def test_whiten(
     ground_truth_normal: Normal,
-    ground_truth_params: Point[Mean, Normal],
+    ground_truth_params: Array,
 ) -> None:
     """Test whitening of normal distributions."""
     # Extract ground truth mean and covariance
     gt_mean, gt_cov = ground_truth_normal.split_mean_covariance(ground_truth_params)
-    gt_mean_array = gt_mean.array
+    gt_mean_array = gt_mean
     gt_cov_matrix = ground_truth_normal.cov_man.to_dense(gt_cov)
 
     # Create a test distribution different from ground truth
     test_mean = jnp.array([3.0, -2.0])  # Different from ground truth
     test_cov_matrix = jnp.array([[1.5, 0.3], [0.3, 2.0]])  # Different from ground truth
 
-    test_mean_point = ground_truth_normal.loc_man.mean_point(test_mean)
     test_cov_point = ground_truth_normal.cov_man.from_dense(test_cov_matrix)
     test_dist = ground_truth_normal.join_mean_covariance(
-        test_mean_point, test_cov_point
+        test_mean, test_cov_point
     )
 
     # Test 1: Whiten ground truth relative to itself should give standard normal
@@ -160,7 +157,7 @@ def test_whiten(
     norm_gt_mean, norm_gt_cov = ground_truth_normal.split_mean_covariance(norm_gt)
 
     assert jnp.allclose(
-        norm_gt_mean.array, jnp.zeros_like(gt_mean_array), rtol=1e-5, atol=1e-7
+        norm_gt_mean, jnp.zeros_like(gt_mean_array), rtol=1e-5, atol=1e-7
     ), "Whitening a distribution relative to itself should give zero mean"
     assert jnp.allclose(
         ground_truth_normal.cov_man.to_dense(norm_gt_cov),
@@ -185,7 +182,7 @@ def test_whiten(
     expected_cov = jax.scipy.linalg.solve_triangular(chol, temp.T, lower=True).T
 
     # Verify results
-    assert jnp.allclose(whitened_mean.array, expected_mean, rtol=1e-5, atol=1e-7), (
+    assert jnp.allclose(whitened_mean, expected_mean, rtol=1e-5, atol=1e-7), (
         "Whitened mean doesn't match expected value"
     )
     assert jnp.allclose(
@@ -200,10 +197,9 @@ def test_whiten(
     third_mean = jnp.array([-1.0, 0.5])
     third_cov_matrix = jnp.array([[0.8, -0.1], [-0.1, 1.2]])
 
-    third_mean_point = ground_truth_normal.loc_man.mean_point(third_mean)
     third_cov_point = ground_truth_normal.cov_man.from_dense(third_cov_matrix)
     third_dist = ground_truth_normal.join_mean_covariance(
-        third_mean_point, third_cov_point
+        third_mean, third_cov_point
     )
 
     # Whiten third_dist with respect to test_dist
@@ -266,9 +262,9 @@ def test_model_consistency(
     dia_means = dia_model.to_mean(dia_natural)
     pod_means = pod_model.to_mean(pod_natural)
 
-    logger.info(f"Isotropic natural parameters: {iso_natural.array}")
-    logger.info(f"Diagonal natural parameters: {dia_natural.array}")
-    logger.info(f"PositiveDefinite natural parameters: {pod_natural.array}")
+    logger.info(f"Isotropic natural parameters: {iso_natural}")
+    logger.info(f"Diagonal natural parameters: {dia_natural}")
+    logger.info(f"PositiveDefinite natural parameters: {pod_natural}")
     logger.info(
         f"Isotropic precisions: {iso_model.cov_man.to_dense(iso_model.split_location_precision(iso_natural)[1])}"
     )
@@ -278,9 +274,9 @@ def test_model_consistency(
     logger.info(
         f"Positive Definite precisions: {pod_model.cov_man.to_dense(pod_model.split_location_precision(pod_natural)[1])}"
     )
-    logger.info(f"Isotropic mean parameters: {iso_means.array}")
-    logger.info(f"Diagonal mean parameters: {dia_means.array}")
-    logger.info(f"PositiveDefinite mean parameters: {pod_means.array}")
+    logger.info(f"Isotropic mean parameters: {iso_means}")
+    logger.info(f"Diagonal mean parameters: {dia_means}")
+    logger.info(f"PositiveDefinite mean parameters: {pod_means}")
 
     # Compare negative entropy
     iso_ne = iso_model.negative_entropy(iso_means)
@@ -300,19 +296,19 @@ def test_model_consistency(
     pod_recovered = pod_model.to_natural(pod_means)
 
     assert jnp.allclose(
-        iso_recovered.array, iso_natural.array, rtol=relative_tol, atol=absolute_tol
+        iso_recovered, iso_natural, rtol=relative_tol, atol=absolute_tol
     )
     assert jnp.allclose(
-        dia_recovered.array, dia_natural.array, rtol=relative_tol, atol=absolute_tol
+        dia_recovered, dia_natural, rtol=relative_tol, atol=absolute_tol
     )
     assert jnp.allclose(
-        pod_recovered.array, pod_natural.array, rtol=relative_tol, atol=absolute_tol
+        pod_recovered, pod_natural, rtol=relative_tol, atol=absolute_tol
     )
 
 
 def test_precision_is_inverse_of_covariance(
     ground_truth_normal: Normal,
-    ground_truth_params: Point[Mean, Normal],
+    ground_truth_params: Array,
 ):
     """Test that split_location_precision returns the actual precision matrix Σ^{-1}."""
     # Convert to natural parameters

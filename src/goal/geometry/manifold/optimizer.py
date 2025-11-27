@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NewType
 
+from jax import Array
 from optax import (
     GradientTransformation,
     ScalarOrSchedule,
@@ -15,7 +16,7 @@ from optax import (
     sgd,
 )
 
-from .base import Coordinates, Dual, Manifold, Point
+from .base import Coordinates, Manifold
 
 # Create an opaque type for optimizer state
 OptState = NewType("OptState", object)
@@ -43,8 +44,16 @@ class Optimizer[C: Coordinates, M: Manifold]:
 
         return cls(opt, man)
 
-    def init(self, point: Point[C, M]) -> OptState:
-        return OptState(self.optimizer.init(point.array))
+    def init(self, point: Array) -> OptState:
+        """Initialize optimizer state for a point.
+
+        Args:
+            point: Parameter array
+
+        Returns:
+            Optimizer state
+        """
+        return OptState(self.optimizer.init(point))
 
     @classmethod
     def sgd(
@@ -53,25 +62,42 @@ class Optimizer[C: Coordinates, M: Manifold]:
         learning_rate: ScalarOrSchedule = 0.1,
         momentum: float = 0.0,
     ) -> Optimizer[C, M]:
-        """Create SGD optimizer with optional gradient clipping."""
-        opt = sgd(learning_rate, momentum=momentum)
+        """Create SGD optimizer with optional gradient clipping.
 
+        Args:
+            man: Manifold for optimization
+            learning_rate: Learning rate
+            momentum: Momentum parameter
+
+        Returns:
+            SGD optimizer instance
+        """
+        opt = sgd(learning_rate, momentum=momentum)
         return cls(opt, man)
 
     def update(
         self,
         opt_state: OptState,
-        grads: Point[Dual[C], M],
-        point: Point[C, M],
-    ) -> tuple[OptState, Point[C, M]]:
+        grads: Array,
+        point: Array,
+    ) -> tuple[OptState, Array]:
+        """Apply optimizer update to parameters.
+
+        Args:
+            opt_state: Current optimizer state
+            grads: Gradient array
+            point: Current parameter array
+
+        Returns:
+            Tuple of (new optimizer state, updated parameters)
+        """
         updates, new_opt_state = self.optimizer.update(
-            grads.array,
-            opt_state,  # pyright: ignore[reportArgumentType]
-            point.array,
+            grads,
+            opt_state,
+            point,
         )
-        new_params = apply_updates(point.array, updates)
-        new_point: Point[C, M] = self.opt_man.point(new_params)  # pyright: ignore[reportArgumentType, reportUnknownVariableType]
-        return OptState(new_opt_state), new_point
+        new_params = apply_updates(point, updates)
+        return OptState(new_opt_state), new_params
 
     def with_grad_clip(self, max_norm: float) -> Optimizer[C, M]:
         """Add gradient clipping to this optimizer."""

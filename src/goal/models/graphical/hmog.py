@@ -33,7 +33,7 @@ convenient construction for common configurations.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 from jax import Array
 
@@ -41,8 +41,6 @@ from ...geometry import (
     AnalyticConjugated,
     DifferentiableConjugated,
     LatentHarmoniumEmbedding,
-    Mean,
-    Natural,
     ObservableEmbedding,
     PositiveDefinite,
     RectangularMap,
@@ -50,9 +48,7 @@ from ...geometry import (
     hierarchical_conjugation_parameters,
     hierarchical_to_natural_likelihood,
 )
-from ...geometry.manifold.base import Point
 from ...geometry.manifold.embedding import LinearComposedEmbedding, LinearEmbedding
-from ...geometry.manifold.linear import AffineMap
 from ..base.gaussian.generalized import Euclidean
 from ..base.gaussian.normal import Normal
 from ..harmonium.lgm import (
@@ -154,9 +150,20 @@ class DifferentiableHMoG(
     @override
     def conjugation_parameters(
         self,
-        lkl_params: Point[Natural, AffineMap[Normal, Normal, Normal]],
-    ) -> Point[Natural, Mixture[Normal, Normal]]:
-        """Compute conjugation parameters for the hierarchical structure."""
+        lkl_params: Array,  # Natural[AffineMap[Normal, Normal, Normal]]
+    ) -> Array:  # Natural[Mixture[Normal, Normal]]
+        """Compute conjugation parameters for the hierarchical structure.
+
+        Parameters
+        ----------
+        lkl_params : Array
+            Natural parameters for likelihood function.
+
+        Returns
+        -------
+        Array
+            Natural parameters for conjugation in Mixture[Normal, Normal] space.
+        """
         return hierarchical_conjugation_parameters(
             self.lwr_hrm, self.prr_upr_hrm, lkl_params
         )
@@ -234,16 +241,27 @@ class SymmetricHMoG(
     @override
     def conjugation_parameters(
         self,
-        lkl_params: Point[Natural, AffineMap[Normal, Normal, Normal]],
-    ) -> Point[Natural, Mixture[Normal, Normal]]:
-        """Compute conjugation parameters for the hierarchical structure."""
+        lkl_params: Array,  # Natural[AffineMap[Normal, Normal, Normal]]
+    ) -> Array:  # Natural[Mixture[Normal, Normal]]
+        """Compute conjugation parameters for the hierarchical structure.
+
+        Parameters
+        ----------
+        lkl_params : Array
+            Natural parameters for likelihood function.
+
+        Returns
+        -------
+        Array
+            Natural parameters for conjugation in Mixture[Normal, Normal] space.
+        """
         return hierarchical_conjugation_parameters(
             self.lwr_hrm, self.upr_hrm, lkl_params
         )
 
 
 @dataclass(frozen=True)
-class AnalyticHMoG(  # pyright: ignore[reportGeneralTypeIssues]
+class AnalyticHMoG(
     AnalyticConjugated[
         Normal,  # Observable
         Euclidean,  # IntObservable
@@ -274,11 +292,22 @@ class AnalyticHMoG(  # pyright: ignore[reportGeneralTypeIssues]
     @override
     def to_natural_likelihood(
         self,
-        params: Point[Mean, Any],
-    ) -> Point[Natural, AffineMap[Normal, Normal, Normal]]:
-        """Convert mean parameters to natural likelihood parameters."""
+        mean_params: Array,  # Mean[AnalyticHMoG]
+    ) -> Array:  # Natural[AffineMap[Normal, Normal, Normal]]
+        """Convert mean parameters to natural likelihood parameters.
+
+        Parameters
+        ----------
+        mean_params : Array
+            Mean parameters for the hierarchical model.
+
+        Returns
+        -------
+        Array
+            Natural parameters for likelihood function.
+        """
         return hierarchical_to_natural_likelihood(
-            self, self.lwr_hrm, self.upr_hrm, params
+            self, self.lwr_hrm, self.upr_hrm, mean_params
         )
 
 

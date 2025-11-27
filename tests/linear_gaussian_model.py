@@ -17,7 +17,7 @@ import pytest
 from jax import Array
 from jax.scipy import stats
 
-from goal.geometry import Diagonal, Mean, Point, PositiveDefinite, Scale
+from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import Covariance, FactorAnalysis, Normal, NormalAnalyticLGM
 
 # Configure JAX
@@ -60,7 +60,7 @@ def ground_truth_normal() -> Normal:
 @pytest.fixture
 def ground_truth_params(
     ground_truth_normal: Normal,
-) -> Point[Mean, Normal]:
+) -> Array:
     """Create ground truth parameters in mean coordinates."""
     # Create joint mean
     joint_mean = jnp.concatenate([obs_mean, lat_mean])
@@ -73,15 +73,15 @@ def ground_truth_params(
         ]
     )
 
-    mu = ground_truth_normal.loc_man.mean_point(joint_mean)
-    cov: Point[Mean, Covariance] = ground_truth_normal.cov_man.from_dense(joint_cov)
+    mu = joint_mean
+    cov = ground_truth_normal.cov_man.from_dense(joint_cov)
     return ground_truth_normal.join_mean_covariance(mu, cov)
 
 
 @pytest.fixture
 def sample_data(
     ground_truth_normal: Normal,
-    ground_truth_params: Point[Mean, Normal],
+    ground_truth_params: Array,
 ) -> Array:
     """Generate sample data from ground truth distribution."""
     key = jax.random.PRNGKey(0)
@@ -132,7 +132,7 @@ def test_factor_analysis_loadings(caplog: pytest.LogCaptureFixture) -> None:
     # Check that we get expected results
 
     # 1. Mean should match input means
-    assert jnp.allclose(mean.array, means, rtol=1e-4, atol=1e-4), "Means don't match"
+    assert jnp.allclose(mean, means, rtol=1e-4, atol=1e-4), "Means don't match"
 
     # 2. Covariance should be LLᵀ + D
     expected_cov = loadings @ loadings.T + jnp.diag(diags)
@@ -146,7 +146,7 @@ def test_factor_analysis_loadings(caplog: pytest.LogCaptureFixture) -> None:
     ll = nor_man.log_density(nor_params, sample)
     assert jnp.isfinite(ll), "Log density at mean is not finite"
 
-    logger.info(f"Mean: {mean.array}")
+    logger.info(f"Mean: {mean}")
     logger.info(f"Expected covariance:\n{expected_cov}")
     logger.info(f"Actual covariance:\n{actual_cov}")
     logger.info(f"Log density at mean: {ll}")
@@ -170,7 +170,7 @@ def test_observable_distributions(
 
     # Compare densities
     obs_data = sample_data[:, :obs_dim]  # Extract observable components
-    direct_ll = lgm.average_log_observable_density(params, obs_data)
+    direct_ll = lgm.average_log_observable_density(params, obs_data.astype(jnp.float32))
 
     nor_man, marginal = lgm.observable_distribution(params)
     marginal_ll = nor_man.average_log_density(marginal, obs_data)
@@ -207,7 +207,7 @@ def test_single_model(
 
     # Fit LGM model
     means = lgm_man.average_sufficient_statistic(sample_data)
-    logger.info(f"Mean parameters: {means.array}")
+    logger.info(f"Mean parameters: {means}")
 
     # Natural -> Mean recovery
     params = lgm_man.to_natural(means)
@@ -221,31 +221,31 @@ def test_single_model(
 
     remeans = lgm_man.to_mean(params)
     reparams = lgm_man.to_natural(remeans)
-    logger.info(f"Mean parameters: {means.array}")
-    logger.info(f"Remean parameters: {remeans.array}")
-    logger.info(f"Natural parameters: {params.array}")
-    logger.info(f"ReNatural parameters: {reparams.array}")
+    logger.info(f"Mean parameters: {means}")
+    logger.info(f"Remean parameters: {remeans}")
+    logger.info(f"Natural parameters: {params}")
+    logger.info(f"ReNatural parameters: {reparams}")
 
     assert jnp.allclose(
-        remeans.array, means.array, rtol=relative_tol, atol=absolute_tol
+        remeans, means, rtol=relative_tol, atol=absolute_tol
     )
 
     assert jnp.allclose(
-        reparams.array, params.array, rtol=relative_tol, atol=absolute_tol
+        reparams, params, rtol=relative_tol, atol=absolute_tol
     )
 
     # Test parameter recovery
     recovered_mean_params = lgm_man.to_mean(params)
     assert jnp.allclose(
-        recovered_mean_params.array,
-        means.array,
+        recovered_mean_params,
+        means,
         rtol=relative_tol,
         atol=absolute_tol,
     ), "Failed to recover mean parameters"
 
     # Convert to normal model
     nor_params = lgm_man.to_normal(params)
-    logger.info(f"Normal natural parameters: {nor_params.array}")
+    logger.info(f"Normal natural parameters: {nor_params}")
 
     # Compare log-partition functions
     logger.info("\nComparing log partition functions:")
@@ -269,7 +269,7 @@ def test_single_model(
     # Compare to scipy
     mean, cov = nor_man.split_mean_covariance(nor_man.to_mean(nor_params))
     scipy_ll = scipy_log_likelihood(
-        sample_data, mean.array, nor_man.cov_man.to_dense(cov)
+        sample_data, mean, nor_man.cov_man.to_dense(cov)
     )
     logger.info(f"Scipy average log-density: {scipy_ll}")
 
@@ -393,8 +393,7 @@ def test_normal_lgm_conjugation_equation():
 
         # LHS: ψ(θ_X + θ_{XZ} · s_Z(z))
         # This is the log partition function of the conditional p(x|z)
-        z_loc = model.pst_man.loc_man.point(z)
-        conditional_obs = model.lkl_fun_man(lkl_params, z_loc)
+        conditional_obs = model.lkl_fun_man(lkl_params, z)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)

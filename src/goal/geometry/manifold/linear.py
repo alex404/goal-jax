@@ -5,12 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Self, override
+from typing import override
 
 import jax.numpy as jnp
 from jax import Array
 
-from .base import Coordinates, Dual, Manifold, Point, expand_dual
+from .base import Manifold
 from .combinators import Pair, Replicated
 from .embedding import LinearEmbedding
 from .matrix import MatrixRep, Square
@@ -52,27 +52,41 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
         pass
 
     @abstractmethod
-    def __call__[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        p: Point[Dual[C], Domain],
-    ) -> Point[C, Codomain]:
-        """Apply the linear map to transform a point."""
+    def __call__(self, f: Array, p: Array) -> Array:
+        """Apply the linear map to transform a point.
+
+        Args:
+            f: Parameters of the linear map
+            p: Point in the domain to transform
+
+        Returns:
+            Transformed point in the codomain
+        """
         pass
 
     @abstractmethod
-    def transpose[C: Coordinates](
-        self,
-        f: Point[C, Self],
-    ) -> Point[C, LinearMap[Codomain, Domain]]:
-        """Transpose of the linear map."""
+    def transpose(self, f: Array) -> Array:
+        """Transpose of the linear map.
+
+        Args:
+            f: Parameters of the linear map
+
+        Returns:
+            Parameters of the transposed linear map
+        """
         pass
 
     @abstractmethod
-    def outer_product[C: Coordinates](
-        self, w: Point[C, Codomain], v: Point[C, Domain]
-    ) -> Point[C, Self]:
-        """Outer product of points."""
+    def outer_product(self, w: Array, v: Array) -> Array:
+        """Outer product of points.
+
+        Args:
+            w: Point in the codomain
+            v: Point in the domain
+
+        Returns:
+            Parameters of the outer product linear map
+        """
         pass
 
 
@@ -119,12 +133,17 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         )
 
     @override
-    def __call__[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        p: Point[Dual[C], Domain],
-    ) -> Point[C, Codomain]:
-        result: Point[C, Codomain] = self.cod_man.zeros()
+    def __call__(self, f: Array, p: Array) -> Array:
+        """Apply the block linear map to transform a point.
+
+        Args:
+            f: Parameters of the block linear map
+            p: Point in the domain to transform
+
+        Returns:
+            Transformed point in the codomain
+        """
+        result = self.cod_man.zeros()
         param_offset = 0
 
         for cod_emb, rep, dom_emb in self.blocks:
@@ -132,14 +151,12 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
             sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
-            sub_params: Point[C, RectangularMap[Manifold, Manifold]] = sub_map.point(
-                f.array[param_offset : param_offset + block_param_size]
-            )
+            sub_params = f[param_offset : param_offset + block_param_size]
 
             block_dom_point = dom_emb.project(p)
             block_output = sub_map(sub_params, block_dom_point)
 
-            result += cod_emb.embed(block_output)
+            result = result + cod_emb.embed(block_output)
             param_offset += block_param_size
 
         return result
@@ -154,11 +171,15 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         return BlockMap(transposed_blocks)
 
     @override
-    def transpose[C: Coordinates](
-        self,
-        f: Point[C, Self],
-    ) -> Point[C, BlockMap[Codomain, Domain]]:
-        """Transpose of the block linear map."""
+    def transpose(self, f: Array) -> Array:
+        """Transpose of the block linear map.
+
+        Args:
+            f: Parameters of the block linear map
+
+        Returns:
+            Parameters of the transposed linear map
+        """
         transposed_params = []
         param_offset = 0
         for cod_emb, rep, dom_emb in self.blocks:
@@ -166,30 +187,32 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
             sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
-            sub_params: Point[C, RectangularMap[Manifold, Manifold]] = sub_map.point(
-                f.array[param_offset : param_offset + block_param_size]
-            )
+            sub_params = f[param_offset : param_offset + block_param_size]
             sub_trn = sub_map.transpose(sub_params)
-            transposed_params.append(sub_trn.array)
+            transposed_params.append(sub_trn)
             param_offset += block_param_size
 
-        transposed_array = jnp.concatenate(transposed_params)
-        return self.trn_man.point(transposed_array)
+        return jnp.concatenate(transposed_params)
 
     @override
-    def outer_product[C: Coordinates](
-        self, w: Point[C, Codomain], v: Point[C, Domain]
-    ) -> Point[C, Self]:
-        """Outer product of points."""
+    def outer_product(self, w: Array, v: Array) -> Array:
+        """Outer product of points.
+
+        Args:
+            w: Point in the codomain
+            v: Point in the domain
+
+        Returns:
+            Parameters of the outer product linear map
+        """
         outer_params = []
         for cod_emb, rep, dom_emb in self.blocks:
-            block_w = cod_emb.project(expand_dual(w))
-            block_v = dom_emb.project(expand_dual(v))
+            block_w = cod_emb.project(w)
+            block_v = dom_emb.project(v)
             sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
             block_outer = sub_map.outer_product(block_w, block_v)
-            outer_params.append(block_outer.array)
-        outer_array = jnp.concatenate(outer_params)
-        return self.point(outer_array)
+            outer_params.append(block_outer)
+        return jnp.concatenate(outer_params)
 
 
 @dataclass(frozen=True)
@@ -270,105 +293,167 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         return Replicated(self.cod_man, self.dom_man.dim)
 
     @override
-    def __call__[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        p: Point[Dual[C], Domain],
-    ) -> Point[C, Codomain]:
-        """Apply the linear map to transform a point."""
-        return self.cod_man.point(self.rep.matvec(self.matrix_shape, f.array, p.array))
+    def __call__(self, f: Array, p: Array) -> Array:
+        """Apply the linear map to transform a point.
 
-    def from_dense[C: Coordinates](self, matrix: Array) -> Point[C, Self]:
-        """Create point from dense matrix."""
-        return self.point(self.rep.from_dense(matrix))
+        Args:
+            f: Parameters of the linear map
+            p: Point in the domain to transform
+
+        Returns:
+            Transformed point in the codomain
+        """
+        return self.rep.matvec(self.matrix_shape, f, p)
+
+    def from_dense(self, matrix: Array) -> Array:
+        """Create parameters from dense matrix.
+
+        Args:
+            matrix: Dense matrix representation
+
+        Returns:
+            Parameters in this manifold's representation
+        """
+        return self.rep.from_dense(matrix)
 
     @override
-    def outer_product[C: Coordinates](
-        self, w: Point[C, Codomain], v: Point[C, Domain]
-    ) -> Point[C, Self]:
-        """Outer product of points."""
-        return self.point(self.rep.outer_product(w.array, v.array))
+    def outer_product(self, w: Array, v: Array) -> Array:
+        """Outer product of points.
+
+        Args:
+            w: Point in the codomain
+            v: Point in the domain
+
+        Returns:
+            Parameters of the outer product linear map
+        """
+        return self.rep.outer_product(w, v)
 
     @override
-    def transpose[C: Coordinates](
-        self: RectangularMap[Domain, Codomain],
-        f: Point[C, RectangularMap[Domain, Codomain]],
-    ) -> Point[C, RectangularMap[Codomain, Domain]]:
-        """Transpose of the linear map."""
-        return self.trn_man.point(self.rep.transpose(self.matrix_shape, f.array))
+    def transpose(self, f: Array) -> Array:
+        """Transpose of the linear map.
 
-    def transpose_apply[C: Coordinates](
-        self: RectangularMap[Domain, Codomain],
-        f: Point[C, RectangularMap[Domain, Codomain]],
-        p: Point[Dual[C], Codomain],
-    ) -> Point[C, Domain]:
-        """Apply the transpose of the linear map."""
+        Args:
+            f: Parameters of the linear map
+
+        Returns:
+            Parameters of the transposed linear map
+        """
+        return self.rep.transpose(self.matrix_shape, f)
+
+    def transpose_apply(self, f: Array, p: Array) -> Array:
+        """Apply the transpose of the linear map.
+
+        Args:
+            f: Parameters of the linear map
+            p: Point in the codomain
+
+        Returns:
+            Transformed point in the domain
+        """
         f_trn = self.transpose(f)
         return self.trn_man(f_trn, p)
 
-    def to_dense[C: Coordinates](self, f: Point[C, Self]) -> Array:
-        """Convert to dense matrix representation."""
-        return self.rep.to_dense(self.matrix_shape, f.array)
+    def to_dense(self, f: Array) -> Array:
+        """Convert to dense matrix representation.
 
-    def to_rows[C: Coordinates](
-        self, f: Point[C, Self]
-    ) -> Point[C, Replicated[Domain]]:
-        """Split linear map into dense row vectors."""
-        matrix = self.rep.to_dense(self.matrix_shape, f.array)
-        return self.row_man.point(matrix)
+        Args:
+            f: Parameters of the linear map
 
-    def to_columns[C: Coordinates](
-        self, f: Point[C, Self]
-    ) -> Point[C, Replicated[Codomain]]:
-        """Split linear map into dense column vectors."""
-        matrix = self.rep.to_dense(self.matrix_shape, f.array)
-        return self.col_man.point(matrix.T)
+        Returns:
+            Dense matrix array
+        """
+        return self.rep.to_dense(self.matrix_shape, f)
 
-    def from_rows[C: Coordinates](
-        self, rows: Point[C, Replicated[Domain]]
-    ) -> Point[C, Self]:
-        """Construct linear map from dense row vectors."""
-        return self.point(self.rep.from_dense(rows.array))
+    def to_rows(self, f: Array) -> Array:
+        """Split linear map into dense row vectors.
 
-    def from_columns[C: Coordinates](
-        self, columns: Point[C, Replicated[Codomain]]
-    ) -> Point[C, Self]:
-        """Construct linear map from dense column vectors."""
-        return self.point(self.rep.from_dense(columns.array.T))
+        Args:
+            f: Parameters of the linear map
 
-    def map_diagonal[C: Coordinates](
-        self, f: Point[C, Self], diagonal_fn: Callable[[Array], Array]
-    ) -> Point[C, Self]:
-        """Apply a function to the diagonal elements while preserving matrix structure."""
-        return self.point(
-            self.rep.map_diagonal(self.matrix_shape, f.array, diagonal_fn)
-        )
+        Returns:
+            Array of shape (cod_dim, dom_dim) representing the matrix
+        """
+        matrix = self.rep.to_dense(self.matrix_shape, f)
+        return matrix
 
-    def embed_rep[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        target_rep: MatrixRep,
-    ) -> tuple[
-        RectangularMap[Domain, Codomain],
-        Point[C, RectangularMap[Domain, Codomain]],
-    ]:
-        """Embed linear map into more complex representation."""
+    def to_columns(self, f: Array) -> Array:
+        """Split linear map into dense column vectors.
+
+        Args:
+            f: Parameters of the linear map
+
+        Returns:
+            Array of shape (dom_dim, cod_dim) (transposed matrix)
+        """
+        matrix = self.rep.to_dense(self.matrix_shape, f)
+        return matrix.T
+
+    def from_rows(self, rows: Array) -> Array:
+        """Construct linear map from dense row vectors.
+
+        Args:
+            rows: Array of shape (cod_dim, dom_dim)
+
+        Returns:
+            Parameters in this manifold's representation
+        """
+        return self.rep.from_dense(rows)
+
+    def from_columns(self, columns: Array) -> Array:
+        """Construct linear map from dense column vectors.
+
+        Args:
+            columns: Array of shape (dom_dim, cod_dim) (transposed matrix)
+
+        Returns:
+            Parameters in this manifold's representation
+        """
+        return self.rep.from_dense(columns.T)
+
+    def map_diagonal(self, f: Array, diagonal_fn: Callable[[Array], Array]) -> Array:
+        """Apply a function to the diagonal elements while preserving matrix structure.
+
+        Args:
+            f: Parameters of the linear map
+            diagonal_fn: Function to apply to diagonal elements
+
+        Returns:
+            Modified parameters
+        """
+        return self.rep.map_diagonal(self.matrix_shape, f, diagonal_fn)
+
+    def embed_rep(
+        self, f: Array, target_rep: MatrixRep
+    ) -> tuple[RectangularMap[Domain, Codomain], Array]:
+        """Embed linear map into more complex representation.
+
+        Args:
+            f: Parameters of the linear map
+            target_rep: Target matrix representation
+
+        Returns:
+            Tuple of (new manifold, new parameters)
+        """
         target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
-        params = self.rep.embed_params(self.matrix_shape, f.array, target_rep)
-        return target_man, target_man.point(params)
+        params = self.rep.embed_params(self.matrix_shape, f, target_rep)
+        return target_man, params
 
-    def project_rep[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        target_rep: MatrixRep,
-    ) -> tuple[
-        RectangularMap[Domain, Codomain],
-        Point[C, RectangularMap[Domain, Codomain]],
-    ]:
-        """Project linear map to simpler representation."""
+    def project_rep(
+        self, f: Array, target_rep: MatrixRep
+    ) -> tuple[RectangularMap[Domain, Codomain], Array]:
+        """Project linear map to simpler representation.
+
+        Args:
+            f: Parameters of the linear map
+            target_rep: Target matrix representation
+
+        Returns:
+            Tuple of (new manifold, new parameters)
+        """
         target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
-        params = self.rep.project_params(self.matrix_shape, f.array, target_rep)
-        return target_man, target_man.point(params)
+        params = self.rep.project_params(self.matrix_shape, f, target_rep)
+        return target_man, params
 
 
 @dataclass(frozen=True)
@@ -388,17 +473,38 @@ class SquareMap[M: Manifold](RectangularMap[M, M]):
 
     # Methods
 
-    def inverse[C: Coordinates](self, f: Point[C, Self]) -> Point[Dual[C], Self]:
-        """Matrix inverse (requires square matrix)."""
-        return self.point(self.rep.inverse(self.matrix_shape, f.array))
+    def inverse(self, f: Array) -> Array:
+        """Matrix inverse (requires square matrix).
 
-    def logdet[C: Coordinates](self, f: Point[C, Self]) -> Array:
-        """Log determinant (requires square matrix)."""
-        return self.rep.logdet(self.matrix_shape, f.array)
+        Args:
+            f: Parameters of the square matrix
 
-    def is_positive_definite[C: Coordinates](self, p: Point[C, Self]) -> Array:
-        """Check if matrix is positive definite."""
-        return self.rep.is_positive_definite(self.matrix_shape, p.array)
+        Returns:
+            Parameters of the inverse matrix
+        """
+        return self.rep.inverse(self.matrix_shape, f)
+
+    def logdet(self, f: Array) -> Array:
+        """Log determinant (requires square matrix).
+
+        Args:
+            f: Parameters of the square matrix
+
+        Returns:
+            Log determinant scalar
+        """
+        return self.rep.logdet(self.matrix_shape, f)
+
+    def is_positive_definite(self, p: Array) -> Array:
+        """Check if matrix is positive definite.
+
+        Args:
+            p: Parameters of the square matrix
+
+        Returns:
+            Boolean indicating positive definiteness
+        """
+        return self.rep.is_positive_definite(self.matrix_shape, p)
 
 
 ### Affine Maps ###
@@ -452,13 +558,16 @@ class AffineMap[
 
     # Methods
 
-    def __call__[C: Coordinates](
-        self,
-        f: Point[C, Self],
-        p: Point[Dual[C], Domain],
-    ) -> Point[C, Codomain]:
-        """Apply the affine transformation."""
-        bias: Point[C, Codomain]
+    def __call__(self, f: Array, p: Array) -> Array:
+        """Apply the affine transformation.
+
+        Args:
+            f: Parameters of the affine map (concatenation of bias and linear map)
+            p: Point in the domain
+
+        Returns:
+            Transformed point in the codomain
+        """
         bias, linear = self.split_params(f)
-        subshift: Point[C, SubCodomain] = self.snd_man(linear, p)
+        subshift = self.snd_man(linear, p)
         return self.cod_emb.translate(bias, subshift)

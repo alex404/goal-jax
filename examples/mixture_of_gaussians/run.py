@@ -8,7 +8,7 @@ import numpy as np
 from jax import Array
 from sklearn.mixture import GaussianMixture
 
-from goal.geometry import Diagonal, Mean, Natural, Point, PositiveDefinite, Scale
+from goal.geometry import Diagonal, Natural, PositiveDefinite, Scale
 from goal.models import (
     AnalyticMixture,
     Covariance,
@@ -23,7 +23,7 @@ from .types import MixtureResults
 
 def create_ground_truth_parameters(
     mix_man: AnalyticMixture[Normal],
-) -> Point[Natural, AnalyticMixture[Normal]]:
+) -> Array:
     """Create ground truth parameters for a mixture of 3 bivariate Gaussians.
 
     Returns:
@@ -45,17 +45,16 @@ def create_ground_truth_parameters(
     component_list: list[Array] = []
     for mean, cov in zip(means, covs):
         with mix_man.obs_man as nm:
-            cov_mat: Point[Mean, Covariance] = nm.cov_man.from_dense(cov)
-            mean_point = nm.loc_man.mean_point(mean)
-            mean_params = nm.join_mean_covariance(mean_point, cov_mat)
-            component_list.append(mean_params.array)
+            cov_mat = nm.cov_man.from_dense(cov)
+            mean_params = nm.join_mean_covariance(mean, cov_mat)
+            component_list.append(mean_params)
 
     # Stack rows
-    components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
+    components = jnp.stack(component_list)
 
-    weights = mix_man.lat_man.mean_point(jnp.array([0.35, 0.25]))
+    weights = jnp.array([0.35, 0.25])
 
-    mean_mix: Point[Mean, AnalyticMixture[Normal]] = mix_man.join_mean_mixture(
+    mean_mix = mix_man.join_mean_mixture(
         components, weights
     )
     return mix_man.to_natural(mean_mix)
@@ -63,7 +62,7 @@ def create_ground_truth_parameters(
 
 def goal_to_sklearn_mixture(
     mix_man: AnalyticMixture[Normal],
-    goal_mixture: Point[Natural, AnalyticMixture[Normal]],
+    goal_mixture: Array,
 ) -> GaussianMixture:
     # Convert to mean coordinates first
     mean_mixture = mix_man.to_mean(goal_mixture)
@@ -77,7 +76,7 @@ def goal_to_sklearn_mixture(
     for i in range(components.shape[0]):
         comp = mix_man.cmp_man.get_replicate(components, jnp.asarray(i))
         mean, cov = mix_man.obs_man.split_mean_covariance(comp)
-        means.append(mean.array)
+        means.append(mean)
         covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
 
     # Get mixing weights
@@ -115,14 +114,14 @@ def fit_model(
     sample: Array,
 ) -> tuple[
     Array,
-    Point[Natural, AnalyticMixture[Normal]],
-    Point[Natural, AnalyticMixture[Normal]],
+    Array,
+    Array,
 ]:
     init_params = mix_man.initialize(key)
 
     def em_step(
-        params: Point[Natural, AnalyticMixture[Normal]], _: Any
-    ) -> tuple[Point[Natural, AnalyticMixture[Normal]], Array]:
+        params: Array, _: Any
+    ) -> tuple[Array, Array]:
         ll = mix_man.average_log_observable_density(params, sample)
         next_params = mix_man.expectation_maximization(params, sample)
         return next_params, ll
@@ -185,7 +184,7 @@ def compute_mixture_results(
 
     def compute_grid_density(
         model: AnalyticMixture[Normal],
-        params: Point[Natural, AnalyticMixture[Normal]],
+        params: Array,
     ) -> Array:
         return jax.vmap(model.observable_density, in_axes=(None, 0))(
             params, grid_points

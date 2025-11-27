@@ -16,10 +16,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, override
 
-from ..manifold.base import Point
+from jax import Array
+
 from ..manifold.embedding import LinearEmbedding, TupleEmbedding
-from ..manifold.linear import AffineMap
-from .base import ExponentialFamily, Mean, Natural
+from .base import ExponentialFamily
 from .harmonium import (
     AnalyticConjugated,
     DifferentiableConjugated,
@@ -148,19 +148,29 @@ class LatentHarmoniumEmbedding[
         return self.prr_hrm
 
     @override
-    def project(
-        self,
-        p: Point[Mean, PriorHarmonium],
-    ) -> Point[Mean, PostHarmonium]:
+    def project(self, p: Array) -> Array:
+        """Project harmonium parameters to restricted observable space.
+
+        Args:
+            p: Parameters in prior harmonium space (mean coordinates)
+
+        Returns:
+            Parameters in posterior harmonium space (mean coordinates)
+        """
         obs_params, int_params, lat_params = self.amb_man.split_params(p)
         prj_obs_params = self.pst_obs_emb.project(obs_params)
         return self.sub_man.join_params(prj_obs_params, int_params, lat_params)
 
     @override
-    def embed(
-        self,
-        p: Point[Natural, PostHarmonium],
-    ) -> Point[Natural, PriorHarmonium]:
+    def embed(self, p: Array) -> Array:
+        """Embed posterior parameters into prior observable space.
+
+        Args:
+            p: Parameters in posterior harmonium space (natural coordinates)
+
+        Returns:
+            Parameters in prior harmonium space (natural coordinates)
+        """
         obs_params, int_params, lat_params = self.sub_man.split_params(p)
         emb_obs_params = self.pst_obs_emb.embed(obs_params)
         return self.amb_man.join_params(emb_obs_params, int_params, lat_params)
@@ -174,8 +184,8 @@ def hierarchical_conjugation_parameters[
 ](
     lwr_hrm: DifferentiableConjugated[Any, Any, Any, Any, Any],
     upr_hrm: UpperHarmonium,
-    lkl_params: Point[Natural, AffineMap[Any, Any, Any]],
-) -> Point[Natural, UpperHarmonium]:
+    lkl_params: Array,
+) -> Array:
     """Compute conjugation parameters for hierarchical structure.
 
     This embeds the lower harmonium's conjugation parameters into the
@@ -191,13 +201,13 @@ def hierarchical_conjugation_parameters[
         The lower harmonium in the hierarchy
     upr_hrm : UpperHarmonium
         The upper harmonium we're embedding into (observable = lower prior)
-    lkl_params : Point[Natural, Any]
-        Likelihood parameters from the lower harmonium
+    lkl_params : Array
+        Likelihood parameters from the lower harmonium (natural coordinates)
 
     Returns
     -------
-    Point[Natural, UpperHarmonium]
-        Conjugation parameters in the upper harmonium's space
+    Array
+        Conjugation parameters in the upper harmonium's space (natural coordinates)
     """
     assert lwr_hrm.prr_man == upr_hrm.obs_man, (
         "Lower harmonium's prior space must match upper harmonium's observable space"
@@ -213,8 +223,8 @@ def hierarchical_to_natural_likelihood[
     harmonium: UpperHarmonium,
     lwr_hrm: AnalyticConjugated[Any, Any, Any, Any],
     upr_hrm: Harmonium[Any, Any, Any, Any],
-    params: Point[Mean, UpperHarmonium],
-) -> Point[Natural, AffineMap[Any, Any, Any]]:
+    params: Array,
+) -> Array:
     """Convert mean parameters to natural likelihood parameters for hierarchical models.
 
     This projects the hierarchical mean parameters down to the lower harmonium's
@@ -228,12 +238,12 @@ def hierarchical_to_natural_likelihood[
         The lower harmonium in the hierarchy
     upr_hrm : ExponentialFamily
         The upper harmonium (for embedding construction)
-    params : Point[Mean, HrmType]
+    params : Array
         Mean parameters of the hierarchical model
 
     Returns
     -------
-    Point[Natural, AffineMap]
+    Array
         Natural parameters for the lower likelihood
     """
     obs_means, lwr_int_means, lat_means = harmonium.split_params(params)

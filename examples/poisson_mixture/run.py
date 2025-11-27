@@ -20,18 +20,15 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    Mean,
     Natural,
     Optimizer,
     OptState,
-    Point,
     PositiveDefinite,
 )
 from goal.models import (
     CoMPoissonMixture,
     FactorAnalysis,
     Normal,
-    PoissonMixture,
     com_poisson_mixture,
     poisson_mixture,
 )
@@ -73,7 +70,7 @@ def create_ground_truth_diagonals() -> tuple[Array, Array]:
     return means, diags
 
 
-def create_ground_truth_fa() -> Point[Natural, FactorAnalysis]:
+def create_ground_truth_fa() -> Array:
     """Create ground truth factor analysis model."""
     loadings = create_ground_truth_loadings()
     means, diags = create_ground_truth_diagonals()
@@ -86,10 +83,10 @@ def compute_sample_statistics(sample: Array) -> CovarianceStatistics:
 
 
 def compute_normal_statistics(
-    nor_means: Point[Mean, Normal],
+    nor_means: Array,
 ) -> CovarianceStatistics:
     mean, cov = NOR_MAN.split_mean_covariance(nor_means)
-    return compute_dense_statistics(mean.array, NOR_MAN.cov_man.to_dense(cov))
+    return compute_dense_statistics(mean, NOR_MAN.cov_man.to_dense(cov))
 
 
 def compute_dense_statistics(mean: Array, covariance: Array) -> CovarianceStatistics:
@@ -115,14 +112,12 @@ def compute_dense_statistics(mean: Array, covariance: Array) -> CovarianceStatis
 def fit_factor_analysis(
     key_fit: Array,
     sample: Array,
-) -> tuple[Point[Natural, FactorAnalysis], list[float]]:
+) -> tuple[Array, list[float]]:
     # Fit Factor Analysis to discrete data
     fa_discrete = FactorAnalysis(N_NEURONS, N_FACTORS)
     fa_params_discrete = fa_discrete.initialize_from_sample(key_fit, sample)
 
-    def em_step(
-        params: Point[Natural, FactorAnalysis], _: Any
-    ) -> tuple[Point[Natural, FactorAnalysis], Array]:
+    def em_step(params: Array, _: Any) -> tuple[Array, Array]:
         ll = fa_discrete.average_log_observable_density(params, sample)
         next_params = fa_discrete.expectation_maximization(params, sample)
         return next_params, ll
@@ -137,12 +132,10 @@ def fit_factor_analysis(
 def fit_poisson_mixture(
     key: Array,
     sample: Array,
-) -> tuple[Point[Natural, PoissonMixture], list[float]]:
+) -> tuple[Array, list[float]]:
     init_params = PSN_MIX_MAN.initialize_from_sample(key, sample)
 
-    def em_step(
-        carry: Point[Natural, PoissonMixture], _: Any
-    ) -> tuple[Point[Natural, PoissonMixture], Array]:
+    def em_step(carry: Array, _: Any) -> tuple[Array, Array]:
         params = carry
         ll = PSN_MIX_MAN.average_log_observable_density(params, sample)
         next_params = PSN_MIX_MAN.expectation_maximization(params, sample)
@@ -156,7 +149,7 @@ def fit_poisson_mixture(
 def fit_com_mixture(
     key: Array,
     sample: Array,
-) -> tuple[Point[Natural, CoMPoissonMixture], list[float]]:
+) -> tuple[Array, list[float]]:
     init_params = COM_MIX_MAN.initialize_from_sample(key, sample)
 
     optimizer: Optimizer[Natural, CoMPoissonMixture] = Optimizer.adamw(
@@ -164,12 +157,12 @@ def fit_com_mixture(
     )
     opt_state = optimizer.init(init_params)
 
-    def cross_entropy_loss(params: Point[Natural, CoMPoissonMixture]) -> Array:
+    def cross_entropy_loss(params: Array) -> Array:
         return -COM_MIX_MAN.average_log_observable_density(params, sample)
 
     def grad_step(
-        opt_state_and_params: tuple[OptState, Point[Natural, CoMPoissonMixture]], _: Any
-    ) -> tuple[tuple[OptState, Point[Natural, CoMPoissonMixture]], Array]:
+        opt_state_and_params: tuple[OptState, Array], _: Any
+    ) -> tuple[tuple[OptState, Array], Array]:
         opt_state, params = opt_state_and_params
         loss_val, grads = COM_MIX_MAN.value_and_grad(cross_entropy_loss, params)
         opt_state, params = optimizer.update(opt_state, grads, params)

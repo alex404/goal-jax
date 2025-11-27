@@ -11,21 +11,21 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, Self
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 
-# Coordinate system types
+# Coordinate system types (documentation-only type tags)
 class Coordinates:
     """Base class for coordinate systems.
 
-    In practice, this class acts as a type tag and doesn't contain any runtime functionality. It helps ensure the type system recognize when certain operations on points are valid or not.
+    In practice, this class acts as a type tag for documentation purposes.
+    It helps clarify which coordinate system an array represents without enforcing it at runtime.
 
-    In theory, a coordinate system (or chart) $(U, \\phi)$ consists of an open set $U \\subset \\mathcal{M}$ and a homeomorphism $\\phi: U \\to \\mathbb{R}^n$ mapping points to their coordinate representation.
+    In theory, a coordinate system (or chart) $(U, \\phi)$ consists of an open set $U \\subset \\mathcal{M}$
+    and a homeomorphism $\\phi: U \\to \\mathbb{R}^n$ mapping points to their coordinate representation.
     """
 
 
@@ -38,26 +38,37 @@ class Dual[C: Coordinates](Coordinates):
     """
 
 
-def reduce_dual[C: Coordinates, M: Manifold](
-    p: Point[Dual[Dual[C]], M],
-) -> Point[C, M]:
-    """Takes a point in the dual of the dual space and returns a point in the original space."""
-    return Point(p.array)
+# Type alias for backward compatibility with code that hasn't been refactored yet
+# Point[C, M] is now just Array, with coordinate system tracked via naming conventions
+Point = Array
 
 
-def expand_dual[C: Coordinates, M: Manifold](
-    p: Point[C, M],
-) -> Point[Dual[Dual[C]], M]:
-    """Takes a point in the original space and returns a point in the dual of the dual space."""
-    return Point(p.array)
+def expand_dual(p: Array) -> Array:
+    """Expand dual coordinates (backward compatibility stub).
+
+    This function is a no-op for array-based coordinates.
+    Kept for backward compatibility with code using Dual[C] coordinate tracking.
+    """
+    return p
+
+
+def reduce_dual(p: Array) -> Array:
+    """Reduce dual coordinates (backward compatibility stub).
+
+    This function is a no-op for array-based coordinates.
+    Kept for backward compatibility with code using Dual[C] coordinate tracking.
+    """
+    return p
 
 
 class Manifold(ABC):
     """A space that locally resembles Euclidean space.
 
-    In practice, a Manifold defines operations on points and provides methods to create, transform and optimize over them. It acts as a factory for Point objects.
+    In practice, a Manifold defines operations on arrays representing points and provides methods
+    to create, transform and optimize over them.
 
-    In theory, a manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$ with a geometric structure described by:
+    In theory, a manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$
+    with a geometric structure described by:
 
     - The dimension $n$ of the manifold,
     - a collection of valid coordinate systems,
@@ -90,9 +101,9 @@ class Manifold(ABC):
     def coordinates_shape(self) -> list[int]:
         """Shape of the flattened coordinate array for points on this manifold.
 
-        In practice, this describes how the parameter array is physically stored in
-        a Point. Most manifolds use a flat representation `[\\text{dim}]`, while
-        specialized manifolds like `Replicated` may use structured representations.
+        In practice, this describes how the parameter array is physically stored.
+        Most manifolds use a flat representation `[dim]`, while specialized manifolds
+        like `Replicated` may use structured representations.
 
         Important distinction: `coordinates_shape` describes **storage layout**, while
         properties like `LinearMap.matrix_shape` describe **mathematical structure**.
@@ -101,54 +112,66 @@ class Manifold(ABC):
         - Points must be flat to be joined together in composite manifolds (e.g., harmoniums)
         - Yet manifolds need to carry shape metadata for operations (matrix multiplication, vmapping, etc.)
 
-        For example, a `LinearMap[Rectangular, \\mathbb{R}^2, \\mathbb{R}^3]` has:
+        For example, a `LinearMap[Rectangular, R^2, R^3]` has:
 
         - `coordinates_shape = [6]` (stores as a single flat vector)
         - `matrix_shape = (3, 2)` (mathematical interpretation of those 6 parameters)
         """
         return [self.dim]
 
-    # Templates
+    # Array operations
 
-    def point[C: Coordinates](self, array: Array) -> Point[C, Self]:
-        """Create a point in the manifold in an arbitrary coordinate system --- more specific versions of this method should be preferred where applicable."""
-        # Check size matches dimension
-        if array.size != self.dim:
-            raise ValueError(
-                f"Array size {array.size} doesn't match manifold dimension {self.dim}"
-            )
-        return Point(jnp.reshape(array, self.coordinates_shape))
+    def zeros(self) -> Array:
+        """Create an array of zeros with the manifold's dimension."""
+        return jnp.zeros(self.coordinates_shape)
 
-    def zeros[C: Coordinates](self) -> Point[C, Self]:
-        """Create a point in an arbitrary coordinate system with coordinates $\\mathbf 0$."""
-        return self.point(jnp.zeros(self.coordinates_shape))
+    def dot(self, p: Array, q: Array) -> Array:
+        """Compute the dot product between two arrays.
 
-    def dot[C: Coordinates](self, p: Point[C, Self], q: Point[Dual[C], Self]) -> Array:
-        """Compute the dot product between a point and its dual."""
-        return jnp.dot(p.array.ravel(), q.array.ravel())
+        Args:
+            p: First array
+            q: Second array (typically the dual or gradient)
 
-    def value_and_grad[C: Coordinates](
+        Returns:
+            Scalar dot product
+        """
+        return jnp.dot(p.ravel(), q.ravel())
+
+    def value_and_grad(
         self,
-        f: Callable[[Point[C, Self]], Array],
-        p: Point[C, Self],
-    ) -> tuple[Array, Point[Dual[C], Self]]:
+        f: Callable[[Array], Array],
+        p: Array,
+    ) -> tuple[Array, Array]:
         """Compute both value and gradient of a function at a point.
 
-        In practice, this is useful for optimization algorithms that need both the function value and its gradient.
+        In practice, this is useful for optimization algorithms that need both the function value
+        and its gradient.
 
-        In theory, this computes $f(p)$ and $\\nabla f(p)$, where the gradient is represented in the dual coordinate system.
+        In theory, this computes f(p) and ∇f(p).
+
+        Args:
+            f: Function that takes an array and returns a scalar
+            p: Point (array) at which to evaluate
+
+        Returns:
+            Tuple of (function value, gradient array)
         """
         value, grads = jax.value_and_grad(f)(p)
         return value, grads
 
-    def grad[C: Coordinates](
+    def grad(
         self,
-        f: Callable[[Point[C, Self]], Array],
-        p: Point[C, Self],
-    ) -> Point[Dual[C], Self]:
-        """Compute gradients of loss function.
+        f: Callable[[Array], Array],
+        p: Array,
+    ) -> Array:
+        """Compute gradients of a function at a point.
 
-        Returns gradients in the dual coordinate system to the input point's coordinates.
+        Args:
+            f: Function that takes an array and returns a scalar
+            p: Point (array) at which to evaluate
+
+        Returns:
+            Gradient array
         """
         return self.value_and_grad(f, p)[1]
 
@@ -157,56 +180,15 @@ class Manifold(ABC):
         key: Array,
         low: float = -1.0,
         high: float = 1.0,
-    ) -> Point[Any, Self]:
-        """Initialize a point from a uniformly distributed, bounded square in parameter space."""
-        params = jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)
-        return Point(params)
+    ) -> Array:
+        """Initialize an array from a uniformly distributed, bounded square in parameter space.
 
+        Args:
+            key: JAX random key
+            low: Lower bound
+            high: Upper bound
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class Point[C: Coordinates, M: Manifold]:
-    """A point on a specific manifold with coordinates.
-
-    In practice, Points behave like arrays with additional type safety and mathematical operations. **NB:** It is unsafe to create a point directly with this class - users should really on manifold constructors to build points.
-
-    In theory, points are identified by their coordinates $x \\in \\mathbb{R}^n$ in a particular coordinate chart $(U, \\phi)$. The coordinate space inherits a vector space structure enabling operations like:
-
-    - Addition: $\\phi(p) + \\phi(q)$
-    - Scalar multiplication: $\\alpha\\phi(p)$
-    - Vector subtraction: $\\phi(p) - \\phi(q)$
-    """
-
-    array: Array
-
-    def __array__(self) -> Array:
-        """Allow numpy to treat Points as arrays."""
-        return self.array
-
-    def __getitem__(self, idx: int) -> Array:
-        return self.array[idx]
-
-    @property
-    def shape(self) -> tuple[int, ...]:
-        return self.array.shape
-
-    def __len__(self) -> int:
-        return len(self.array)
-
-    def __add__(self, other: Point[C, M]) -> Point[C, M]:
-        return Point(self.array + other.array)
-
-    def __sub__(self, other: Point[C, M]) -> Point[C, M]:
-        return Point(self.array - other.array)
-
-    def __neg__(self) -> Point[C, M]:
-        return Point(-self.array)
-
-    def __mul__(self, scalar: float) -> Point[C, M]:
-        return Point(scalar * self.array)
-
-    def __rmul__(self, scalar: float) -> Point[C, M]:
-        return self.__mul__(scalar)
-
-    def __truediv__(self, other: float | Array) -> Point[C, M]:
-        return Point(self.array / other)
+        Returns:
+            Array of random parameters
+        """
+        return jax.random.uniform(key, shape=(self.dim,), minval=low, maxval=high)

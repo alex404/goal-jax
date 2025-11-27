@@ -10,7 +10,6 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.base import Point
 from ..manifold.combinators import Triple
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.linear import AffineMap, LinearMap
@@ -20,8 +19,6 @@ from .base import (
     Differentiable,
     ExponentialFamily,
     Generative,
-    Mean,
-    Natural,
 )
 
 
@@ -93,30 +90,24 @@ class Harmonium[
             self.int_man.trn_man, self.int_obs_emb.sub_man, self.int_pst_emb
         )
 
-    def likelihood_function(
-        self, params: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[IntLatent, IntObservable, Observable]]:
+    def likelihood_function(self, natural_params: Array) -> Array:
         """Natural parameters of the likelihood distribution as an affine function.
 
         The affine map is $\\eta \\to \\theta_X + \\Theta_{XZ} \\cdot \\eta$.
         """
-        obs_params, int_params, _ = self.split_params(params)
+        obs_params, int_params, _ = self.split_params(natural_params)
         return self.lkl_fun_man.join_params(obs_params, int_params)
 
-    def posterior_function(
-        self, params: Point[Natural, Self]
-    ) -> Point[Natural, AffineMap[IntObservable, IntLatent, Posterior]]:
+    def posterior_function(self, natural_params: Array) -> Array:
         """Natural parameters of the posterior distribution as an affine function.
 
         The affine map is $\\eta \\to \\theta_Z + \\eta \\cdot \\Theta_{XZ}$.
         """
-        _, int_params, lat_params = self.split_params(params)
+        _, int_params, lat_params = self.split_params(natural_params)
         int_mat_t = self.int_man.transpose(int_params)
         return self.pst_fun_man.join_params(lat_params, int_mat_t)
 
-    def likelihood_at(
-        self, params: Point[Natural, Self], z: Array
-    ) -> Point[Natural, Observable]:
+    def likelihood_at(self, natural_params: Array, z: Array) -> Array:
         """Compute natural parameters of likelihood distribution $p(x \\mid z)$ at a given $z$.
 
         Given a latent state $z$ with sufficient statistics $s(z)$, computes natural parameters $\\theta_X$ of the conditional distribution:
@@ -124,11 +115,9 @@ class Harmonium[
         $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
         mz = self.int_pst_emb.sub_man.sufficient_statistic(z)
-        return self.lkl_fun_man(self.likelihood_function(params), mz)
+        return self.lkl_fun_man(self.likelihood_function(natural_params), mz)
 
-    def posterior_at(
-        self, params: Point[Natural, Self], x: Array
-    ) -> Point[Natural, Posterior]:
+    def posterior_at(self, natural_params: Array, x: Array) -> Array:
         """Compute natural parameters of posterior distribution $p(z \\mid x)$.
 
         Given an observation $x$ with sufficient statistics $s(x)$, computes natural
@@ -137,7 +126,7 @@ class Harmonium[
         $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
         mx = self.int_obs_emb.sub_man.sufficient_statistic(x)
-        return self.pst_fun_man(self.posterior_function(params), mx)
+        return self.pst_fun_man(self.posterior_function(natural_params), mx)
 
     # Overrides
 
@@ -163,7 +152,7 @@ class Harmonium[
         return self.obs_man.data_dim + self.pst_man.data_dim
 
     @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
+    def sufficient_statistic(self, x: Array) -> Array:
         """Compute sufficient statistics for joint observation."""
         obs_x = x[: self.obs_man.data_dim]
         lat_x = x[self.obs_man.data_dim :]
@@ -189,7 +178,7 @@ class Harmonium[
     @override
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
+    ) -> Array:
         """Initialize harmonium parameters. Observable and latent biases are initialized using their respective initialization strategies. The interaction matrix is initialized with random entries scaled by 1/sqrt(dim) to maintain reasonable magnitudes for the interactions."""
         keys = jax.random.split(key, 3)
 
@@ -203,16 +192,14 @@ class Harmonium[
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
-        int_params: Point[Natural, LinearMap[IntLatent, IntObservable]] = (
-            self.int_man.point(noise)
-        )
+        int_params = noise
 
         return self.join_params(obs_params, int_params, lat_params)
 
     @override
     def initialize_from_sample(
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
+    ) -> Array:
         """Initialize harmonium using sample data for observable biases. Uses sample data to initialize observable biases, while latent biases and interaction matrix use standard initialization."""
         keys = jax.random.split(key, 3)
 
@@ -230,9 +217,7 @@ class Harmonium[
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
-        int_params: Point[Natural, LinearMap[IntLatent, IntObservable]] = (
-            self.int_man.point(noise)
-        )
+        int_params = noise
         return self.join_params(obs_params, int_params, lat_params)
 
 
@@ -257,10 +242,7 @@ class Conjugated[
         """Embedding of the posterior latent submanifold into the prior latent manifold."""
 
     @abstractmethod
-    def conjugation_parameters(
-        self,
-        lkl_params: Point[Natural, AffineMap[IntLatent, IntObservable, Observable]],
-    ) -> Point[Natural, Prior]:
+    def conjugation_parameters(self, lkl_params: Array) -> Array:
         """Compute conjugation parameters for the harmonium.
 
         Conjugated harmoniums have so called "conjugation parameters" $\\rho$ that simplify many of the computations in the model.
@@ -274,40 +256,37 @@ class Conjugated[
         """Manifold of the prior and conjugation parameters."""
         return self.pst_prr_emb.amb_man
 
-    def prior(self, params: Point[Natural, Self]) -> Point[Natural, Prior]:
+    def prior(self, natural_params: Array) -> Array:
         """Natural parameters of the prior distribution $p(z)$."""
-        obs_params, int_params, lat_params = self.split_params(params)
+        obs_params, int_params, lat_params = self.split_params(natural_params)
         lkl_params = self.lkl_fun_man.join_params(obs_params, int_params)
         rho = self.conjugation_parameters(lkl_params)
         return self.pst_prr_emb.translate(rho, lat_params)
 
-    def split_conjugated(
-        self, params: Point[Natural, Self]
-    ) -> tuple[
-        Point[Natural, AffineMap[IntLatent, IntObservable, Observable]],
-        Point[Natural, Prior],
-    ]:
+    def split_conjugated(self, natural_params: Array) -> tuple[Array, Array]:
         """Split conjugated harmonium into likelihood and prior."""
-        lkl_params = self.likelihood_function(params)
-        return lkl_params, self.prior(params)
+        lkl_params = self.likelihood_function(natural_params)
+        return lkl_params, self.prior(natural_params)
 
     # Overrides
 
     @override
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
+    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
         """Generate samples from the harmonium distribution."""
         # Split up the sampling key
         key1, key2 = jax.random.split(key)
 
         # Sample from adjusted latent distribution p(z)
-        nat_prior = self.prior(params)
+        nat_prior = self.prior(natural_params)
         z_sample = self.prr_man.sample(key1, nat_prior, n)
 
         # Extract the variables needed to evaluate the likelihood
         z0_sample = self.extract_likelihood_input(z_sample)
 
         # Vectorize sampling from conditional distributions
-        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z0_sample)
+        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(
+            natural_params, z0_sample
+        )
 
         # Sample from conditionals p(x|z) in parallel
         x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
@@ -336,10 +315,8 @@ class Conjugated[
 
     # Templates
 
-    def observable_sample(
-        self, key: Array, params: Point[Natural, Self], n: int = 1
-    ) -> Array:
-        xzs = self.sample(key, params, n)
+    def observable_sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+        xzs = self.sample(key, natural_params, n)
         return xzs[:, : self.obs_man.data_dim]
 
 
@@ -377,11 +354,7 @@ class SymmetricConjugated[
         """Manifold of posterior specific latent biases."""
         return self.lat_man
 
-    def join_conjugated(
-        self,
-        lkl_params: Point[Natural, AffineMap[IntLatent, IntObservable, Observable]],
-        prior_params: Point[Natural, Latent],
-    ) -> Point[Natural, Self]:
+    def join_conjugated(self, lkl_params: Array, prior_params: Array) -> Array:
         """Join likelihood and prior parameters into a conjugated harmonium."""
         rho = self.conjugation_parameters(lkl_params)
         lat_params = prior_params - rho
@@ -405,7 +378,7 @@ class DifferentiableConjugated[
     # Overrides
 
     @override
-    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
+    def log_partition_function(self, natural_params: Array) -> Array:
         """Compute the log partition function using conjugation parameters.
 
         The log partition function of a conjugated harmonium can be written as:
@@ -413,7 +386,7 @@ class DifferentiableConjugated[
         $$\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\psi_X(\\theta_X)$$
         """
         # Split parameters
-        obs_params, int_params, lat_params = self.split_params(params)
+        obs_params, int_params, lat_params = self.split_params(natural_params)
         lkl_params = self.lkl_fun_man.join_params(obs_params, int_params)
 
         # Get conjugation parameters
@@ -427,7 +400,7 @@ class DifferentiableConjugated[
         return self.prr_man.log_partition_function(adjusted_lat) + chi
 
     # Templates
-    def log_observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
+    def log_observable_density(self, natural_params: Array, x: Array) -> Array:
         """Compute log density of the observable distribution $p(x)$.
 
         For a conjugated harmonium, the observable density can be computed as:
@@ -436,37 +409,35 @@ class DifferentiableConjugated[
         \\log p(x) = \\theta_X \\cdot s_X(x) + \\psi_Z(\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}) - \\psi_Z(\\theta_Z + \\rho) - \\psi_X(\\theta_X) + \\log \\mu_X(x)
         $$
         """
-        obs_params, _, _ = self.split_params(params)
+        obs_params, _, _ = self.split_params(natural_params)
 
         chi = self.obs_man.log_partition_function(obs_params)
         obs_stats = self.obs_man.sufficient_statistic(x)
-        prr = self.prior(params)
+        prr = self.prior(natural_params)
 
         log_density = self.obs_man.dot(obs_params, obs_stats)
-        log_density += self.pst_man.log_partition_function(self.posterior_at(params, x))
+        log_density += self.pst_man.log_partition_function(
+            self.posterior_at(natural_params, x)
+        )
         log_density -= self.prr_man.log_partition_function(prr) + chi
 
         return log_density + self.obs_man.log_base_measure(x)
 
-    def observable_density(self, params: Point[Natural, Self], x: Array) -> Array:
+    def observable_density(self, natural_params: Array, x: Array) -> Array:
         """Compute density of the observable distribution $p(x)$."""
-        return jnp.exp(self.log_observable_density(params, x))
+        return jnp.exp(self.log_observable_density(natural_params, x))
 
     def average_log_observable_density(
-        self, params: Point[Natural, Self], xs: Array, batch_size: int = 2048
+        self, natural_params: Array, xs: Array, batch_size: int = 2048
     ) -> Array:
         """Compute average log density over a batch of observations."""
 
         def _log_density(x: Array) -> Array:
-            return self.log_observable_density(params, x)
+            return self.log_observable_density(natural_params, x)
 
         return batched_mean(_log_density, xs, batch_size)
 
-    def posterior_statistics(
-        self,
-        params: Point[Natural, Self],
-        x: Array,
-    ) -> Point[Mean, Self]:
+    def posterior_statistics(self, natural_params: Array, x: Array) -> Array:
         """
         Compute joint expectations for a single observation. In particular we
             1. Compute sufficient statistics $\\mathbf s_X(x)$,
@@ -475,37 +446,36 @@ class DifferentiableConjugated[
             4. Form joint expectations $(\\mathbf s_X(x), \\mathbb E[\\mathbf s_Z(z) \\mid x], \\mathbf s_X(x) \\otimes \\mathbb E[\\mathbf s_Z(z) \\mid x])$.
         """
         # Get sufficient statistics of observation
-        obs_stats: Point[Mean, Observable] = self.obs_man.sufficient_statistic(x)
+        obs_stats = self.obs_man.sufficient_statistic(x)
 
         # Get posterior parameters for this observation
-        post_map = self.posterior_function(params)
+        post_map = self.posterior_function(natural_params)
         lat_params = self.pst_fun_man(post_map, self.int_obs_emb.project(obs_stats))
 
         # Convert to mean parameters (expected sufficient statistics)
-        lat_means = self.pst_man.to_mean(lat_params)
+        lat_mean_params = self.pst_man.to_mean(lat_params)
 
         # Form interaction term via outer product
-        int_means: Point[Mean, LinearMap[IntLatent, IntObservable]] = (
-            self.int_man.outer_product(
-                self.int_obs_emb.project(obs_stats), self.int_pst_emb.project(lat_means)
-            )
+        int_mean_params = self.int_man.outer_product(
+            self.int_obs_emb.project(obs_stats),
+            self.int_pst_emb.project(lat_mean_params),
         )
 
         # Join parameters into harmonium point
-        return self.join_params(obs_stats, int_means, lat_means)
+        return self.join_params(obs_stats, int_mean_params, lat_mean_params)
 
     def mean_posterior_statistics(
         self: Self,
-        params: Point[Natural, Self],
+        natural_params: Array,
         xs: Array,
         batch_size: int = 256,
-    ) -> Point[Mean, Self]:
+    ) -> Array:
         """Compute average joint expectations over a batch of observations."""
 
         def infer_missing_expectations(x: Array) -> Array:
-            return self.posterior_statistics(params, x).array
+            return self.posterior_statistics(natural_params, x)
 
-        return self.mean_point(batched_mean(infer_missing_expectations, xs, batch_size))
+        return batched_mean(infer_missing_expectations, xs, batch_size)
 
 
 class AnalyticConjugated[
@@ -524,15 +494,13 @@ class AnalyticConjugated[
     # Contract
 
     @abstractmethod
-    def to_natural_likelihood(
-        self, params: Point[Mean, Self]
-    ) -> Point[Natural, AffineMap[IntLatent, IntObservable, Observable]]:
+    def to_natural_likelihood(self, mean_params: Array) -> Array:
         """Given a harmonium density in mean coordinates, returns the natural parameters of the likelihood."""
 
     # Overrides
 
     @override
-    def to_natural(self, means: Point[Mean, Self]) -> Point[Natural, Self]:
+    def to_natural(self, mean_params: Array) -> Array:
         """Convert from mean to natural parameters.
 
         Uses `to_natural_likelihood` for observable and interaction components, then computes latent natural parameters using conjugation structure:
@@ -541,24 +509,22 @@ class AnalyticConjugated[
 
         where $\\rho$ are the conjugation parameters of the likelihood.
         """
-        lkl_params = self.to_natural_likelihood(means)
-        mean_lat = self.split_params(means)[2]
+        lkl_params = self.to_natural_likelihood(mean_params)
+        mean_lat = self.split_params(mean_params)[2]
         nat_lat = self.pst_man.to_natural(mean_lat)
         return self.join_conjugated(lkl_params, nat_lat)
 
     @override
-    def negative_entropy(self, means: Point[Mean, Self]) -> Array:
+    def negative_entropy(self, mean_params: Array) -> Array:
         """Compute negative entropy using $\\phi(\\eta) = \\eta \\cdot \\theta - \\psi(\\theta)$, $\\theta = \\nabla \\phi(\\eta)$."""
-        params = self.to_natural(means)
+        natural_params = self.to_natural(mean_params)
 
-        log_partition = self.log_partition_function(params)
-        return self.dot(params, means) - log_partition
+        log_partition = self.log_partition_function(natural_params)
+        return self.dot(natural_params, mean_params) - log_partition
 
     # Templates
 
-    def expectation_maximization(
-        self, params: Point[Natural, Self], xs: Array
-    ) -> Point[Natural, Self]:
+    def expectation_maximization(self, natural_params: Array, xs: Array) -> Array:
         """Perform a single iteration of the EM algorithm."""
-        q = self.mean_posterior_statistics(params, xs)
+        q = self.mean_posterior_statistics(natural_params, xs)
         return self.to_natural(q)

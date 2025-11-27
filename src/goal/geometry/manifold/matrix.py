@@ -161,14 +161,16 @@ class MatrixRep(ABC):
     All matrix parameters are stored as 1D arrays for compatibility with Point. The flattened representation enables unified parameter handling across different matrix structures, while each operation respects the specific matrix type's constraints.
     """
 
+    @override
     def __eq__(self, other: object) -> bool:
         """Compare matrix representations by type (not instance identity).
 
         Since MatrixRep instances are stateless, two instances are equal if they
         have the same class type.
         """
-        return type(self) == type(other)
+        return type(self) is type(other)
 
+    @override
     def __hash__(self) -> int:
         """Hash by class type to maintain hash/equality contract."""
         return hash(type(self))
@@ -352,19 +354,19 @@ class Square(Rectangular):
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Check if symmetric matrix is positive definite using eigenvalues."""
         matrix = cls.to_dense(shape, params)
-        eigenvals = jnp.linalg.eigvalsh(matrix)  # pyright: ignore[reportUnknownVariableType]
+        eigenvals = jnp.linalg.eigvalsh(matrix)
         return jnp.all(eigenvals > 0)
 
     @classmethod
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_dense(shape, params)
-        inv = jnp.linalg.inv(matrix)  # pyright: ignore[reportUnknownVariableType]
+        inv = jnp.linalg.inv(matrix)
         return cls.from_dense(inv)
 
     @classmethod
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_dense(shape, params)
-        return jnp.linalg.slogdet(matrix)[1]  # pyright: ignore[reportUnknownVariableType]
+        return jnp.linalg.slogdet(matrix)[1]
 
     @classmethod
     @override
@@ -452,7 +454,7 @@ class PositiveDefinite(Symmetric):
     @classmethod
     def _cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_dense(shape, params)
-        return jnp.linalg.cholesky(matrix)  # pyright: ignore[reportUnknownVariableType]
+        return jnp.linalg.cholesky(matrix)
 
     @classmethod
     def cholesky_matvec(
@@ -488,7 +490,7 @@ class PositiveDefinite(Symmetric):
         matrix1 = cls.to_dense(shape, params1)
 
         # Compute Cholesky and transform mean
-        chol = jnp.linalg.cholesky(matrix2)  # pyright: ignore[reportUnknownVariableType]
+        chol = jnp.linalg.cholesky(matrix2)
         centered_mean = mean1 - mean2
         whitened_mean = jax.scipy.linalg.solve_triangular(
             chol, centered_mean, lower=True

@@ -6,19 +6,13 @@ See the package index for mathematical background on exponential families.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Self, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.base import (
-    Coordinates,
-    Dual,
-    Manifold,
-    Point,
-    reduce_dual,
-)
+from ..manifold.base import Coordinates, Dual, Manifold
 from ..manifold.util import batched_mean
 
 ### Coordinate Systems ###
@@ -52,8 +46,15 @@ class ExponentialFamily(Manifold, ABC):
         """Dimension of the data space."""
 
     @abstractmethod
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Compute the sufficient statistics of an observation. In particular, maps a point $x$ to its sufficient statistic $\\mathbf s(x)$ in mean coordinates $\\mathbf s(x) \\in \\text{H}$"""
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Compute the sufficient statistics of an observation in mean coordinates.
+
+        Args:
+            x: Data point
+
+        Returns:
+            Sufficient statistics array (mean parameters)
+        """
 
     @abstractmethod
     def log_base_measure(self, x: Array) -> Array:
@@ -61,47 +62,65 @@ class ExponentialFamily(Manifold, ABC):
 
     # Templates
 
-    def average_sufficient_statistic(
-        self, xs: Array, batch_size: int = 256
-    ) -> Point[Mean, Self]:
-        """Average sufficient statistics of a batch of observations."""
+    def average_sufficient_statistic(self, xs: Array, batch_size: int = 256) -> Array:
+        """Average sufficient statistics of a batch of observations.
 
-        def _sufficient_statistic(x: Array) -> Array:
-            return self.sufficient_statistic(x).array
+        Args:
+            xs: Batch of data points
+            batch_size: Size of batches for vmapped computation
 
-        return self.mean_point(batched_mean(_sufficient_statistic, xs, batch_size))
+        Returns:
+            Average sufficient statistics (mean parameters)
+        """
+        return batched_mean(self.sufficient_statistic, xs, batch_size)
 
-    def mean_point(self, params: Array) -> Point[Mean, Self]:
-        """Construct a point in mean coordinates."""
-        return self.point(params)
+    def check_natural_parameters(self, natural_params: Array) -> Array:
+        """Check if parameters are valid for this exponential family.
 
-    def check_natural_parameters(self, params: Point[Natural, Self]) -> Array:
-        """Check if parameters are valid for this exponential family."""
-        return jnp.all(jnp.isfinite(params.array)).astype(jnp.int32)
+        Args:
+            natural_params: Natural parameters
 
-    def natural_point(self, params: Array) -> Point[Natural, Self]:
-        """Construct a point in natural coordinates."""
-        return self.point(params)
+        Returns:
+            Scalar indicating validity (all finite)
+        """
+        return jnp.all(jnp.isfinite(natural_params)).astype(jnp.int32)
 
     def initialize(
         self,
         key: Array,
         location: float = 0.0,
         shape: float = 0.1,
-    ) -> Point[Natural, Self]:
-        """Convenience function to randomly initialize the coordinates of a point based on a mean and a shape parameter --- by default this is a normal distribution, but may be overridden e.g. for bounded parameter spaces."""
-        params = jax.random.normal(key, shape=(self.dim,)) * shape + location
-        return self.natural_point(params)
+    ) -> Array:
+        """Initialize natural parameters randomly.
+
+        Args:
+            key: JAX random key
+            location: Mean of initialization distribution
+            shape: Standard deviation of initialization
+
+        Returns:
+            Natural parameters array
+        """
+        return jax.random.normal(key, shape=(self.dim,)) * shape + location
 
     def initialize_from_sample(
         self,
         key: Array,
-        sample: Array,
+        sample: Array,  # pyright: ignore[reportUnusedParameter]
         location: float = 0.0,
         shape: float = 0.1,
-    ) -> Point[Natural, Self]:
-        """Convenience function to initialize a model based on the sample. By default it ignores the sample, but most distributions can do better than this."""
-        sample = sample
+    ) -> Array:
+        """Initialize based on sample (default: ignore sample).
+
+        Args:
+            key: JAX random key
+            sample: Data sample to potentially use
+            location: Mean of initialization distribution
+            shape: Standard deviation of initialization
+
+        Returns:
+            Natural parameters array
+        """
         return self.initialize(key, location, shape)
 
 
@@ -116,16 +135,32 @@ class Generative(ExponentialFamily, ABC):
     # Contract
 
     @abstractmethod
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate random samples from the distribution."""
+    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+        """Generate random samples from the distribution.
+
+        Args:
+            key: JAX random key
+            natural_params: Natural parameters
+            n: Number of samples
+
+        Returns:
+            Array of n samples
+        """
 
     # Templates
 
-    def stochastic_to_mean(
-        self, key: Array, params: Point[Natural, Self], n: int
-    ) -> Point[Mean, Self]:
-        """Estimate mean parameters via Monte Carlo sampling."""
-        samples = self.sample(key, params, n)
+    def stochastic_to_mean(self, key: Array, natural_params: Array, n: int) -> Array:
+        """Estimate mean parameters via Monte Carlo sampling.
+
+        Args:
+            key: JAX random key
+            natural_params: Natural parameters
+            n: Number of samples
+
+        Returns:
+            Estimated mean parameters
+        """
+        samples = self.sample(key, natural_params, n)
         return self.average_sufficient_statistic(samples)
 
 
@@ -148,49 +183,82 @@ class Differentiable(Generative, ABC):
     # Contract
 
     @abstractmethod
-    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
-        """Compute log partition function $\\psi(\\theta)$."""
+    def log_partition_function(self, natural_params: Array) -> Array:
+        """Compute log partition function $\\psi(\\theta)$.
+
+        Args:
+            natural_params: Natural parameters
+
+        Returns:
+            Log partition function value (scalar)
+        """
 
     # Templates
 
-    def to_mean(self, params: Point[Natural, Self]) -> Point[Mean, Self]:
-        """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
-        return self.grad(self.log_partition_function, params)
+    def to_mean(self, natural_params: Array) -> Array:
+        """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$.
 
-    def log_density(self, params: Point[Natural, Self], x: Array) -> Array:
+        Args:
+            natural_params: Natural parameters
+
+        Returns:
+            Mean parameters
+        """
+        return self.grad(self.log_partition_function, natural_params)
+
+    def log_density(self, natural_params: Array, x: Array) -> Array:
         """Compute log density at x.
 
         $$
         \\log p(x;\\theta) = \\theta \\cdot \\mathbf s(x) + \\log \\mu(x) - \\psi(\\theta)
         $$
+
+        Args:
+            natural_params: Natural parameters
+            x: Data point
+
+        Returns:
+            Log density (scalar)
         """
         suff_stats = self.sufficient_statistic(x)
         return (
-            self.dot(params, suff_stats)
+            self.dot(natural_params, suff_stats)
             + self.log_base_measure(x)
-            - self.log_partition_function(params)
+            - self.log_partition_function(natural_params)
         )
 
-    def density(self, params: Point[Natural, Self], x: Array) -> Array:
+    def density(self, natural_params: Array, x: Array) -> Array:
         """Compute density at x.
 
         $$
         p(x;\\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
         $$
+
+        Args:
+            natural_params: Natural parameters
+            x: Data point
+
+        Returns:
+            Density (scalar)
         """
-        return jnp.exp(self.log_density(params, x))
+        return jnp.exp(self.log_density(natural_params, x))
 
     def average_log_density(
-        self, p: Point[Natural, Self], xs: Array, batch_size: int = 2048
+        self, natural_params: Array, xs: Array, batch_size: int = 2048
     ) -> Array:
         """Compute average log density over a batch of observations.
+
+        Args:
+            natural_params: Natural parameters
+            xs: Batch of data points
+            batch_size: Size of batches for vmapped computation
 
         Returns:
             Scalar array of the average log density
         """
 
         def _log_density(x: Array) -> Array:
-            return self.log_density(p, x)
+            return self.log_density(natural_params, x)
 
         return batched_mean(_log_density, xs, batch_size)
 
@@ -219,8 +287,15 @@ class Analytic(Differentiable, ABC):
     # Contract
 
     @abstractmethod
-    def negative_entropy(self, means: Point[Mean, Self]) -> Array:
-        """Compute negative entropy $\\phi(\\eta)$."""
+    def negative_entropy(self, mean_params: Array) -> Array:
+        """Compute negative entropy $\\phi(\\eta)$.
+
+        Args:
+            mean_params: Mean parameters
+
+        Returns:
+            Negative entropy (scalar)
+        """
 
     # Overrides
 
@@ -231,33 +306,55 @@ class Analytic(Differentiable, ABC):
         sample: Array,
         location: float = 0.0,
         shape: float = 0.1,
-    ) -> Point[Natural, Self]:
-        """Initialize a model based on the noisy average sufficient statistics."""
+    ) -> Array:
+        """Initialize a model based on the noisy average sufficient statistics.
+
+        Args:
+            key: JAX random key
+            sample: Data sample
+            location: Mean of noise distribution
+            shape: Std dev of noise distribution
+
+        Returns:
+            Natural parameters array
+        """
         avg_suff_stat = self.average_sufficient_statistic(sample)
-        # add gaussian noise
+        # add gaussian noise to mean parameters
         noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
-        avg_suff_stat = avg_suff_stat + self.point(noise)
-        params = self.to_natural(avg_suff_stat)
-        return self.natural_point(params.array)
+        noisy_mean_params = avg_suff_stat + noise
+        # convert to natural parameters
+        return self.to_natural(noisy_mean_params)
 
     # Templates
 
-    def to_natural(self, means: Point[Mean, Self]) -> Point[Natural, Self]:
-        """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
-        return reduce_dual(self.grad(self.negative_entropy, means))
+    def to_natural(self, mean_params: Array) -> Array:
+        """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$.
 
-    def relative_entropy(
-        self, p_means: Point[Mean, Self], q_params: Point[Natural, Self]
-    ) -> Array:
+        Args:
+            mean_params: Mean parameters
+
+        Returns:
+            Natural parameters
+        """
+        return self.grad(self.negative_entropy, mean_params)
+
+    def relative_entropy(self, p_mean_params: Array, q_natural_params: Array) -> Array:
         """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
 
         $D(p \\| q) = \\int p(x) \\log \\frac{p(x)}{q(x)} dx = \\theta \\cdot \\eta - \\psi(\\theta) - \\phi(\\eta)$, where
 
         - $p(x;\\eta)$ has mean parameters $\\eta$, and
         - $q(x;\\theta)$ has natural parameters $\\theta$.
+
+        Args:
+            p_mean_params: Mean parameters of p
+            q_natural_params: Natural parameters of q
+
+        Returns:
+            KL divergence D(p || q) (scalar)
         """
         return (
-            self.negative_entropy(p_means)
-            + self.log_partition_function(q_params)
-            - self.dot(q_params, p_means)
+            self.negative_entropy(p_mean_params)
+            + self.log_partition_function(q_natural_params)
+            - self.dot(q_natural_params, p_mean_params)
         )

@@ -100,7 +100,6 @@ __all__ = [
     "OptState",
     "Optimizer",
     "Pair",
-    "Point",
     "PositiveDefinite",
     "Product",
     "Rectangular",
@@ -114,8 +113,6 @@ __all__ = [
     "SymmetricConjugated",
     "Triple",
     "TupleEmbedding",
-    "expand_dual",
     "hierarchical_conjugation_parameters",
     "hierarchical_to_natural_likelihood",
-    "reduce_dual",
 ]

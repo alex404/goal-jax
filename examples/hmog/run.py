@@ -8,8 +8,6 @@ from jax import Array
 
 from goal.geometry import (
     Diagonal,
-    Natural,
-    Point,
     Scale,
 )
 from goal.models import (
@@ -32,7 +30,7 @@ SEP = 3.0  # Separation parameter
 
 def create_ground_truth_model() -> tuple[
     AnalyticHMoG,
-    Point[Natural, AnalyticHMoG],
+    Array,
 ]:
     """Create ground truth hierarchical mixture of Gaussians model."""
     hmog = analytic_hmog(
@@ -43,43 +41,43 @@ def create_ground_truth_model() -> tuple[
     )
     with hmog.pst_man.prr_man as cm:
         # Create latent categorical prior
-        cat_params = cm.natural_point(jnp.array([0.5]))
-        cat_means = cm.to_mean(cat_params)
+        cat_natural_params = jnp.array([0.5])
+        cat_mean_params = cm.to_mean(cat_natural_params)
 
     # Create latent Gaussian components
     with hmog.pst_man as um, um.obs_man as lm:
         y0_means = lm.join_mean_covariance(
-            lm.loc_man.mean_point(jnp.array([-SEP / 2])),
-            lm.cov_man.mean_point(jnp.array([1.0])),
+            jnp.array([-SEP / 2]),
+            jnp.array([1.0]),
         )
         y1_means = lm.join_mean_covariance(
-            lm.loc_man.mean_point(jnp.array([SEP / 2])),
-            lm.cov_man.mean_point(jnp.array([1.0])),
+            jnp.array([SEP / 2]),
+            jnp.array([1.0]),
         )
 
         # components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
-        components = um.cmp_man.mean_point(jnp.stack([y0_means.array, y1_means.array]))
-        mix_means = um.join_mean_mixture(components, cat_means)
-        mix_params = um.to_natural(mix_means)
+        components = jnp.stack([y0_means, y1_means])
+        mix_mean_params = um.join_mean_mixture(components, cat_mean_params)
+        mix_natural_params = um.to_natural(mix_mean_params)
 
     with hmog.obs_man as om:
         # Create observable normal with diagonal covariance
-        obs_means = om.join_mean_covariance(
-            om.loc_man.mean_point(jnp.array([0.0, 0.0])),
-            om.cov_man.mean_point(jnp.array([WIDTH, HEIGHT])),
+        obs_mean_params = om.join_mean_covariance(
+            jnp.array([0.0, 0.0]),
+            jnp.array([WIDTH, HEIGHT]),
         )
-        obs_params = om.to_natural(obs_means)
+        obs_natural_params = om.to_natural(obs_mean_params)
 
         # NB: Multiplying the interaction parameters by the observable precision makes them scale more intuitively
         int_mat0 = jnp.array([1.0, 0.0])
-        obs_prs = om.split_location_precision(obs_params)[1]
+        obs_prs = om.split_location_precision(obs_natural_params)[1]
         int_mat = hmog.int_man.from_dense(om.cov_man.to_dense(obs_prs) @ int_mat0)
 
-    lkl_params = hmog.lkl_fun_man.join_params(obs_params, int_mat)
+    lkl_params = hmog.lkl_fun_man.join_params(obs_natural_params, int_mat)
 
-    hmog_params = hmog.join_conjugated(lkl_params, mix_params)
+    hmog_natural_params = hmog.join_conjugated(lkl_params, mix_natural_params)
 
-    return hmog, hmog_params
+    return hmog, hmog_natural_params
 
 
 ### Training ###
@@ -92,22 +90,20 @@ def fit_hmog(
     sample: Array,
 ) -> tuple[
     Array,
-    Point[Natural, AnalyticHMoG],
-    Point[Natural, AnalyticHMoG],
+    Array,
+    Array,
 ]:
     """Train HMoG model using expectation maximization."""
     init_params = hmog.initialize_from_sample(key, sample, shape=2)
 
-    def em_step(
-        carry: Point[Natural, AnalyticHMoG], _: Any
-    ) -> tuple[Point[Natural, AnalyticHMoG], Array]:
-        params = carry
-        ll = hmog.average_log_observable_density(params, sample)
-        next_params = hmog.expectation_maximization(params, sample)
-        return next_params, ll
+    def em_step(carry: Array, _: Any) -> tuple[Array, Array]:
+        natural_params = carry
+        ll = hmog.average_log_observable_density(natural_params, sample)
+        next_natural_params = hmog.expectation_maximization(natural_params, sample)
+        return next_natural_params, ll
 
-    final_params, lls = jax.lax.scan(em_step, init_params, None, length=n_steps)
-    return lls.ravel(), init_params, final_params
+    final_natural_params, lls = jax.lax.scan(em_step, init_params, None, length=n_steps)
+    return lls.ravel(), init_params, final_natural_params
 
 
 fit_hmog = jax.jit(fit_hmog, static_argnames=["hmog", "n_steps"])
@@ -124,21 +120,21 @@ def compute_hmog_results(
     """Generate samples and train model following Haskell implementation."""
 
     # Create ground truth model
-    gt_hmog, gt_hmog_params = create_ground_truth_model()
+    gt_hmog, gt_hmog_natural_params = create_ground_truth_model()
 
     # Generate samples
     key_sample, key_train = jax.random.split(key)
-    sample = gt_hmog.observable_sample(key_sample, gt_hmog_params, sample_size)
+    sample = gt_hmog.observable_sample(key_sample, gt_hmog_natural_params, sample_size)
 
     # Create HMoG model
     iso_hmog = analytic_hmog(2, Scale(), 1, 2)
     dia_hmog = analytic_hmog(2, Diagonal(), 1, 2)
 
     # Train model
-    iso_lls, init_iso_params, final_iso_params = fit_hmog(
+    iso_lls, init_iso_params, final_iso_natural_params = fit_hmog(
         key_train, iso_hmog, n_steps, sample
     )
-    dia_lls, init_dia_params, final_dia_params = fit_hmog(
+    dia_lls, init_dia_params, final_dia_natural_params = fit_hmog(
         key_train, dia_hmog, n_steps, sample
     )
 
@@ -153,33 +149,33 @@ def compute_hmog_results(
     # Compute densities
     def compute_observable_density(
         model: AnalyticHMoG,
-        params: Point[Natural, AnalyticHMoG],
+        natural_params: Array,
     ):
         return jax.vmap(model.observable_density, in_axes=(None, 0))(
-            params, grid_points
+            natural_params, grid_points
         ).reshape(x1s.shape)
 
-    true_density = compute_observable_density(gt_hmog, gt_hmog_params)
+    true_density = compute_observable_density(gt_hmog, gt_hmog_natural_params)
     init_iso_density = compute_observable_density(iso_hmog, init_iso_params)
-    final_iso_density = compute_observable_density(iso_hmog, final_iso_params)
+    final_iso_density = compute_observable_density(iso_hmog, final_iso_natural_params)
     init_dia_density = compute_observable_density(dia_hmog, init_dia_params)
-    final_dia_density = compute_observable_density(dia_hmog, final_dia_params)
+    final_dia_density = compute_observable_density(dia_hmog, final_dia_natural_params)
 
     # Get mixture densities
     def compute_mixture_density(
         model: AnalyticHMoG,
-        params: Point[Natural, AnalyticHMoG],
+        natural_params: Array,
     ):
-        mix_model = model.split_conjugated(params)[1]
+        mix_model = model.split_conjugated(natural_params)[1]
         return jax.vmap(model.pst_man.observable_density, in_axes=(None, 0))(
             mix_model, y[:, None]
         )
 
-    true_mix = compute_mixture_density(gt_hmog, gt_hmog_params)
+    true_mix = compute_mixture_density(gt_hmog, gt_hmog_natural_params)
     init_iso_mix = compute_mixture_density(iso_hmog, init_iso_params)
-    final_iso_mix = compute_mixture_density(iso_hmog, final_iso_params)
+    final_iso_mix = compute_mixture_density(iso_hmog, final_iso_natural_params)
     init_dia_mix = compute_mixture_density(dia_hmog, init_dia_params)
-    final_dia_mix = compute_mixture_density(dia_hmog, final_dia_params)
+    final_dia_mix = compute_mixture_density(dia_hmog, final_dia_natural_params)
 
     return HMoGResults(
         plot_range_x1=x1.tolist(),

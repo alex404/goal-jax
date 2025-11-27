@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import i0e
 
-from ...geometry import Differentiable, Mean, Natural, Point
+from ...geometry import Differentiable
 
 
 @dataclass(frozen=True)
@@ -34,21 +34,33 @@ class VonMises(Differentiable):
 
     # Methods
 
-    def split_mean_concentration(self, p: Point[Natural, Self]) -> tuple[Array, Array]:
-        """Split the natural parameters into mean and concentration parameters."""
-        theta = p.array
+    def split_mean_concentration(self, p: Array) -> tuple[Array, Array]:
+        """Split the natural parameters into mean and concentration parameters.
+
+        Args:
+            p: Natural parameters array
+
+        Returns:
+            Tuple of (mean_angle, concentration)
+        """
+        theta = p
         kappa = jnp.sqrt(jnp.sum(theta**2))
         mu = jnp.arctan2(theta[1], theta[0])
         return mu, kappa
 
-    def join_mean_concentration(
-        self, mu0: float, kappa0: float
-    ) -> Point[Natural, Self]:
-        """Join the mean and concentration parameters into natural parameters."""
+    def join_mean_concentration(self, mu0: float, kappa0: float) -> Array:
+        """Join the mean and concentration parameters into natural parameters.
+
+        Args:
+            mu0: Mean angle
+            kappa0: Concentration parameter
+
+        Returns:
+            Natural parameters array
+        """
         mu = jnp.atleast_1d(mu0)
         kappa = jnp.atleast_1d(kappa0)
-        theta = kappa * jnp.concatenate([jnp.cos(mu), jnp.sin(mu)])
-        return self.natural_point(theta)
+        return kappa * jnp.concatenate([jnp.cos(mu), jnp.sin(mu)])
 
     # Overrides
 
@@ -63,23 +75,57 @@ class VonMises(Differentiable):
         return 1
 
     @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        return self.mean_point(jnp.array([jnp.cos(x), jnp.sin(x)]).ravel())
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Compute sufficient statistics: (cos(x), sin(x)).
+
+        Args:
+            x: Data point
+
+        Returns:
+            Sufficient statistics array
+        """
+        return jnp.array([jnp.cos(x), jnp.sin(x)]).ravel()
 
     @override
     def log_base_measure(self, x: Array) -> Array:
+        """Log base measure: -log(2π).
+
+        Args:
+            x: Data point
+
+        Returns:
+            Log base measure (scalar)
+        """
         return -jnp.log(2 * jnp.pi)
 
     @override
-    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
-        kappa = jnp.sqrt(jnp.sum(params.array**2))
+    def log_partition_function(self, natural_params: Array) -> Array:
+        """Compute log partition function.
+
+        Args:
+            params: Natural parameters
+
+        Returns:
+            Log partition function value (scalar)
+        """
+        kappa = jnp.sqrt(jnp.sum(natural_params**2))
         # Explicitly cast i0e output to Array
         return jnp.log(i0e(kappa)) + kappa
 
     # TODO: Right now this is based on rejection sampling, but we should switch to a more efficient method that's more suitable for JAX
     @override
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        mu, kappa = self.split_mean_concentration(params)
+    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+        """Generate n samples from the Von Mises distribution.
+
+        Args:
+            key: JAX random key
+            params: Natural parameters
+            n: Number of samples
+
+        Returns:
+            Array of n samples
+        """
+        mu, kappa = self.split_mean_concentration(natural_params)
         kappa = jnp.maximum(kappa, 1e-5)
 
         tau = 1 + jnp.sqrt(1 + 4 * kappa**2)

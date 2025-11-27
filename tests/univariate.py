@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import Analytic, Differentiable, Natural, Point, PositiveDefinite
+from goal.geometry import Analytic, Differentiable, PositiveDefinite
 from goal.models import (
     Categorical,
     CoMPoisson,
@@ -64,20 +64,20 @@ class DifferentiableUnivariateTest[M: Differentiable](ABC):
     sample_sizes: list[int] = field(default_factory=lambda: SAMPLE_SIZES)
 
     @abstractmethod
-    def run_integration_test(self, params: Point[Natural, M]) -> Array:
+    def run_integration_test(self, params: Array) -> Array:
         """Run numeric integration test for this model type."""
         ...
 
     def run_sufficient_stats_test(
-        self, params: Point[Natural, M], samples: Array, n_samples: int
+        self, params: Array, samples: Array, n_samples: int
     ) -> float:
         """Test convergence of sufficient statistics."""
         true_mean_params = self.model.to_mean(params)
         batch = samples[:n_samples]
         est_mean_params = self.model.average_sufficient_statistic(batch)
-        return float(jnp.mean((est_mean_params.array - true_mean_params.array) ** 2))
+        return float(jnp.mean((est_mean_params - true_mean_params) ** 2))
 
-    def run_parameter_recovery_test(self, params: Point[Natural, M]) -> float | None:
+    def run_parameter_recovery_test(self, params: Array) -> float | None:
         """Test parameter recovery through mean coordinates."""
         params = params
         return None
@@ -134,7 +134,7 @@ class CoMPoissonTest[M: CoMPoisson](DifferentiableUnivariateTest[M]):
     """Test harness for count-based distributions."""
 
     @override
-    def run_integration_test(self, params: Point[Natural, M]) -> Array:
+    def run_integration_test(self, params: Array) -> Array:
         """Compute total probability mass for count-based distributions."""
         max_k = 500  # Could be made adaptive based on parameters
         xs = jnp.arange(max_k)
@@ -147,7 +147,7 @@ class VonMisesTest[M: VonMises](DifferentiableUnivariateTest[M]):
     """Test harness for VonMises distribution."""
 
     @override
-    def run_integration_test(self, params: Point[Natural, M]) -> Array:
+    def run_integration_test(self, params: Array) -> Array:
         """Compute total probability mass for von Mises distribution."""
         xs = jnp.linspace(-jnp.pi, jnp.pi, 1000)
         densities = jax.vmap(self.model.density, in_axes=(None, 0))(params, xs)
@@ -162,11 +162,11 @@ class AnalyticUnivariateTest[M: Analytic](DifferentiableUnivariateTest[M], ABC):
     """Base test harness defining the testing protocol."""
 
     @override
-    def run_parameter_recovery_test(self, params: Point[Natural, M]) -> float | None:
+    def run_parameter_recovery_test(self, params: Array) -> float | None:
         """Test parameter recovery through mean coordinates."""
         mean_params = self.model.to_mean(params)
         recovered_params = self.model.to_natural(mean_params)
-        return float(jnp.mean((recovered_params.array - params.array) ** 2))
+        return float(jnp.mean((recovered_params - params) ** 2))
 
     def run_relative_entropy_tests(self) -> list[float]:
         """Run relative entropy tests across multiple trials."""
@@ -192,7 +192,7 @@ class CategoricalTest[M: Categorical](AnalyticUnivariateTest[M]):
     """Test harness for Categorical distribution."""
 
     @override
-    def run_integration_test(self, params: Point[Natural, M]) -> Array:
+    def run_integration_test(self, params: Array) -> Array:
         """Compute total probability mass for categorical distribution."""
         xs = jnp.arange(self.model.n_categories)
         densities = jax.vmap(self.model.density, in_axes=(None, 0))(params, xs)
@@ -204,7 +204,7 @@ class PoissonTest[M: Poisson](AnalyticUnivariateTest[M]):
     """Test harness for count-based distributions."""
 
     @override
-    def run_integration_test(self, params: Point[Natural, M]) -> Array:
+    def run_integration_test(self, params: Array) -> Array:
         """Compute total probability mass for count-based distributions."""
         max_k = 500  # Could be made adaptive based on parameters
         xs = jnp.arange(max_k)
@@ -217,11 +217,11 @@ class NormalTest[M: Normal](AnalyticUnivariateTest[M]):
     """Test harness for Normal distribution."""
 
     @override
-    def run_integration_test(self, params: Point[Natural, M]) -> Array:
+    def run_integration_test(self, params: Array) -> Array:
         """Compute total probability mass for normal distribution."""
         mean, var = self.model.split_mean_covariance(self.model.to_mean(params))
-        std = jnp.sqrt(var.array)
-        xs = jnp.linspace(mean.array - 6 * std, mean.array + 6 * std, 1000)
+        std = jnp.sqrt(var)
+        xs = jnp.linspace(mean - 6 * std, mean + 6 * std, 1000)
         densities = jax.vmap(self.model.density, in_axes=(None, 0))(params, xs)
         return jnp.sum(densities) * (12 * std / 1000)
 

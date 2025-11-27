@@ -3,26 +3,18 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Protocol, Self, override, runtime_checkable
+from typing import Protocol, override, runtime_checkable
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.base import (
-    Point,
-)
-from ..manifold.combinators import (
-    Pair,
-    Replicated,
-)
+from ..manifold.combinators import Pair, Replicated
 from .base import (
     Analytic,
     Differentiable,
     ExponentialFamily,
     Generative,
-    Mean,
-    Natural,
 )
 
 ### Protocols ###
@@ -35,16 +27,26 @@ class StatisticalMoments(Protocol):
     This is a temporary solution until Python supports proper intersection types that would allow us to express this as ExponentialFamily & StatisticalMoments.
     """
 
-    def statistical_mean[M: ExponentialFamily](
-        self: M, params: Point[Natural, M]
-    ) -> Array:
-        """Compute the mean/expected value of the distribution as a 1D Array."""
+    def statistical_mean(self, natural_params: Array) -> Array:
+        """Compute the mean/expected value of the distribution as a 1D Array.
+
+        Args:
+            natural_params: Natural parameters
+
+        Returns:
+            Mean array
+        """
         ...
 
-    def statistical_covariance[M: ExponentialFamily](
-        self: M, params: Point[Natural, M]
-    ) -> Array:
-        """Compute the covariance matrix of the distribution as a 2D Array."""
+    def statistical_covariance(self, natural_params: Array) -> Array:
+        """Compute the covariance matrix of the distribution as a 2D Array.
+
+        Args:
+            natural_params: Natural parameters
+
+        Returns:
+            Covariance matrix
+        """
         ...
 
 
@@ -73,8 +75,15 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.fst_man.data_dim
 
     @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Sufficient statistic is the concatenation of component sufficient statistics."""
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Sufficient statistic is the concatenation of component sufficient statistics.
+
+        Args:
+            x: Data point
+
+        Returns:
+            Concatenated sufficient statistics
+        """
         loc_stats = self.fst_man.sufficient_statistic(x)
         shape_stats = self.snd_man.sufficient_statistic(x)
         return self.join_params(loc_stats, shape_stats)
@@ -82,8 +91,17 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
     @override
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
-        """Initialize location and shape parameters."""
+    ) -> Array:
+        """Initialize location and shape parameters.
+
+        Args:
+            key: JAX random key
+            location: Location for initialization
+            shape: Shape for initialization
+
+        Returns:
+            Initialized natural parameters
+        """
         key_loc, key_shp = jax.random.split(key)
         fst_loc = self.fst_man.initialize(key_loc, location, shape)
         shp_loc = self.snd_man.initialize(key_shp, location, shape)
@@ -107,15 +125,29 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
         return self.rep_man.data_dim * self.n_reps
 
     @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        """Sufficient statistic is the concatenation of replicated component sufficient statistics."""
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Sufficient statistic is the concatenation of replicated component sufficient statistics.
+
+        Args:
+            x: Data array
+
+        Returns:
+            Sufficient statistics array
+        """
         x_reshaped = x.reshape(self.n_reps, -1)
         stats = jax.vmap(self.rep_man.sufficient_statistic)(x_reshaped)
-        return self.mean_point(stats.array.reshape(-1))
+        return stats.reshape(-1)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        """Base measure is the sum of replicated component base measures."""
+        """Base measure is the sum of replicated component base measures.
+
+        Args:
+            x: Data array
+
+        Returns:
+            Log base measure (scalar)
+        """
         x_reshaped = x.reshape(self.n_reps, -1)
         # vmap the base measure computation
         return jnp.sum(jax.vmap(self.rep_man.log_base_measure)(x_reshaped))
@@ -123,27 +155,37 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
     @override
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
+    ) -> Array:
         """Initialize replicated parameters.
 
-        Generates n_reps independent initializations of the base manifold.
+        Args:
+            key: JAX random key
+            location: Location parameter
+            shape: Shape parameter
+
+        Returns:
+            Initialized natural parameters
         """
         keys = jax.random.split(key, self.n_reps)
-
-        def init_one(k: Array) -> Array:
-            return self.rep_man.initialize(k, location, shape).array
-
-        init_params = jax.vmap(init_one)(keys)
-        return self.natural_point(init_params)
+        init_params = jax.vmap(lambda k: self.rep_man.initialize(k, location, shape))(
+            keys
+        )
+        return init_params.reshape(-1)
 
     @override
     def initialize_from_sample(
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Point[Natural, Self]:
+    ) -> Array:
         """Initialize replicated parameters from sample.
 
-        Splits sample data into n_reps chunks and initializes each component
-        using its corresponding chunk of data.
+        Args:
+            key: JAX random key
+            sample: Data sample
+            location: Location parameter
+            shape: Shape parameter
+
+        Returns:
+            Initialized natural parameters
         """
         keys = jax.random.split(key, self.n_reps)
         # sample dimensions: (n_batch, rep_dim)
@@ -157,15 +199,22 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             rep_sample = rep_data.T
             return self.rep_man.initialize_from_sample(
                 rep_key, rep_sample, location, shape
-            ).array
+            )
 
         init_params = jax.vmap(init_one)(keys, rep_datas)
-        return self.natural_point(init_params)
+        return init_params.reshape(-1)
 
-    def statistical_mean(self, params: Point[Natural, Self]) -> Array:
+    def statistical_mean(self, natural_params: Array) -> Array:
         """Compute the mean of the product distribution.
 
-        If the replicated manifold supports statistical moments, returns a vector of means for each component. Otherwise raises TypeError.
+        Args:
+            natural_params: Natural parameters
+
+        Returns:
+            Vector of means for each component
+
+        Raises:
+            TypeError: If replicated manifold doesn't support statistical moments
         """
         if not isinstance(self.rep_man, StatisticalMoments):
             raise TypeError(
@@ -173,18 +222,27 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             )
 
         # Map the mean computation across all replicates
+        return self.map(self.rep_man.statistical_mean, natural_params).ravel()
 
-        return self.map(self.rep_man.statistical_mean, params).ravel()  # pyright: ignore[reportArgumentType]
+    def statistical_covariance(self, natural_params: Array) -> Array:
+        """Compute the covariance of the product distribution (block diagonal).
 
-    def statistical_covariance(self, params: Point[Natural, Self]) -> Array:
-        """Compute the covariance of the product distribution (block diagonal)."""
+        Args:
+            natural_params: Natural parameters
+
+        Returns:
+            Block diagonal covariance matrix
+
+        Raises:
+            TypeError: If replicated manifold doesn't support statistical moments
+        """
         if not isinstance(self.rep_man, StatisticalMoments):
             raise TypeError(
                 f"Replicated manifold {type(self.rep_man)} does not support statistical moment computation"
             )
 
         # Get component covariances
-        component_covs = self.map(self.rep_man.statistical_covariance, params)  # pyright: ignore[reportArgumentType]
+        component_covs = self.map(self.rep_man.statistical_covariance, natural_params)
 
         # Check if components return scalar variances
         if component_covs.size == self.n_reps:
@@ -212,16 +270,25 @@ class GenerativeProduct[M: Differentiable](Product[M], Generative):
     # Overrides
 
     @override
-    def sample(self, key: Array, params: Point[Natural, Self], n: int = 1) -> Array:
-        """Generate n samples from the product distribution."""
+    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+        """Generate n samples from the product distribution.
+
+        Args:
+            key: JAX random key
+            natural_params: Natural parameters
+            n: Number of samples
+
+        Returns:
+            Array of n samples
+        """
         rep_keys = jax.random.split(key, self.n_reps)
+        params_reshaped = natural_params.reshape(self.n_reps, -1)
 
         def sample_rep(rep_key: Array, rep_params: Array) -> Array:
-            with self.rep_man as rm:
-                return rm.sample(rep_key, rm.natural_point(rep_params), n)
+            return self.rep_man.sample(rep_key, rep_params, n)
 
         # samples dimensions: (n_reps, n_batch, data_dim)
-        samples = jax.vmap(sample_rep)(rep_keys, params.array)
+        samples = jax.vmap(sample_rep)(rep_keys, params_reshaped)
         # return dimensions: (n_batch, n_reps * data_dim)
         return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 
@@ -232,9 +299,16 @@ class DifferentiableProduct[M: Differentiable](Differentiable, GenerativeProduct
     # Overrides
 
     @override
-    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
-        # Reshape instead of split
-        return jnp.sum(self.map(self.rep_man.log_partition_function, params))
+    def log_partition_function(self, natural_params: Array) -> Array:
+        """Compute sum of log partition functions.
+
+        Args:
+            natural_params: Natural parameters
+
+        Returns:
+            Sum of log partition functions (scalar)
+        """
+        return jnp.sum(self.map(self.rep_man.log_partition_function, natural_params))
 
 
 class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
@@ -243,6 +317,13 @@ class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
     # Overrides
 
     @override
-    def negative_entropy(self, means: Point[Mean, Self]) -> Array:
-        # Reshape instead of split
-        return jnp.sum(self.map(self.rep_man.negative_entropy, means))
+    def negative_entropy(self, mean_params: Array) -> Array:
+        """Compute sum of negative entropies.
+
+        Args:
+            mean_params: Mean parameters
+
+        Returns:
+            Sum of negative entropies (scalar)
+        """
+        return jnp.sum(self.map(self.rep_man.negative_entropy, mean_params))

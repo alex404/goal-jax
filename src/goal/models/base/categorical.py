@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ...geometry import Analytic, Mean, Natural, Point
+from ...geometry import Analytic
 
 
 @dataclass(frozen=True)
@@ -45,46 +45,45 @@ class Categorical(Analytic):
 
     # Categorical methods
 
-    def from_probs(self, probs: Array) -> Point[Mean, Self]:
+    def from_probs(self, probs: Array) -> Array:
         """Construct the mean parameters from the complete probabilities, dropping the first element."""
-        return self.mean_point(probs[1:])
+        return probs[1:]
 
-    def to_probs(self, p: Point[Mean, Self]) -> Array:
+    def to_probs(self, p: Array) -> Array:
         """Return the probabilities of all labels."""
-        probs = p.array
-        prob0 = 1 - jnp.sum(probs)
-        return jnp.concatenate([jnp.array([prob0]), probs])
+        prob0 = 1 - jnp.sum(p)
+        return jnp.concatenate([jnp.array([prob0]), p])
 
     # Overrides
 
     @override
-    def sufficient_statistic(self, x: Array) -> Point[Mean, Self]:
-        return self.mean_point(jax.nn.one_hot(x - 1, self.n_categories - 1).reshape(-1))
+    def sufficient_statistic(self, x: Array) -> Array:
+        return jax.nn.one_hot(x - 1, self.n_categories - 1).reshape(-1)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
         return jnp.array(0.0)
 
     @override
-    def log_partition_function(self, params: Point[Natural, Self]) -> Array:
-        array = jnp.concatenate([jnp.array([0.0]), params.array])
+    def log_partition_function(self, natural_params: Array) -> Array:
+        array = jnp.concatenate([jnp.array([0.0]), natural_params])
         max_val = jnp.max(array)
         return max_val + jax.nn.logsumexp(array - max_val)
 
     @override
-    def negative_entropy(self, means: Point[Mean, Self]) -> Array:
-        probs = self.to_probs(means)
+    def negative_entropy(self, mean_params: Array) -> Array:
+        probs = self.to_probs(mean_params)
         return jnp.sum(probs * jnp.log(probs))
 
     @override
     def sample(
         self,
         key: Array,
-        params: Point[Natural, Self],
+        natural_params: Array,
         n: int = 1,
     ) -> Array:
-        mean_point = self.to_mean(params)
-        probs = self.to_probs(mean_point)
+        mean_params = self.to_mean(natural_params)
+        probs = self.to_probs(mean_params)
 
         key = jnp.asarray(key)
         # Use Gumbel-Max trick: argmax(log(p) + Gumbel(0,1)) ~ Categorical(p)
