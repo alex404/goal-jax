@@ -142,8 +142,7 @@ def test_factor_analysis_loadings(caplog: pytest.LogCaptureFixture) -> None:
     )
 
     # 3. Log density at mean should be finite
-    sample = means[None, :]  # Single sample at the mean
-    ll = nor_man.log_density(nor_params, sample)
+    ll = nor_man.log_density(nor_params, means)
     assert jnp.isfinite(ll), "Log density at mean is not finite"
 
     logger.info(f"Mean: {mean}")

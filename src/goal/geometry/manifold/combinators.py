@@ -99,7 +99,7 @@ class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
         Returns:
             Concatenated array
         """
-        return jnp.concatenate([jnp.ravel(fst_coords), jnp.ravel(snd_coords)])
+        return jnp.concatenate([fst_coords, snd_coords])
 
 
 @dataclass(frozen=True)
@@ -164,9 +164,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
         Returns:
             Concatenated array
         """
-        return jnp.concatenate(
-            [jnp.ravel(fst_coords), jnp.ravel(snd_coords), jnp.ravel(trd_coords)]
-        )
+        return jnp.concatenate([fst_coords, snd_coords, trd_coords])
 
 
 @dataclass(frozen=True)
@@ -204,7 +202,7 @@ class Replicated[M: Manifold](Manifold):
 
         Args:
             f: Function that takes coordinates for one replicate (shape [rep_man.dim])
-            coordinates: Array of replicated coordinates (flat, shape [n_reps * rep_man.dim])
+            coords: Array of replicated coordinates (flat, shape [n_reps * rep_man.dim])
 
         Returns:
             Stacked results with shape [n_reps, *f_result_shape]

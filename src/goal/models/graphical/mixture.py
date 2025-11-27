@@ -96,8 +96,8 @@ class MixtureComponentEmbedding[
     @override
     def embed(
         self,
-        natural_params: Array,  # Natural[CompleteMixture[SubComponent]]
-    ) -> Array:  # Natural[CompleteMixture[AmbientComponent]]
+        params: Array,
+    ) -> Array:
         """Embed by applying the component embedding to each component in Natural coordinates.
 
         Decomposes the mixture into component natural parameters and prior using
@@ -106,7 +106,7 @@ class MixtureComponentEmbedding[
 
         Parameters
         ----------
-        natural_params : Array
+        params : Array
             Natural parameters in sub-manifold.
 
         Returns
@@ -114,15 +114,15 @@ class MixtureComponentEmbedding[
         Array
             Natural parameters in ambient manifold.
         """
-        components, prior = self.sub_man.split_natural_mixture(natural_params)
+        components, prior = self.sub_man.split_natural_mixture(params)
         emb_components = self.sub_man.cmp_man.map(self.cmp_emb.embed, components)
         return self.amb_man.join_natural_mixture(emb_components, prior)
 
     @override
-    def project(
+    def project(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        mean_params: Array,  # Mean[CompleteMixture[AmbientComponent]]
-    ) -> Array:  # Mean[CompleteMixture[SubComponent]]
+        mean_params: Array,
+    ) -> Array:
         """Project by applying the component projection to each component in Mean coordinates.
 
         Decomposes the mixture into component means and weights using `split_mean_mixture`.
@@ -200,9 +200,9 @@ class LatentMixtureOfConjugated[
 
     def mix_posterior_at(
         self,
-        natural_params: Array,
-        x: Array,  # Natural[Self]
-    ) -> Array:  # Natural[CompleteMixture[Posterior]]
+        params: Array,
+        x: Array,
+    ) -> Array:
         """Compute natural parameters of posterior distribution $p(z \\mid x)$.
 
         Given an observation $x$ with sufficient statistics $s(x)$, computes natural
@@ -212,7 +212,7 @@ class LatentMixtureOfConjugated[
 
         Parameters
         ----------
-        natural_params : Array
+        params : Array
             Natural parameters for the mixture of conjugated harmoniums.
         x : Array
             Observation data.
@@ -224,26 +224,26 @@ class LatentMixtureOfConjugated[
         """
         ssx = self.obs_man.obs_man.sufficient_statistic(x)
         prj_ssx = self.obs_man.int_obs_emb.project(ssx)
-        obs_params, int_params, lat_params = self.split_coordinates(natural_params)
-        _, obs_int_params, obs_lat_params = self.obs_man.split_coordinates(obs_params)
+        obs_params, int_params, lat_params = self.split_coords(params)
+        _, obs_int_params, obs_lat_params = self.obs_man.split_coords(obs_params)
 
         def component_int_fun0(
-            comp_params: Array,  # Natural[DifferentiableConjugated[...]]
-        ) -> Array:  # Natural[Posterior]
-            _, _, lat_params = self.obs_man.split_coordinates(comp_params)
+            comp_params: Array,
+        ) -> Array:
+            _, _, lat_params = self.obs_man.split_coords(comp_params)
             return lat_params
 
         def component_int_fun1(
-            comp_params: Array,  # Natural[DifferentiableConjugated[...]]
-        ) -> Array:  # Natural[Posterior]
-            _, int_params, _ = self.obs_man.split_coordinates(comp_params)
+            comp_params: Array,
+        ) -> Array:
+            _, int_params, _ = self.obs_man.split_coords(comp_params)
             prj_int_params = self.obs_man.int_man.transpose_apply(int_params, prj_ssx)
             return self.obs_man.int_pst_emb.embed(prj_int_params)
 
         def component_lat_fun(
-            comp_params: Array,  # Natural[DifferentiableConjugated[...]]
+            comp_params: Array,
         ) -> Array:
-            obs_params, _, _ = self.obs_man.split_coordinates(comp_params)
+            obs_params, _, _ = self.obs_man.split_coords(comp_params)
             return jnp.dot(obs_params, ssx)
 
         pst_obs_params0 = self.obs_man.int_man.transpose_apply(obs_int_params, prj_ssx)
@@ -261,14 +261,14 @@ class LatentMixtureOfConjugated[
         pst_lat_params0 = self.int_man.col_man.map(component_lat_fun, int_cols)
         pst_lat_params = lat_params + pst_lat_params0
 
-        return self.mix_pst_man.join_params(
+        return self.mix_pst_man.join_coords(
             pst_obs_params, pst_int_params, pst_lat_params
         )
 
     def mix_conjugation_parameters(
         self,
-        lkl_params: Array,  # Natural[AffineMap[Rectangular, Categorical, DifferentiableConjugated[...], DifferentiableConjugated[...]]]
-    ) -> Array:  # Natural[CompleteMixture[Prior]]
+        lkl_params: Array,
+    ) -> Array:
         """Compute conjugation parameters for a mixture of conjugated harmoniums.
 
         This decomposes the joint conjugation parameters into three components:
@@ -290,26 +290,26 @@ class LatentMixtureOfConjugated[
             Natural parameters for conjugation in CompleteMixture[Prior] space.
         """
         # Split mixture parameters into component harmonium parameters and categorical prior
-        hrm_params_0, int_mat = self.lkl_fun_man.split_coordinates(lkl_params)
+        hrm_params_0, int_mat = self.lkl_fun_man.split_coords(lkl_params)
         int_man = self.lkl_fun_man.snd_man
         int_cols = int_man.to_columns(int_mat)
 
         hrm_man = self.lkl_fun_man.cod_emb.amb_man
         lkl_params_0 = hrm_man.likelihood_function(hrm_params_0)
         rho_y = hrm_man.conjugation_parameters(lkl_params_0)
-        obs_params_0, _, _ = hrm_man.split_coordinates(hrm_params_0)
+        obs_params_0, _, _ = hrm_man.split_coords(hrm_params_0)
         lp_0 = hrm_man.obs_man.log_partition_function(obs_params_0)
 
         def compute_rho_ks(
-            comp_params: Array,  # Natural[DifferentiableConjugated[...]]
+            comp_params: Array,
         ) -> Array:
-            obs_params_k, _, _ = hrm_man.split_coordinates(comp_params)
+            obs_params_k, _, _ = hrm_man.split_coords(comp_params)
             adjusted_obs = obs_params_0 + obs_params_k
             return hrm_man.obs_man.log_partition_function(adjusted_obs) - lp_0
 
         def compute_rho_yks(
-            comp_params: Array,  # Natural[DifferentiableConjugated[...]]
-        ) -> Array:  # Natural[Prior]
+            comp_params: Array,
+        ) -> Array:
             adjusted_hrm = hrm_params_0 + comp_params
             adjusted_lkl = hrm_man.likelihood_function(adjusted_hrm)
             rho_yk0 = hrm_man.conjugation_parameters(adjusted_lkl)
@@ -322,7 +322,7 @@ class LatentMixtureOfConjugated[
         rho_yk_comps = int_man.col_man.man_map(compute_rho_yks, int_cols)
         rho_yk = self.mix_prr_man.int_man.from_columns(rho_yk_comps)
 
-        return self.mix_prr_man.join_params(rho_y, rho_yk, rho_k)
+        return self.mix_prr_man.join_coords(rho_y, rho_yk, rho_k)
 
 
 class MixtureOfConjugated[
@@ -367,13 +367,13 @@ class MixtureOfConjugated[
 
     # def mix_log_observable_density(
     #     self,
-    #     params: Array,  # Natural[Self]
+    #     params: Array,
     #     x: Array,
     # ) -> Array:
     #     hrm_cmps, cat_params = self.split_natural_mixture(params)
     #
     #     def harmonium_log_density_at_x(
-    #         hrm_params: Array,  # Natural[DifferentiableConjugated[...]]
+    #         hrm_params: Array,
     #     ) -> Array:
     #         return self.obs_man.log_observable_density(hrm_params, x)
     #
