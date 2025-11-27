@@ -55,7 +55,7 @@ def test_log_partition_function(
     log_Z = boltzmann.log_partition_function(random_params)
 
     def energy(state: Array) -> Array:
-        return boltzmann.dot(random_params, boltzmann.sufficient_statistic(state))
+        return jnp.dot(random_params, boltzmann.sufficient_statistic(state))
 
     energies = jax.vmap(energy)(boltzmann.states)
     log_Z_direct = jax.scipy.special.logsumexp(energies)

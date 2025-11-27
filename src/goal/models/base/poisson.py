@@ -294,7 +294,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         indices = base_indices + mode_shift
 
         def _compute_log_partition_terms(index: Array) -> Array:
-            return self.dot(natural_params, self.sufficient_statistic(index))
+            return jnp.dot(natural_params, self.sufficient_statistic(index))
 
         # Compute terms and use log-sum-exp for numerical stability
         log_terms = jax.vmap(_compute_log_partition_terms)(indices)

@@ -122,7 +122,7 @@ def train_model(key: Array, model: Model, data: Array) -> tuple[ModelParams, Arr
         state: tuple[OptState, ModelParams], _: Any
     ) -> tuple[tuple[OptState, ModelParams], Array]:
         opt_state, params = state
-        loss_val, grads = model.value_and_grad(loss_fn, params)
+        loss_val, grads = jax.value_and_grad(loss_fn)(params)
         opt_state, params = optimizer.update(opt_state, grads, params)
         return (opt_state, params), -loss_val  # Return log-likelihood
 
@@ -165,7 +165,7 @@ def compute_boltzmann_moment_matrix(
 
     # Compute log probabilities for each state
     def log_prob_at_state(z: Array) -> Array:
-        return model.lat_man.dot(
+        return jnp.dot(
             boltzmann_params, model.lat_man.sufficient_statistic(z)
         )
 

@@ -109,7 +109,7 @@ def test_conjugation_equation(
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)
-        rhs_term1 = model.prr_man.dot(rho, s_z)
+        rhs_term1 = jnp.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2
 
@@ -226,7 +226,7 @@ def test_log_observable_density_formula(
 
     # θ_X · s_X(x)
     obs_stats = model.obs_man.sufficient_statistic(obs)
-    term1 = model.obs_man.dot(obs_params, obs_stats)
+    term1 = jnp.dot(obs_params, obs_stats)
 
     # ψ_Z(posterior)
     posterior_params = model.posterior_at(random_params, obs)

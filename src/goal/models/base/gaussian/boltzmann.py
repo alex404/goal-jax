@@ -68,7 +68,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
 
         def energy(state: Array) -> Array:
             suff_stat = self.sufficient_statistic(state)
-            return self.dot(natural_params, suff_stat)
+            return jnp.dot(natural_params, suff_stat)
 
         energies = jax.vmap(energy)(states)
         return jax.scipy.special.logsumexp(energies)

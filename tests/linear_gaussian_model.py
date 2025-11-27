@@ -397,7 +397,7 @@ def test_normal_lgm_conjugation_equation():
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
         # RHS: ρ · s_Z(z) + ψ_X(θ_X)
-        rhs_term1 = model.prr_man.dot(rho, s_z)
+        rhs_term1 = jnp.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2
 

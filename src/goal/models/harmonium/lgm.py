@@ -11,7 +11,6 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
-    Coordinates,
     Diagonal,
     DifferentiableConjugated,
     IdentityEmbedding,
@@ -21,8 +20,6 @@ from ...geometry import (
     RectangularMap,
     Scale,
     SymmetricConjugated,
-    expand_dual,
-    reduce_dual,
 )
 from ..base.gaussian.boltzmann import Boltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
@@ -298,7 +295,7 @@ class LGM[
 
         # Intermediate computations
         obs_sigma = obs_cov_man.inverse(obs_prec)
-        obs_mean = obs_cov_man(obs_sigma, expand_dual(obs_loc))
+        obs_mean = obs_cov_man(obs_sigma, obs_loc)
 
         # Conjugation parameters
         rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
@@ -516,20 +513,20 @@ class NormalAnalyticLGM(
             obs_cov_man,
             cov_to_lin(obs_prs),
             self.int_man,
-            expand_dual(int_cov),
+            int_cov,
             lat_cov_man,
             cov_to_lin(lat_prs),
         )
         # Construct observable location params
-        obs_loc0 = obs_cov_man(obs_prs, expand_dual(obs_mean))
-        obs_loc1 = self.int_man(int_params, expand_dual(lat_mean))
+        obs_loc0 = obs_cov_man(obs_prs, obs_mean)
+        obs_loc1 = self.int_man(int_params, lat_mean)
         obs_loc = obs_loc0 - obs_loc1
 
         # Return natural parameters
         obs_params = self.obs_man.join_location_precision(
-            reduce_dual(obs_loc), reduce_dual(obs_prs)
+            obs_loc, obs_prs
         )
-        return self.lkl_fun_man.join_params(obs_params, reduce_dual(int_params))
+        return self.lkl_fun_man.join_params(obs_params, int_params)
 
 
 @dataclass(frozen=True)
@@ -648,18 +645,16 @@ class PrincipalComponentAnalysis(NormalAnalyticLGM):
 ### Helper Functions ###
 
 
-def _dual_composition[
-    Coords: Coordinates,
-](
+def _dual_composition(
     h_man: RectangularMap[Euclidean, Euclidean],
-    h_params: Array,  # Coords[RectangularMap[Euclidean, Euclidean]]
+    h_params: Array,  # Parameters in some coordinate system
     g_man: RectangularMap[Euclidean, Euclidean],
-    g_params: Array,  # Dual[Coords][RectangularMap[Euclidean, Euclidean]]
+    g_params: Array,  # Parameters in dual coordinates
     f_man: RectangularMap[Euclidean, Euclidean],
-    f_params: Array,  # Coords[RectangularMap[Euclidean, Euclidean]]
+    f_params: Array,  # Parameters in original coordinate system
 ) -> tuple[
     RectangularMap[Euclidean, Euclidean],
-    Array,  # Coords[RectangularMap[Euclidean, Euclidean]]
+    Array,  # Parameters in original coordinate system
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
 
@@ -682,16 +677,14 @@ def _dual_composition[
     return out_man, params_hgf
 
 
-def _change_of_basis[
-    Coords: Coordinates,
-](
+def _change_of_basis(
     f: RectangularMap[Euclidean, Euclidean],
-    f_params: Array,  # Coords[RectangularMap[Euclidean, Euclidean]]
+    f_params: Array,  # Parameters in some coordinate system
     g: RectangularMap[Euclidean, Euclidean],
-    g_params: Array,  # Dual[Coords][RectangularMap[Euclidean, Euclidean]]
+    g_params: Array,  # Parameters in dual coordinates
 ) -> tuple[
     Covariance,
-    Array,  # Coords[Covariance]
+    Array,  # Parameters in original coordinate system
 ]:
     """Linear change of basis transformation.
 

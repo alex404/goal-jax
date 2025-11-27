@@ -415,7 +415,7 @@ class DifferentiableConjugated[
         obs_stats = self.obs_man.sufficient_statistic(x)
         prr = self.prior(natural_params)
 
-        log_density = self.obs_man.dot(obs_params, obs_stats)
+        log_density = jnp.dot(obs_params, obs_stats)
         log_density += self.pst_man.log_partition_function(
             self.posterior_at(natural_params, x)
         )
@@ -520,7 +520,7 @@ class AnalyticConjugated[
         natural_params = self.to_natural(mean_params)
 
         log_partition = self.log_partition_function(natural_params)
-        return self.dot(natural_params, mean_params) - log_partition
+        return jnp.dot(natural_params, mean_params) - log_partition
 
     # Templates
 

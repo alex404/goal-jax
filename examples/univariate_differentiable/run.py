@@ -43,7 +43,7 @@ def fit_von_mises(
     ) -> tuple[tuple[OptState, Array], Array]:
         # Compute loss and gradients
         opt_state, params = opt_state_and_params
-        loss_val, grads = von_man.value_and_grad(cross_entropy_loss, params)
+        loss_val, grads = jax.value_and_grad(cross_entropy_loss)(params)
 
         # Get updates from optimizer
         opt_state, params = optimizer.update(opt_state, grads, params)
@@ -118,7 +118,7 @@ def fit_com_poisson(
         opt_state_and_params: tuple[OptState, Array], _: Any
     ) -> tuple[tuple[OptState, Array], Array]:
         opt_state, params = opt_state_and_params
-        loss_val, grads = com_man.value_and_grad(cross_entropy_loss, params)
+        loss_val, grads = jax.value_and_grad(cross_entropy_loss)(params)
         opt_state, params = optimizer.update(opt_state, grads, params)
         return (opt_state, params), loss_val
 

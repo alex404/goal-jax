@@ -14,7 +14,6 @@ from jax import Array
 
 from ....geometry import (
     Analytic,
-    Coordinates,
     Diagonal,
     ExponentialFamily,
     LocationShape,
@@ -129,14 +128,14 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
 # Type Hacks
 
 
-def cov_to_lin[Rep: PositiveDefinite, C: Coordinates](
+def cov_to_lin[Rep: PositiveDefinite](
     params: Array,
 ) -> Array:
     """Convert a covariance to a linear map."""
     return params
 
 
-def lin_to_cov[Rep: PositiveDefinite, C: Coordinates](
+def lin_to_cov[Rep: PositiveDefinite](
     params: Array,
 ) -> Array:
     """Convert a linear map to a covariance."""
@@ -215,7 +214,7 @@ class Normal(
         covariance = self.snd_man.inverse(precision)
         mean = self.snd_man(covariance, loc)
 
-        return 0.5 * (self.loc_man.dot(loc, mean) - self.snd_man.logdet(precision))
+        return 0.5 * (jnp.dot(loc, mean) - self.snd_man.logdet(precision))
 
     @override
     def negative_entropy(self, mean_params: Array) -> Array:

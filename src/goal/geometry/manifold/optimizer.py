@@ -16,7 +16,7 @@ from optax import (
     sgd,
 )
 
-from .base import Coordinates, Manifold
+from .base import Manifold
 
 # Create an opaque type for optimizer state
 OptState = NewType("OptState", object)
@@ -24,7 +24,7 @@ OptState = NewType("OptState", object)
 
 
 @dataclass(frozen=True)
-class Optimizer[C: Coordinates, M: Manifold]:
+class Optimizer[M: Manifold]:
     """Handles parameter updates using gradients in dual coordinates."""
 
     optimizer: GradientTransformation

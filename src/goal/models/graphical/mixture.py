@@ -244,7 +244,7 @@ class LatentMixtureOfConjugated[
             comp_params: Array,  # Natural[DifferentiableConjugated[...]]
         ) -> Array:
             obs_params, _, _ = self.obs_man.split_params(comp_params)
-            return self.obs_man.obs_man.dot(obs_params, ssx)
+            return jnp.dot(obs_params, ssx)
 
         pst_obs_params0 = self.obs_man.int_man.transpose_apply(obs_int_params, prj_ssx)
         pst_obs_params = obs_lat_params + self.obs_man.int_pst_emb.embed(
@@ -367,18 +367,13 @@ class MixtureOfConjugated[
 
     # def mix_log_observable_density(
     #     self,
-    #     params: Point[Natural, Self],
+    #     params: Array,  # Natural[Self]
     #     x: Array,
     # ) -> Array:
     #     hrm_cmps, cat_params = self.split_natural_mixture(params)
     #
     #     def harmonium_log_density_at_x(
-    #         hrm_params: Point[
-    #             Natural,
-    #             DifferentiableConjugated[
-    #                 IntRep, Observable, IntObservable, IntLatent, Posterior, Prior
-    #             ],
-    #         ],
+    #         hrm_params: Array,  # Natural[DifferentiableConjugated[...]]
     #     ) -> Array:
     #         return self.obs_man.log_observable_density(hrm_params, x)
     #

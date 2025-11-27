@@ -37,7 +37,7 @@ class Tuple(Manifold, ABC):
     """
 
     @abstractmethod
-    def split_params(self, params: Array) -> tuple[Array, ...]:
+    def split_params(self, coordinates: Array) -> tuple[Array, ...]:
         """Split parameters into tuple components."""
 
     @abstractmethod
@@ -172,7 +172,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
 class Replicated[M: Manifold](Manifold):
     """Replicated allows working with collections of parameters each of which lives on the same fundamental manifold, like mixture model components or time series observations. It provides special methods for mapping functions across the copies.
 
-    In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$. Coordinates are stored as flat arrays of shape `[n_reps * rep_man.dim]`, with efficient mapping operations via vmap.
+    In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$, with efficient mapping operations via vmap.
     """
 
     # Fields
@@ -210,9 +210,7 @@ class Replicated[M: Manifold](Manifold):
         """
         # Reshape from flat to [n_reps, rep_man.dim] for vmap
         p_shaped = p.reshape([self.n_reps, self.rep_man.dim])
-        result = jax.vmap(f)(p_shaped)
-        # Result has shape [n_reps, *f_result_shape], keep structured
-        return result
+        return jax.vmap(f)(p_shaped)
 
     def man_map(self, f: Callable[[Array], Array], p: Array) -> Array:
         """Map a function across replicates, returning array in replicated codomain.
@@ -226,9 +224,7 @@ class Replicated[M: Manifold](Manifold):
         """
         # Reshape from flat to [n_reps, rep_man.dim] for vmap
         p_shaped = p.reshape([self.n_reps, self.rep_man.dim])
-        result = jax.vmap(f)(p_shaped)
-        # Result has shape [n_reps, *f_result_shape], keep structured
-        return result
+        return jax.vmap(f)(p_shaped)
 
     # Overrides
 
@@ -237,9 +233,3 @@ class Replicated[M: Manifold](Manifold):
     def dim(self) -> int:
         """Total dimension is product of base dimension and number of copies."""
         return self.rep_man.dim * self.n_reps
-
-    @property
-    @override
-    def coordinates_shape(self) -> list[int]:
-        """Shape of the coordinates array - flat representation."""
-        return [self.dim]

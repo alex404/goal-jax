@@ -164,7 +164,7 @@ def fit_com_mixture(
         opt_state_and_params: tuple[OptState, Array], _: Any
     ) -> tuple[tuple[OptState, Array], Array]:
         opt_state, params = opt_state_and_params
-        loss_val, grads = COM_MIX_MAN.value_and_grad(cross_entropy_loss, params)
+        loss_val, grads = jax.value_and_grad(cross_entropy_loss)(params)
         opt_state, params = optimizer.update(opt_state, grads, params)
         return (opt_state, params), -loss_val  # Return log likelihood
 

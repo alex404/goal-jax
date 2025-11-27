@@ -28,12 +28,7 @@ from .exponential_family.harmonium import (
     SymmetricConjugated,
 )
 from .manifold.base import (
-    Coordinates,
-    Dual,
     Manifold,
-    Point,
-    expand_dual,
-    reduce_dual,
 )
 from .manifold.combinators import (
     Null,
@@ -73,13 +68,10 @@ __all__ = [
     "AnalyticProduct",
     "ComposedEmbedding",
     "Conjugated",
-    "Coordinates",
     "Diagonal",
-    "Differentiable",
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiableProduct",
-    "Dual",
     "Embedding",
     "ExponentialFamily",
     "Generative",

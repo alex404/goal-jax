@@ -12,14 +12,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.base import Coordinates, Dual, Manifold
+from ..manifold.base import Manifold
 from ..manifold.util import batched_mean
 
 ### Coordinate Systems ###
 
 
 # Coordinate systems for exponential families
-class Natural(Coordinates):
+class Natural:
     """Natural serves as a type tag for parameters that directly parameterize the exponential family density. These parameters are used in maximum likelihood estimation and directly control the shape of the distribution.
 
     In theory, natural parameters $\\theta \\in \\Theta$ define an exponential family through:
@@ -30,7 +30,12 @@ class Natural(Coordinates):
     """
 
 
-type Mean = Dual[Natural]
+class Mean:
+    """Mean serves as a type tag for mean parameters (expected sufficient statistics).
+
+    In theory, mean parameters $\\mu = \\mathbb{E}[s(x)]$ form the dual to natural parameters,
+    related by the Legendre-Fenchel duality induced by the log-partition function.
+    """
 
 ### Exponential Families ###
 
@@ -204,7 +209,7 @@ class Differentiable(Generative, ABC):
         Returns:
             Mean parameters
         """
-        return self.grad(self.log_partition_function, natural_params)
+        return jax.value_and_grad(self.log_partition_function)(natural_params)[1]
 
     def log_density(self, natural_params: Array, x: Array) -> Array:
         """Compute log density at x.
@@ -222,7 +227,7 @@ class Differentiable(Generative, ABC):
         """
         suff_stats = self.sufficient_statistic(x)
         return (
-            self.dot(natural_params, suff_stats)
+            jnp.dot(natural_params, suff_stats)
             + self.log_base_measure(x)
             - self.log_partition_function(natural_params)
         )
@@ -336,7 +341,7 @@ class Analytic(Differentiable, ABC):
         Returns:
             Natural parameters
         """
-        return self.grad(self.negative_entropy, mean_params)
+        return jax.value_and_grad(self.negative_entropy)(mean_params)[1]
 
     def relative_entropy(self, p_mean_params: Array, q_natural_params: Array) -> Array:
         """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
@@ -356,5 +361,5 @@ class Analytic(Differentiable, ABC):
         return (
             self.negative_entropy(p_mean_params)
             + self.log_partition_function(q_natural_params)
-            - self.dot(q_natural_params, p_mean_params)
+            - jnp.dot(q_natural_params, p_mean_params)
         )

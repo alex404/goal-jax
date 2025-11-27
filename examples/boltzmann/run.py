@@ -108,7 +108,7 @@ def fit_boltzmann_machine(
     ) -> tuple[tuple[OptState, Array], Array]:
         # Compute loss and gradients
         opt_state, natural_params = opt_state_and_params
-        loss_val, grads = model.value_and_grad(cross_entropy_loss, natural_params)
+        loss_val, grads = jax.value_and_grad(cross_entropy_loss)(natural_params)
 
         # Get updates from optimizer
         opt_state, natural_params = optimizer.update(opt_state, grads, natural_params)
