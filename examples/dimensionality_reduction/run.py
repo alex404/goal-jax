@@ -6,12 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import (
-    Natural,
-    RectangularMap,
-)
 from goal.models import (
-    Euclidean,
     FactorAnalysis,
     NormalAnalyticLGM,
     PrincipalComponentAnalysis,
@@ -48,25 +43,23 @@ def ground_truth(
     prr_params = fan_man.lat_man.to_natural(fan_man.lat_man.standard_normal())
 
     int_params = jnp.asarray([1.0, 0.5])
-    lkl_params = fan_man.lkl_fun_man.join_params(obs_params, int_params)
+    lkl_params = fan_man.lkl_fun_man.join_coords(obs_params, int_params)
     fan_params = fan_man.join_conjugated(lkl_params, prr_params)
     sample = fan_man.observable_sample(key, fan_params, sample_size)
 
     return fan_man, fan_params, sample
 
 
-def fit_model[Model: NormalAnalyticLGM](
+def fit_model(
     key: Array,
-    model: Model,
+    model: NormalAnalyticLGM,
     n_steps: int,
     sample: Array,
 ) -> tuple[Array, Array, Array]:
     """Fit model using EM algorithm."""
     params0 = model.initialize(key)
 
-    def em_step(
-        carry: Array, _: Any
-    ) -> tuple[Array, Array]:
+    def em_step(carry: Array, _: Any) -> tuple[Array, Array]:
         params = carry
         ll = model.average_log_observable_density(params, sample)
         next_params = model.expectation_maximization(params, sample)

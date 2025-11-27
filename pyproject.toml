@@ -68,6 +68,7 @@ reportUnknownVariableType = "none"
 # Intentional use of Any to work around Python type system limitations
 # (e.g., covariance/contravariance in generics, Self type inference in overrides)
 reportAny = "none"
+reportExplicitAny = "none"
 
 [tool.ruff]
 src = ["src"]

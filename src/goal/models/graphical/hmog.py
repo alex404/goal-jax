@@ -65,11 +65,11 @@ from ..harmonium.mixture import AnalyticMixture, Mixture
 @dataclass(frozen=True)
 class DifferentiableHMoG(
     DifferentiableConjugated[
-        Normal,  # Observable
-        Euclidean,  # IntObservable
+        Normal,
         Euclidean,
-        AnalyticMixture[Normal],  # Posterior Manifold
-        Mixture[Normal, Normal],  # Prior Manifold
+        Euclidean,
+        AnalyticMixture[Normal],
+        Mixture[Normal, Normal],
     ]
 ):
     """Differentiable Hierarchical Mixture of Gaussians.
@@ -143,15 +143,15 @@ class DifferentiableHMoG(
         )
 
     @override
-    def extract_likelihood_input(self, z_sample: Array) -> Array:
+    def extract_likelihood_input(self, prr_sample: Array) -> Array:
         """Extract y (first latent) from yz sample for likelihood evaluation."""
-        return z_sample[:, : self.lwr_hrm.prr_man.data_dim]
+        return prr_sample[:, : self.lwr_hrm.prr_man.data_dim]
 
     @override
     def conjugation_parameters(
         self,
-        lkl_params: Array,  # Natural[AffineMap[Normal, Normal, Normal]]
-    ) -> Array:  # Natural[Mixture[Normal, Normal]]
+        lkl_params: Array,
+    ) -> Array:
         """Compute conjugation parameters for the hierarchical structure.
 
         Parameters
@@ -172,10 +172,10 @@ class DifferentiableHMoG(
 @dataclass(frozen=True)
 class SymmetricHMoG(
     SymmetricConjugated[
-        Normal,  # Observable
-        Euclidean,  # IntObservable
-        Euclidean,  # IntLatent
-        Mixture[Normal, Normal],  # PriorLatent
+        Normal,
+        Euclidean,
+        Euclidean,
+        Mixture[Normal, Normal],
     ]
 ):
     """Symmetric Hierarchical Mixture of Gaussians.
@@ -241,8 +241,8 @@ class SymmetricHMoG(
     @override
     def conjugation_parameters(
         self,
-        lkl_params: Array,  # Natural[AffineMap[Normal, Normal, Normal]]
-    ) -> Array:  # Natural[Mixture[Normal, Normal]]
+        lkl_params: Array,
+    ) -> Array:
         """Compute conjugation parameters for the hierarchical structure.
 
         Parameters
@@ -263,10 +263,10 @@ class SymmetricHMoG(
 @dataclass(frozen=True)
 class AnalyticHMoG(
     AnalyticConjugated[
-        Normal,  # Observable
-        Euclidean,  # IntObservable
-        Euclidean,  # IntLatent
-        AnalyticMixture[Normal],  # PriorLatent
+        Normal,
+        Euclidean,
+        Euclidean,
+        AnalyticMixture[Normal],
     ],
     SymmetricHMoG,
 ):
@@ -292,13 +292,13 @@ class AnalyticHMoG(
     @override
     def to_natural_likelihood(
         self,
-        mean_params: Array,  # Mean[AnalyticHMoG]
-    ) -> Array:  # Natural[AffineMap[Normal, Normal, Normal]]
+        means: Array,
+    ) -> Array:
         """Convert mean parameters to natural likelihood parameters.
 
         Parameters
         ----------
-        mean_params : Array
+        means : Array
             Mean parameters for the hierarchical model.
 
         Returns
@@ -307,7 +307,7 @@ class AnalyticHMoG(
             Natural parameters for likelihood function.
         """
         return hierarchical_to_natural_likelihood(
-            self, self.lwr_hrm, self.upr_hrm, mean_params
+            self, self.lwr_hrm, self.upr_hrm, means
         )
 
 

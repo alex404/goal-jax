@@ -62,19 +62,19 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         return jnp.array(0.0)
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Exact computation via enumeration."""
         states = self.states
 
         def energy(state: Array) -> Array:
             suff_stat = self.sufficient_statistic(state)
-            return jnp.dot(natural_params, suff_stat)
+            return jnp.dot(params, suff_stat)
 
         energies = jax.vmap(energy)(states)
         return jax.scipy.special.logsumexp(energies)
 
     def _unit_conditional_energy_diff(
-        self, state: Array, unit_idx: Array | int, natural_params: Array
+        self, state: Array, unit_idx: Array | int, params: Array
     ) -> Array:
         """Compute energy difference for unit being 1 vs 0 using sufficient statistics."""
         # Create states with unit_idx = 0 and unit_idx = 1
@@ -86,23 +86,21 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         suff_stat_1 = self.sufficient_statistic(state_1)
 
         # Energy difference = $\\theta^T (s(x_1) - s(x_0))$
-        return jnp.dot(natural_params, suff_stat_1 - suff_stat_0)
+        return jnp.dot(params, suff_stat_1 - suff_stat_0)
 
     def unit_conditional_prob(
-        self, state: Array, unit_idx: Array | int, natural_params: Array
+        self, state: Array, unit_idx: Array | int, params: Array
     ) -> Array:
         """Compute P(x_unit = 1 | x_other) for a single unit."""
-        energy_diff = self._unit_conditional_energy_diff(
-            state, unit_idx, natural_params
-        )
+        energy_diff = self._unit_conditional_energy_diff(state, unit_idx, params)
         return jax.nn.sigmoid(energy_diff)
 
-    def _gibbs_step(self, state: Array, key: Array, natural_params: Array) -> Array:
+    def _gibbs_step(self, state: Array, key: Array, params: Array) -> Array:
         """Single Gibbs sampling step updating all units in random order."""
         perm = jax.random.permutation(key, self.n_neurons)
 
         def update_unit(state: Array, unit_idx: Array) -> tuple[Array, None]:
-            prob = self.unit_conditional_prob(state, unit_idx, natural_params)
+            prob = self.unit_conditional_prob(state, unit_idx, params)
             subkey = jax.random.fold_in(key, unit_idx)
             new_val = jax.random.bernoulli(subkey, prob).astype(state.dtype)
             return state.at[unit_idx].set(new_val), None
@@ -114,7 +112,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
     def sample(
         self,
         key: Array,
-        natural_params: Array,
+        params: Array,
         n: int = 1,
         n_burnin: int = 1000,
         n_thin: int = 10,
@@ -129,7 +127,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         # Burn-in
         def burn_step(state: Array, step: Array) -> tuple[Array, None]:
             subkey = jax.random.fold_in(sample_key, step)
-            return self._gibbs_step(state, subkey, natural_params), None
+            return self._gibbs_step(state, subkey, params), None
 
         burned_state, _ = jax.lax.scan(burn_step, init_state, jnp.arange(n_burnin))
 
@@ -137,7 +135,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         def sample_with_thinning(state: Array, step: Array) -> tuple[Array, Array]:
             def thin_step(i: int, current_state: Array) -> Array:
                 subkey = jax.random.fold_in(sample_key, n_burnin + step * n_thin + i)
-                return self._gibbs_step(current_state, subkey, natural_params)
+                return self._gibbs_step(current_state, subkey, params)
 
             final_state = jax.lax.fori_loop(0, n_thin, thin_step, state)
             return final_state, final_state
@@ -207,26 +205,26 @@ class Boltzmann(
         return jnp.array(0.0)
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Delegate to CouplingMatrix."""
-        return self.shp_man.log_partition_function(natural_params)
+        return self.shp_man.log_partition_function(params)
 
     @override
     def sample(
         self,
         key: Array,
-        natural_params: Array,
+        params: Array,
         n: int = 1,
         n_burnin: int = 1000,
         n_thin: int = 10,
     ) -> Array:
         """Delegate to CouplingMatrix."""
-        return self.shp_man.sample(key, natural_params, n, n_burnin, n_thin)
+        return self.shp_man.sample(key, params, n, n_burnin, n_thin)
 
     # GeneralizedGaussian interface
 
     @override
-    def split_location_precision(self, natural_params: Array) -> tuple[Array, Array]:
+    def split_location_precision(self, params: Array) -> tuple[Array, Array]:
         """Split for GeneralizedGaussian interface.
 
         The scaling by 1/2 for off-diagonal terms ensures that the dot product
@@ -235,14 +233,13 @@ class Boltzmann(
         in the outer product $x\\otimes x$ (as (i,j) and (j,i)), we scale by 1/2 to
         avoid double-counting in the energy computation.
         """
-        triangular_params = natural_params
         n = self.n_neurons
 
         # Boolean mask for diagonal elements in upper triangular storage
         i_diag = jnp.triu_indices(n)[0] == jnp.triu_indices(n)[1]
 
         # Scale off-diagonal by 1/2 for Natural parameters
-        new_triangular = jnp.where(i_diag, triangular_params, triangular_params / 2.0)
+        new_triangular = jnp.where(i_diag, params, params / 2.0)
 
         return jnp.zeros(n), -2 * new_triangular
 
@@ -272,7 +269,7 @@ class Boltzmann(
         )
 
     @override
-    def split_mean_second_moment(self, mean_params: Array) -> tuple[Array, Array]:
+    def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
         """Split mean parameters into first and second moments.
 
         Mean parameters represent expected values of sufficient statistics.
@@ -280,7 +277,6 @@ class Boltzmann(
         moment matrix $E[x\\otimes x]$, since the diagonal contains $E[x_i^2] = E[x_i]$
         for binary variables.
         """
-        triangular_params = mean_params
         n = self.n_neurons
 
         # Find diagonal positions in upper triangular storage
@@ -288,9 +284,9 @@ class Boltzmann(
         i_diag = rows == cols
 
         # Extract diagonal elements (E[x_i] for binary variables)
-        first_moment = triangular_params[i_diag]
+        first_moment = means[i_diag]
 
-        return first_moment, triangular_params
+        return first_moment, means
 
     @override
     def join_mean_second_moment(self, mean: Array, second_moment: Array) -> Array:

@@ -12,17 +12,12 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    AffineMap,
-    Natural,
     Optimizer,
     OptState,
     PositiveDefinite,
 )
 from goal.models import (
-    Boltzmann,
     BoltzmannLGM,
-    Euclidean,
-    Normal,
 )
 
 from ..shared import example_paths, initialize_jax
@@ -97,7 +92,7 @@ def generate_data(key: Array) -> Array:
 ### Training ###
 
 
-def train_model(key: Array, model: Model, data: Array) -> tuple[ModelParams, Array]:
+def train_model(key: Array, model: Model, data: Array) -> tuple[Array, Array]:
     """Train the Boltzmann-Gaussian model using AdamW optimizer.
 
     Args:
@@ -114,13 +109,13 @@ def train_model(key: Array, model: Model, data: Array) -> tuple[ModelParams, Arr
     opt_state = optimizer.init(params)
 
     # Define loss function (negative log-likelihood)
-    def loss_fn(p: ModelParams) -> Array:
+    def loss_fn(p: Array) -> Array:
         return -model.average_log_observable_density(p, data)
 
     # Define single gradient step
     def grad_step(
-        state: tuple[OptState, ModelParams], _: Any
-    ) -> tuple[tuple[OptState, ModelParams], Array]:
+        state: tuple[OptState, Array], _: Any
+    ) -> tuple[tuple[OptState, Array], Array]:
         opt_state, params = state
         loss_val, grads = jax.value_and_grad(loss_fn)(params)
         opt_state, params = optimizer.update(opt_state, grads, params)
@@ -149,9 +144,7 @@ def train_model(key: Array, model: Model, data: Array) -> tuple[ModelParams, Arr
 ### Analysis Functions ###
 
 
-def compute_boltzmann_moment_matrix(
-    model: Model, boltzmann_params: BoltzmannParams
-) -> Array:
+def compute_boltzmann_moment_matrix(model: Model, boltzmann_params: Array) -> Array:
     """Compute the second moment matrix E[zz^T] for a Boltzmann distribution.
 
     Args:
@@ -165,9 +158,7 @@ def compute_boltzmann_moment_matrix(
 
     # Compute log probabilities for each state
     def log_prob_at_state(z: Array) -> Array:
-        return jnp.dot(
-            boltzmann_params, model.lat_man.sufficient_statistic(z)
-        )
+        return jnp.dot(boltzmann_params, model.lat_man.sufficient_statistic(z))
 
     log_probs = jax.vmap(log_prob_at_state)(states)
     log_probs = log_probs - jax.nn.logsumexp(log_probs)  # Normalize
@@ -182,7 +173,7 @@ def compute_boltzmann_moment_matrix(
 
 def compute_confidence_ellipse(
     model: Model,
-    likelihood_params: LikelihoodParams,
+    likelihood_params: Array,
     latent_state: Array,
     n_points: int = 1000,
     n_std: float = 1.0,
@@ -200,8 +191,7 @@ def compute_confidence_ellipse(
         Array of shape (n_points, obs_dim) representing the ellipse
     """
     # Get conditional distribution p(x|z)
-    z_location = model.lat_man.loc_man.mean_point(latent_state)
-    conditional_obs_params = model.lkl_fun_man(likelihood_params, z_location)
+    conditional_obs_params = model.lkl_fun_man(likelihood_params, latent_state)
 
     # Extract mean and covariance
     conditional_mean_params = model.obs_man.to_mean(conditional_obs_params)
@@ -215,11 +205,11 @@ def compute_confidence_ellipse(
     # Transform unit circle to ellipse
     unit_circle = jnp.stack([jnp.cos(angles), jnp.sin(angles)], axis=1)
     scaled_circle = unit_circle * jnp.sqrt(eigvals)[None, :] * n_std
-    return (eigvecs @ scaled_circle.T).T + obs_mean.array
+    return (eigvecs @ scaled_circle.T).T + obs_mean
 
 
 def compute_observable_density_grid(
-    model: Model, params: ModelParams, grid_points: Array
+    model: Model, params: Array, grid_points: Array
 ) -> Array:
     """Compute observable densities p(x) on a grid of points.
 
@@ -234,9 +224,7 @@ def compute_observable_density_grid(
     return jax.vmap(model.observable_density, in_axes=(None, 0))(params, grid_points)
 
 
-def compute_posterior_moment_matrix(
-    model: Model, params: ModelParams, obs: Array
-) -> Array:
+def compute_posterior_moment_matrix(model: Model, params: Array, obs: Array) -> Array:
     """Compute the posterior moment matrix E[zz^T | x] for a given observation.
 
     Args:
@@ -263,7 +251,7 @@ class AnalysisResults(TypedDict):
     posterior_moments: list[Array]
 
 
-def analyze_model(model: Model, params: ModelParams, data: Array) -> AnalysisResults:
+def analyze_model(model: Model, params: Array, data: Array) -> AnalysisResults:
     """Perform comprehensive analysis of the trained model.
 
     Args:

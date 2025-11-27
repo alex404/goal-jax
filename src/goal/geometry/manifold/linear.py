@@ -37,57 +37,51 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
     @abstractmethod
     def dom_man(self) -> Domain:
         """The domain manifold."""
-        pass
 
     @property
     @abstractmethod
     def cod_man(self) -> Codomain:
         """The codomain manifold."""
-        pass
 
     @property
     @abstractmethod
     def trn_man(self) -> LinearMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
-        pass
 
     @abstractmethod
-    def __call__(self, f: Array, p: Array) -> Array:
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         """Apply the linear map to transform a point.
 
         Args:
-            f: Parameters of the linear map
-            p: Point in the domain to transform
+            f_coords: Parameters of the linear map
+            v_coords: Point in the domain to transform
 
         Returns:
             Transformed point in the codomain
         """
-        pass
 
     @abstractmethod
-    def transpose(self, f: Array) -> Array:
+    def transpose(self, f_coords: Array) -> Array:
         """Transpose of the linear map.
 
         Args:
-            f: Parameters of the linear map
+            f_coords: Parameters of the linear map
 
         Returns:
             Parameters of the transposed linear map
         """
-        pass
 
     @abstractmethod
-    def outer_product(self, w: Array, v: Array) -> Array:
+    def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
         """Outer product of points.
 
         Args:
-            w: Point in the codomain
-            v: Point in the domain
+            w_coords: Point in the codomain
+            v_coords: Point in the domain
 
         Returns:
             Parameters of the outer product linear map
         """
-        pass
 
 
 @dataclass(frozen=True)
@@ -133,12 +127,12 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         )
 
     @override
-    def __call__(self, f: Array, p: Array) -> Array:
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         """Apply the block linear map to transform a point.
 
         Args:
-            f: Parameters of the block linear map
-            p: Point in the domain to transform
+            f_coords: Parameters of the block linear map
+            v_coords: Point in the domain to transform
 
         Returns:
             Transformed point in the codomain
@@ -151,9 +145,9 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
             sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
-            sub_params = f[param_offset : param_offset + block_param_size]
+            sub_params = f_coords[param_offset : param_offset + block_param_size]
 
-            block_dom_point = dom_emb.project(p)
+            block_dom_point = dom_emb.project(v_coords)
             block_output = sub_map(sub_params, block_dom_point)
 
             result = result + cod_emb.embed(block_output)
@@ -171,11 +165,11 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         return BlockMap(transposed_blocks)
 
     @override
-    def transpose(self, f: Array) -> Array:
+    def transpose(self, f_coords: Array) -> Array:
         """Transpose of the block linear map.
 
         Args:
-            f: Parameters of the block linear map
+            f_coords: Parameters of the block linear map
 
         Returns:
             Parameters of the transposed linear map
@@ -187,7 +181,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
             sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
-            sub_params = f[param_offset : param_offset + block_param_size]
+            sub_params = f_coords[param_offset : param_offset + block_param_size]
             sub_trn = sub_map.transpose(sub_params)
             transposed_params.append(sub_trn)
             param_offset += block_param_size
@@ -195,20 +189,20 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         return jnp.concatenate(transposed_params)
 
     @override
-    def outer_product(self, w: Array, v: Array) -> Array:
+    def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
         """Outer product of points.
 
         Args:
-            w: Point in the codomain
-            v: Point in the domain
+            w_coords: Point in the codomain
+            v_coords: Point in the domain
 
         Returns:
             Parameters of the outer product linear map
         """
         outer_params = []
         for cod_emb, rep, dom_emb in self.blocks:
-            block_w = cod_emb.project(w)
-            block_v = dom_emb.project(v)
+            block_w = cod_emb.project(w_coords)
+            block_v = dom_emb.project(v_coords)
             sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
             block_outer = sub_map.outer_product(block_w, block_v)
             outer_params.append(block_outer)
@@ -293,17 +287,17 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         return Replicated(self.cod_man, self.dom_man.dim)
 
     @override
-    def __call__(self, f: Array, p: Array) -> Array:
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         """Apply the linear map to transform a point.
 
         Args:
-            f: Parameters of the linear map
-            p: Point in the domain to transform
+            f_coords: Parameters of the linear map
+            v_coords: Point in the domain to transform
 
         Returns:
             Transformed point in the codomain
         """
-        return self.rep.matvec(self.matrix_shape, f, p)
+        return self.rep.matvec(self.matrix_shape, f_coords, v_coords)
 
     def from_dense(self, matrix: Array) -> Array:
         """Create parameters from dense matrix.
@@ -317,77 +311,75 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         return self.rep.from_dense(matrix)
 
     @override
-    def outer_product(self, w: Array, v: Array) -> Array:
+    def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
         """Outer product of points.
 
         Args:
-            w: Point in the codomain
-            v: Point in the domain
+            w_coords: Point in the codomain
+            v_coords: Point in the domain
 
         Returns:
             Parameters of the outer product linear map
         """
-        return self.rep.outer_product(w, v)
+        return self.rep.outer_product(w_coords, v_coords)
 
     @override
-    def transpose(self, f: Array) -> Array:
+    def transpose(self, f_coords: Array) -> Array:
         """Transpose of the linear map.
 
         Args:
-            f: Parameters of the linear map
+            f_coords: Parameters of the linear map
 
         Returns:
             Parameters of the transposed linear map
         """
-        return self.rep.transpose(self.matrix_shape, f)
+        return self.rep.transpose(self.matrix_shape, f_coords)
 
-    def transpose_apply(self, f: Array, p: Array) -> Array:
+    def transpose_apply(self, f_coords: Array, v_coords: Array) -> Array:
         """Apply the transpose of the linear map.
 
         Args:
-            f: Parameters of the linear map
-            p: Point in the codomain
+            f_coords: Parameters of the linear map
+            v_coords: Point in the codomain
 
         Returns:
             Transformed point in the domain
         """
-        f_trn = self.transpose(f)
-        return self.trn_man(f_trn, p)
+        f_trn = self.transpose(f_coords)
+        return self.trn_man(f_trn, v_coords)
 
-    def to_dense(self, f: Array) -> Array:
+    def to_dense(self, f_coords: Array) -> Array:
         """Convert to dense matrix representation.
 
         Args:
-            f: Parameters of the linear map
+            f_coords: Parameters of the linear map
 
         Returns:
             Dense matrix array
         """
-        return self.rep.to_dense(self.matrix_shape, f)
+        return self.rep.to_dense(self.matrix_shape, f_coords)
 
-    def to_rows(self, f: Array) -> Array:
+    def to_rows(self, f_coords: Array) -> Array:
         """Split linear map into dense row vectors.
 
         Args:
-            f: Parameters of the linear map
+            f_coords: Parameters of the linear map
 
         Returns:
             Array of shape (cod_dim, dom_dim) representing the matrix
         """
-        matrix = self.rep.to_dense(self.matrix_shape, f)
-        return matrix
+        return self.rep.to_dense(self.matrix_shape, f_coords)
 
-    def to_columns(self, f: Array) -> Array:
+    def to_columns(self, f_coords: Array) -> Array:
         """Split linear map into dense column vectors.
 
         Args:
-            f: Parameters of the linear map
+            f_coords: Parameters of the linear map
 
         Returns:
             Array of shape (dom_dim, cod_dim) (transposed matrix)
         """
-        matrix = self.rep.to_dense(self.matrix_shape, f)
-        return matrix.T
+        return self.rep.to_dense(self.matrix_shape, f_coords).T
 
     def from_rows(self, rows: Array) -> Array:
         """Construct linear map from dense row vectors.
@@ -411,48 +403,50 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         """
         return self.rep.from_dense(columns.T)
 
-    def map_diagonal(self, f: Array, diagonal_fn: Callable[[Array], Array]) -> Array:
+    def map_diagonal(
+        self, f_coords: Array, diagonal_f: Callable[[Array], Array]
+    ) -> Array:
         """Apply a function to the diagonal elements while preserving matrix structure.
 
         Args:
-            f: Parameters of the linear map
-            diagonal_fn: Function to apply to diagonal elements
+            f_coords: Parameters of the linear map
+            diagonal_f: Function to apply to diagonal elements
 
         Returns:
             Modified parameters
         """
-        return self.rep.map_diagonal(self.matrix_shape, f, diagonal_fn)
+        return self.rep.map_diagonal(self.matrix_shape, f_coords, diagonal_f)
 
     def embed_rep(
-        self, f: Array, target_rep: MatrixRep
+        self, f_coords: Array, target_rep: MatrixRep
     ) -> tuple[RectangularMap[Domain, Codomain], Array]:
         """Embed linear map into more complex representation.
 
         Args:
-            f: Parameters of the linear map
+            f_coords: Parameters of the linear map
             target_rep: Target matrix representation
 
         Returns:
             Tuple of (new manifold, new parameters)
         """
         target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
-        params = self.rep.embed_params(self.matrix_shape, f, target_rep)
+        params = self.rep.embed_params(self.matrix_shape, f_coords, target_rep)
         return target_man, params
 
     def project_rep(
-        self, f: Array, target_rep: MatrixRep
+        self, f_coords: Array, target_rep: MatrixRep
     ) -> tuple[RectangularMap[Domain, Codomain], Array]:
         """Project linear map to simpler representation.
 
         Args:
-            f: Parameters of the linear map
+            f_coords: Parameters of the linear map
             target_rep: Target matrix representation
 
         Returns:
             Tuple of (new manifold, new parameters)
         """
         target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
-        params = self.rep.project_params(self.matrix_shape, f, target_rep)
+        params = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
         return target_man, params
 
 
@@ -473,38 +467,38 @@ class SquareMap[M: Manifold](RectangularMap[M, M]):
 
     # Methods
 
-    def inverse(self, f: Array) -> Array:
+    def inverse(self, f_coords: Array) -> Array:
         """Matrix inverse (requires square matrix).
 
         Args:
-            f: Parameters of the square matrix
+            f_coords: Parameters of the square matrix
 
         Returns:
             Parameters of the inverse matrix
         """
-        return self.rep.inverse(self.matrix_shape, f)
+        return self.rep.inverse(self.matrix_shape, f_coords)
 
-    def logdet(self, f: Array) -> Array:
+    def logdet(self, f_coords: Array) -> Array:
         """Log determinant (requires square matrix).
 
         Args:
-            f: Parameters of the square matrix
+            f_coords: Parameters of the square matrix
 
         Returns:
             Log determinant scalar
         """
-        return self.rep.logdet(self.matrix_shape, f)
+        return self.rep.logdet(self.matrix_shape, f_coords)
 
-    def is_positive_definite(self, p: Array) -> Array:
+    def is_positive_definite(self, f_coords: Array) -> Array:
         """Check if matrix is positive definite.
 
         Args:
-            p: Parameters of the square matrix
+            v_coords: Parameters of the square matrix
 
         Returns:
             Boolean indicating positive definiteness
         """
-        return self.rep.is_positive_definite(self.matrix_shape, p)
+        return self.rep.is_positive_definite(self.matrix_shape, f_coords)
 
 
 ### Affine Maps ###
@@ -558,16 +552,16 @@ class AffineMap[
 
     # Methods
 
-    def __call__(self, f: Array, p: Array) -> Array:
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         """Apply the affine transformation.
 
         Args:
-            f: Parameters of the affine map (concatenation of bias and linear map)
-            p: Point in the domain
+            f_coords: Parameters of the affine map (concatenation of bias and linear map)
+            v_coords: Point in the domain
 
         Returns:
             Transformed point in the codomain
         """
-        bias, linear = self.split_params(f)
-        subshift = self.snd_man(linear, p)
+        bias, linear = self.split_coords(f_coords)
+        subshift = self.snd_man(linear, v_coords)
         return self.cod_emb.translate(bias, subshift)

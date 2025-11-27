@@ -148,7 +148,7 @@ class LatentHarmoniumEmbedding[
         return self.prr_hrm
 
     @override
-    def project(self, p: Array) -> Array:
+    def project(self, coords: Array) -> Array:
         """Project harmonium parameters to restricted observable space.
 
         Args:
@@ -157,12 +157,12 @@ class LatentHarmoniumEmbedding[
         Returns:
             Parameters in posterior harmonium space (mean coordinates)
         """
-        obs_params, int_params, lat_params = self.amb_man.split_params(p)
+        obs_params, int_params, lat_params = self.amb_man.split_coords(coords)
         prj_obs_params = self.pst_obs_emb.project(obs_params)
-        return self.sub_man.join_params(prj_obs_params, int_params, lat_params)
+        return self.sub_man.join_coords(prj_obs_params, int_params, lat_params)
 
     @override
-    def embed(self, p: Array) -> Array:
+    def embed(self, coords: Array) -> Array:
         """Embed posterior parameters into prior observable space.
 
         Args:
@@ -171,19 +171,17 @@ class LatentHarmoniumEmbedding[
         Returns:
             Parameters in prior harmonium space (natural coordinates)
         """
-        obs_params, int_params, lat_params = self.sub_man.split_params(p)
+        obs_params, int_params, lat_params = self.sub_man.split_coords(coords)
         emb_obs_params = self.pst_obs_emb.embed(obs_params)
-        return self.amb_man.join_params(emb_obs_params, int_params, lat_params)
+        return self.amb_man.join_coords(emb_obs_params, int_params, lat_params)
 
 
 ### Helper Functions ###
 
 
-def hierarchical_conjugation_parameters[
-    UpperHarmonium: Harmonium[Any, Any, Any, Any],
-](
+def hierarchical_conjugation_parameters(
     lwr_hrm: DifferentiableConjugated[Any, Any, Any, Any, Any],
-    upr_hrm: UpperHarmonium,
+    upr_hrm: Harmonium[Any, Any, Any, Any],
     lkl_params: Array,
 ) -> Array:
     """Compute conjugation parameters for hierarchical structure.
@@ -217,10 +215,8 @@ def hierarchical_conjugation_parameters[
     return hrm_lat_emb.embed(lwr_hrm.conjugation_parameters(lkl_params))
 
 
-def hierarchical_to_natural_likelihood[
-    UpperHarmonium: Harmonium[Any, Any, Any, Any],
-](
-    harmonium: UpperHarmonium,
+def hierarchical_to_natural_likelihood(
+    harmonium: Harmonium[Any, Any, Any, Any],
     lwr_hrm: AnalyticConjugated[Any, Any, Any, Any],
     upr_hrm: Harmonium[Any, Any, Any, Any],
     params: Array,
@@ -246,8 +242,8 @@ def hierarchical_to_natural_likelihood[
     Array
         Natural parameters for the lower likelihood
     """
-    obs_means, lwr_int_means, lat_means = harmonium.split_params(params)
+    obs_means, lwr_int_means, lat_means = harmonium.split_coords(params)
     hrm_lat_emb = ObservableEmbedding(upr_hrm)
     lwr_lat_means = hrm_lat_emb.project(lat_means)
-    lwr_means = lwr_hrm.join_params(obs_means, lwr_int_means, lwr_lat_means)
+    lwr_means = lwr_hrm.join_coords(obs_means, lwr_int_means, lwr_lat_means)
     return lwr_hrm.to_natural_likelihood(lwr_means)

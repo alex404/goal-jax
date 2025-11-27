@@ -26,13 +26,12 @@ in place for complete implementation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Self, override
+from typing import Any, override
 
 from jax import Array
 
 from ...geometry import (
     LinearEmbedding,
-    Natural,
     PositiveDefinite,
     Rectangular,
     RectangularMap,
@@ -218,7 +217,8 @@ class MixtureOfLGMs(
     # Methods
 
     def to_mixture_of_lgms(
-        self, natural_params: Array  # Natural[Self]
+        self,
+        natural_params: Array,  # Natural[Self]
     ) -> Array:  # Natural[CompleteMixture[NormalAnalyticLGM]]
         """Convert MFA to Mixture of LGMs representation.
 
@@ -234,8 +234,8 @@ class MixtureOfLGMs(
         Array
             Natural parameters for the Mixture of LGMs representation.
         """
-        obs_params, int_params, lat_params = self.split_params(natural_params)
-        lat_obs_params, lat_int_params, lat_lat_params = self.lat_man.split_params(
+        obs_params, int_params, lat_params = self.split_coordinates(natural_params)
+        lat_obs_params, lat_int_params, lat_lat_params = self.lat_man.split_coordinates(
             lat_params
         )
         mix_obs_params = self.mix_hrm.obs_man.join_params(obs_params, 0, lat_obs_params)

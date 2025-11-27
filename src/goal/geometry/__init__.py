@@ -3,8 +3,6 @@ from .exponential_family.base import (
     Differentiable,
     ExponentialFamily,
     Generative,
-    Mean,
-    Natural,
 )
 from .exponential_family.combinators import (
     AnalyticProduct,
@@ -85,8 +83,6 @@ __all__ = [
     "LocationShape",
     "Manifold",
     "MatrixRep",
-    "Mean",
-    "Natural",
     "Null",
     "ObservableEmbedding",
     "OptState",

@@ -18,7 +18,7 @@ from jax import Array
 from jax.scipy import stats
 
 from goal.geometry import Diagonal, PositiveDefinite, Scale
-from goal.models import Covariance, FactorAnalysis, Normal, NormalAnalyticLGM
+from goal.models import FactorAnalysis, Normal, NormalAnalyticLGM
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -226,13 +226,9 @@ def test_single_model(
     logger.info(f"Natural parameters: {params}")
     logger.info(f"ReNatural parameters: {reparams}")
 
-    assert jnp.allclose(
-        remeans, means, rtol=relative_tol, atol=absolute_tol
-    )
+    assert jnp.allclose(remeans, means, rtol=relative_tol, atol=absolute_tol)
 
-    assert jnp.allclose(
-        reparams, params, rtol=relative_tol, atol=absolute_tol
-    )
+    assert jnp.allclose(reparams, params, rtol=relative_tol, atol=absolute_tol)
 
     # Test parameter recovery
     recovered_mean_params = lgm_man.to_mean(params)
@@ -268,9 +264,7 @@ def test_single_model(
 
     # Compare to scipy
     mean, cov = nor_man.split_mean_covariance(nor_man.to_mean(nor_params))
-    scipy_ll = scipy_log_likelihood(
-        sample_data, mean, nor_man.cov_man.to_dense(cov)
-    )
+    scipy_ll = scipy_log_likelihood(sample_data, mean, nor_man.cov_man.to_dense(cov))
     logger.info(f"Scipy average log-density: {scipy_ll}")
 
     assert jnp.allclose(lgm_ll, scipy_ll, rtol=relative_tol, atol=absolute_tol), (
@@ -300,13 +294,13 @@ def test_model_consistency(
     iso_means = iso_model.average_sufficient_statistic(sample_data)
     iso_natural = iso_model.to_natural(iso_means)
 
-    obs_params, int_params, lat_params = iso_model.split_params(iso_natural)
+    obs_params, int_params, lat_params = iso_model.split_coords(iso_natural)
     trn_obs_params = iso_model.obs_man.embed_rep(dia_model.obs_man, obs_params)
-    dia_natural = dia_model.join_params(trn_obs_params, int_params, lat_params)
+    dia_natural = dia_model.join_coords(trn_obs_params, int_params, lat_params)
 
-    obs_params, int_params, lat_params = iso_model.split_params(iso_natural)
+    obs_params, int_params, lat_params = iso_model.split_coords(iso_natural)
     trn_obs_params = iso_model.obs_man.embed_rep(pod_model.obs_man, obs_params)
-    pod_natural = pod_model.join_params(trn_obs_params, int_params, lat_params)
+    pod_natural = pod_model.join_coords(trn_obs_params, int_params, lat_params)
 
     # Test log partition function
     logger.info("\nComparing log partition functions:")
@@ -360,7 +354,7 @@ def test_normal_lgm_conjugation_equation():
 
     For a conjugated harmonium, the following must hold for all latent states z:
 
-    ψ(θ_X + θ_{XZ} · s_Z(z)) = ρ · s_Z(z) + ψ_X(θ_X)
+    ψ(θ_X + θ_{XZ} · s_Z(z)) = rho · s_Z(z) + ψ_X(θ_X)
 
     This is a fundamental property that must be satisfied.
     """
@@ -373,8 +367,8 @@ def test_normal_lgm_conjugation_equation():
     params = model.initialize(key, location=0.0, shape=1.0)
 
     # Split parameters
-    obs_params, int_params, _ = model.split_params(params)
-    lkl_params = model.lkl_fun_man.join_params(obs_params, int_params)
+    obs_params, int_params, _ = model.split_coords(params)
+    lkl_params = model.lkl_fun_man.join_coords(obs_params, int_params)
 
     # Compute conjugation parameters
     rho = model.conjugation_parameters(lkl_params)
@@ -396,7 +390,7 @@ def test_normal_lgm_conjugation_equation():
         conditional_obs = model.lkl_fun_man(lkl_params, z)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
-        # RHS: ρ · s_Z(z) + ψ_X(θ_X)
+        # RHS: rho · s_Z(z) + ψ_X(θ_X)
         rhs_term1 = jnp.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2

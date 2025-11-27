@@ -27,22 +27,22 @@ class StatisticalMoments(Protocol):
     This is a temporary solution until Python supports proper intersection types that would allow us to express this as ExponentialFamily & StatisticalMoments.
     """
 
-    def statistical_mean(self, natural_params: Array) -> Array:
+    def statistical_mean(self, params: Array) -> Array:
         """Compute the mean/expected value of the distribution as a 1D Array.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Mean array
         """
         ...
 
-    def statistical_covariance(self, natural_params: Array) -> Array:
+    def statistical_covariance(self, params: Array) -> Array:
         """Compute the covariance matrix of the distribution as a 2D Array.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Covariance matrix
@@ -86,7 +86,7 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         """
         loc_stats = self.fst_man.sufficient_statistic(x)
         shape_stats = self.snd_man.sufficient_statistic(x)
-        return self.join_params(loc_stats, shape_stats)
+        return self.join_coords(loc_stats, shape_stats)
 
     @override
     def initialize(
@@ -105,7 +105,7 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         key_loc, key_shp = jax.random.split(key)
         fst_loc = self.fst_man.initialize(key_loc, location, shape)
         shp_loc = self.snd_man.initialize(key_shp, location, shape)
-        return self.join_params(fst_loc, shp_loc)
+        return self.join_coords(fst_loc, shp_loc)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -167,10 +167,9 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             Initialized natural parameters
         """
         keys = jax.random.split(key, self.n_reps)
-        init_params = jax.vmap(lambda k: self.rep_man.initialize(k, location, shape))(
-            keys
-        )
-        return init_params.reshape(-1)
+        return jax.vmap(self.rep_man.initialize, in_axes=(0, None, None))(
+            keys, location, shape
+        ).reshape(-1)
 
     @override
     def initialize_from_sample(
@@ -204,11 +203,11 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
         init_params = jax.vmap(init_one)(keys, rep_datas)
         return init_params.reshape(-1)
 
-    def statistical_mean(self, natural_params: Array) -> Array:
+    def statistical_mean(self, params: Array) -> Array:
         """Compute the mean of the product distribution.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Vector of means for each component
@@ -222,13 +221,13 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             )
 
         # Map the mean computation across all replicates
-        return self.map(self.rep_man.statistical_mean, natural_params).ravel()
+        return self.map(self.rep_man.statistical_mean, params).ravel()
 
-    def statistical_covariance(self, natural_params: Array) -> Array:
+    def statistical_covariance(self, params: Array) -> Array:
         """Compute the covariance of the product distribution (block diagonal).
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Block diagonal covariance matrix
@@ -242,7 +241,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             )
 
         # Get component covariances
-        component_covs = self.map(self.rep_man.statistical_covariance, natural_params)
+        component_covs = self.map(self.rep_man.statistical_covariance, params)
 
         # Check if components return scalar variances
         if component_covs.size == self.n_reps:
@@ -270,19 +269,19 @@ class GenerativeProduct[M: Differentiable](Product[M], Generative):
     # Overrides
 
     @override
-    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Generate n samples from the product distribution.
 
         Args:
             key: JAX random key
-            natural_params: Natural parameters
+            params: Natural parameters
             n: Number of samples
 
         Returns:
             Array of n samples
         """
         rep_keys = jax.random.split(key, self.n_reps)
-        params_reshaped = natural_params.reshape(self.n_reps, -1)
+        params_reshaped = params.reshape(self.n_reps, -1)
 
         def sample_rep(rep_key: Array, rep_params: Array) -> Array:
             return self.rep_man.sample(rep_key, rep_params, n)
@@ -299,16 +298,16 @@ class DifferentiableProduct[M: Differentiable](Differentiable, GenerativeProduct
     # Overrides
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Compute sum of log partition functions.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Sum of log partition functions (scalar)
         """
-        return jnp.sum(self.map(self.rep_man.log_partition_function, natural_params))
+        return jnp.sum(self.map(self.rep_man.log_partition_function, params))
 
 
 class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
@@ -317,13 +316,13 @@ class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
     # Overrides
 
     @override
-    def negative_entropy(self, mean_params: Array) -> Array:
+    def negative_entropy(self, means: Array) -> Array:
         """Compute sum of negative entropies.
 
         Args:
-            mean_params: Mean parameters
+            means: Mean parameters
 
         Returns:
             Sum of negative entropies (scalar)
         """
-        return jnp.sum(self.map(self.rep_man.negative_entropy, mean_params))
+        return jnp.sum(self.map(self.rep_man.negative_entropy, means))

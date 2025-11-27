@@ -6,12 +6,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from sklearn.mixture import GaussianMixture
+from sklearn.mixture import GaussianMixture  # pyright: ignore[reportMissingTypeStubs]
 
-from goal.geometry import Diagonal, Natural, PositiveDefinite, Scale
+from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import (
     AnalyticMixture,
-    Covariance,
     Normal,
 )
 
@@ -54,9 +53,7 @@ def create_ground_truth_parameters(
 
     weights = jnp.array([0.35, 0.25])
 
-    mean_mix = mix_man.join_mean_mixture(
-        components, weights
-    )
+    mean_mix = mix_man.join_mean_mixture(components, weights)
     return mix_man.to_natural(mean_mix)
 
 
@@ -119,9 +116,7 @@ def fit_model(
 ]:
     init_params = mix_man.initialize(key)
 
-    def em_step(
-        params: Array, _: Any
-    ) -> tuple[Array, Array]:
+    def em_step(params: Array, _: Any) -> tuple[Array, Array]:
         ll = mix_man.average_log_observable_density(params, sample)
         next_params = mix_man.expectation_maximization(params, sample)
         return next_params, ll

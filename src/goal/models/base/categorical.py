@@ -49,10 +49,10 @@ class Categorical(Analytic):
         """Construct the mean parameters from the complete probabilities, dropping the first element."""
         return probs[1:]
 
-    def to_probs(self, p: Array) -> Array:
+    def to_probs(self, means: Array) -> Array:
         """Return the probabilities of all labels."""
-        prob0 = 1 - jnp.sum(p)
-        return jnp.concatenate([jnp.array([prob0]), p])
+        prob0 = 1 - jnp.sum(means)
+        return jnp.concatenate([jnp.array([prob0]), means])
 
     # Overrides
 
@@ -65,25 +65,25 @@ class Categorical(Analytic):
         return jnp.array(0.0)
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
-        array = jnp.concatenate([jnp.array([0.0]), natural_params])
+    def log_partition_function(self, params: Array) -> Array:
+        array = jnp.concatenate([jnp.array([0.0]), params])
         max_val = jnp.max(array)
         return max_val + jax.nn.logsumexp(array - max_val)
 
     @override
-    def negative_entropy(self, mean_params: Array) -> Array:
-        probs = self.to_probs(mean_params)
+    def negative_entropy(self, means: Array) -> Array:
+        probs = self.to_probs(means)
         return jnp.sum(probs * jnp.log(probs))
 
     @override
     def sample(
         self,
         key: Array,
-        natural_params: Array,
+        params: Array,
         n: int = 1,
     ) -> Array:
-        mean_params = self.to_mean(natural_params)
-        probs = self.to_probs(mean_params)
+        means = self.to_mean(params)
+        probs = self.to_probs(means)
 
         key = jnp.asarray(key)
         # Use Gumbel-Max trick: argmax(log(p) + Gumbel(0,1)) ~ Categorical(p)

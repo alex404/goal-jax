@@ -4,7 +4,7 @@ This module provides the fundamental embedding operations that define how manifo
 
 In practice, embeddings allow you to transform parameters between different model spaces, project complex models to simpler ones, and define how changes in one manifold affect another.
 
-In theory, embeddings formalize the essential concept from information geometry where one statistical model (manifold) can be viewed as a submanifold of another. This corresponds to statistical concepts like sufficiency, model constraints, and parameter restrictions.
+In theory, embeddings formalize the essential concept from information geometry where one statistical model (manifold) can be viewed as a submanifold of another. This corresponds to statistical concepts like sufficiency and model constraints.
 """
 
 from __future__ import annotations
@@ -42,11 +42,11 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
         """The ambient manifold."""
 
     @abstractmethod
-    def embed(self, p: Array) -> Array:
+    def embed(self, coords: Array) -> Array:
         """Embed a point from the submanifold in the ambient manifold.
 
         Args:
-            p: Point on the submanifold
+            coords: Point on the submanifold
 
         Returns:
             Embedded point on the ambient manifold
@@ -78,11 +78,8 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
             Pulled back cotangent vector on the submanifold
         """
 
-        def embed_func(sub_array: Array) -> Array:
-            return self.embed(sub_array)
-
         # Compute VJP function at the current point
-        _, vjp_fn = jax.vjp(embed_func, at_point)
+        _, vjp_fn = jax.vjp(self.embed, at_point)
 
         # Apply VJP to transform the cotangent vector
         return vjp_fn(cotangent_vector)[0]
@@ -92,7 +89,7 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
 class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient], ABC):
     """A structure-preserving embedding with projection and translation operations.
 
-    In practice, linear embeddings enable direct conversion of parameters between model spaces through projection, while preserving vector operations like translation. These operations are fundamental to algorithms like EM and natural gradient descent on constrained models.
+    In practice, linear embeddings enable direct conversion of coordinates between model spaces through projection, while preserving vector operations like translation.
 
     A linear embedding $\\phi: \\mathcal{M} \\to \\mathcal{N}$ supports
 
@@ -103,27 +100,27 @@ class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient],
     # Contract
 
     @abstractmethod
-    def project(self, p: Array) -> Array:
+    def project(self, coords: Array) -> Array:
         """Project a point from the ambient space to the subspace.
 
         Args:
-            p: Point on the ambient manifold
+            coords: Point on the ambient manifold
 
         Returns:
             Projected point on the submanifold
         """
 
-    def translate(self, p: Array, q: Array) -> Array:
+    def translate(self, p_coords: Array, q_coords: Array) -> Array:
         """Translate point by subspace components.
 
         Args:
-            p: Point on the ambient manifold
-            q: Point on the submanifold
+            p_coords: Point on the ambient manifold
+            q_coords: Point on the submanifold
 
         Returns:
             Translated point on the ambient manifold
         """
-        return p + self.embed(q)
+        return p_coords + self.embed(q_coords)
 
     # Overrides
 
@@ -158,48 +155,48 @@ class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
         return self.man
 
     @override
-    def project(self, p: Array) -> Array:
+    def project(self, coords: Array) -> Array:
         """Project a point (identity operation).
 
         Args:
-            p: Point on the manifold
+            coords: Point on the manifold
 
         Returns:
             Same point
         """
-        return p
+        return coords
 
     @override
-    def embed(self, p: Array) -> Array:
+    def embed(self, coords: Array) -> Array:
         """Embed a point (identity operation).
 
         Args:
-            p: Point on the manifold
+            coords: Point on the manifold
 
         Returns:
             Same point
         """
-        return p
+        return coords
 
     @override
-    def translate(self, p: Array, q: Array) -> Array:
+    def translate(self, p_coords: Array, q_coords: Array) -> Array:
         """Translate point by adding (identity operation).
 
         Args:
-            p: First point
-            q: Second point
+            p_coords: First point
+            q_coords: Second point
 
         Returns:
             Sum of the two points
         """
-        return p + q
+        return p_coords + q_coords
 
 
 @dataclass(frozen=True)
 class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
     Embedding[Sub, Ambient], ABC
 ):
-    """Composed embeddings allow you to chain multiple model transformations, creating hierarchical model reductions that apply constraints in stages. This is particularly valuable for complex model relationships with multiple levels of abstraction.
+    """Composed embeddings allow you to chain multiple embeddings.
 
     In theory, given embeddings $\\phi_1: \\mathcal{M} \\to \\mathcal{L}$ and $\\phi_2: \\mathcal{L} \\to \\mathcal{N}$, their composition $\\phi = \\phi_2 \\circ \\phi_1: \\mathcal{M} \\to \\mathcal{N}$ forms a new embedding with:
 
@@ -229,16 +226,16 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
         return self.sub_emb.sub_man
 
     @override
-    def embed(self, p: Array) -> Array:
+    def embed(self, coords: Array) -> Array:
         """Embed through composed embeddings.
 
         Args:
-            p: Point on the submanifold
+            coords: Point on the submanifold
 
         Returns:
             Embedded point on the ambient manifold
         """
-        mid = self.sub_emb.embed(p)
+        mid = self.sub_emb.embed(coords)
         return self.mid_emb.embed(mid)
 
     @override
@@ -284,32 +281,15 @@ class LinearComposedEmbedding[
     # Overrides
 
     @override
-    def project(self, p: Array) -> Array:
-        """Project through composed linear embeddings.
-
-        Args:
-            p: Point on the ambient manifold
-
-        Returns:
-            Projected point on the submanifold
-        """
-        mid = self.mid_emb.project(p)
+    def project(self, coords: Array) -> Array:
+        mid = self.mid_emb.project(coords)
         return self.sub_emb.project(mid)
 
     @override
-    def translate(self, p: Array, q: Array) -> Array:
-        """Translate through composed linear embeddings.
-
-        Args:
-            p: Point on the ambient manifold
-            q: Point on the submanifold
-
-        Returns:
-            Translated point on the ambient manifold
-        """
+    def translate(self, p_coords: Array, q_coords: Array) -> Array:
         mid_zero = self.mid_man.zeros()
-        mid = self.sub_emb.translate(mid_zero, q)
-        return self.mid_emb.translate(p, mid)
+        mid = self.sub_emb.translate(mid_zero, q_coords)
+        return self.mid_emb.translate(p_coords, mid)
 
 
 @dataclass(frozen=True)
@@ -332,7 +312,7 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         """Validate that the component manifold matches the expected component at the given index."""
         # Get all components
         zero_tuple = self.amb_man.zeros()
-        components = self.amb_man.split_params(zero_tuple)
+        components = self.amb_man.split_coords(zero_tuple)
 
         # Check if index is valid
         if self.tup_idx >= len(components):
@@ -355,55 +335,55 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         return self.sub_man
 
     @override
-    def project(self, p: Array) -> Array:
+    def project(self, coords: Array) -> Array:
         """Project a point from the tuple manifold to the specified component.
 
         Args:
-            p: Point on the tuple manifold
+            p_coords: Point on the tuple manifold
 
         Returns:
             Component at the specified index
         """
         # Split the tuple and get the component at the specified index
-        components = self.amb_man.split_params(p)
+        components = self.amb_man.split_coords(coords)
         return components[self.tup_idx]
 
     @override
-    def embed(self, p: Array) -> Array:
+    def embed(self, coords: Array) -> Array:
         """Creates a new point in the tuple manifold with the specified component set to p and all other components set to zero.
 
         Args:
-            p: Point on the component manifold
+            p_coords: Point on the component manifold
 
         Returns:
             Point on the tuple manifold
         """
         # Split a zero tuple to get zero components
         zero_tuple = self.amb_man.zeros()
-        components = list(self.amb_man.split_params(zero_tuple))
+        components = list(self.amb_man.split_coords(zero_tuple))
 
         # Replace the component at the specified index
-        components[self.tup_idx] = p
+        components[self.tup_idx] = coords
 
         # Join the components back into a tuple
-        return self.amb_man.join_params(*components)
+        return self.amb_man.join_coords(*components)
 
     @override
-    def translate(self, p: Array, q: Array) -> Array:
+    def translate(self, p_coords: Array, q_coords: Array) -> Array:
         """Updates the component at the specified index by adding q, leaving other components unchanged.
 
         Args:
-            p: Point on the tuple manifold
-            q: Point on the component manifold
+            p_coords: Point on the tuple manifold
+            q_coords: Point on the component manifold
 
         Returns:
             Updated point on the tuple manifold
         """
         # Split the tuple into components
-        components = list(self.amb_man.split_params(p))
+        components = list(self.amb_man.split_coords(p_coords))
 
         # Update the component at the specified index
-        components[self.tup_idx] = components[self.tup_idx] + q
+        components[self.tup_idx] = components[self.tup_idx] + q_coords
 
         # Join the components back into a tuple
-        return self.amb_man.join_params(*components)
+        return self.amb_man.join_coords(*components)

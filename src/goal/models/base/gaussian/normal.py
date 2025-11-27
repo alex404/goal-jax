@@ -74,7 +74,7 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
     @override
-    def check_natural_parameters(self, natural_params: Array) -> Array:
+    def check_natural_parameters(self, params: Array) -> Array:
         """Check if natural parameters (precision matrix) are valid.
 
         For covariance/precision matrices, we check:
@@ -82,13 +82,13 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
         2. Precision matrix is numerically positive definite
 
         Args:
-            natural_params: Natural parameters (precision matrix).
+            params: Natural parameters (precision matrix).
 
         Returns:
             Boolean array indicating validity.
         """
-        finite = super().check_natural_parameters(natural_params)
-        is_pd = self.is_positive_definite(natural_params)
+        finite = super().check_natural_parameters(params)
+        is_pd = self.is_positive_definite(params)
         return finite & is_pd
 
     @override
@@ -110,36 +110,17 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
 
     # Methods
 
-    def add_jitter(
-        self, natural_params: Array, epsilon: float
-    ) -> Array:
+    def add_jitter(self, params: Array, epsilon: float) -> Array:
         """Add epsilon to diagonal elements while preserving matrix structure.
 
         Args:
-            natural_params: Natural parameters (precision matrix).
+            params: Natural parameters (precision matrix).
             epsilon: Value to add to diagonal.
 
         Returns:
             Natural parameters with jitter added.
         """
-        return self.map_diagonal(natural_params, lambda x: x + epsilon)
-
-
-# Type Hacks
-
-
-def cov_to_lin[Rep: PositiveDefinite](
-    params: Array,
-) -> Array:
-    """Convert a covariance to a linear map."""
-    return params
-
-
-def lin_to_cov[Rep: PositiveDefinite](
-    params: Array,
-) -> Array:
-    """Convert a linear map to a covariance."""
-    return params
+        return self.map_diagonal(params, lambda x: x + epsilon)
 
 
 @dataclass(frozen=True)
@@ -193,23 +174,23 @@ class Normal(
         second_moment = self.snd_man.outer_product(x, x)
 
         # Concatenate components into parameter vector
-        return self.join_params(x, second_moment)
+        return self.join_coords(x, second_moment)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
         return -0.5 * self.data_dim * jnp.log(2 * jnp.pi)
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Compute log partition function from natural parameters.
 
         Args:
-            natural_params: Natural parameters (location, precision).
+            params: Natural parameters (location, precision).
 
         Returns:
             Log partition function value.
         """
-        loc, precision = self.split_location_precision(natural_params)
+        loc, precision = self.split_location_precision(params)
 
         covariance = self.snd_man.inverse(precision)
         mean = self.snd_man(covariance, loc)
@@ -217,16 +198,16 @@ class Normal(
         return 0.5 * (jnp.dot(loc, mean) - self.snd_man.logdet(precision))
 
     @override
-    def negative_entropy(self, mean_params: Array) -> Array:
+    def negative_entropy(self, means: Array) -> Array:
         """Compute negative entropy from mean parameters.
 
         Args:
-            mean_params: Mean parameters (mean, second moment).
+            means: Mean parameters (mean, second moment).
 
         Returns:
             Negative entropy value.
         """
-        mean, second_moment = self.split_mean_second_moment(mean_params)
+        mean, second_moment = self.split_mean_second_moment(means)
 
         # Compute covariance without forming full matrices
         outer_mean = self.snd_man.outer_product(mean, mean)
@@ -239,21 +220,21 @@ class Normal(
     def sample(
         self,
         key: Array,
-        natural_params: Array,
+        params: Array,
         n: int = 1,
     ) -> Array:
         """Sample from the distribution.
 
         Args:
             key: Random key.
-            natural_params: Natural parameters.
+            params: Natural parameters.
             n: Number of samples.
 
         Returns:
             Samples from the distribution.
         """
-        mean_params = self.to_mean(natural_params)
-        mean, covariance = self.split_mean_covariance(mean_params)
+        means = self.to_mean(params)
+        mean, covariance = self.split_mean_covariance(means)
 
         # Draw standard normal samples
         shape = (n, self.data_dim)
@@ -320,22 +301,22 @@ class Normal(
         second_moment = second_moment * noise_matrix
 
         # Join parameters and convert to natural coordinates
-        mean_params = self.join_mean_second_moment(mean, second_moment)
-        return self.to_natural(mean_params)
+        means = self.join_mean_second_moment(mean, second_moment)
+        return self.to_natural(means)
 
     @override
-    def check_natural_parameters(self, natural_params: Array) -> Array:
+    def check_natural_parameters(self, params: Array) -> Array:
         """Check if natural parameters are valid.
 
         Delegates to Covariance check after extracting precision component.
 
         Args:
-            natural_params: Natural parameters to check.
+            params: Natural parameters to check.
 
         Returns:
             Boolean array indicating validity.
         """
-        _, precision = self.split_location_precision(natural_params)
+        _, precision = self.split_location_precision(params)
         return self.cov_man.check_natural_parameters(precision)
 
     # Methods
@@ -369,22 +350,19 @@ class Normal(
         outer = self.snd_man.outer_product(mean, mean)
         second_moment = outer + covariance
 
-        return self.join_params(mean, second_moment)
+        return self.join_coords(mean, second_moment)
 
-    def split_mean_covariance(
-        self, mean_params: Array
-    ) -> tuple[Array, Array]:
+    def split_mean_covariance(self, means: Array) -> tuple[Array, Array]:
         """Extract the mean μ and covariance Σ from mean parameters.
 
         Args:
-            mean_params: Mean parameters (mean, second moment).
+            means: Mean parameters (mean, second moment).
 
         Returns:
             Tuple of (mean vector, covariance matrix) in mean parameters.
         """
         # Split into μ and η₂
-        mean, second_moment = self.split_params(mean_params)
-
+        mean, second_moment = self.split_coords(means)
         # Compute Σ = η₂ - μμᵀ
         outer = self.snd_man.outer_product(mean, mean)
         covariance = second_moment - outer
@@ -392,23 +370,19 @@ class Normal(
         return mean, covariance
 
     @override
-    def split_mean_second_moment(
-        self, mean_params: Array
-    ) -> tuple[Array, Array]:
+    def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
         """Split parameters into mean and second-moment components.
 
         Args:
-            mean_params: Mean parameters.
+            means: Mean parameters.
 
         Returns:
             Tuple of (mean vector, second moment) in mean parameters.
         """
-        return self.split_params(mean_params)
+        return self.split_coords(means)
 
     @override
-    def join_mean_second_moment(
-        self, mean: Array, second_moment: Array
-    ) -> Array:
+    def join_mean_second_moment(self, mean: Array, second_moment: Array) -> Array:
         """Join mean and second-moment parameters.
 
         Args:
@@ -418,12 +392,10 @@ class Normal(
         Returns:
             Combined mean parameters.
         """
-        return self.join_params(mean, second_moment)
+        return self.join_coords(mean, second_moment)
 
     @override
-    def split_location_precision(
-        self, natural_params: Array
-    ) -> tuple[Array, Array]:
+    def split_location_precision(self, params: Array) -> tuple[Array, Array]:
         """Split natural location and precision (inverse covariance) parameters.
 
         There's some subtle rescaling that has to happen to ensure that the natural
@@ -454,14 +426,13 @@ class Normal(
               to precision
 
         Args:
-            natural_params: Natural parameters.
+            params: Natural parameters.
 
         Returns:
             Tuple of (location, precision) in natural parameters.
         """
         # First do basic parameter split
-        loc, theta2 = self.split_params(natural_params)
-
+        loc, theta2 = self.split_coords(params)
         # We need to rescale off-precision params
         if not isinstance(self.snd_man.rep, Diagonal):
             i_diag = (
@@ -513,11 +484,9 @@ class Normal(
             scaled_params = jnp.where(i_diag, scaled_params / 2, scaled_params)
             theta2 = scaled_params
 
-        return self.join_params(location, theta2)
+        return self.join_coords(location, theta2)
 
-    def embed_rep(
-        self, trg_man: Normal, natural_params: Array
-    ) -> Array:
+    def embed_rep(self, trg_man: Normal, params: Array) -> Array:
         """Embed natural parameters into a more complex representation.
 
         For example, a diagonal matrix can be embedded as a full matrix with zeros
@@ -525,18 +494,18 @@ class Normal(
 
         Args:
             trg_man: Target manifold with more complex representation.
-            natural_params: Natural parameters to embed.
+            params: Natural parameters to embed.
 
         Returns:
             Embedded natural parameters.
         """
         # Embedding in natural coordinates means embedding precision matrix
-        loc, prs = self.split_location_precision(natural_params)
+        loc, prs = self.split_location_precision(params)
         _, trg_prs = self.cov_man.embed_rep(prs, trg_man.cov_man.rep)
-        return trg_man.join_location_precision(loc, lin_to_cov(trg_prs))
+        return trg_man.join_location_precision(loc, trg_prs)
 
     def project_rep[TargetRep: PositiveDefinite](
-        self, trg_man: Normal, mean_params: Array
+        self, trg_man: Normal, means: Array
     ) -> Array:
         """Project mean parameters to a simpler representation.
 
@@ -545,17 +514,17 @@ class Normal(
 
         Args:
             trg_man: Target manifold with simpler representation.
-            mean_params: Mean parameters to project.
+            means: Mean parameters to project.
 
         Returns:
             Projected mean parameters.
         """
-        mean, second_moment = self.split_mean_second_moment(mean_params)
+        mean, second_moment = self.split_mean_second_moment(means)
         _, target_second = self.cov_man.project_rep(second_moment, trg_man.cov_man.rep)
-        return trg_man.join_mean_second_moment(mean, lin_to_cov(target_second))
+        return trg_man.join_mean_second_moment(mean, target_second)
 
     def regularize_covariance(
-        self, mean_params: Array, jitter: float = 0, min_var: float = 0
+        self, means: Array, jitter: float = 0, min_var: float = 0
     ) -> Array:
         """Regularize covariance matrix to ensure numerical stability and reasonable variances.
 
@@ -569,14 +538,14 @@ class Normal(
         covariance matrix remains well-conditioned.
 
         Args:
-            mean_params: Mean parameters to regularize.
+            means: Mean parameters to regularize.
             jitter: Value to add to diagonal.
             min_var: Minimum variance.
 
         Returns:
             Regularized mean parameters.
         """
-        mean, covariance = self.split_mean_covariance(mean_params)
+        mean, covariance = self.split_mean_covariance(means)
 
         def regularize_diagonal(x: Array) -> Array:
             return jnp.maximum(x + jitter, min_var)
@@ -629,28 +598,28 @@ class Normal(
             self.cov_man.from_dense(jnp.eye(self.data_dim)),
         )
 
-    def statistical_mean(self, natural_params: Array) -> Array:
+    def statistical_mean(self, params: Array) -> Array:
         """Compute the mean of the distribution.
 
         Args:
-            natural_params: Natural parameters.
+            params: Natural parameters.
 
         Returns:
             Mean vector.
         """
-        mean, _ = self.split_mean_covariance(self.to_mean(natural_params))
+        mean, _ = self.split_mean_covariance(self.to_mean(params))[1]
         return mean
 
-    def statistical_covariance(self, natural_params: Array) -> Array:
+    def statistical_covariance(self, params: Array) -> Array:
         """Compute the covariance of the distribution.
 
         Args:
-            natural_params: Natural parameters.
+            params: Natural parameters.
 
         Returns:
             Covariance matrix (as dense array).
         """
-        _, cov = self.split_mean_covariance(self.to_mean(natural_params))
+        _, cov = self.split_mean_covariance(self.to_mean(params))
         return self.cov_man.to_dense(cov)
 
     # GeneralizedGaussian interface implementation

@@ -15,28 +15,6 @@ from jax import Array
 from ..manifold.base import Manifold
 from ..manifold.util import batched_mean
 
-### Coordinate Systems ###
-
-
-# Coordinate systems for exponential families
-class Natural:
-    """Natural serves as a type tag for parameters that directly parameterize the exponential family density. These parameters are used in maximum likelihood estimation and directly control the shape of the distribution.
-
-    In theory, natural parameters $\\theta \\in \\Theta$ define an exponential family through:
-
-    $$p(x; \\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))$$
-
-    where $\\Theta$ is a convex subset of $\\mathbb{R}^d$.
-    """
-
-
-class Mean:
-    """Mean serves as a type tag for mean parameters (expected sufficient statistics).
-
-    In theory, mean parameters $\\mu = \\mathbb{E}[s(x)]$ form the dual to natural parameters,
-    related by the Legendre-Fenchel duality induced by the log-partition function.
-    """
-
 ### Exponential Families ###
 
 
@@ -79,16 +57,16 @@ class ExponentialFamily(Manifold, ABC):
         """
         return batched_mean(self.sufficient_statistic, xs, batch_size)
 
-    def check_natural_parameters(self, natural_params: Array) -> Array:
+    def check_natural_parameters(self, params: Array) -> Array:
         """Check if parameters are valid for this exponential family.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Scalar indicating validity (all finite)
         """
-        return jnp.all(jnp.isfinite(natural_params)).astype(jnp.int32)
+        return jnp.all(jnp.isfinite(params)).astype(jnp.int32)
 
     def initialize(
         self,
@@ -140,12 +118,12 @@ class Generative(ExponentialFamily, ABC):
     # Contract
 
     @abstractmethod
-    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Generate random samples from the distribution.
 
         Args:
             key: JAX random key
-            natural_params: Natural parameters
+            params: Natural parameters
             n: Number of samples
 
         Returns:
@@ -154,18 +132,18 @@ class Generative(ExponentialFamily, ABC):
 
     # Templates
 
-    def stochastic_to_mean(self, key: Array, natural_params: Array, n: int) -> Array:
+    def stochastic_to_mean(self, key: Array, params: Array, n: int) -> Array:
         """Estimate mean parameters via Monte Carlo sampling.
 
         Args:
             key: JAX random key
-            natural_params: Natural parameters
+            params: Natural parameters
             n: Number of samples
 
         Returns:
             Estimated mean parameters
         """
-        samples = self.sample(key, natural_params, n)
+        samples = self.sample(key, params, n)
         return self.average_sufficient_statistic(samples)
 
 
@@ -188,11 +166,11 @@ class Differentiable(Generative, ABC):
     # Contract
 
     @abstractmethod
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Compute log partition function $\\psi(\\theta)$.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Log partition function value (scalar)
@@ -200,18 +178,18 @@ class Differentiable(Generative, ABC):
 
     # Templates
 
-    def to_mean(self, natural_params: Array) -> Array:
+    def to_mean(self, params: Array) -> Array:
         """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
 
         Returns:
             Mean parameters
         """
-        return jax.value_and_grad(self.log_partition_function)(natural_params)[1]
+        return jax.value_and_grad(self.log_partition_function)(params)[1]
 
-    def log_density(self, natural_params: Array, x: Array) -> Array:
+    def log_density(self, params: Array, x: Array) -> Array:
         """Compute log density at x.
 
         $$
@@ -219,7 +197,7 @@ class Differentiable(Generative, ABC):
         $$
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
             x: Data point
 
         Returns:
@@ -227,12 +205,12 @@ class Differentiable(Generative, ABC):
         """
         suff_stats = self.sufficient_statistic(x)
         return (
-            jnp.dot(natural_params, suff_stats)
+            jnp.dot(params, suff_stats)
             + self.log_base_measure(x)
-            - self.log_partition_function(natural_params)
+            - self.log_partition_function(params)
         )
 
-    def density(self, natural_params: Array, x: Array) -> Array:
+    def density(self, params: Array, x: Array) -> Array:
         """Compute density at x.
 
         $$
@@ -240,21 +218,21 @@ class Differentiable(Generative, ABC):
         $$
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
             x: Data point
 
         Returns:
             Density (scalar)
         """
-        return jnp.exp(self.log_density(natural_params, x))
+        return jnp.exp(self.log_density(params, x))
 
     def average_log_density(
-        self, natural_params: Array, xs: Array, batch_size: int = 2048
+        self, params: Array, xs: Array, batch_size: int = 2048
     ) -> Array:
         """Compute average log density over a batch of observations.
 
         Args:
-            natural_params: Natural parameters
+            params: Natural parameters
             xs: Batch of data points
             batch_size: Size of batches for vmapped computation
 
@@ -263,7 +241,7 @@ class Differentiable(Generative, ABC):
         """
 
         def _log_density(x: Array) -> Array:
-            return self.log_density(natural_params, x)
+            return self.log_density(params, x)
 
         return batched_mean(_log_density, xs, batch_size)
 
@@ -292,11 +270,11 @@ class Analytic(Differentiable, ABC):
     # Contract
 
     @abstractmethod
-    def negative_entropy(self, mean_params: Array) -> Array:
+    def negative_entropy(self, means: Array) -> Array:
         """Compute negative entropy $\\phi(\\eta)$.
 
         Args:
-            mean_params: Mean parameters
+            means: Mean parameters
 
         Returns:
             Negative entropy (scalar)
@@ -326,24 +304,24 @@ class Analytic(Differentiable, ABC):
         avg_suff_stat = self.average_sufficient_statistic(sample)
         # add gaussian noise to mean parameters
         noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
-        noisy_mean_params = avg_suff_stat + noise
+        noisy_means = avg_suff_stat + noise
         # convert to natural parameters
-        return self.to_natural(noisy_mean_params)
+        return self.to_natural(noisy_means)
 
     # Templates
 
-    def to_natural(self, mean_params: Array) -> Array:
+    def to_natural(self, means: Array) -> Array:
         """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$.
 
         Args:
-            mean_params: Mean parameters
+            means: Mean parameters
 
         Returns:
             Natural parameters
         """
-        return jax.value_and_grad(self.negative_entropy)(mean_params)[1]
+        return jax.value_and_grad(self.negative_entropy)(means)[1]
 
-    def relative_entropy(self, p_mean_params: Array, q_natural_params: Array) -> Array:
+    def relative_entropy(self, p_means: Array, q_params: Array) -> Array:
         """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
 
         $D(p \\| q) = \\int p(x) \\log \\frac{p(x)}{q(x)} dx = \\theta \\cdot \\eta - \\psi(\\theta) - \\phi(\\eta)$, where
@@ -352,14 +330,14 @@ class Analytic(Differentiable, ABC):
         - $q(x;\\theta)$ has natural parameters $\\theta$.
 
         Args:
-            p_mean_params: Mean parameters of p
-            q_natural_params: Natural parameters of q
+            p_means: Mean parameters of p
+            q_params: Natural parameters of q
 
         Returns:
             KL divergence D(p || q) (scalar)
         """
         return (
-            self.negative_entropy(p_mean_params)
-            + self.log_partition_function(q_natural_params)
-            - jnp.dot(q_natural_params, p_mean_params)
+            self.negative_entropy(p_means)
+            + self.log_partition_function(q_params)
+            - jnp.dot(q_params, p_means)
         )

@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.stats import multivariate_normal
 
-from goal.geometry import Diagonal, Natural, PositiveDefinite, Scale
+from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import (
     Normal,
 )

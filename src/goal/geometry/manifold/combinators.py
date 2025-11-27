@@ -1,6 +1,6 @@
 """Core classes for combining and replicating manifolds.
 
-This module provides ways to build complex manifolds from simpler ones, including products, triples, and replicated copies. These combinators let you create parameter spaces for complex models by combining simpler components, making it easy to split, join, and transform parameters.
+This module provides ways to build complex manifolds from simpler ones, including products, triples, and replicated copies. These combinators let you create coordinate spaces for complex models by combining simpler components, making it easy to split, join, and transform coordinates.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from .base import Manifold
 
 @dataclass(frozen=True)
 class Null(Manifold):
-    """A zero-dimensional manifold with no parameters."""
+    """A zero-dimensional manifold with no coordinates."""
 
     @property
     @override
@@ -29,29 +29,28 @@ class Null(Manifold):
 
 @dataclass(frozen=True)
 class Tuple(Manifold, ABC):
-    """This protocol defines a common interface for manifolds like Pair and Triple
-    that split parameters into tuples and join them back together.
+    """This protocol defines a common interface for manifolds like Pair and Triple that split coordinates into tuples and join them back together.
 
-    Subclasses implement split_params with a specific return type (e.g., tuple[Array, Array]
-    for Pair), and join_params with a specific number of parameters.
+    Subclasses implement split_coords with a specific return type (e.g., tuple[Array, Array]
+    for Pair), and join_coords with a specific number of coordinates.
     """
 
     @abstractmethod
-    def split_params(self, coordinates: Array) -> tuple[Array, ...]:
-        """Split parameters into tuple components."""
+    def split_coords(self, coords: Array) -> tuple[Array, ...]:
+        """Split coordinates into tuple components."""
 
     @abstractmethod
-    def join_params(self, *components: Array) -> Array:
+    def join_coords(self, *components: Array) -> Array:
         """Join tuple components into a single array.
 
-        Note: Subclasses implement this with specific numbers of parameters
+        Note: Subclasses implement this with specific numbers of coordinates
         (e.g., Pair takes exactly 2, Triple takes exactly 3).
         """
 
 
 @dataclass(frozen=True)
 class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
-    """Pair combines two parameter spaces, providing methods to split parameters into their respective components and join them back together. This is useful for models that have separate location and shape parameters, for example.
+    """Pair combines two coordinate spaces, providing methods to split coordinates into their respective components and join them back together. This is useful for models that have separate location and shape coordinates, for example.
 
     In theory, this implements the Cartesian product $\\mathcal M_1 \\times \\mathcal M_2$ of two manifolds, where the dimension is the sum of the component dimensions.
     """
@@ -76,36 +75,36 @@ class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
         return self.fst_man.dim + self.snd_man.dim
 
     @override
-    def split_params(self, params: Array) -> tuple[Array, Array]:
-        """Split parameters into first and second components.
+    def split_coords(self, coords: Array) -> tuple[Array, Array]:
+        """Split coordinates into first and second components.
 
         Args:
-            params: Array of concatenated parameters
+            coords: Array of concatenated coordinates
 
         Returns:
-            Tuple of (first_params, second_params)
+            Tuple of (first_coords, second_coords)
         """
-        first_params = params[: self.fst_man.dim]
-        second_params = params[self.fst_man.dim :]
-        return first_params, second_params
+        first_coords = coords[: self.fst_man.dim]
+        second_coords = coords[self.fst_man.dim :]
+        return first_coords, second_coords
 
     @override
-    def join_params(self, first: Array, second: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Join component parameters into a single array.
+    def join_coords(self, fst_coords: Array, snd_coords: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Join component coordinates into a single array.
 
         Args:
-            first: Parameters from first manifold
-            second: Parameters from second manifold
+            fst_coords: coordinates from first manifold
+            snd_coords: coordinates from second manifold
 
         Returns:
             Concatenated array
         """
-        return jnp.concatenate([jnp.ravel(first), jnp.ravel(second)])
+        return jnp.concatenate([jnp.ravel(fst_coords), jnp.ravel(snd_coords)])
 
 
 @dataclass(frozen=True)
 class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
-    """Triple combines three parameter spaces, providing methods to split parameters into their respective components and join them back together."""
+    """Triple combines three coordinate spaces, providing methods to split coordinates into their respective components and join them back together."""
 
     # Contract
 
@@ -133,44 +132,46 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
         return self.fst_man.dim + self.snd_man.dim + self.trd_man.dim
 
     @override
-    def split_params(self, params: Array) -> tuple[Array, Array, Array]:
-        """Split parameters into first, second, and third components.
+    def split_coords(self, coords: Array) -> tuple[Array, Array, Array]:
+        """Split coordinates into first, second, and third components.
 
         Args:
-            params: Array of concatenated parameters
+            coords: Array of concatenated coordinates
 
         Returns:
-            Tuple of (first_params, second_params, third_params)
+            Tuple of (fst_coords, snd_coords, trd_coords)
         """
         first_dim = self.fst_man.dim
         second_dim = self.snd_man.dim
 
-        first_params = params[:first_dim]
-        second_params = params[first_dim : first_dim + second_dim]
-        third_params = params[first_dim + second_dim :]
+        fst_coords = coords[:first_dim]
+        snd_coords = coords[first_dim : first_dim + second_dim]
+        trd_coords = coords[first_dim + second_dim :]
 
-        return (first_params, second_params, third_params)
+        return (fst_coords, snd_coords, trd_coords)
 
     @override
-    def join_params(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self, first: Array, second: Array, third: Array
+    def join_coords(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, fst_coords: Array, snd_coords: Array, trd_coords: Array
     ) -> Array:
-        """Join component parameters into a single array.
+        """Join component coordinates into a single array.
 
         Args:
-            first: Parameters from first manifold
-            second: Parameters from second manifold
-            third: Parameters from third manifold
+            fst_coords: coordinates from first manifold
+            snd_coords: coordinates from second manifold
+            trd_coords: coordinates from third manifold
 
         Returns:
             Concatenated array
         """
-        return jnp.concatenate([jnp.ravel(first), jnp.ravel(second), jnp.ravel(third)])
+        return jnp.concatenate(
+            [jnp.ravel(fst_coords), jnp.ravel(snd_coords), jnp.ravel(trd_coords)]
+        )
 
 
 @dataclass(frozen=True)
 class Replicated[M: Manifold](Manifold):
-    """Replicated allows working with collections of parameters each of which lives on the same fundamental manifold, like mixture model components or time series observations. It provides special methods for mapping functions across the copies.
+    """Replicated allows working with collections of coordinates each of which lives on the same fundamental manifold, like mixture model components or time series observations. It provides special methods for mapping functions across the copies.
 
     In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$, with efficient mapping operations via vmap.
     """
@@ -184,47 +185,33 @@ class Replicated[M: Manifold](Manifold):
 
     # Array operations
 
-    def get_replicate(self, p: Array, idx: int) -> Array:
-        """Get parameters for a specific replicate.
+    def get_replicate(self, coords: Array, idx: int) -> Array:
+        """Get coordinates for a specific replicate.
 
         Args:
-            p: Array of replicated parameters (flat, shape [n_reps * rep_man.dim])
+            coords: Array of replicated coordinates (flat, shape [n_reps * rep_man.dim])
             idx: Index of the replicate to extract
 
         Returns:
-            Array of parameters for that replicate (shape [rep_man.dim])
+            Array of coordinates for that replicate (shape [rep_man.dim])
         """
         start = idx * self.rep_man.dim
         end = start + self.rep_man.dim
-        return p[start:end]
+        return coords[start:end]
 
-    def map(self, f: Callable[[Array], Array], p: Array) -> Array:
+    def map(self, f: Callable[[Array], Array], coords: Array) -> Array:
         """Map a function across replicates, returning stacked array results.
 
         Args:
-            f: Function that takes parameters for one replicate (shape [rep_man.dim])
-            p: Array of replicated parameters (flat, shape [n_reps * rep_man.dim])
+            f: Function that takes coordinates for one replicate (shape [rep_man.dim])
+            coordinates: Array of replicated coordinates (flat, shape [n_reps * rep_man.dim])
 
         Returns:
             Stacked results with shape [n_reps, *f_result_shape]
         """
         # Reshape from flat to [n_reps, rep_man.dim] for vmap
-        p_shaped = p.reshape([self.n_reps, self.rep_man.dim])
-        return jax.vmap(f)(p_shaped)
-
-    def man_map(self, f: Callable[[Array], Array], p: Array) -> Array:
-        """Map a function across replicates, returning array in replicated codomain.
-
-        Args:
-            f: Function that takes parameters and returns array
-            p: Array of replicated parameters (flat, shape [n_reps * rep_man.dim])
-
-        Returns:
-            Array with shape [n_reps, *f_result_shape]
-        """
-        # Reshape from flat to [n_reps, rep_man.dim] for vmap
-        p_shaped = p.reshape([self.n_reps, self.rep_man.dim])
-        return jax.vmap(f)(p_shaped)
+        shaped_coords = coords.reshape([self.n_reps, self.rep_man.dim])
+        return jax.vmap(f)(shaped_coords)
 
     # Overrides
 

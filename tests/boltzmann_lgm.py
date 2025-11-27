@@ -2,7 +2,7 @@
 
 This module tests the critical mathematical properties of Boltzmann-LGMs:
 
-1. Conjugation equation: ψ(θ_X + θ_{XZ} · s_Z(z)) = ρ · s_Z(z) + ψ_X(θ_X)
+1. Conjugation equation: ψ(θ_X + θ_{XZ} · s_Z(z)) = rho · s_Z(z) + ψ_X(θ_X)
 2. Observable density via marginalization
 3. Posterior normalization
 """
@@ -68,21 +68,21 @@ def test_conjugation_equation(
 
     For a conjugated harmonium, the following must hold for all latent states z:
 
-    ψ(θ_X + θ_{XZ} · s_Z(z)) = ρ · s_Z(z) + ψ_X(θ_X)
+    ψ(θ_X + θ_{XZ} · s_Z(z)) = rho · s_Z(z) + ψ_X(θ_X)
 
     where:
     - ψ is the log partition function
     - θ_X are observable natural parameters
     - θ_{XZ} are interaction parameters
     - s_Z(z) is the sufficient statistic of latent state z
-    - ρ are the conjugation parameters
+    - rho are the conjugation parameters
 
     This is the defining property of conjugated harmoniums and must be
     exactly satisfied for the model to be mathematically correct.
     """
     # Split parameters
-    obs_params, int_params, _ = model.split_params(random_params)
-    lkl_params = model.lkl_fun_man.join_params(obs_params, int_params)
+    obs_params, int_params, _ = model.split_coords(random_params)
+    lkl_params = model.lkl_fun_man.join_coords(obs_params, int_params)
 
     # Compute conjugation parameters
     rho = model.conjugation_parameters(lkl_params)
@@ -108,7 +108,7 @@ def test_conjugation_equation(
         conditional_obs = model.lkl_fun_man(lkl_params, state)
         lhs = model.obs_man.log_partition_function(conditional_obs)
 
-        # RHS: ρ · s_Z(z) + ψ_X(θ_X)
+        # RHS: rho · s_Z(z) + ψ_X(θ_X)
         rhs_term1 = jnp.dot(rho, s_z)
         rhs_term2 = model.obs_man.log_partition_function(obs_params)
         rhs = rhs_term1 + rhs_term2
@@ -222,7 +222,7 @@ def test_log_observable_density_formula(
     log_density = model.log_observable_density(random_params, obs)
 
     # Compute manually following the formula
-    obs_params, _, _ = model.split_params(random_params)
+    obs_params, _, _ = model.split_coords(random_params)
 
     # θ_X · s_X(x)
     obs_stats = model.obs_man.sufficient_statistic(obs)
@@ -261,8 +261,8 @@ def test_conjugation_parameters_shape(
     random_params: Array,
 ):
     """Test that conjugation parameters have correct dimension."""
-    obs_params, int_params, _ = model.split_params(random_params)
-    lkl_params = model.lkl_fun_man.join_params(obs_params, int_params)
+    obs_params, int_params, _ = model.split_coords(random_params)
+    lkl_params = model.lkl_fun_man.join_coords(obs_params, int_params)
 
     rho = model.conjugation_parameters(lkl_params)
 

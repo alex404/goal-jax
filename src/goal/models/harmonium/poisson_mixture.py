@@ -108,11 +108,11 @@ class CoMPoissonPopulation(
         return Product(CoMShape(), n_reps=self.n_reps)
 
     @override
-    def join_params(
+    def join_coords(
         self,
-        first: Array,  # Natural[PoissonPopulation]
-        second: Array,  # Natural[PopulationShape]
-    ) -> Array:  # Natural[Self]
+        fst_coords: Array,
+        snd_coords: Array,
+    ) -> Array:
         """Join location and shape parameters.
 
         Parameters
@@ -127,19 +127,19 @@ class CoMPoissonPopulation(
         Array
             Natural parameters for COM-Poisson population.
         """
-        params_matrix = jnp.stack([first, second])
+        params_matrix = jnp.stack([fst_coords, snd_coords])
         return params_matrix.T.reshape(-1)
 
     @override
-    def split_params(
+    def split_coords(
         self,
-        natural_params: Array,  # Natural[Self]
-    ) -> tuple[Array, Array]:  # (Natural[PoissonPopulation], Natural[PopulationShape])
+        coords: Array,
+    ) -> tuple[Array, Array]:
         """Split into location and shape parameters.
 
         Parameters
         ----------
-        natural_params : Array
+        params : Array
             Natural parameters for COM-Poisson population.
 
         Returns
@@ -147,7 +147,7 @@ class CoMPoissonPopulation(
         tuple[Array, Array]
             Location parameters (Poisson rates) and shape parameters (dispersion).
         """
-        matrix = natural_params.reshape(self.n_reps, 2).T
+        matrix = coords.reshape(self.n_reps, 2).T
         loc_params = matrix[0]
         shp_params = matrix[1]
         return loc_params, shp_params

@@ -72,29 +72,29 @@ class Poisson(Analytic):
         return -_log_factorial(k)
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
-        return jnp.squeeze(jnp.exp(natural_params))
+    def log_partition_function(self, params: Array) -> Array:
+        return jnp.squeeze(jnp.exp(params))
 
     @override
-    def negative_entropy(self, mean_params: Array) -> Array:
-        rate = mean_params
+    def negative_entropy(self, means: Array) -> Array:
+        rate = means
         return jnp.squeeze(rate * (jnp.log(rate) - 1))
 
     @override
-    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
-        mean_params = self.to_mean(natural_params)
-        rate = mean_params
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        means = self.to_mean(params)
+        rate = means
 
         # JAX's Poisson sampler expects rate parameter
         return jax.random.poisson(key, rate, shape=(n,))[..., None]
 
     # Methods
 
-    def statistical_mean(self, natural_params: Array) -> Array:
-        return self.to_mean(natural_params).reshape([1])
+    def statistical_mean(self, params: Array) -> Array:
+        return self.to_mean(params).reshape([1])
 
-    def statistical_covariance(self, natural_params: Array) -> Array:
-        return self.to_mean(natural_params).reshape([1, 1])
+    def statistical_covariance(self, params: Array) -> Array:
+        return self.to_mean(params).reshape([1, 1])
 
 
 @dataclass(frozen=True)
@@ -165,7 +165,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
     # Methods
 
-    def split_mode_dispersion(self, natural_params: Array) -> tuple[Array, Array]:
+    def split_mode_dispersion(self, params: Array) -> tuple[Array, Array]:
         """Convert from natural parameters to mode-shape parameters.
 
         The COM-Poisson distribution can be parameterized by either natural parameters $(\\theta_1, \\theta_2)$ or by mode-shape parameters $(\\mu, \\nu)$. The conversion
@@ -174,7 +174,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         $$\\nu = -\\theta_2$$
         $$\\mu = \\exp(-\\theta_1/\\theta_2)$$
         """
-        theta1, theta2 = natural_params[0], natural_params[1]
+        theta1, theta2 = params[0], params[1]
         nu = -theta2
         mu = jnp.exp(-theta1 / theta2)
         return mu, nu
@@ -192,21 +192,21 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         theta2 = -nu
         return jnp.array([theta1, theta2]).ravel()
 
-    def approximate_mean_variance(self, natural_params: Array) -> tuple[Array, Array]:
+    def approximate_mean_variance(self, params: Array) -> tuple[Array, Array]:
         """Compute approximate mean and variance of COM-Poisson distribution.
 
         Given mode $\\mu$ and shape $\\nu$ parameters, the approximations are:
         $E(X) \\approx \\mu + 1/(2\\nu) - 1/2$
         Var(X) ≈ $\\mu$/$\\nu$
         """
-        mu, nu = self.split_mode_dispersion(natural_params)
+        mu, nu = self.split_mode_dispersion(params)
         approx_mean = mu + 1 / (2 * nu) - 0.5
         approx_var = mu / nu
         return approx_mean, approx_var
 
     def numerical_mean_variance(
         self,
-        natural_params: Array,
+        params: Array,
     ) -> tuple[Array, Array]:
         """Compute mean and variance using numerical integration.
 
@@ -216,7 +216,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         $$\\text{Var}(X) = E[X^2] - E[X]^2$$
         """
         # Get mode for window centering
-        mu, _ = self.split_mode_dispersion(natural_params)
+        mu, _ = self.split_mode_dispersion(params)
 
         # Create fixed window of indices
         mode_shift = jnp.maximum(0, jnp.floor(mu - self.window_size / 2)).astype(
@@ -225,9 +225,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         indices = jnp.arange(self.window_size) + mode_shift
 
         # Compute log probabilities
-        log_probs = jax.vmap(self.log_density, in_axes=(None, 0))(
-            natural_params, indices
-        )
+        log_probs = jax.vmap(self.log_density, in_axes=(None, 0))(params, indices)
         probs = jnp.exp(log_probs)
 
         # Compute first and second moments
@@ -239,14 +237,14 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
         return mean, variance
 
-    def statistical_mean(self, natural_params: Array) -> Array:
+    def statistical_mean(self, params: Array) -> Array:
         """Numerical approximation of the mean."""
-        mean, _ = self.numerical_mean_variance(natural_params)
+        mean, _ = self.numerical_mean_variance(params)
         return mean.reshape([1])
 
-    def statistical_covariance(self, natural_params: Array) -> Array:
+    def statistical_covariance(self, params: Array) -> Array:
         """Numerical approximation of the covariance."""
-        _, var = self.numerical_mean_variance(natural_params)
+        _, var = self.numerical_mean_variance(params)
         return var.reshape([1, 1])
 
     # Override
@@ -266,7 +264,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         return jnp.asarray(0.0)
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Compute log partition function using fixed-width window strategy.
 
         Evaluates:
@@ -275,14 +273,14 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         using a fixed number of terms centered on the mode.
 
         Args:
-            natural_params: Array of natural parameters $(\\theta_1, \\theta_2)$
+            params: Array of natural parameters $(\\theta_1, \\theta_2)$
 
         Returns:
             Value of log partition function $\\psi(\\theta)$
         """
         # Estimate mode and center window around it
         # Estimate mode
-        mu, _ = self.split_mode_dispersion(natural_params)
+        mu, _ = self.split_mode_dispersion(params)
 
         # Create fixed window of indices
         base_indices = jnp.arange(self.window_size)
@@ -294,7 +292,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         indices = base_indices + mode_shift
 
         def _compute_log_partition_terms(index: Array) -> Array:
-            return jnp.dot(natural_params, self.sufficient_statistic(index))
+            return jnp.dot(params, self.sufficient_statistic(index))
 
         # Compute terms and use log-sum-exp for numerical stability
         log_terms = jax.vmap(_compute_log_partition_terms)(indices)
@@ -302,9 +300,9 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
     # TODO: Come up with a better scheme than rejection sampling
     @override
-    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Generate random COM-Poisson samples using Algorithm 2 from Benson & Friel (2021)."""
-        mu, nu = self.split_mode_dispersion(natural_params)
+        mu, nu = self.split_mode_dispersion(params)
         mode = jnp.floor(mu)
 
         # Envelope terms for both Poisson and Geometric cases
@@ -362,14 +360,14 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         return samples[..., None]
 
     @override
-    def check_natural_parameters(self, natural_params: Array) -> Array:
+    def check_natural_parameters(self, params: Array) -> Array:
         """Check if natural parameters are valid for COM-Poisson.
 
         For parameters $(\\theta_1, \\theta_2)$, the following conditions must hold:
         - $\\theta_1$ is finite, $\\theta_2 < 0$
         """
-        finite = super().check_natural_parameters(natural_params)
-        theta2_valid = natural_params[1] < 0
+        finite = super().check_natural_parameters(params)
+        theta2_valid = params[1] < 0
         return finite & theta2_valid
 
     @override

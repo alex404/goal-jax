@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import NewType
 
 from jax import Array
-from optax import (
+from optax import (  # pyright: ignore[reportMissingTypeStubs]
     GradientTransformation,
     ScalarOrSchedule,
     adamw,
@@ -38,7 +38,7 @@ class Optimizer[M: Manifold]:
         b1: float = 0.9,
         b2: float = 0.999,
         weight_decay: float = 0.0001,
-    ) -> Optimizer[C, M]:
+    ) -> Optimizer[M]:
         """Create AdamW optimizer with optional gradient clipping."""
         opt = adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay)
 
@@ -61,7 +61,7 @@ class Optimizer[M: Manifold]:
         man: M,
         learning_rate: ScalarOrSchedule = 0.1,
         momentum: float = 0.0,
-    ) -> Optimizer[C, M]:
+    ) -> Optimizer[M]:
         """Create SGD optimizer with optional gradient clipping.
 
         Args:
@@ -93,13 +93,13 @@ class Optimizer[M: Manifold]:
         """
         updates, new_opt_state = self.optimizer.update(
             grads,
-            opt_state,
+            opt_state,  # pyright: ignore[reportArgumentType]
             point,
         )
         new_params = apply_updates(point, updates)
-        return OptState(new_opt_state), new_params
+        return OptState(new_opt_state), new_params  # pyright: ignore[reportReturnType]
 
-    def with_grad_clip(self, max_norm: float) -> Optimizer[C, M]:
+    def with_grad_clip(self, max_norm: float) -> Optimizer[M]:
         """Add gradient clipping to this optimizer."""
         new_opt = chain(clip_by_global_norm(max_norm), self.optimizer)
         return type(self)(new_opt, self.opt_man)

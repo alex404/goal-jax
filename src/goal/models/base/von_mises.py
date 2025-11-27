@@ -99,7 +99,7 @@ class VonMises(Differentiable):
         return -jnp.log(2 * jnp.pi)
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Compute log partition function.
 
         Args:
@@ -108,13 +108,13 @@ class VonMises(Differentiable):
         Returns:
             Log partition function value (scalar)
         """
-        kappa = jnp.sqrt(jnp.sum(natural_params**2))
+        kappa = jnp.sqrt(jnp.sum(params**2))
         # Explicitly cast i0e output to Array
         return jnp.log(i0e(kappa)) + kappa
 
     # TODO: Right now this is based on rejection sampling, but we should switch to a more efficient method that's more suitable for JAX
     @override
-    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Generate n samples from the Von Mises distribution.
 
         Args:
@@ -125,7 +125,7 @@ class VonMises(Differentiable):
         Returns:
             Array of n samples
         """
-        mu, kappa = self.split_mean_concentration(natural_params)
+        mu, kappa = self.split_mean_concentration(params)
         kappa = jnp.maximum(kappa, 1e-5)
 
         tau = 1 + jnp.sqrt(1 + 4 * kappa**2)

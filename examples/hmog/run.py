@@ -73,7 +73,7 @@ def create_ground_truth_model() -> tuple[
         obs_prs = om.split_location_precision(obs_natural_params)[1]
         int_mat = hmog.int_man.from_dense(om.cov_man.to_dense(obs_prs) @ int_mat0)
 
-    lkl_params = hmog.lkl_fun_man.join_params(obs_natural_params, int_mat)
+    lkl_params = hmog.lkl_fun_man.join_coords(obs_natural_params, int_mat)
 
     hmog_natural_params = hmog.join_conjugated(lkl_params, mix_natural_params)
 

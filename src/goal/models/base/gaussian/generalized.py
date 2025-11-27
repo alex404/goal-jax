@@ -53,25 +53,25 @@ class Euclidean(Differentiable):
         return -0.5 * self.dim * jnp.log(2 * jnp.pi)
 
     @override
-    def sample(self, key: Array, natural_params: Array, n: int = 1) -> Array:
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Sample from a standard normal distribution with mean given by natural parameters.
 
         For Euclidean space with unit covariance, the natural parameters are the mean,
-        so we sample x ~ N(natural_params, I).
+        so we sample x ~ N(params, I).
 
         Args:
             key: JAX random key
-            natural_params: Natural parameters (the mean)
+            params: Natural parameters (the mean)
             n: Number of samples
 
         Returns:
             Array of shape (n, dim) with samples
         """
         noise = jax.random.normal(key, (n, self.dim))
-        return natural_params + noise
+        return params + noise
 
     @override
-    def log_partition_function(self, natural_params: Array) -> Array:
+    def log_partition_function(self, params: Array) -> Array:
         """Compute log partition function for standard normal with unit covariance.
 
         For a normal distribution N(μ, I) with sufficient statistic s(x) = x
@@ -80,12 +80,12 @@ class Euclidean(Differentiable):
         ψ(θ) = 0.5 ||θ||² + (d/2) log(2π)
 
         Args:
-            natural_params: Natural parameters (the mean)
+            params: Natural parameters (the mean)
 
         Returns:
             Scalar log partition function value
         """
-        return 0.5 * jnp.sum(natural_params**2) + 0.5 * self.dim * jnp.log(2 * jnp.pi)
+        return 0.5 * jnp.sum(params**2) + 0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
 class GeneralizedGaussian[S: ExponentialFamily](Differentiable, ABC):
@@ -124,7 +124,7 @@ class GeneralizedGaussian[S: ExponentialFamily](Differentiable, ABC):
     # Core split/join operations for harmonium conjugation
 
     @abstractmethod
-    def split_location_precision(self, natural_params: Array) -> tuple[Array, Array]:
+    def split_location_precision(self, params: Array) -> tuple[Array, Array]:
         """Split natural parameters into location and precision in natural coordinates.
 
         For harmonium conjugation, natural coordinates represent:
@@ -155,7 +155,7 @@ class GeneralizedGaussian[S: ExponentialFamily](Differentiable, ABC):
         """
 
     @abstractmethod
-    def split_mean_second_moment(self, mean_params: Array) -> tuple[Array, Array]:
+    def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
         """Split parameters into mean and second moment in mean coordinates.
 
         For harmonium conjugation, mean coordinates represent:

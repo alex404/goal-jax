@@ -4,11 +4,9 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Natural, PositiveDefinite
+from goal.geometry import PositiveDefinite
 from goal.models import (
     Categorical,
-    Covariance,
-    Euclidean,
     Normal,
     Poisson,
 )

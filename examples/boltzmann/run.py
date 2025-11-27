@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.geometry import Natural, Optimizer, OptState
+from goal.geometry import Optimizer, OptState
 from goal.models.base.gaussian.boltzmann import Boltzmann
 
 from ..shared import example_paths, initialize_jax
@@ -94,7 +94,7 @@ def fit_boltzmann_machine(
     init_natural_params = init_params_flat
 
     # Setup optimizer
-    optimizer: Optimizer[Natural, Boltzmann] = Optimizer.adamw(
+    optimizer: Optimizer[Boltzmann] = Optimizer.adamw(
         model, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_natural_params)
@@ -144,7 +144,9 @@ def evaluate_model(
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))
 
     # Use exponential family interface directly
-    log_probs = jax.vmap(model.log_density, in_axes=(None, 0))(natural_params, all_states)
+    log_probs = jax.vmap(model.log_density, in_axes=(None, 0))(
+        natural_params, all_states
+    )
     probabilities = jnp.exp(log_probs)
 
     # Energies are negative log unnormalized probabilities
