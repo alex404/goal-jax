@@ -134,13 +134,11 @@ class NormalCovarianceEmbedding(LinearEmbedding[Normal, Normal]):
     @property
     @override
     def amb_man(self) -> Normal:
-        """Super-manifold."""
         return self._amb_man
 
     @property
     @override
     def sub_man(self) -> Normal:
-        """Sub-manifold."""
         return self._sub_man
 
     @override

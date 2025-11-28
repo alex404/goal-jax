@@ -122,8 +122,8 @@ class DifferentiableHMoG(
         self,
     ) -> LinearEmbedding[Euclidean, AnalyticMixture[Normal]]:
         return LinearComposedEmbedding(
-            ObservableEmbedding(self.pst_upr_hrm),
             self.lwr_hrm.int_pst_emb,
+            ObservableEmbedding(self.pst_upr_hrm),
         )
 
     @property
@@ -224,8 +224,8 @@ class SymmetricHMoG(
         self,
     ) -> LinearEmbedding[Euclidean, Mixture[Normal, Normal]]:
         return LinearComposedEmbedding(
-            ObservableEmbedding(self.upr_hrm),
             self.lwr_hrm.int_pst_emb,
+            ObservableEmbedding(self.upr_hrm),
         )
 
     @property

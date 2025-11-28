@@ -13,7 +13,7 @@ from jax import Array
 from .base import Manifold
 from .combinators import Pair, Replicated
 from .embedding import LinearEmbedding
-from .matrix import MatrixRep, Square
+from .matrix import MatrixRep, Rectangular, Square
 
 ### Linear Maps ###
 
@@ -71,7 +71,6 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
             Parameters of the transposed linear map
         """
 
-    @abstractmethod
     def transpose_apply(self, f_coords: Array, w_coords: Array) -> Array:
         """Apply the transpose of the linear map.
 
@@ -82,6 +81,8 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
         Returns:
             Transformed point in the domain
         """
+        f_trn_coords = self.transpose(f_coords)
+        return self.trn_man(f_trn_coords, w_coords)
 
     @abstractmethod
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
@@ -109,9 +110,8 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
     blocks: list[
         tuple[
-            LinearEmbedding[Manifold, Codomain],
-            MatrixRep,
             LinearEmbedding[Manifold, Domain],
+            LinearEmbedding[Manifold, Codomain],
         ]
     ]
     """The matrix representations of the submaps."""
@@ -120,13 +120,18 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
     @override
     def dom_man(self) -> Domain:
         """The domain manifold."""
-        return self.blocks[0][2].amb_man
+        return self.blocks[0][0].amb_man
 
     @property
     @override
     def cod_man(self) -> Codomain:
         """The codomain manifold."""
-        return self.blocks[0][0].amb_man
+        return self.blocks[0][1].amb_man
+
+    @property
+    def rep(self) -> MatrixRep:
+        """The codomain manifold."""
+        return Rectangular()
 
     # Overrides
 
@@ -134,8 +139,8 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
     @override
     def dim(self) -> int:
         return sum(
-            rep.num_params((cod_emb.sub_man.dim, dom_emb.sub_man.dim))
-            for cod_emb, rep, dom_emb in self.blocks
+            self.rep.num_params((cod_emb.sub_man.dim, dom_emb.sub_man.dim))
+            for dom_emb, cod_emb in self.blocks
         )
 
     @override
@@ -152,11 +157,11 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         result = self.cod_man.zeros()
         param_offset = 0
 
-        for cod_emb, rep, dom_emb in self.blocks:
-            block_param_size = rep.num_params(
+        for dom_emb, cod_emb in self.blocks:
+            block_param_size = self.rep.num_params(
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
-            sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            sub_map = RectangularMap(self.rep, dom_emb.sub_man, cod_emb.sub_man)
             sub_params = f_coords[param_offset : param_offset + block_param_size]
 
             block_dom_point = dom_emb.project(v_coords)
@@ -171,9 +176,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
     @override
     def trn_man(self) -> BlockMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
-        transposed_blocks = [
-            (dom_emb, rep, cod_emb) for cod_emb, rep, dom_emb in self.blocks
-        ]
+        transposed_blocks = [(cod_emb, dom_emb) for dom_emb, cod_emb in self.blocks]
         return BlockMap(transposed_blocks)
 
     @override
@@ -188,11 +191,11 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         """
         transposed_params = []
         param_offset = 0
-        for cod_emb, rep, dom_emb in self.blocks:
-            block_param_size = rep.num_params(
+        for dom_emb, cod_emb in self.blocks:
+            block_param_size = self.rep.num_params(
                 (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
             )
-            sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            sub_map = RectangularMap(self.rep, dom_emb.sub_man, cod_emb.sub_man)
             sub_params = f_coords[param_offset : param_offset + block_param_size]
             sub_trn = sub_map.transpose(sub_params)
             transposed_params.append(sub_trn)
@@ -212,10 +215,10 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
             Parameters of the outer product linear map
         """
         outer_params = []
-        for cod_emb, rep, dom_emb in self.blocks:
+        for dom_emb, cod_emb in self.blocks:
             block_w = cod_emb.project(w_coords)
             block_v = dom_emb.project(v_coords)
-            sub_map = RectangularMap(rep, dom_emb.sub_man, cod_emb.sub_man)
+            sub_map = RectangularMap(self.rep, dom_emb.sub_man, cod_emb.sub_man)
             block_outer = sub_map.outer_product(block_w, block_v)
             outer_params.append(block_outer)
         return jnp.concatenate(outer_params)
@@ -346,19 +349,6 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
             Parameters of the transposed linear map
         """
         return self.rep.transpose(self.matrix_shape, f_coords)
-
-    def transpose_apply(self, f_coords: Array, w_coords: Array) -> Array:
-        """Apply the transpose of the linear map.
-
-        Args:
-            f_coords: Parameters of the linear map
-            v_coords: Point in the codomain
-
-        Returns:
-            Transformed point in the domain
-        """
-        f_trn = self.transpose(f_coords)
-        return self.trn_man(f_trn, w_coords)
 
     def to_dense(self, f_coords: Array) -> Array:
         """Convert to dense matrix representation.

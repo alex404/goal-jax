@@ -15,6 +15,7 @@ from .exponential_family.combinators import (
 from .exponential_family.graphical import (
     LatentHarmoniumEmbedding,
     ObservableEmbedding,
+    PosteriorEmbedding,
     hierarchical_conjugation_parameters,
     hierarchical_to_natural_likelihood,
 )
@@ -38,11 +39,13 @@ from .manifold.embedding import (
     ComposedEmbedding,
     Embedding,
     IdentityEmbedding,
+    LinearComposedEmbedding,
     LinearEmbedding,
     TupleEmbedding,
 )
 from .manifold.linear import (
     AffineMap,
+    BlockMap,
     LinearMap,
     RectangularMap,
     SquareMap,
@@ -64,6 +67,7 @@ __all__ = [
     "Analytic",
     "AnalyticConjugated",
     "AnalyticProduct",
+    "BlockMap",
     "ComposedEmbedding",
     "Conjugated",
     "Diagonal",
@@ -78,6 +82,7 @@ __all__ = [
     "Identity",
     "IdentityEmbedding",
     "LatentHarmoniumEmbedding",
+    "LinearComposedEmbedding",
     "LinearEmbedding",
     "LinearMap",
     "LocationShape",
@@ -89,6 +94,7 @@ __all__ = [
     "Optimizer",
     "Pair",
     "PositiveDefinite",
+    "PosteriorEmbedding",
     "Product",
     "Rectangular",
     "RectangularMap",

@@ -36,20 +36,7 @@ class ObservableEmbedding[
 ](TupleEmbedding[Observable, Harm]):
     """Embedding of the observable manifold of a harmonium into the harmonium itself.
 
-    This embedding projects a harmonium parameter point to its observable component,
-    or embeds an observable point into the full harmonium space by setting interaction
-    and latent parameters to zero.
-
-    Used in hierarchical models where a lower harmonium's prior (over latents) becomes
-    the upper harmonium's observable space. This embedding enables parameter transformations
-    across hierarchical levels.
-
-    The embedding maps between:
-    - Sub-manifold: The observable manifold :math:`\\text{Obs}` of the harmonium
-    - Ambient manifold: The full harmonium :math:`\\text{Harmonium} = \\text{Obs} \\times \\text{Int} \\times \\text{Latent}`
-
-    Mathematically, it embeds points on :math:`\\text{Obs}` as :math:`(p, 0, 0)` in the
-    harmonium space, and projects harmonium points :math:`(p, i, l)` to their first component :math:`p`.
+    This embedding projects a harmonium coordinates onto the observable component, or embeds an observable point into the full harmonium space by setting interaction and latent parameters to zero. Generally speaking, projection is only safe on mean coordinates, while embedding is only safe on natural coordinates.
     """
 
     # Fields
@@ -77,6 +64,43 @@ class ObservableEmbedding[
     @override
     def sub_man(self) -> Observable:
         return self.hrm_man.obs_man
+
+
+@dataclass(frozen=True)
+class PosteriorEmbedding[
+    Posterior: ExponentialFamily,
+    Harm: Harmonium[Any, Any, Any, Any],
+](TupleEmbedding[Posterior, Harm]):
+    """Embedding of the posterior manifold of a harmonium into the harmonium itself.
+
+    This embedding projects harmonium coordinates onto the posterior manifold, or embeds an latent point into the full harmonium space by setting interaction and observable parameters to zero. Generally speaking, projection is only safe on mean coordinates, while embedding is only safe on natural coordinates.
+    """
+
+    # Fields
+
+    hrm_man: Harm
+    """The harmonium that contains the latent manifold."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(
+        self,
+    ) -> int:
+        return 2
+
+    @property
+    @override
+    def amb_man(
+        self,
+    ) -> Harm:
+        return self.hrm_man
+
+    @property
+    @override
+    def sub_man(self) -> Posterior:
+        return self.hrm_man.pst_man
 
 
 @dataclass(frozen=True)

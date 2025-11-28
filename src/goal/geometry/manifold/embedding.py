@@ -206,8 +206,8 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
 
     # Fields
 
-    mid_emb: Embedding[Mid, Ambient]
     sub_emb: Embedding[Sub, Mid]
+    mid_emb: Embedding[Mid, Ambient]
 
     # Overrides
 
