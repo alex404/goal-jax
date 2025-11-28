@@ -72,6 +72,18 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
         """
 
     @abstractmethod
+    def transpose_apply(self, f_coords: Array, w_coords: Array) -> Array:
+        """Apply the transpose of the linear map.
+
+        Args:
+            f_coords: Parameters of the linear map
+            w_coords: Point in the codomain
+
+        Returns:
+            Transformed point in the domain
+        """
+
+    @abstractmethod
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
         """Outer product of points.
 
@@ -312,7 +324,7 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
 
     @override
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
-        """Outer product of points.
+        """Outer product of points. Returns a linear map from V to W.
 
         Args:
             w_coords: Point in the codomain
@@ -335,7 +347,7 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         """
         return self.rep.transpose(self.matrix_shape, f_coords)
 
-    def transpose_apply(self, f_coords: Array, v_coords: Array) -> Array:
+    def transpose_apply(self, f_coords: Array, w_coords: Array) -> Array:
         """Apply the transpose of the linear map.
 
         Args:
@@ -346,7 +358,7 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
             Transformed point in the domain
         """
         f_trn = self.transpose(f_coords)
-        return self.trn_man(f_trn, v_coords)
+        return self.trn_man(f_trn, w_coords)
 
     def to_dense(self, f_coords: Array) -> Array:
         """Convert to dense matrix representation.

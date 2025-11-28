@@ -21,11 +21,6 @@ Base Class
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.harmonium.SymmetricHarmonium
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Conjugation
 -----------
 

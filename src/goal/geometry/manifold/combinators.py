@@ -201,11 +201,11 @@ class Replicated[M: Manifold](Manifold):
         """Map a function across replicates, returning stacked array results.
 
         Args:
-            f: Function that takes coordinates for one replicate (shape [rep_man.dim])
-            coords: Array of replicated coordinates (flat, shape [n_reps * rep_man.dim])
+            f: Function that takes coordinates for one replicate (shape ``[rep_man.dim]``)
+            coords: Array of replicated coordinates (flat, shape ``[n_reps * rep_man.dim]``)
 
         Returns:
-            Stacked results with shape [n_reps, *f_result_shape]
+            Stacked results with shape ``[n_reps, *f_result_shape]``
         """
         # Reshape from flat to [n_reps, rep_man.dim] for vmap
         shaped_coords = coords.reshape([self.n_reps, self.rep_man.dim])

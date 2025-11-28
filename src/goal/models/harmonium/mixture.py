@@ -135,7 +135,7 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
     def split_natural_mixture(
         self,
         natural_params: Array,
-    ) -> tuple[Array, Array]:  # (Natural[Product[Observable]], Natural[Categorical])
+    ) -> tuple[Array, Array]:
         """Split a mixture model in natural coordinates into components and prior.
 
         In natural coordinates, embeddings are the correct operation because they preserve

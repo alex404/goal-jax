@@ -96,9 +96,3 @@ Covariance Types
    Scalar multiple of identity covariance matrix representation.
    
    Represents the covariance matrix using a single scalar value, allowing for extremely efficient $O(1)$ storage and fast vectorized computations. Models equal variance in all dimensions with no correlations.
-
-Type Hacks
-----------
-
-.. autofunction:: goal.models.base.gaussian.normal.cov_to_lin
-.. autofunction:: goal.models.base.gaussian.normal.lin_to_cov

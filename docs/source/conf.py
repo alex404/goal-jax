@@ -9,7 +9,7 @@
 project = "Goal"
 copyright = "2025, Sacha Sokoloski"
 author = "Sacha Sokoloski"
-release = "0.0.1"
+release = "0.1.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -35,7 +35,7 @@ extensions.extend(
 )
 
 # Set better resolution for inheritance diagrams
-graphviz_output_format = "svg"  # Use SVG for sharper diagrams
+graphviz_output_format = "svg"  # PNG has better browser compatibility
 
 inheritance_graph_attrs = {
     "rankdir": "TB",  # Top to bottom layout

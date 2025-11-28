@@ -13,15 +13,18 @@ Class Hierarchy
 
 \
 
-Core Classes
-------------
+Generic LGM
+-----------
 
-.. autoclass:: goal.models.harmonium.lgm.DifferentiableLGM
+.. autoclass:: goal.models.harmonium.lgm.LGM
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.lgm.NormalDifferentiableLGM
+Normal LGM
+----------
+
+.. autoclass:: goal.models.harmonium.lgm.NormalLGM
    :members:
    :undoc-members:
    :show-inheritance:
@@ -30,6 +33,9 @@ Core Classes
    :members:
    :undoc-members:
    :show-inheritance:
+
+Boltzmann LGM
+-------------
 
 .. autoclass:: goal.models.harmonium.lgm.BoltzmannLGM
    :members:

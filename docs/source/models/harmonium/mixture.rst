@@ -21,7 +21,7 @@ Core Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.mixture.DifferentiableMixture
+.. autoclass:: goal.models.harmonium.mixture.CompleteMixture
    :members:
    :undoc-members:
    :show-inheritance:

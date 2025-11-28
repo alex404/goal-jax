@@ -94,7 +94,7 @@ class MixtureComponentEmbedding[
         )
 
     @override
-    def embed(
+    def embed(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         params: Array,
     ) -> Array:
