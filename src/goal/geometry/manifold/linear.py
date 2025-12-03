@@ -12,7 +12,7 @@ from jax import Array
 
 from .base import Manifold
 from .combinators import Pair, Replicated
-from .embedding import LinearEmbedding
+from .embedding import IdentityEmbedding, LinearEmbedding
 from .matrix import MatrixRep, Rectangular, Square
 
 ### Linear Maps ###
@@ -225,81 +225,58 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
 
 @dataclass(frozen=True)
-class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
-    """RectangularMap represents a linear transformation with an explicit matrix representation.
+class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
+    """EmbeddedMap represents a linear transformation with explicit embeddings.
 
-    The representation strategy (Rep) determines how matrix data is stored and manipulated,
-    enabling efficient operations for special matrix structures like diagonal or symmetric matrices.
+    The embeddings manage the relationship between internal matrix dimensions
+    and external manifold dimensions, allowing linear maps to operate on
+    restricted subspaces of the domain and codomain.
     """
 
     # Fields
 
+    dom_emb: LinearEmbedding[Manifold, Domain]
+    """Embedding from internal domain to external domain manifold."""
+
     rep: MatrixRep
     """The matrix representation strategy for this linear map."""
 
-    _dom_man: Domain
-    """The domain of the linear map."""
+    cod_emb: LinearEmbedding[Manifold, Codomain]
+    """Embedding from internal codomain to external codomain manifold."""
 
-    _cod_man: Codomain
-    """The codomain of the linear map."""
-
-    # Overrides
+    # Properties
 
     @property
     @override
     def dom_man(self) -> Domain:
-        return self._dom_man
+        return self.dom_emb.amb_man
 
     @property
     @override
     def cod_man(self) -> Codomain:
-        return self._cod_man
+        return self.cod_emb.amb_man
 
     @property
     @override
     def dim(self) -> int:
         return self.rep.num_params(self.matrix_shape)
 
-    # Methods
-
     @property
     def matrix_shape(self) -> tuple[int, int]:
-        """Mathematical dimensions of the linear map $L: V \\to W$.
+        """Shape of the matrix operating on internal dimensions.
 
-        Returns the shape $(\\dim(W), \\dim(V))$ of the underlying matrix, which is
-        invariant across all matrix representations. This is distinct from the storage
-        shape of the Point array, which is always flat.
-
-        In practice, the matrix representation determines how the parameter array is
-        stored and interpreted:
-
-        - A scale matrix $L: \\mathbb{R}^3 \\to \\mathbb{R}^3$ has `matrix_shape = (3, 3)`
-          but stores only 1 parameter (the scaling factor)
-        - A diagonal matrix $L: \\mathbb{R}^3 \\to \\mathbb{R}^3$ with the same shape stores 3 parameters
-        - A general rectangular matrix $L: \\mathbb{R}^2 \\to \\mathbb{R}^3$ with `matrix_shape = (3, 2)`
-          stores $3 \\times 2 = 6$ parameters
-
-        The matrix representation methods use `matrix_shape` as metadata to interpret
-        the flat parameter array correctly, while `coordinates_shape` describes how
-        the array is physically stored.
+        Returns the shape $(\\dim(internal\\_codomain), \\dim(internal\\_domain))$
+        of the underlying matrix in the internal coordinate system.
         """
-        return (self.cod_man.dim, self.dom_man.dim)
+        return (self.cod_emb.sub_man.dim, self.dom_emb.sub_man.dim)
 
     @property
     @override
-    def trn_man(self) -> RectangularMap[Codomain, Domain]:
+    def trn_man(self) -> EmbeddedMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
-        return RectangularMap(self.rep, self.cod_man, self.dom_man)
+        return EmbeddedMap(self.cod_emb, self.rep, self.dom_emb)
 
-    @property
-    def row_man(self) -> Replicated[Domain]:
-        """The manifold of row vectors."""
-        return Replicated(self.dom_man, self.cod_man.dim)
-
-    @property
-    def col_man(self) -> Replicated[Codomain]:
-        """The manifold of column vectors."""
-        return Replicated(self.cod_man, self.dom_man.dim)
+    # Methods
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
@@ -312,31 +289,14 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         Returns:
             Transformed point in the codomain
         """
-        return self.rep.matvec(self.matrix_shape, f_coords, v_coords)
+        # 1. Project to internal domain
+        internal_v = self.dom_emb.project(v_coords)
 
-    def from_dense(self, matrix: Array) -> Array:
-        """Create parameters from dense matrix.
+        # 2. Apply matrix operation on internal dimensions
+        internal_result = self.rep.matvec(self.matrix_shape, f_coords, internal_v)
 
-        Args:
-            matrix: Dense matrix representation
-
-        Returns:
-            Parameters in this manifold's representation
-        """
-        return self.rep.from_dense(matrix)
-
-    @override
-    def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
-        """Outer product of points. Returns a linear map from V to W.
-
-        Args:
-            w_coords: Point in the codomain
-            v_coords: Point in the domain
-
-        Returns:
-            Parameters of the outer product linear map
-        """
-        return self.rep.outer_product(w_coords, v_coords)
+        # 3. Embed back to external codomain
+        return self.cod_emb.embed(internal_result)
 
     @override
     def transpose(self, f_coords: Array) -> Array:
@@ -350,8 +310,37 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         """
         return self.rep.transpose(self.matrix_shape, f_coords)
 
+    @override
+    def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
+        """Outer product of points.
+
+        Args:
+            w_coords: Point in the codomain
+            v_coords: Point in the domain
+
+        Returns:
+            Parameters of the outer product linear map
+        """
+        # Project both to internal spaces
+        internal_w = self.cod_emb.project(w_coords)
+        internal_v = self.dom_emb.project(v_coords)
+
+        # Compute outer product in internal space
+        return self.rep.outer_product(internal_w, internal_v)
+
+    def from_dense(self, matrix: Array) -> Array:
+        """Create parameters from dense matrix (in internal dimensions).
+
+        Args:
+            matrix: Dense matrix representation
+
+        Returns:
+            Parameters in this manifold's representation
+        """
+        return self.rep.from_dense(matrix)
+
     def to_dense(self, f_coords: Array) -> Array:
-        """Convert to dense matrix representation.
+        """Convert to dense matrix representation (in internal dimensions).
 
         Args:
             f_coords: Parameters of the linear map
@@ -360,6 +349,62 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
             Dense matrix array
         """
         return self.rep.to_dense(self.matrix_shape, f_coords)
+
+    def map_diagonal(
+        self, f_coords: Array, diagonal_f: Callable[[Array], Array]
+    ) -> Array:
+        """Apply a function to the diagonal elements while preserving matrix structure.
+
+        Args:
+            f_coords: Parameters of the linear map
+            diagonal_f: Function to apply to diagonal elements
+
+        Returns:
+            Modified parameters
+        """
+        return self.rep.map_diagonal(self.matrix_shape, f_coords, diagonal_f)
+
+    def embed_rep(
+        self, f_coords: Array, target_rep: MatrixRep
+    ) -> tuple[EmbeddedMap[Domain, Codomain], Array]:
+        """Embed linear map into more complex representation.
+
+        Args:
+            f_coords: Parameters of the linear map
+            target_rep: Target matrix representation
+
+        Returns:
+            Tuple of (new manifold, new parameters)
+        """
+        target_man = EmbeddedMap(self.dom_emb, target_rep, self.cod_emb)
+        params = self.rep.embed_params(self.matrix_shape, f_coords, target_rep)
+        return target_man, params
+
+    def project_rep(
+        self, f_coords: Array, target_rep: MatrixRep
+    ) -> tuple[EmbeddedMap[Domain, Codomain], Array]:
+        """Project linear map to simpler representation.
+
+        Args:
+            f_coords: Parameters of the linear map
+            target_rep: Target matrix representation
+
+        Returns:
+            Tuple of (new manifold, new parameters)
+        """
+        target_man = EmbeddedMap(self.dom_emb, target_rep, self.cod_emb)
+        params = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
+        return target_man, params
+
+    @property
+    def row_man(self) -> Replicated[Domain]:
+        """The manifold of row vectors."""
+        return Replicated(self.dom_man, self.cod_man.dim)
+
+    @property
+    def col_man(self) -> Replicated[Codomain]:
+        """The manifold of column vectors."""
+        return Replicated(self.cod_man, self.dom_man.dim)
 
     def to_rows(self, f_coords: Array) -> Array:
         """Split linear map into dense row vectors.
@@ -405,51 +450,29 @@ class RectangularMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Cod
         """
         return self.rep.from_dense(columns.T)
 
-    def map_diagonal(
-        self, f_coords: Array, diagonal_f: Callable[[Array], Array]
-    ) -> Array:
-        """Apply a function to the diagonal elements while preserving matrix structure.
+
+class RectangularMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codomain]):
+    """RectangularMap represents a linear transformation with identity embeddings.
+
+    This is a convenience class that wraps EmbeddedMap with identity embeddings,
+    providing a simpler constructor for the common case where the linear map
+    operates on the full domain and codomain manifolds without restriction.
+    """
+
+    def __init__(self, rep: MatrixRep, dom_man: Domain, cod_man: Codomain):
+        """Create a RectangularMap with identity embeddings.
 
         Args:
-            f_coords: Parameters of the linear map
-            diagonal_f: Function to apply to diagonal elements
-
-        Returns:
-            Modified parameters
+            rep: The matrix representation strategy
+            dom_man: The domain manifold
+            cod_man: The codomain manifold
         """
-        return self.rep.map_diagonal(self.matrix_shape, f_coords, diagonal_f)
+        super().__init__(
+            IdentityEmbedding(dom_man),
+            rep,
+            IdentityEmbedding(cod_man)
+        )
 
-    def embed_rep(
-        self, f_coords: Array, target_rep: MatrixRep
-    ) -> tuple[RectangularMap[Domain, Codomain], Array]:
-        """Embed linear map into more complex representation.
-
-        Args:
-            f_coords: Parameters of the linear map
-            target_rep: Target matrix representation
-
-        Returns:
-            Tuple of (new manifold, new parameters)
-        """
-        target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
-        params = self.rep.embed_params(self.matrix_shape, f_coords, target_rep)
-        return target_man, params
-
-    def project_rep(
-        self, f_coords: Array, target_rep: MatrixRep
-    ) -> tuple[RectangularMap[Domain, Codomain], Array]:
-        """Project linear map to simpler representation.
-
-        Args:
-            f_coords: Parameters of the linear map
-            target_rep: Target matrix representation
-
-        Returns:
-            Tuple of (new manifold, new parameters)
-        """
-        target_man = RectangularMap(target_rep, self.dom_man, self.cod_man)
-        params = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
-        return target_man, params
 
 
 @dataclass(frozen=True)
@@ -509,12 +532,11 @@ class SquareMap[M: Manifold](RectangularMap[M, M]):
 @dataclass(frozen=True)
 class AffineMap[
     Domain: Manifold,
-    SubCodomain: Manifold,
     Codomain: Manifold,
 ](
-    Pair[Codomain, LinearMap[Domain, SubCodomain]],
+    Pair[Codomain, LinearMap[Domain, Codomain]],
 ):
-    """AffineMap combines a linear transformation with a translation component. The codomain is represented as an :class:`~geometry.manifold.embedding.Embedding` to allow transformations that translate only a subset of the codomain.
+    """AffineMap combines a linear transformation with a translation component.
 
     In theory, an affine map $A: V \\to W$ has the form:
 
@@ -526,30 +548,28 @@ class AffineMap[
 
     $$A(\\sum_i \\alpha_i x_i) = \\sum_i \\alpha_i A(x_i)$$
 
-
+    The linear map (which may be an EmbeddedMap) internally handles any embedding
+    structure between internal and external spaces.
     """
 
     # Fields
 
-    map_man: LinearMap[Domain, SubCodomain]
+    map_man: LinearMap[Domain, Codomain]
     """The linear transformation for this affine map."""
 
     dom_man: Domain
     """The domain of the affine map."""
-
-    cod_emb: LinearEmbedding[SubCodomain, Codomain]
-    """The submanifold of the codomain targetted by the affine map."""
 
     # Overrides
 
     @property
     @override
     def fst_man(self) -> Codomain:
-        return self.cod_emb.amb_man
+        return self.map_man.cod_man
 
     @property
     @override
-    def snd_man(self) -> LinearMap[Domain, SubCodomain]:
+    def snd_man(self) -> LinearMap[Domain, Codomain]:
         return self.map_man
 
     # Methods
@@ -565,5 +585,7 @@ class AffineMap[
             Transformed point in the codomain
         """
         bias, linear = self.split_coords(f_coords)
-        subshift = self.snd_man(linear, v_coords)
-        return self.cod_emb.translate(bias, subshift)
+        shift = self.snd_man(linear, v_coords)
+        # The linear map (if EmbeddedMap) already handles embedding internally,
+        # so shift is in codomain space. Just add the bias.
+        return bias + shift

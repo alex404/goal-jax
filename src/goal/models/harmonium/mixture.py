@@ -20,9 +20,7 @@ from ...geometry import (
     AnalyticConjugated,
     Differentiable,
     DifferentiableConjugated,
-    ExponentialFamily,
-    IdentityEmbedding,
-    LinearEmbedding,
+    EmbeddedMap,
     Product,
     Rectangular,
     RectangularMap,
@@ -35,11 +33,9 @@ from ..base.categorical import (
 
 
 @dataclass(frozen=True)
-class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
-    SymmetricConjugated[Observable, IntObservable, Categorical, Categorical],
-    DifferentiableConjugated[
-        Observable, IntObservable, Categorical, Categorical, Categorical
-    ],
+class Mixture[Observable: Differentiable](
+    SymmetricConjugated[Observable, Categorical],
+    DifferentiableConjugated[Observable, Categorical, Categorical],
 ):
     """Mixture models with exponential family observations.
 
@@ -53,9 +49,10 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
     In the harmonium framework, mixture models are implemented using:
         - A categorical latent variable $z$ representing component assignment
         - An observable distribution family for component distributions
-        - An interaction matrix between $z$ and $x$ that that contain component specific parameters
+        - An interaction matrix between $z$ and $x$ that contain component specific parameters
 
-    In this most general formulation, the interaction parameters may be restricted to a submanifold of the observable manifold.
+    The interaction matrix (int_man) can internally restrict interactions to a submanifold
+    via embeddings (if using EmbeddedMap).
     """
 
     # Fields
@@ -63,8 +60,8 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
     n_categories: int
     """Number of mixture components."""
 
-    _int_obs_emb: LinearEmbedding[IntObservable, Observable]
-    """Embedding for observable manifold."""
+    _int_man: EmbeddedMap[Categorical, Observable]
+    """Interaction matrix (EmbeddedMap, possibly with identity embeddings via RectangularMap)."""
 
     # Template Methods
 
@@ -85,7 +82,7 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
         This method projects component parameters to the interaction submanifold, storing only
         the submanifold portion while averaging out statistics outside it.
 
-        **Technical note:** When $\\text{Observable} \\neq \\text{IntObservable}$, component
+        **Technical note:** When using restricted submanifolds (non-identity embeddings), component
         statistics outside the interaction submanifold are irreversibly lost (aggregated into
         observable biases). This is mathematically correct for mean coordinates but makes
         the operation non-invertible without additional information.
@@ -99,8 +96,9 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
 
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, sub_obs_dim)
+        # Project using the embedding from int_man
         projected_comps = cmp_man_minus.map(
-            self.int_obs_emb.project,
+            self.int_man.cod_emb.project,
             weighted_comps[1:],
         )
         # int_means shape: (sub_obs_dim, n_categories-1)
@@ -112,23 +110,13 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
 
     @property
     @override
-    def int_obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
-        return self._int_obs_emb
-
-    @property
-    @override
     def lat_man(self) -> Categorical:
         return Categorical(self.n_categories)
 
     @property
     @override
-    def int_pst_emb(self) -> IdentityEmbedding[Categorical]:
-        return IdentityEmbedding(self.lat_man)
-
-    @property
-    @override
-    def int_man(self) -> RectangularMap[Categorical, IntObservable]:
-        return RectangularMap(Rectangular(), self.lat_man, self.int_obs_emb.sub_man)
+    def int_man(self) -> EmbeddedMap[Categorical, Observable]:
+        return self._int_man
 
     # Methods
 
@@ -157,7 +145,7 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
         def translate_col(
             col: Array,
         ) -> Array:
-            return self.int_obs_emb.translate(obs_bias, col)
+            return self.int_man.cod_emb.translate(obs_bias, col)
 
         # translated shape: (n_categories - 1, obs_dim)
         translated = self.int_man.col_man.map(translate_col, int_cols)
@@ -218,7 +206,7 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
         int_comps = self.int_man.to_columns(int_mat)
 
         def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = self.int_obs_emb.translate(obs_bias, comp_params)
+            adjusted_obs = self.int_man.cod_emb.translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
         # rho_z shape: (n_categories - 1,)
@@ -226,14 +214,17 @@ class Mixture[Observable: Differentiable, IntObservable: ExponentialFamily](
 
 
 class CompleteMixture[Observable: Differentiable](
-    Mixture[Observable, Observable],
+    Mixture[Observable],
 ):
     """Mixture models where the complete observable manifold is mixed."""
 
     # Constructor
 
     def __init__(self, obs_man: Observable, n_categories: int):
-        super().__init__(n_categories, IdentityEmbedding(obs_man))
+        # Create a RectangularMap with identity embeddings
+        lat_man = Categorical(n_categories)
+        int_man = RectangularMap(Rectangular(), lat_man, obs_man)
+        super().__init__(n_categories, int_man)
 
     def split_mean_mixture(
         self,
@@ -307,7 +298,7 @@ class CompleteMixture[Observable: Differentiable](
 
 class AnalyticMixture[Observable: Analytic](
     CompleteMixture[Observable],
-    AnalyticConjugated[Observable, Observable, Categorical, Categorical],
+    AnalyticConjugated[Observable, Categorical],
 ):
     """Mixture model with analytically tractable components. Amongst other things, this enables closed-form implementation of expectation-maximization."""
 

@@ -49,7 +49,7 @@ from .mixture import AnalyticMixture, Mixture
 type PoissonPopulation = AnalyticProduct[Poisson]
 type PopulationShape = Product[CoMShape]
 type PoissonMixture = AnalyticMixture[PoissonPopulation]
-type CoMPoissonMixture = Mixture[CoMPoissonPopulation, PoissonPopulation]
+type CoMPoissonMixture = Mixture[CoMPoissonPopulation]
 
 ## Factories ##
 
@@ -240,5 +240,14 @@ def com_poisson_mixture(n_neurons: int, n_components: int) -> CoMPoissonMixture:
     CoMPoissonMixture
         A differentiable mixture with COM-Poisson components
     """
+    from ...geometry import EmbeddedMap, IdentityEmbedding, Rectangular
+    from ..base.categorical import Categorical
+
     subspace = PopulationLocationEmbedding(n_neurons)
-    return Mixture(n_components, subspace)
+    lat_man = Categorical(n_components)
+    int_man: EmbeddedMap[Categorical, CoMPoissonPopulation] = EmbeddedMap(
+        IdentityEmbedding(lat_man),
+        Rectangular(),
+        subspace,
+    )
+    return Mixture(n_components, int_man)

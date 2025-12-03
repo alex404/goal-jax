@@ -46,6 +46,7 @@ from .manifold.embedding import (
 from .manifold.linear import (
     AffineMap,
     BlockMap,
+    EmbeddedMap,
     LinearMap,
     RectangularMap,
     SquareMap,
@@ -74,6 +75,7 @@ __all__ = [
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiableProduct",
+    "EmbeddedMap",
     "Embedding",
     "ExponentialFamily",
     "Generative",

@@ -13,6 +13,7 @@ from ...geometry import (
     AnalyticConjugated,
     Diagonal,
     DifferentiableConjugated,
+    EmbeddedMap,
     IdentityEmbedding,
     LinearEmbedding,
     PositiveDefinite,
@@ -202,7 +203,7 @@ class LGM[
     PostGaussian: GeneralizedGaussian[Any],
     PriorGaussian: GeneralizedGaussian[Any],
 ](
-    DifferentiableConjugated[Normal, Euclidean, Euclidean, PostGaussian, PriorGaussian],
+    DifferentiableConjugated[Normal, PostGaussian, PriorGaussian],
     ABC,
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
@@ -248,18 +249,31 @@ class LGM[
 
     @property
     @override
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal]:
-        return GeneralizedGaussianLocationEmbedding(Normal(self.obs_dim, self.obs_rep))
+    def obs_man(self) -> Normal:
+        """Override to construct directly from fields, avoiding circular dependency."""
+        return Normal(self.obs_dim, self.obs_rep)
 
     @property
-    @override
+    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal]:
+        return GeneralizedGaussianLocationEmbedding(self.obs_man)
+
+    @property
     def int_pst_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
         """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
         return GeneralizedGaussianLocationEmbedding(self.pst_man)
 
     @property
     @override
-    def int_man(self) -> RectangularMap[Euclidean, Euclidean]:
+    def int_man(self) -> EmbeddedMap[PostGaussian, Normal]:
+        return EmbeddedMap(
+            self.int_pst_emb,
+            Rectangular(),
+            self.int_obs_emb,
+        )
+
+    @property
+    def _int_man_internal(self) -> RectangularMap[Euclidean, Euclidean]:
+        """Internal interaction matrix operating on location spaces (for helper functions)."""
         return RectangularMap(
             Rectangular(),
             self.pst_man.loc_man,
@@ -293,8 +307,8 @@ class LGM[
         obs_mean = obs_cov_man(obs_sigma, obs_loc)
 
         # Conjugation parameters
-        rho_mean = self.int_man.transpose_apply(int_mat, obs_mean)
-        _, rho_shape = _change_of_basis(self.int_man, int_mat, obs_cov_man, obs_sigma)
+        rho_mean = self._int_man_internal.transpose_apply(int_mat, obs_mean)
+        _, rho_shape = _change_of_basis(self._int_man_internal, int_mat, obs_cov_man, obs_sigma)
         rho_shape *= -1
 
         # Join parameters into moment parameters
@@ -320,11 +334,16 @@ class NormalLGM(
 
     @property
     @override
+    def pst_man(self) -> Normal:
+        """Override to construct directly from fields, avoiding circular dependency."""
+        return Normal(self.lat_dim, self.pst_lat_rep)
+
+    @property
+    @override
     def pst_prr_emb(self) -> LinearEmbedding[Normal, Normal]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
-        post_gau = Normal(self.lat_dim, self.pst_lat_rep)
         prior_gau = Normal(self.lat_dim, PositiveDefinite())
-        return NormalCovarianceEmbedding(post_gau, prior_gau)
+        return NormalCovarianceEmbedding(self.pst_man, prior_gau)
 
     # Methods
 
@@ -408,7 +427,7 @@ class NormalLGM(
 
 @dataclass(frozen=True)
 class BoltzmannLGM(
-    SymmetricConjugated[Normal, Euclidean, Euclidean, Boltzmann],
+    SymmetricConjugated[Normal, Boltzmann],
     LGM[Boltzmann, Boltzmann],
 ):
     """Differentiable Linear Gaussian Model with Boltzmann latent variables.
@@ -429,6 +448,12 @@ class BoltzmannLGM(
 
     @property
     @override
+    def pst_man(self) -> Boltzmann:
+        """Override to construct directly from fields, avoiding circular dependency."""
+        return Boltzmann(self.lat_dim)
+
+    @property
+    @override
     def pst_prr_emb(self) -> LinearEmbedding[Boltzmann, Boltzmann]:
         """Embedding of posterior Boltzmann into prior Boltzmann.
 
@@ -436,7 +461,7 @@ class BoltzmannLGM(
         structure (no covariance simplification like in Normal case), so we use
         the identity embedding.
         """
-        return IdentityEmbedding(Boltzmann(self.lat_dim))
+        return IdentityEmbedding(self.pst_man)
 
     @property
     @override
@@ -447,7 +472,7 @@ class BoltzmannLGM(
 
 @dataclass(frozen=True)
 class NormalAnalyticLGM(
-    AnalyticConjugated[Normal, Euclidean, Euclidean, Normal],
+    AnalyticConjugated[Normal, Normal],
     NormalLGM,
 ):
     """Analytic Linear Gaussian Model that extends the differentiable LGM with full analytical tractability, adding conversions between mean and natural coordinates, and a closed-form implementation of EM."""
@@ -489,26 +514,26 @@ class NormalAnalyticLGM(
         obs_means, int_means, lat_means = self.split_coords(means)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
-        int_cov = int_means - self.int_man.outer_product(obs_mean, lat_mean)
+        int_cov = int_means - self._int_man_internal.outer_product(obs_mean, lat_mean)
 
         # Construct precisions
         lat_prs = lat_cov_man.inverse(lat_cov)
-        int_man_t = self.int_man.trn_man
-        int_cov_t = self.int_man.transpose(int_cov)
+        int_man_t = self._int_man_internal.trn_man
+        int_cov_t = self._int_man_internal.transpose(int_cov)
         cob_man, cob = _change_of_basis(int_man_t, int_cov_t, lat_cov_man, lat_prs)
         shaped_cob = obs_cov_man.from_dense(cob_man.to_dense(cob))
         obs_prs = obs_cov_man.inverse(obs_cov - shaped_cob)
         _, int_params = _dual_composition(
             obs_cov_man,
             obs_prs,
-            self.int_man,
+            self._int_man_internal,
             int_cov,
             lat_cov_man,
             lat_prs,
         )
         # Construct observable location params
         obs_loc0 = obs_cov_man(obs_prs, obs_mean)
-        obs_loc1 = self.int_man(int_params, lat_mean)
+        obs_loc1 = self._int_man_internal(int_params, lat_mean)
         obs_loc = obs_loc0 - obs_loc1
 
         # Return natural parameters
@@ -633,11 +658,11 @@ class PrincipalComponentAnalysis(NormalAnalyticLGM):
 
 
 def _dual_composition(
-    h_man: RectangularMap[Euclidean, Euclidean],
+    h_man: EmbeddedMap[Euclidean, Euclidean],
     h_params: Array,  # Parameters in some coordinate system
-    g_man: RectangularMap[Euclidean, Euclidean],
+    g_man: EmbeddedMap[Euclidean, Euclidean],
     g_params: Array,  # Parameters in dual coordinates
-    f_man: RectangularMap[Euclidean, Euclidean],
+    f_man: EmbeddedMap[Euclidean, Euclidean],
     f_params: Array,  # Parameters in original coordinate system
 ) -> tuple[
     RectangularMap[Euclidean, Euclidean],
@@ -665,9 +690,9 @@ def _dual_composition(
 
 
 def _change_of_basis(
-    f: RectangularMap[Euclidean, Euclidean],
+    f: EmbeddedMap[Euclidean, Euclidean],
     f_params: Array,  # Parameters in some coordinate system
-    g: RectangularMap[Euclidean, Euclidean],
+    g: EmbeddedMap[Euclidean, Euclidean],
     g_params: Array,  # Parameters in dual coordinates
 ) -> tuple[
     Covariance,

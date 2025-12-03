@@ -32,7 +32,7 @@ from .harmonium import (
 @dataclass(frozen=True)
 class ObservableEmbedding[
     Observable: ExponentialFamily,
-    Harm: Harmonium[Any, Any, Any, Any],
+    Harm: Harmonium[Any, Any],
 ](TupleEmbedding[Observable, Harm]):
     """Embedding of the observable manifold of a harmonium into the harmonium itself.
 
@@ -69,7 +69,7 @@ class ObservableEmbedding[
 @dataclass(frozen=True)
 class PosteriorEmbedding[
     Posterior: ExponentialFamily,
-    Harm: Harmonium[Any, Any, Any, Any],
+    Harm: Harmonium[Any, Any],
 ](TupleEmbedding[Posterior, Harm]):
     """Embedding of the posterior manifold of a harmonium into the harmonium itself.
 
@@ -105,8 +105,8 @@ class PosteriorEmbedding[
 
 @dataclass(frozen=True)
 class LatentHarmoniumEmbedding[
-    PostHarmonium: Harmonium[Any, Any, Any, Any],
-    PriorHarmonium: Harmonium[Any, Any, Any, Any],
+    PostHarmonium: Harmonium[Any, Any],
+    PriorHarmonium: Harmonium[Any, Any],
 ](LinearEmbedding[PostHarmonium, PriorHarmonium]):
     """Embedding of one harmonium into another via observable space embedding.
 
@@ -204,8 +204,8 @@ class LatentHarmoniumEmbedding[
 
 
 def hierarchical_conjugation_parameters(
-    lwr_hrm: DifferentiableConjugated[Any, Any, Any, Any, Any],
-    upr_hrm: Harmonium[Any, Any, Any, Any],
+    lwr_hrm: DifferentiableConjugated[Any, Any, Any],
+    upr_hrm: Harmonium[Any, Any],
     lkl_params: Array,
 ) -> Array:
     """Compute conjugation parameters for hierarchical structure.
@@ -240,9 +240,9 @@ def hierarchical_conjugation_parameters(
 
 
 def hierarchical_to_natural_likelihood(
-    harmonium: Harmonium[Any, Any, Any, Any],
-    lwr_hrm: AnalyticConjugated[Any, Any, Any, Any],
-    upr_hrm: Harmonium[Any, Any, Any, Any],
+    harmonium: Harmonium[Any, Any],
+    lwr_hrm: AnalyticConjugated[Any, Any],
+    upr_hrm: Harmonium[Any, Any],
     params: Array,
 ) -> Array:
     """Convert mean parameters to natural likelihood parameters for hierarchical models.

@@ -40,19 +40,18 @@ from jax import Array
 from ...geometry import (
     AnalyticConjugated,
     DifferentiableConjugated,
+    EmbeddedMap,
+    IdentityEmbedding,
     LatentHarmoniumEmbedding,
-    ObservableEmbedding,
+    LinearEmbedding,
     PositiveDefinite,
-    RectangularMap,
+    Rectangular,
     SymmetricConjugated,
     hierarchical_conjugation_parameters,
     hierarchical_to_natural_likelihood,
 )
-from ...geometry.manifold.embedding import LinearComposedEmbedding, LinearEmbedding
-from ..base.gaussian.generalized import Euclidean
 from ..base.gaussian.normal import Normal
 from ..harmonium.lgm import (
-    GeneralizedGaussianLocationEmbedding,
     NormalAnalyticLGM,
     NormalCovarianceEmbedding,
     NormalLGM,
@@ -66,10 +65,8 @@ from ..harmonium.mixture import AnalyticMixture, Mixture
 class DifferentiableHMoG(
     DifferentiableConjugated[
         Normal,
-        Euclidean,
-        Euclidean,
         AnalyticMixture[Normal],
-        Mixture[Normal, Normal],
+        Mixture[Normal],
     ]
 ):
     """Differentiable Hierarchical Mixture of Gaussians.
@@ -96,7 +93,7 @@ class DifferentiableHMoG(
     pst_upr_hrm: AnalyticMixture[Normal]
     """Posterior upper harmonium: analytic mixture with restricted covariance (Normal) for inference efficiency."""
 
-    prr_upr_hrm: Mixture[Normal, Normal]
+    prr_upr_hrm: Mixture[Normal]
     """Prior upper harmonium: differentiable mixture that embeds the restricted latent covariance (Normal) into full covariance (Normal) to accommodate conjugation parameters."""
 
     def __post_init__(self):
@@ -108,23 +105,13 @@ class DifferentiableHMoG(
 
     @property
     @override
-    def int_man(self) -> RectangularMap[Euclidean, Euclidean]:
+    def int_man(self) -> EmbeddedMap[Normal, Normal]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        # Hierarchical models compose two harmoniums and don't have a simple
+        # interaction matrix. We return the lower harmonium's int_man for
+        # compatibility, though it has the wrong type (should map from
+        # AnalyticMixture[Normal] to Normal). Methods that use int_man are
+        # overridden to handle the hierarchical structure correctly.
         return self.lwr_hrm.int_man
-
-    @property
-    @override
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal]:
-        return self.lwr_hrm.int_obs_emb
-
-    @property
-    @override
-    def int_pst_emb(
-        self,
-    ) -> LinearEmbedding[Euclidean, AnalyticMixture[Normal]]:
-        return LinearComposedEmbedding(
-            self.lwr_hrm.int_pst_emb,
-            ObservableEmbedding(self.pst_upr_hrm),
-        )
 
     @property
     @override
@@ -132,7 +119,7 @@ class DifferentiableHMoG(
         self,
     ) -> LinearEmbedding[
         AnalyticMixture[Normal],
-        Mixture[Normal, Normal],
+        Mixture[Normal],
     ]:
         # For DifferentiableHMoG, we need LatentHarmoniumEmbedding
 
@@ -162,7 +149,7 @@ class DifferentiableHMoG(
         Returns
         -------
         Array
-            Natural parameters for conjugation in Mixture[Normal, Normal] space.
+            Natural parameters for conjugation in Mixture[Normal] space.
         """
         return hierarchical_conjugation_parameters(
             self.lwr_hrm, self.prr_upr_hrm, lkl_params
@@ -173,9 +160,7 @@ class DifferentiableHMoG(
 class SymmetricHMoG(
     SymmetricConjugated[
         Normal,
-        Euclidean,
-        Euclidean,
-        Mixture[Normal, Normal],
+        Mixture[Normal],
     ]
 ):
     """Symmetric Hierarchical Mixture of Gaussians.
@@ -198,7 +183,7 @@ class SymmetricHMoG(
     lwr_hrm: NormalAnalyticLGM
     """Lower harmonium: analytic linear Gaussian model."""
 
-    upr_hrm: Mixture[Normal, Normal]
+    upr_hrm: Mixture[Normal]
     """Upper harmonium: mixture model with constrained latent representation."""
 
     def __post_init__(self):
@@ -210,27 +195,17 @@ class SymmetricHMoG(
 
     @property
     @override
-    def int_man(self) -> RectangularMap[Euclidean, Euclidean]:
+    def int_man(self) -> EmbeddedMap[Normal, Normal]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        # Hierarchical models compose two harmoniums and don't have a simple
+        # interaction matrix. We return the lower harmonium's int_man for
+        # compatibility, though it has the wrong type (should map from
+        # Mixture[Normal] to Normal). Methods that use int_man are
+        # overridden to handle the hierarchical structure correctly.
         return self.lwr_hrm.int_man
 
     @property
     @override
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal]:
-        return self.lwr_hrm.int_obs_emb
-
-    @property
-    @override
-    def int_pst_emb(
-        self,
-    ) -> LinearEmbedding[Euclidean, Mixture[Normal, Normal]]:
-        return LinearComposedEmbedding(
-            self.lwr_hrm.int_pst_emb,
-            ObservableEmbedding(self.upr_hrm),
-        )
-
-    @property
-    @override
-    def lat_man(self) -> Mixture[Normal, Normal]:
+    def lat_man(self) -> Mixture[Normal]:
         return self.upr_hrm
 
     @override
@@ -253,7 +228,7 @@ class SymmetricHMoG(
         Returns
         -------
         Array
-            Natural parameters for conjugation in Mixture[Normal, Normal] space.
+            Natural parameters for conjugation in Mixture[Normal] space.
         """
         return hierarchical_conjugation_parameters(
             self.lwr_hrm, self.upr_hrm, lkl_params
@@ -261,11 +236,9 @@ class SymmetricHMoG(
 
 
 @dataclass(frozen=True)
-class AnalyticHMoG(
+class AnalyticHMoG(  # pyright: ignore[reportGeneralTypeIssues]
     AnalyticConjugated[
         Normal,
-        Euclidean,
-        Euclidean,
         AnalyticMixture[Normal],
     ],
     SymmetricHMoG,
@@ -330,12 +303,22 @@ def differentiable_hmog(
     This model supports optimization via log-likelihood gradient descent.
     Uses full covariance Gaussians in the latent space.
     """
+    from ..base.categorical import Categorical
+
     pst_y_man = Normal(lat_dim, pst_lat_rep)
     prr_y_man = Normal(lat_dim, PositiveDefinite())
     lwr_hrm = NormalLGM(obs_dim, obs_rep, lat_dim, pst_lat_rep)
     mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
     pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
-    prr_upr_hrm = Mixture(n_components, mix_sub)
+
+    # Wrap the embedding in an EmbeddedMap
+    lat_man = Categorical(n_components)
+    prr_int_man: EmbeddedMap[Categorical, Normal] = EmbeddedMap(
+        IdentityEmbedding(lat_man),
+        Rectangular(),
+        mix_sub,
+    )
+    prr_upr_hrm = Mixture(n_components, prr_int_man)
 
     return DifferentiableHMoG(
         lwr_hrm,
@@ -360,11 +343,21 @@ def symmetric_hmog(
     Trade-off: Matrix inversions happen in the space of full covariance matrices over the
     latent space, which can be slower than `DifferentiableHMoG`.
     """
+    from ..base.categorical import Categorical
+
     mid_lat_man = Normal(lat_dim, PositiveDefinite())
     sub_lat_man = Normal(lat_dim, lat_rep)
     mix_sub = NormalCovarianceEmbedding(sub_lat_man, mid_lat_man)
     lwr_hrm = NormalAnalyticLGM(obs_dim, obs_rep, lat_dim)
-    upr_hrm = Mixture(n_components, mix_sub)
+
+    # Wrap the embedding in an EmbeddedMap
+    lat_man = Categorical(n_components)
+    upr_int_man: EmbeddedMap[Categorical, Normal] = EmbeddedMap(
+        IdentityEmbedding(lat_man),
+        Rectangular(),
+        mix_sub,
+    )
+    upr_hrm = Mixture(n_components, upr_int_man)
 
     return SymmetricHMoG(
         lwr_hrm,

@@ -25,15 +25,16 @@ from .base import (
 @dataclass(frozen=True)
 class Harmonium[
     Observable: ExponentialFamily,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
     Posterior: ExponentialFamily,
 ](
     ExponentialFamily,
-    Triple[Observable, LinearMap[IntLatent, IntObservable], Posterior],
+    Triple[Observable, LinearMap[Posterior, Observable], Posterior],
     ABC,
 ):
-    """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables. The interactions between the observable and latent variables can be restricted to submanifolds (`IntObservable` and `IntLatent`) of either or both the observable and latent manifolds (`Observable` and `Latent`).
+    """An exponential family harmonium is a product of two exponential families. The first family is over observable variables, and the second is over latent variables. The two families are coupled through an interaction matrix that captures the dependencies between the observable and latent variables.
+
+    The interaction matrix (int_man) is a LinearMap (typically an EmbeddedMap) that can
+    internally restrict interactions to submanifolds via embeddings.
 
     In theory, the joint distribution of a harmonium takes the form
 
@@ -53,42 +54,33 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def int_man(self) -> LinearMap[IntLatent, IntObservable]:
-        """Matrix representation of the interaction matrix."""
+    def int_man(self) -> LinearMap[Posterior, Observable]:
+        """Matrix representation of the interaction matrix.
 
-    @property
-    @abstractmethod
-    def int_obs_emb(self) -> LinearEmbedding[IntObservable, Observable]:
-        """Embedding of the interactive submanifold into the observable manifold."""
-
-    @property
-    @abstractmethod
-    def int_pst_emb(self) -> LinearEmbedding[IntLatent, Posterior]:
-        """Embedding of the interactive submanifold into the posterior latent manifold."""
+        The LinearMap (typically EmbeddedMap) internally manages any restriction
+        of interactions to submanifolds via embeddings."""
 
     # Templates
 
     @property
     def obs_man(self) -> Observable:
         """Manifold of observable biases."""
-        return self.int_obs_emb.amb_man
+        return self.int_man.cod_man
 
     @property
     def pst_man(self) -> Posterior:
         """Manifold of posterior specific latent biases."""
-        return self.int_pst_emb.amb_man
+        return self.int_man.dom_man
 
     @property
-    def lkl_fun_man(self) -> AffineMap[IntLatent, IntObservable, Observable]:
+    def lkl_fun_man(self) -> AffineMap[Posterior, Observable]:
         """Manifold of likelihood distributions $p(x \\mid z)$."""
-        return AffineMap(self.int_man, self.int_pst_emb.sub_man, self.int_obs_emb)
+        return AffineMap(self.int_man, self.int_man.dom_man)
 
     @property
-    def pst_fun_man(self) -> AffineMap[IntObservable, IntLatent, Posterior]:
+    def pst_fun_man(self) -> AffineMap[Observable, Posterior]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(
-            self.int_man.trn_man, self.int_obs_emb.sub_man, self.int_pst_emb
-        )
+        return AffineMap(self.int_man.trn_man, self.int_man.cod_man)
 
     def likelihood_function(self, params: Array) -> Array:
         """Natural parameters of the likelihood distribution as an affine function.
@@ -114,7 +106,8 @@ class Harmonium[
 
         $$p(x \\mid z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mz = self.int_pst_emb.sub_man.sufficient_statistic(z)
+        # LinearMap handles projection internally via embeddings
+        mz = self.pst_man.sufficient_statistic(z)
         return self.lkl_fun_man(self.likelihood_function(params), mz)
 
     def posterior_at(self, params: Array, x: Array) -> Array:
@@ -125,7 +118,8 @@ class Harmonium[
 
         $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
         """
-        mx = self.int_obs_emb.sub_man.sufficient_statistic(x)
+        # LinearMap handles projection internally via embeddings
+        mx = self.obs_man.sufficient_statistic(x)
         return self.pst_fun_man(self.posterior_function(params), mx)
 
     # Overrides
@@ -137,7 +131,7 @@ class Harmonium[
 
     @property
     @override
-    def snd_man(self) -> LinearMap[IntLatent, IntObservable]:
+    def snd_man(self) -> LinearMap[Posterior, Observable]:
         return self.int_man
 
     @property
@@ -159,9 +153,9 @@ class Harmonium[
 
         obs_stats = self.obs_man.sufficient_statistic(obs_x)
         lat_stats = self.pst_man.sufficient_statistic(lat_x)
-        int_stats = self.int_man.outer_product(
-            self.int_obs_emb.project(obs_stats), self.int_pst_emb.project(lat_stats)
-        )
+
+        # LinearMap.outer_product handles embedding internally
+        int_stats = self.int_man.outer_product(obs_stats, lat_stats)
 
         return self.join_coords(obs_stats, int_stats, lat_stats)
 
@@ -180,6 +174,8 @@ class Harmonium[
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
         """Initialize harmonium parameters. Observable and latent biases are initialized using their respective initialization strategies. The interaction matrix is initialized with random entries scaled by 1/sqrt(dim) to maintain reasonable magnitudes for the interactions."""
+        from ..manifold.linear import EmbeddedMap
+
         keys = jax.random.split(key, 3)
 
         # Initialize biases using component initialization
@@ -187,8 +183,15 @@ class Harmonium[
         lat_params = self.pst_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.int_obs_emb.sub_man.dim
-        lat_dim = self.int_pst_emb.sub_man.dim
+        # Get internal dimensions from the linear map
+        if isinstance(self.int_man, EmbeddedMap):
+            obs_dim = self.int_man.cod_emb.sub_man.dim  # type: ignore
+            lat_dim = self.int_man.dom_emb.sub_man.dim  # type: ignore
+        else:
+            # Fallback to full manifold dimensions
+            obs_dim = self.obs_man.dim
+            lat_dim = self.pst_man.dim
+
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
@@ -201,6 +204,8 @@ class Harmonium[
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
         """Initialize harmonium using sample data for observable biases. Uses sample data to initialize observable biases, while latent biases and interaction matrix use standard initialization."""
+        from ..manifold.linear import EmbeddedMap
+
         keys = jax.random.split(key, 3)
 
         # Initialize observable biases from data
@@ -212,8 +217,14 @@ class Harmonium[
         lat_params = self.pst_man.initialize(keys[1], location, shape)
 
         # Initialize interaction matrix with appropriate scaling
-        obs_dim = self.int_obs_emb.sub_man.dim
-        lat_dim = self.int_pst_emb.sub_man.dim
+        if isinstance(self.int_man, EmbeddedMap):
+            obs_dim = self.int_man.cod_emb.sub_man.dim  # type: ignore
+            lat_dim = self.int_man.dom_emb.sub_man.dim  # type: ignore
+        else:
+            # Fallback to full manifold dimensions
+            obs_dim = self.obs_man.dim
+            lat_dim = self.pst_man.dim
+
         scaling = shape / jnp.sqrt(obs_dim * lat_dim)
 
         noise = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
@@ -223,12 +234,10 @@ class Harmonium[
 
 class Conjugated[
     Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
     Posterior: ExponentialFamily,
     Prior: Generative,
 ](
-    Harmonium[Observable, IntObservable, IntLatent, Posterior],
+    Harmonium[Observable, Posterior],
     Generative,
     ABC,
 ):
@@ -320,11 +329,9 @@ class Conjugated[
 
 class SymmetricConjugated[
     Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
     Latent: Generative,
 ](
-    Conjugated[Observable, IntObservable, IntLatent, Latent, Latent],
+    Conjugated[Observable, Latent, Latent],
     ABC,
 ):
     """A differentiable conjugated harmonium where the space of posteriors is the same as the space of priors (as opposed to a strict submanifold)."""
@@ -362,12 +369,10 @@ class SymmetricConjugated[
 
 class DifferentiableConjugated[
     Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
     Posterior: Differentiable,
     Prior: Differentiable,
 ](
-    Conjugated[Observable, IntObservable, IntLatent, Posterior, Prior],
+    Conjugated[Observable, Posterior, Prior],
     Differentiable,
     ABC,
 ):
@@ -445,17 +450,16 @@ class DifferentiableConjugated[
         obs_stats = self.obs_man.sufficient_statistic(x)
 
         # Get posterior parameters for this observation
+        # AffineMap and LinearMap handle projection internally
         post_map = self.posterior_function(params)
-        lat_params = self.pst_fun_man(post_map, self.int_obs_emb.project(obs_stats))
+        lat_params = self.pst_fun_man(post_map, obs_stats)
 
         # Convert to mean parameters (expected sufficient statistics)
         lat_means = self.pst_man.to_mean(lat_params)
 
         # Form interaction term via outer product
-        int_means = self.int_man.outer_product(
-            self.int_obs_emb.project(obs_stats),
-            self.int_pst_emb.project(lat_means),
-        )
+        # LinearMap.outer_product handles projection internally
+        int_means = self.int_man.outer_product(obs_stats, lat_means)
 
         # Join parameters into harmonium point
         return self.join_coords(obs_stats, int_means, lat_means)
@@ -476,12 +480,10 @@ class DifferentiableConjugated[
 
 class AnalyticConjugated[
     Observable: Differentiable,
-    IntObservable: ExponentialFamily,
-    IntLatent: ExponentialFamily,
     Latent: Analytic,
 ](
-    SymmetricConjugated[Observable, IntObservable, IntLatent, Latent],
-    DifferentiableConjugated[Observable, IntObservable, IntLatent, Latent, Latent],
+    SymmetricConjugated[Observable, Latent],
+    DifferentiableConjugated[Observable, Latent, Latent],
     Analytic,
     ABC,
 ):
