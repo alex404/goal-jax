@@ -98,19 +98,14 @@ class DifferentiableHMoG(
 
     def __post_init__(self):
         """Validate that component harmoniums are compatible."""
-        assert self.lwr_hrm.prr_man == self.prr_upr_hrm.obs_man
         assert self.lwr_hrm.pst_man == self.pst_upr_hrm.obs_man
+        assert self.lwr_hrm.prr_man == self.prr_upr_hrm.obs_man
 
     # Overrides from DifferentiableConjugated
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[Normal, Normal]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        # Hierarchical models compose two harmoniums and don't have a simple
-        # interaction matrix. We return the lower harmonium's int_man for
-        # compatibility, though it has the wrong type (should map from
-        # AnalyticMixture[Normal] to Normal). Methods that use int_man are
-        # overridden to handle the hierarchical structure correctly.
+    def int_man(self) -> EmbeddedMap[Normal, AnalyticMixture[Normal]]:
         return self.lwr_hrm.int_man
 
     @property
@@ -196,11 +191,6 @@ class SymmetricHMoG(
     @property
     @override
     def int_man(self) -> EmbeddedMap[Normal, Normal]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        # Hierarchical models compose two harmoniums and don't have a simple
-        # interaction matrix. We return the lower harmonium's int_man for
-        # compatibility, though it has the wrong type (should map from
-        # Mixture[Normal] to Normal). Methods that use int_man are
-        # overridden to handle the hierarchical structure correctly.
         return self.lwr_hrm.int_man
 
     @property
@@ -314,8 +304,8 @@ def differentiable_hmog(
     # Wrap the embedding in an EmbeddedMap
     lat_man = Categorical(n_components)
     prr_int_man: EmbeddedMap[Categorical, Normal] = EmbeddedMap(
-        IdentityEmbedding(lat_man),
         Rectangular(),
+        IdentityEmbedding(lat_man),
         mix_sub,
     )
     prr_upr_hrm = Mixture(n_components, prr_int_man)
@@ -353,8 +343,8 @@ def symmetric_hmog(
     # Wrap the embedding in an EmbeddedMap
     lat_man = Categorical(n_components)
     upr_int_man: EmbeddedMap[Categorical, Normal] = EmbeddedMap(
-        IdentityEmbedding(lat_man),
         Rectangular(),
+        IdentityEmbedding(lat_man),
         mix_sub,
     )
     upr_hrm = Mixture(n_components, upr_int_man)

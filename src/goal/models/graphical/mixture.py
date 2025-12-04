@@ -198,20 +198,30 @@ class MixtureOfConjugated[
     @property
     @override
     def int_man(self) -> BlockMap[CompleteMixture[Latent], Observable]:
-        sxy = (
+        from ...geometry.manifold.linear import EmbeddedMap
+        from ...geometry.manifold.matrix import Rectangular
+
+        rep = Rectangular()
+        sxy = EmbeddedMap(
+            rep,
             LinearComposedEmbedding(
                 self._int_pst_emb, ObservableEmbedding(self.lat_mix_man)
             ),
             self._int_obs_emb,
         )
-        sxyz = (
+        sxyz = EmbeddedMap(
+            rep,
             MixtureComponentEmbedding(
                 n_categories=self.n_categories,
                 cmp_emb=self._int_pst_emb,
             ),
             self._int_obs_emb,
         )
-        sxz = (PosteriorEmbedding(self.lat_mix_man), IdentityEmbedding(self.obs_man))
+        sxz = EmbeddedMap(
+            rep,
+            PosteriorEmbedding(self.lat_mix_man),
+            IdentityEmbedding(self.obs_man),
+        )
         return BlockMap([sxy, sxyz, sxz])
 
     # @property

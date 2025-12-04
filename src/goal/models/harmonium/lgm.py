@@ -16,9 +16,9 @@ from ...geometry import (
     EmbeddedMap,
     IdentityEmbedding,
     LinearEmbedding,
+    MatrixRep,
     PositiveDefinite,
     Rectangular,
-    RectangularMap,
     Scale,
     SymmetricConjugated,
 )
@@ -38,8 +38,8 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any]](
 ):
     """Embedding of the Euclidean location component into a GeneralizedGaussian distribution.
 
-    Projects a GeneralizedGaussian to its Euclidean location component, or embeds
-    a location vector into a GeneralizedGaussian with zero shape parameters.
+    Projects a GeneralizedGaussian point in mean coordinates to its Euclidean location component, or embeds
+    a location vector in natural coordinates into a GeneralizedGaussian with zero shape parameters.
     """
 
     gau_man: G
@@ -59,16 +59,24 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any]](
     def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Project to Euclidean location component.
 
+        Works on mean coordinates, extracting the location component from the full
+        generalized Gaussian parameterization. If given a data point (size == data_dim),
+        converts it to sufficient statistics (mean coordinates) first.
+
         Parameters
         ----------
         means : Array
-            Mean parameters in GeneralizedGaussian space.
+            Mean coordinate parameters or data point in GeneralizedGaussian space.
 
         Returns
         -------
         Array
             Mean parameters in Euclidean space (location only).
         """
+        # Convert data points to sufficient statistics (mean coordinates)
+        if means.size == self.gau_man.data_dim and means.size != self.gau_man.dim:
+            means = self.gau_man.sufficient_statistic(means)
+
         loc, _ = self.gau_man.split_mean_second_moment(means)
         return loc
 
@@ -266,18 +274,9 @@ class LGM[
     @override
     def int_man(self) -> EmbeddedMap[PostGaussian, Normal]:
         return EmbeddedMap(
+            Rectangular(),
             self.int_pst_emb,
-            Rectangular(),
             self.int_obs_emb,
-        )
-
-    @property
-    def _int_man_internal(self) -> RectangularMap[Euclidean, Euclidean]:
-        """Internal interaction matrix operating on location spaces (for helper functions)."""
-        return RectangularMap(
-            Rectangular(),
-            self.pst_man.loc_man,
-            self.obs_man.loc_man,
         )
 
     @override
@@ -302,13 +301,25 @@ class LGM[
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
         obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
 
-        # Intermediate computationssplit_coords
+        # Intermediate computations
         obs_sigma = obs_cov_man.inverse(obs_prec)
         obs_mean = obs_cov_man(obs_sigma, obs_loc)
 
         # Conjugation parameters
-        rho_mean = self._int_man_internal.transpose_apply(int_mat, obs_mean)
-        _, rho_shape = _change_of_basis(self._int_man_internal, int_mat, obs_cov_man, obs_sigma)
+
+        with self.int_man as im:
+            int_mat_trn = im.transpose(int_mat)
+            rho_mean = im.trn_man.rep.matvec(
+                im.trn_man.matrix_shape, int_mat_trn, obs_mean
+            )
+
+            _, rho_shape = _change_of_basis(
+                im.matrix_shape,
+                im.rep,
+                int_mat,
+                obs_cov_man.rep,
+                obs_sigma,
+            )
         rho_shape *= -1
 
         # Join parameters into moment parameters
@@ -508,32 +519,51 @@ class NormalAnalyticLGM(
         Array
             Natural parameters for likelihood function.
         """
+        # Get relevant manifolds
+        ocm = self.obs_man.cov_man
+        lcm = self.lat_man.cov_man
+        im = self.int_man
+
         # Deconstruct parameters
-        obs_cov_man = self.obs_man.cov_man
-        lat_cov_man = self.lat_man.cov_man
         obs_means, int_means, lat_means = self.split_coords(means)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
-        int_cov = int_means - self._int_man_internal.outer_product(obs_mean, lat_mean)
+        int_cov = int_means - im.rep.outer_product(obs_mean, lat_mean)
 
         # Construct precisions
-        lat_prs = lat_cov_man.inverse(lat_cov)
-        int_man_t = self._int_man_internal.trn_man
-        int_cov_t = self._int_man_internal.transpose(int_cov)
-        cob_man, cob = _change_of_basis(int_man_t, int_cov_t, lat_cov_man, lat_prs)
-        shaped_cob = obs_cov_man.from_dense(cob_man.to_dense(cob))
-        obs_prs = obs_cov_man.inverse(obs_cov - shaped_cob)
-        _, int_params = _dual_composition(
-            obs_cov_man,
-            obs_prs,
-            self._int_man_internal,
-            int_cov,
-            lat_cov_man,
+        lat_prs = lcm.inverse(lat_cov)
+        im_trn = im.trn_man
+        int_cov_t = im.transpose(int_cov)
+        # cob_man, cob = _change_of_basis(im_trn, int_cov_t, lat_cov_man, lat_prs)
+        cob_man, cob = _change_of_basis(
+            im_trn.matrix_shape,
+            im_trn.rep,
+            int_cov_t,
+            lcm.rep,
             lat_prs,
         )
-        # Construct observable location params
-        obs_loc0 = obs_cov_man(obs_prs, obs_mean)
-        obs_loc1 = self._int_man_internal(int_params, lat_mean)
+
+        shaped_cob = ocm.from_dense(cob_man.to_dense(cob))
+        obs_prs = ocm.inverse(obs_cov - shaped_cob)
+        sizes = (
+            ocm.matrix_shape[0],
+            ocm.matrix_shape[1],
+            im.matrix_shape[1],
+            lcm.matrix_shape[1],
+        )
+        _, _, int_params = _dual_composition(
+            sizes,
+            ocm.rep,
+            obs_prs,
+            im.rep,
+            int_cov,
+            lcm.rep,
+            lat_prs,
+        )
+        obs_loc0 = ocm(obs_prs, obs_mean)
+        # obs_loc1 = self._int_man_internal(int_params, lat_mean)
+
+        obs_loc1 = im.rep.matvec(im.matrix_shape, int_params, lat_mean)
         obs_loc = obs_loc0 - obs_loc1
 
         # Return natural parameters
@@ -658,14 +688,16 @@ class PrincipalComponentAnalysis(NormalAnalyticLGM):
 
 
 def _dual_composition(
-    h_man: EmbeddedMap[Euclidean, Euclidean],
+    sizes: tuple[int, int, int, int],
+    h_rep: MatrixRep,
     h_params: Array,  # Parameters in some coordinate system
-    g_man: EmbeddedMap[Euclidean, Euclidean],
+    g_rep: MatrixRep,
     g_params: Array,  # Parameters in dual coordinates
-    f_man: EmbeddedMap[Euclidean, Euclidean],
+    f_rep: MatrixRep,
     f_params: Array,  # Parameters in original coordinate system
 ) -> tuple[
-    RectangularMap[Euclidean, Euclidean],
+    MatrixRep,
+    tuple[int, int],  # Output shape
     Array,  # Parameters in original coordinate system
 ]:
     """Three-way matrix multiplication that respects coordinate duality.
@@ -673,26 +705,26 @@ def _dual_composition(
     Computes h @ g @ f where g is in dual coordinates.
     """
     # First multiply g @ f
-    rep_gf, shape_gf, params_gf = g_man.rep.matmat(
-        g_man.matrix_shape,
+    h_shape = (sizes[0], sizes[1])
+    g_shape = (sizes[1], sizes[2])
+    f_shape = (sizes[2], sizes[3])
+    rep_gf, shape_gf, params_gf = g_rep.matmat(
+        g_shape,
         g_params,
-        f_man.rep,
-        f_man.matrix_shape,
+        f_rep,
+        f_shape,
         f_params,
     )
 
     # Then multiply h @ (g @ f)
-    rep_hgf, shape_hgf, params_hgf = h_man.rep.matmat(
-        h_man.matrix_shape, h_params, rep_gf, shape_gf, params_gf
-    )
-    out_man = RectangularMap(rep_hgf, Euclidean(shape_hgf[1]), Euclidean(shape_hgf[0]))
-    return out_man, params_hgf
+    return h_rep.matmat(h_shape, h_params, rep_gf, shape_gf, params_gf)
 
 
 def _change_of_basis(
-    f: EmbeddedMap[Euclidean, Euclidean],
+    f_size: tuple[int, int],
+    f_rep: MatrixRep,
     f_params: Array,  # Parameters in some coordinate system
-    g: EmbeddedMap[Euclidean, Euclidean],
+    g_rep: PositiveDefinite,
     g_params: Array,  # Parameters in dual coordinates
 ) -> tuple[
     Covariance,
@@ -702,16 +734,23 @@ def _change_of_basis(
 
     Computes f.T @ g @ f where g is in dual coordinates.
     """
-    f_trans = f.trn_man
-    f_trans_params = f.transpose(f_params)
-    fgf_man, fgf_params = _dual_composition(
-        f_trans,
+    sizes = (f_size[1], f_size[0], f_size[0], f_size[1])
+    f_trans_params = f_rep.transpose(f_size, f_params)
+    fgf_rep, fgf_sizes, fgf_params = _dual_composition(
+        sizes,
+        f_rep,
         f_trans_params,
-        g,
+        g_rep,
         g_params,
-        f,
+        f_rep,
         f_params,
     )
-    cov_man = Covariance(fgf_man.matrix_shape[0], PositiveDefinite())
-    out_mat = cov_man.from_dense(fgf_man.to_dense(fgf_params))
-    return cov_man, out_mat
+    # If fgf_rep is diagonal or stricter, leave it, otherwise positivedefinite
+    if isinstance(fgf_rep, (Diagonal, Scale, IdentityEmbedding)):
+        cov_man = Covariance(fgf_sizes[0], fgf_rep)
+    else:
+        cov_man = Covariance(fgf_sizes[0], PositiveDefinite())
+        fgf_params = cov_man.from_dense(
+            fgf_rep.to_dense(cov_man.matrix_shape, fgf_params)
+        )
+    return cov_man, fgf_params

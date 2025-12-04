@@ -246,8 +246,8 @@ def com_poisson_mixture(n_neurons: int, n_components: int) -> CoMPoissonMixture:
     subspace = PopulationLocationEmbedding(n_neurons)
     lat_man = Categorical(n_components)
     int_man: EmbeddedMap[Categorical, CoMPoissonPopulation] = EmbeddedMap(
-        IdentityEmbedding(lat_man),
         Rectangular(),
+        IdentityEmbedding(lat_man),
         subspace,
     )
     return Mixture(n_components, int_man)

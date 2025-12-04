@@ -16,6 +16,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
+    AmbientMap,
     Analytic,
     AnalyticConjugated,
     Differentiable,
@@ -23,7 +24,6 @@ from ...geometry import (
     EmbeddedMap,
     Product,
     Rectangular,
-    RectangularMap,
     StatisticalMoments,
     SymmetricConjugated,
 )
@@ -61,7 +61,7 @@ class Mixture[Observable: Differentiable](
     """Number of mixture components."""
 
     _int_man: EmbeddedMap[Categorical, Observable]
-    """Interaction matrix (EmbeddedMap, possibly with identity embeddings via RectangularMap)."""
+    """Interaction matrix (EmbeddedMap, possibly with identity embeddings via AmbientMap)."""
 
     # Template Methods
 
@@ -221,9 +221,9 @@ class CompleteMixture[Observable: Differentiable](
     # Constructor
 
     def __init__(self, obs_man: Observable, n_categories: int):
-        # Create a RectangularMap with identity embeddings
+        # Create a AmbientMap with identity embeddings
         lat_man = Categorical(n_categories)
-        int_man = RectangularMap(Rectangular(), lat_man, obs_man)
+        int_man = AmbientMap(Rectangular(), lat_man, obs_man)
         super().__init__(n_categories, int_man)
 
     def split_mean_mixture(

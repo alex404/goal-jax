@@ -45,10 +45,10 @@ from .manifold.embedding import (
 )
 from .manifold.linear import (
     AffineMap,
+    AmbientMap,
     BlockMap,
     EmbeddedMap,
     LinearMap,
-    RectangularMap,
     SquareMap,
 )
 from .manifold.matrix import (
@@ -65,6 +65,7 @@ from .manifold.optimizer import Optimizer, OptState
 
 __all__ = [
     "AffineMap",
+    "AmbientMap",
     "Analytic",
     "AnalyticConjugated",
     "AnalyticProduct",
@@ -99,7 +100,6 @@ __all__ = [
     "PosteriorEmbedding",
     "Product",
     "Rectangular",
-    "RectangularMap",
     "Replicated",
     "Scale",
     "Square",
