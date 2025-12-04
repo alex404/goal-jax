@@ -16,12 +16,14 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
-    AmbientMap,
     Analytic,
     AnalyticConjugated,
     Differentiable,
     DifferentiableConjugated,
     EmbeddedMap,
+    IdentityEmbedding,
+    LinearEmbedding,
+    Manifold,
     Product,
     Rectangular,
     StatisticalMoments,
@@ -51,8 +53,8 @@ class Mixture[Observable: Differentiable](
         - An observable distribution family for component distributions
         - An interaction matrix between $z$ and $x$ that contain component specific parameters
 
-    The interaction matrix (int_man) can internally restrict interactions to a submanifold
-    via embeddings (if using EmbeddedMap).
+    The interaction matrix structure is fixed: Rectangular matrix representation with
+    identity domain embedding. Only the observable embedding varies.
     """
 
     # Fields
@@ -60,8 +62,8 @@ class Mixture[Observable: Differentiable](
     n_categories: int
     """Number of mixture components."""
 
-    _int_man: EmbeddedMap[Categorical, Observable]
-    """Interaction matrix (EmbeddedMap, possibly with identity embeddings via AmbientMap)."""
+    obs_emb: LinearEmbedding[Manifold, Observable]
+    """Observable embedding - determines the interaction submanifold structure."""
 
     # Template Methods
 
@@ -113,7 +115,15 @@ class Mixture[Observable: Differentiable](
     @property
     @override
     def int_man(self) -> EmbeddedMap[Categorical, Observable]:
-        return self._int_man
+        """Construct interaction matrix from observable embedding.
+
+        Structure is fixed: Rectangular matrix with identity domain embedding.
+        """
+        return EmbeddedMap(
+            Rectangular(),
+            IdentityEmbedding(self.lat_man),
+            self.obs_emb,
+        )
 
     # Methods
 
@@ -216,10 +226,9 @@ class CompleteMixture[Observable: Differentiable](
     # Constructor
 
     def __init__(self, obs_man: Observable, n_categories: int):
-        # Create a AmbientMap with identity embeddings
-        lat_man = Categorical(n_categories)
-        int_man = AmbientMap(Rectangular(), lat_man, obs_man)
-        super().__init__(n_categories, int_man)
+        # Use identity observable embedding for complete mixture
+        obs_emb = IdentityEmbedding(obs_man)
+        super().__init__(n_categories, obs_emb)
 
     def split_mean_mixture(
         self,
@@ -247,10 +256,6 @@ class CompleteMixture[Observable: Differentiable](
         # Scale remaining components by their probabilities
         # shape: (n_categories-1, obs_dim)
         other_comps = int_cols / probs[1:, None]
-
-        # Somehow force the above calls to be evaluated before the next line
-        jax.block_until_ready(first_comp)
-        jax.block_until_ready(other_comps)
 
         # Combine components - shape: (n_categories, obs_dim)
         components = jnp.vstack([first_comp[None, :], other_comps])

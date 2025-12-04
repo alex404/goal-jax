@@ -41,12 +41,10 @@ from ...geometry import (
     AnalyticConjugated,
     DifferentiableConjugated,
     EmbeddedMap,
-    IdentityEmbedding,
     LatentHarmoniumEmbedding,
     LinearEmbedding,
     ObservableEmbedding,
     PositiveDefinite,
-    Rectangular,
     SymmetricConjugated,
     hierarchical_conjugation_parameters,
     hierarchical_to_natural_likelihood,
@@ -341,7 +339,6 @@ def differentiable_hmog(
     This model supports optimization via log-likelihood gradient descent.
     Uses full covariance Gaussians in the latent space.
     """
-    from ..base.categorical import Categorical
 
     pst_y_man = Normal(lat_dim, pst_lat_rep)
     prr_y_man = Normal(lat_dim, PositiveDefinite())
@@ -349,14 +346,8 @@ def differentiable_hmog(
     mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
     pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
 
-    # Wrap the embedding in an EmbeddedMap
-    lat_man = Categorical(n_components)
-    prr_int_man: EmbeddedMap[Categorical, Normal] = EmbeddedMap(
-        Rectangular(),
-        IdentityEmbedding(lat_man),
-        mix_sub,
-    )
-    prr_upr_hrm = Mixture(n_components, prr_int_man)
+    # Use the embedding directly for the mixture
+    prr_upr_hrm = Mixture(n_components, mix_sub)
 
     return DifferentiableHMoG(
         lwr_hrm,
@@ -381,21 +372,14 @@ def symmetric_hmog(
     Trade-off: Matrix inversions happen in the space of full covariance matrices over the
     latent space, which can be slower than `DifferentiableHMoG`.
     """
-    from ..base.categorical import Categorical
 
     mid_lat_man = Normal(lat_dim, PositiveDefinite())
     sub_lat_man = Normal(lat_dim, lat_rep)
     mix_sub = NormalCovarianceEmbedding(sub_lat_man, mid_lat_man)
     lwr_hrm = NormalAnalyticLGM(obs_dim, obs_rep, lat_dim)
 
-    # Wrap the embedding in an EmbeddedMap
-    lat_man = Categorical(n_components)
-    upr_int_man: EmbeddedMap[Categorical, Normal] = EmbeddedMap(
-        Rectangular(),
-        IdentityEmbedding(lat_man),
-        mix_sub,
-    )
-    upr_hrm = Mixture(n_components, upr_int_man)
+    # Use the embedding directly for the mixture
+    upr_hrm = Mixture(n_components, mix_sub)
 
     return SymmetricHMoG(
         lwr_hrm,
