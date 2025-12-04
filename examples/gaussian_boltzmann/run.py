@@ -196,7 +196,7 @@ def compute_confidence_ellipse(
     # Extract mean and covariance
     conditional_mean_params = model.obs_man.to_mean(conditional_obs_params)
     obs_mean, obs_cov = model.obs_man.split_mean_covariance(conditional_mean_params)
-    cov_matrix = model.obs_man.cov_man.to_dense(obs_cov)
+    cov_matrix = model.obs_man.cov_man.to_matrix(obs_cov)
 
     # Generate ellipse via eigendecomposition
     angles = jnp.linspace(0, 2 * jnp.pi, n_points)

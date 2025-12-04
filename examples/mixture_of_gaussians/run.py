@@ -74,7 +74,7 @@ def goal_to_sklearn_mixture(
         comp = components[i]
         mean, cov = mix_man.obs_man.split_mean_covariance(comp)
         means.append(mean)
-        covariances.append(mix_man.obs_man.cov_man.to_dense(cov))
+        covariances.append(mix_man.obs_man.cov_man.to_matrix(cov))
 
     # Get mixing weights
     mixing_weights = mix_man.lat_man.to_probs(weights)

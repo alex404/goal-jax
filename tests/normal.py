@@ -21,7 +21,7 @@ from goal.geometry import (
     PositiveDefinite,
     Scale,
 )
-from goal.models import Covariance, Normal
+from goal.models import Normal
 
 # Configure JAX
 jax.config.update("jax_platform_name", "cpu")
@@ -48,9 +48,7 @@ def ground_truth_params(
     ground_truth_normal: Normal,
 ) -> Array:
     """Create ground truth parameters in mean coordinates."""
-    gt_cov = ground_truth_normal.cov_man.from_dense(
-        sampling_covariance
-    )
+    gt_cov = ground_truth_normal.cov_man.from_dense(sampling_covariance)
     mu = sampling_mean
     return ground_truth_normal.join_mean_covariance(mu, gt_cov)
 
@@ -124,7 +122,7 @@ def test_single_model(
 
     # Compare to scipy implementation
     mean, cov = model.split_mean_covariance(means)
-    dense_cov = model.cov_man.to_dense(cov)
+    dense_cov = model.cov_man.to_matrix(cov)
     scipy_ll = scipy_log_likelihood(sample_data, mean, dense_cov)
     logger.info(f"Scipy average log-density: {scipy_ll}")
 
@@ -141,16 +139,14 @@ def test_whiten(
     # Extract ground truth mean and covariance
     gt_mean, gt_cov = ground_truth_normal.split_mean_covariance(ground_truth_params)
     gt_mean_array = gt_mean
-    gt_cov_matrix = ground_truth_normal.cov_man.to_dense(gt_cov)
+    gt_cov_matrix = ground_truth_normal.cov_man.to_matrix(gt_cov)
 
     # Create a test distribution different from ground truth
     test_mean = jnp.array([3.0, -2.0])  # Different from ground truth
     test_cov_matrix = jnp.array([[1.5, 0.3], [0.3, 2.0]])  # Different from ground truth
 
     test_cov_point = ground_truth_normal.cov_man.from_dense(test_cov_matrix)
-    test_dist = ground_truth_normal.join_mean_covariance(
-        test_mean, test_cov_point
-    )
+    test_dist = ground_truth_normal.join_mean_covariance(test_mean, test_cov_point)
 
     # Test 1: Whiten ground truth relative to itself should give standard normal
     norm_gt = ground_truth_normal.whiten(ground_truth_params, ground_truth_params)
@@ -160,7 +156,7 @@ def test_whiten(
         norm_gt_mean, jnp.zeros_like(gt_mean_array), rtol=1e-5, atol=1e-7
     ), "Whitening a distribution relative to itself should give zero mean"
     assert jnp.allclose(
-        ground_truth_normal.cov_man.to_dense(norm_gt_cov),
+        ground_truth_normal.cov_man.to_matrix(norm_gt_cov),
         jnp.eye(gt_mean_array.shape[0]),
         rtol=1e-5,  # Add relative tolerance
         atol=1e-7,  # Add absolute tolerance
@@ -186,7 +182,7 @@ def test_whiten(
         "Whitened mean doesn't match expected value"
     )
     assert jnp.allclose(
-        ground_truth_normal.cov_man.to_dense(whitened_cov),
+        ground_truth_normal.cov_man.to_matrix(whitened_cov),
         expected_cov,
         rtol=1e-5,
         atol=1e-7,
@@ -198,9 +194,7 @@ def test_whiten(
     third_cov_matrix = jnp.array([[0.8, -0.1], [-0.1, 1.2]])
 
     third_cov_point = ground_truth_normal.cov_man.from_dense(third_cov_matrix)
-    third_dist = ground_truth_normal.join_mean_covariance(
-        third_mean, third_cov_point
-    )
+    third_dist = ground_truth_normal.join_mean_covariance(third_mean, third_cov_point)
 
     # Whiten third_dist with respect to test_dist
     whitened_third = ground_truth_normal.whiten(third_dist, test_dist)
@@ -266,13 +260,13 @@ def test_model_consistency(
     logger.info(f"Diagonal natural parameters: {dia_natural}")
     logger.info(f"PositiveDefinite natural parameters: {pod_natural}")
     logger.info(
-        f"Isotropic precisions: {iso_model.cov_man.to_dense(iso_model.split_location_precision(iso_natural)[1])}"
+        f"Isotropic precisions: {iso_model.cov_man.to_matrix(iso_model.split_location_precision(iso_natural)[1])}"
     )
     logger.info(
-        f"Diagonal precisions: {dia_model.cov_man.to_dense(dia_model.split_location_precision(dia_natural)[1])}"
+        f"Diagonal precisions: {dia_model.cov_man.to_matrix(dia_model.split_location_precision(dia_natural)[1])}"
     )
     logger.info(
-        f"Positive Definite precisions: {pod_model.cov_man.to_dense(pod_model.split_location_precision(pod_natural)[1])}"
+        f"Positive Definite precisions: {pod_model.cov_man.to_matrix(pod_model.split_location_precision(pod_natural)[1])}"
     )
     logger.info(f"Isotropic mean parameters: {iso_means}")
     logger.info(f"Diagonal mean parameters: {dia_means}")
@@ -321,8 +315,8 @@ def test_precision_is_inverse_of_covariance(
     _, covariance = ground_truth_normal.split_mean_covariance(ground_truth_params)
 
     # Convert both to dense matrices
-    precision_dense = ground_truth_normal.cov_man.to_dense(precision)
-    covariance_dense = ground_truth_normal.cov_man.to_dense(covariance)
+    precision_dense = ground_truth_normal.cov_man.to_matrix(precision)
+    covariance_dense = ground_truth_normal.cov_man.to_matrix(covariance)
 
     # Compute actual inverse
     actual_precision = jnp.linalg.inv(covariance_dense)

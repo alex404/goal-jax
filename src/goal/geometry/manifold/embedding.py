@@ -275,8 +275,8 @@ class LinearComposedEmbedding[
 
     # Fields
 
-    mid_emb: LinearEmbedding[Mid, Ambient]
     sub_emb: LinearEmbedding[Sub, Mid]
+    mid_emb: LinearEmbedding[Mid, Ambient]
 
     # Overrides
 

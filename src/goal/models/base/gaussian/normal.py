@@ -288,7 +288,7 @@ class Normal(
 
         # Add noise to mean based on observed scale
         key_mean, key_cov = jax.random.split(key)
-        observed_scale = jnp.sqrt(jnp.diag(self.cov_man.to_dense(second_moment)))
+        observed_scale = jnp.sqrt(jnp.diag(self.cov_man.to_matrix(second_moment)))
         mean_noise = observed_scale * (
             location + shape * jax.random.normal(key_mean, mean.shape)
         )
@@ -620,7 +620,7 @@ class Normal(
             Covariance matrix (as dense array).
         """
         _, cov = self.split_mean_covariance(self.to_mean(params))
-        return self.cov_man.to_dense(cov)
+        return self.cov_man.to_matrix(cov)
 
     # GeneralizedGaussian interface implementation
 

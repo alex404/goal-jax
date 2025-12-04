@@ -79,7 +79,7 @@ def test_embed_project_vs_dense():
                 embedded = source_rep.embed_params(shape, src_params, target_rep)
 
                 # Via dense
-                dense = source_rep.to_dense(shape, src_params)
+                dense = source_rep.to_matrix(shape, src_params)
                 via_dense = target_rep.from_dense(dense)
 
                 # Print test info

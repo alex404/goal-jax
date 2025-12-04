@@ -136,7 +136,7 @@ def test_factor_analysis_loadings(caplog: pytest.LogCaptureFixture) -> None:
 
     # 2. Covariance should be LLᵀ + D
     expected_cov = loadings @ loadings.T + jnp.diag(diags)
-    actual_cov = nor_man.cov_man.to_dense(cov)
+    actual_cov = nor_man.cov_man.to_matrix(cov)
     assert jnp.allclose(actual_cov, expected_cov, rtol=1e-4, atol=1e-4), (
         "Covariance doesn't match LLᵀ + D"
     )
@@ -263,7 +263,7 @@ def test_single_model(
 
     # Compare to scipy
     mean, cov = nor_man.split_mean_covariance(nor_man.to_mean(nor_params))
-    scipy_ll = scipy_log_likelihood(sample_data, mean, nor_man.cov_man.to_dense(cov))
+    scipy_ll = scipy_log_likelihood(sample_data, mean, nor_man.cov_man.to_matrix(cov))
     logger.info(f"Scipy average log-density: {scipy_ll}")
 
     assert jnp.allclose(lgm_ll, scipy_ll, rtol=relative_tol, atol=absolute_tol), (

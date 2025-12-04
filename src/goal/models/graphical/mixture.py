@@ -26,12 +26,14 @@ from ...geometry import (
     BlockMap,
     Differentiable,
     DifferentiableConjugated,
+    EmbeddedMap,
     IdentityEmbedding,
     LinearComposedEmbedding,
     LinearEmbedding,
     MatrixRep,
     ObservableEmbedding,
     PosteriorEmbedding,
+    Rectangular,
     SymmetricConjugated,
 )
 from ..harmonium.mixture import CompleteMixture
@@ -154,21 +156,15 @@ class MixtureComponentEmbedding[
 class MixtureOfConjugated[
     IntRep: MatrixRep,
     Observable: Differentiable,
-    IntObservable: Differentiable,
-    IntLatent: Differentiable,
     Latent: Differentiable,
 ](
     DifferentiableConjugated[
         Observable,
-        IntObservable,
-        CompleteMixture[Latent],
         CompleteMixture[Latent],
         CompleteMixture[Latent],
     ],
     SymmetricConjugated[
         Observable,
-        IntObservable,
-        CompleteMixture[Latent],
         CompleteMixture[Latent],
     ],
 ):
@@ -198,9 +194,6 @@ class MixtureOfConjugated[
     @property
     @override
     def int_man(self) -> BlockMap[CompleteMixture[Latent], Observable]:
-        from ...geometry.manifold.linear import EmbeddedMap
-        from ...geometry.manifold.matrix import Rectangular
-
         rep = Rectangular()
         sxy = EmbeddedMap(
             rep,

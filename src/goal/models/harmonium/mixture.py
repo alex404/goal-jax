@@ -88,21 +88,18 @@ class Mixture[Observable: Differentiable](
         the operation non-invertible without additional information.
         """
         probs = self.pst_man.to_probs(weights)
-        # Scale components - shape: (n_categories, obs_dim)
-        weighted_comps = components * probs[:, None]
 
-        # Sum for observable means - shape: (obs_dim,)
+        comps_2d = components.reshape([self.n_categories, self.obs_man.dim])
+        weighted_comps = comps_2d * probs[:, None]
+
         obs_means = jnp.sum(weighted_comps, axis=0)
 
-        cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
-        # projected_comps shape: (n_categories-1, sub_obs_dim)
-        # Project using the embedding from int_man
-        projected_comps = cmp_man_minus.map(
-            self.int_man.cod_emb.project,
-            weighted_comps[1:],
-        )
-        # int_means shape: (sub_obs_dim, n_categories-1)
-        int_means = self.int_man.from_columns(projected_comps)
+        # Project components (excluding first) to interaction subspace
+        projected_comps = jax.vmap(self.int_man.cod_emb.project)(weighted_comps[1:])
+        # [n_categories-1, sub_obs_dim]
+
+        # Transpose and convert to int_man storage format
+        int_means = projected_comps.T.ravel()
 
         return self.join_coords(obs_means, int_means, weights)
 
@@ -139,17 +136,16 @@ class Mixture[Observable: Differentiable](
         lkl_params, prr_params = self.split_conjugated(natural_params)
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
 
-        # into_cols shape: (n_categories - 1, sub_obs_dim)
-        int_cols = self.int_man.to_columns(int_mat)
+        # Convert to 2D matrix and transpose to get columns as rows
+        int_cols = self.int_man.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
 
-        def translate_col(
-            col: Array,
-        ) -> Array:
+        # Translate each column from subspace to full observable space
+        def translate_col(col: Array) -> Array:
             return self.int_man.cod_emb.translate(obs_bias, col)
 
-        # translated shape: (n_categories - 1, obs_dim)
-        translated = self.int_man.col_man.map(translate_col, int_cols)
-        # components shape: (n_categories, obs_dim)
+        translated = jax.vmap(translate_col)(int_cols)
+
+        # Stack with first component
         components = jnp.vstack([obs_bias[None, :], translated])
 
         return components, prr_params
@@ -202,15 +198,14 @@ class Mixture[Observable: Differentiable](
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
         rho_0 = self.obs_man.log_partition_function(obs_bias)
 
-        # int_comps shape: (n_categories - 1, sub_obs_dim)
-        int_comps = self.int_man.to_columns(int_mat)
+        # Convert to 2D matrix and transpose to get columns as rows
+        int_comps = self.int_man.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
 
         def compute_rho(comp_params: Array) -> Array:
             adjusted_obs = self.int_man.cod_emb.translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
-        # rho_z shape: (n_categories - 1,)
-        return self.int_man.col_man.map(compute_rho, int_comps)
+        return jax.vmap(compute_rho)(int_comps)  # [n_categories-1]
 
 
 class CompleteMixture[Observable: Differentiable](
@@ -240,8 +235,9 @@ class CompleteMixture[Observable: Differentiable](
         obs_means, int_means, cat_means = self.split_coords(means)
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
-        # Get interaction columns - shape: (n_categories-1, obs_dim)
-        int_cols = self.int_man.to_columns(int_means)
+        # Convert to 2D matrix and transpose to get columns as rows [n_categories-1, obs_dim]
+        int_dense = self.int_man.to_matrix(int_means)  # [obs_dim, n_categories-1]
+        int_cols = int_dense.T  # [n_categories-1, obs_dim]
 
         # Compute first component
         # Sum interaction columns - shape: (obs_dim,)
@@ -289,8 +285,8 @@ class CompleteMixture[Observable: Differentiable](
         # projected_comps shape: (n_categories-1, obs_dim)
         projected_comps = cmp_man_minus.map(to_interaction, components[1:])
 
-        # int_mat shape: (sub_obs_dim, n_categories-1)
-        int_mat = self.int_man.from_columns(projected_comps)
+        # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
+        int_mat = self.int_man.rep.from_dense(projected_comps.T)
         lkl_params = self.lkl_fun_man.join_coords(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
@@ -345,7 +341,7 @@ class AnalyticMixture[Observable: Analytic](
         # int_cols shape: (n_categories-1, obs_dim)
         int_cols = cmp_man1.map(to_interaction, nat_comps[1:])
 
-        # int_mat shape: (obs_dim, n_categories-1)
-        int_mat = self.int_man.from_columns(int_cols)
+        # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
+        int_mat = self.int_man.rep.from_dense(int_cols.T)
 
         return self.lkl_fun_man.join_coords(obs_bias, int_mat)

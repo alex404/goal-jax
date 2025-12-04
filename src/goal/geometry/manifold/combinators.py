@@ -172,6 +172,8 @@ class Replicated[M: Manifold](Manifold):
     """Replicated allows working with collections of coordinates each of which lives on the same fundamental manifold, like mixture model components or time series observations. It provides special methods for mapping functions across the copies.
 
     In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$, with efficient mapping operations via vmap.
+
+    In practice, each point is stored as a flat array of shape ``[n_reps * rep_man.dim]``, i.e. in row-major order.
     """
 
     # Fields

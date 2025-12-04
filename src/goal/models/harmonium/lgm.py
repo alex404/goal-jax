@@ -425,9 +425,9 @@ class NormalLGM(
         lat_loc, lat_prs = new_man.prr_man.split_location_precision(emb_lat_params)
         nor_man = Normal(self.data_dim, PositiveDefinite())
         nor_loc = jnp.concatenate([obs_loc, lat_loc])
-        obs_prs_array = new_man.obs_man.cov_man.to_dense(obs_prs)
-        lat_prs_array = new_man.prr_man.cov_man.to_dense(lat_prs)
-        int_array = -self.int_man.to_dense(int_params)
+        obs_prs_array = new_man.obs_man.cov_man.to_matrix(obs_prs)
+        lat_prs_array = new_man.prr_man.cov_man.to_matrix(lat_prs)
+        int_array = -self.int_man.to_matrix(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
@@ -543,7 +543,7 @@ class NormalAnalyticLGM(
             lat_prs,
         )
 
-        shaped_cob = ocm.from_dense(cob_man.to_dense(cob))
+        shaped_cob = ocm.from_dense(cob_man.to_matrix(cob))
         obs_prs = ocm.inverse(obs_cov - shaped_cob)
         sizes = (
             ocm.matrix_shape[0],
@@ -636,7 +636,7 @@ class FactorAnalysis(NormalAnalyticLGM):
             cov = diags
             obs_params = om.to_natural(om.join_mean_covariance(mu, cov))
             obs_prs = om.split_location_precision(obs_params)[1]
-            dns_prs = om.cov_man.to_dense(obs_prs)
+            dns_prs = om.cov_man.to_matrix(obs_prs)
 
         int_mat = self.int_man.from_dense(dns_prs @ loadings)
 
@@ -720,6 +720,7 @@ def _dual_composition(
     return h_rep.matmat(h_shape, h_params, rep_gf, shape_gf, params_gf)
 
 
+# TODO: Could probably try and reduce the number of to/from_matrix calls here and throughout the module
 def _change_of_basis(
     f_size: tuple[int, int],
     f_rep: MatrixRep,
@@ -751,6 +752,6 @@ def _change_of_basis(
     else:
         cov_man = Covariance(fgf_sizes[0], PositiveDefinite())
         fgf_params = cov_man.from_dense(
-            fgf_rep.to_dense(cov_man.matrix_shape, fgf_params)
+            fgf_rep.to_matrix(cov_man.matrix_shape, fgf_params)
         )
     return cov_man, fgf_params

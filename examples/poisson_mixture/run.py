@@ -85,7 +85,7 @@ def compute_normal_statistics(
     nor_means: Array,
 ) -> CovarianceStatistics:
     mean, cov = NOR_MAN.split_mean_covariance(nor_means)
-    return compute_dense_statistics(mean, NOR_MAN.cov_man.to_dense(cov))
+    return compute_dense_statistics(mean, NOR_MAN.cov_man.to_matrix(cov))
 
 
 def compute_dense_statistics(mean: Array, covariance: Array) -> CovarianceStatistics:

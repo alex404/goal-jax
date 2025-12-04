@@ -11,8 +11,8 @@ import jax.numpy as jnp
 from jax import Array
 
 from .base import Manifold
-from .combinators import Pair, Replicated
-from .embedding import IdentityEmbedding, LinearEmbedding
+from .combinators import Pair
+from .embedding import IdentityEmbedding, LinearComposedEmbedding, LinearEmbedding
 from .matrix import MatrixRep, Square
 
 ### Linear Maps ###
@@ -202,26 +202,27 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         return self.rep.outer_product(internal_w, internal_v)
 
     def from_dense(self, matrix: Array) -> Array:
-        """Create parameters from dense matrix (in internal dimensions).
+        """Create parameters from dense 2D matrix (in internal dimensions).
 
         Args:
-            matrix: Dense matrix representation
+            matrix: Dense 2D matrix array with shape (internal_cod_dim, internal_dom_dim)
 
         Returns:
-            Parameters in this manifold's representation
+            Parameters in this manifold's representation (1D array in storage format)
         """
         return self.rep.from_dense(matrix)
 
-    def to_dense(self, f_coords: Array) -> Array:
-        """Convert to dense matrix representation (in internal dimensions).
+    def to_matrix(self, f_coords: Array) -> Array:
+        """Convert to dense 2D matrix representation (in internal dimensions).
 
         Args:
-            f_coords: Parameters of the linear map
+            f_coords: Parameters of the linear map (1D array in representation storage format)
 
         Returns:
-            Dense matrix array
+            Dense 2D matrix array with shape (internal_cod_dim, internal_dom_dim),
+            where internal dimensions are determined by the embeddings (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
         """
-        return self.rep.to_dense(self.matrix_shape, f_coords)
+        return self.rep.to_matrix(self.matrix_shape, f_coords)
 
     def map_diagonal(
         self, f_coords: Array, diagonal_f: Callable[[Array], Array]
@@ -269,59 +270,19 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         params = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
         return target_man, params
 
-    @property
-    def row_man(self) -> Replicated[Domain]:
-        """The manifold of row vectors."""
-        return Replicated(self.dom_man, self.cod_man.dim)
+    def prepend_embedding[NewDomain: Manifold](
+        self, emb: LinearEmbedding[Domain, NewDomain]
+    ) -> EmbeddedMap[NewDomain, Codomain]:
+        """Embed the codomain of the embedding into a new codomain."""
+        new_dom_emb = LinearComposedEmbedding(self.dom_emb, emb)
+        return EmbeddedMap(self.rep, new_dom_emb, self.cod_emb)
 
-    @property
-    def col_man(self) -> Replicated[Codomain]:
-        """The manifold of column vectors."""
-        return Replicated(self.cod_man, self.dom_man.dim)
-
-    def to_rows(self, f_coords: Array) -> Array:
-        """Split linear map into dense row vectors.
-
-        Args:
-            f_coords: Parameters of the linear map
-
-        Returns:
-            Array of shape (cod_dim, dom_dim) representing the matrix
-        """
-        return self.rep.to_dense(self.matrix_shape, f_coords)
-
-    def to_columns(self, f_coords: Array) -> Array:
-        """Split linear map into dense column vectors.
-
-        Args:
-            f_coords: Parameters of the linear map
-
-        Returns:
-            Array of shape (dom_dim, cod_dim) (transposed matrix)
-        """
-        return self.rep.to_dense(self.matrix_shape, f_coords).T
-
-    def from_rows(self, rows: Array) -> Array:
-        """Construct linear map from dense row vectors.
-
-        Args:
-            rows: Array of shape (cod_dim, dom_dim)
-
-        Returns:
-            Parameters in this manifold's representation
-        """
-        return self.rep.from_dense(rows)
-
-    def from_columns(self, columns: Array) -> Array:
-        """Construct linear map from dense column vectors.
-
-        Args:
-            columns: Array of shape (dom_dim, cod_dim) (transposed matrix)
-
-        Returns:
-            Parameters in this manifold's representation
-        """
-        return self.rep.from_dense(columns.T)
+    def append_embedding[NewCodomain: Manifold](
+        self, emb: LinearEmbedding[Codomain, NewCodomain]
+    ) -> EmbeddedMap[Domain, NewCodomain]:
+        """Embed the codomain of the embedding into a new codomain."""
+        new_cod_emb = LinearComposedEmbedding(self.cod_emb, emb)
+        return EmbeddedMap(self.rep, self.dom_emb, new_cod_emb)
 
 
 @dataclass(frozen=True)
@@ -421,6 +382,18 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
             block.outer_product(w_coords, v_coords) for block in self.blocks
         ]
         return jnp.concatenate(outer_params)
+
+    def prepend_embedding[NewDomain: Manifold](
+        self, emb: LinearEmbedding[Domain, NewDomain]
+    ) -> BlockMap[NewDomain, Codomain]:
+        """Embed the codomain of the embedding into a new codomain."""
+        return BlockMap([block.prepend_embedding(emb) for block in self.blocks])
+
+    def append_embedding[NewCodomain: Manifold](
+        self, emb: LinearEmbedding[Codomain, NewCodomain]
+    ) -> BlockMap[Domain, NewCodomain]:
+        """Embed the codomain of the embedding into a new codomain."""
+        return BlockMap([block.append_embedding(emb) for block in self.blocks])
 
 
 class AmbientMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codomain]):

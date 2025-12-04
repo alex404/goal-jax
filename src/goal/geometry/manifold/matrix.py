@@ -105,7 +105,7 @@ def _matmat(
                     # Diagonal * (non-Diagonal): result is dense
                     # Convert right matrix to dense and multiply: diag(params) @ right_dense
                     # Broadcasting: params[:, None] * right_dense treats params as column vector
-                    right_dense = right_rep.to_dense(right_shape, right_params)
+                    right_dense = right_rep.to_matrix(right_shape, right_params)
                     out_dense = params[:, None] * right_dense
                     # Determine output representation based on output shape
                     # If output is square, use Square; otherwise use Rectangular
@@ -133,8 +133,8 @@ def _matmat(
                     # Determine output representation based on output shape:
                     # - If m == p, result is Square (can support additional operations)
                     # - Otherwise, result is Rectangular (general m x p matrix)
-                    left_dense = rep.to_dense(shape, params)
-                    right_dense = right_rep.to_dense(right_shape, right_params)
+                    left_dense = rep.to_matrix(shape, params)
+                    right_dense = right_rep.to_matrix(right_shape, right_params)
                     out_rep = (
                         Square() if out_shape[0] == out_shape[1] else Rectangular()
                     )
@@ -199,7 +199,7 @@ class MatrixRep(ABC):
 
     @classmethod
     @abstractmethod
-    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
+    def to_matrix(cls, shape: tuple[int, int], params: Array) -> Array:
         """Convert 1D parameters to dense matrix form."""
 
     @classmethod
@@ -285,18 +285,18 @@ class Rectangular(MatrixRep):
     @classmethod
     @override
     def matvec(cls, shape: tuple[int, int], params: Array, vector: Array) -> Array:
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         return jnp.dot(matrix, vector)
 
     @classmethod
     @override
     def transpose(cls, shape: tuple[int, int], params: Array) -> Array:
-        matrix = cls.to_dense(shape, params).T
+        matrix = cls.to_matrix(shape, params).T
         return matrix.reshape(-1)
 
     @classmethod
     @override
-    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
+    def to_matrix(cls, shape: tuple[int, int], params: Array) -> Array:
         return params.reshape(shape)
 
     @classmethod
@@ -323,7 +323,7 @@ class Rectangular(MatrixRep):
         cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
     ) -> Array:
         """Map function over diagonal elements of matrix."""
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         diag = jnp.diag(matrix)
         new_diag = f(diag)
         new_matrix = matrix.at[jnp.diag_indices(shape[0])].set(new_diag)
@@ -353,19 +353,19 @@ class Square(Rectangular):
     @classmethod
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Check if symmetric matrix is positive definite using eigenvalues."""
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         eigenvals = jnp.linalg.eigvalsh(matrix)
         return jnp.all(eigenvals > 0)
 
     @classmethod
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         inv = jnp.linalg.inv(matrix)
         return cls.from_dense(inv)
 
     @classmethod
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         return jnp.linalg.slogdet(matrix)[1]
 
     @classmethod
@@ -398,7 +398,7 @@ class Symmetric(Square):
 
     @classmethod
     @override
-    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
+    def to_matrix(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         matrix = jnp.zeros((n, n))
         i_upper = jnp.triu_indices(n)
@@ -423,7 +423,7 @@ class Symmetric(Square):
     def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Convert upper triangular parameters to full square matrix parameters."""
         # To Square means including each off-diagonal element twice
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         return matrix.reshape(-1)
 
     @classmethod
@@ -453,7 +453,7 @@ class PositiveDefinite(Symmetric):
 
     @classmethod
     def _cholesky(cls, shape: tuple[int, int], params: Array) -> Array:
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         return jnp.linalg.cholesky(matrix)
 
     @classmethod
@@ -486,8 +486,8 @@ class PositiveDefinite(Symmetric):
         """
 
         # Get dense matrices
-        matrix2 = cls.to_dense(shape, params2)
-        matrix1 = cls.to_dense(shape, params1)
+        matrix2 = cls.to_matrix(shape, params2)
+        matrix1 = cls.to_matrix(shape, params1)
 
         # Compute Cholesky and transform mean
         chol = jnp.linalg.cholesky(matrix2)
@@ -506,7 +506,7 @@ class PositiveDefinite(Symmetric):
     @override
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
         """Check positive definiteness via Cholesky decomposition."""
-        matrix = cls.to_dense(shape, params)
+        matrix = cls.to_matrix(shape, params)
         # Use linalg_ops.cholesky which returns NaN on failure
         chol = jax.lax.linalg.cholesky(matrix)
         return jnp.all(jnp.isfinite(chol))
@@ -570,7 +570,7 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     @override
-    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
+    def to_matrix(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         matrix = jnp.zeros((n, n))
         return matrix.at[jnp.diag_indices(n)].set(params)
@@ -680,7 +680,7 @@ class Scale(Diagonal):
 
     @classmethod
     @override
-    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
+    def to_matrix(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return params[0] * jnp.eye(n)
 
@@ -749,7 +749,7 @@ class Identity(Scale):
 
     @classmethod
     @override
-    def to_dense(cls, shape: tuple[int, int], params: Array) -> Array:
+    def to_matrix(cls, shape: tuple[int, int], params: Array) -> Array:
         n = shape[0]
         return jnp.eye(n)
 

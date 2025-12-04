@@ -44,6 +44,7 @@ from ...geometry import (
     IdentityEmbedding,
     LatentHarmoniumEmbedding,
     LinearEmbedding,
+    ObservableEmbedding,
     PositiveDefinite,
     Rectangular,
     SymmetricConjugated,
@@ -105,8 +106,10 @@ class DifferentiableHMoG(
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[Normal, AnalyticMixture[Normal]]:
-        return self.lwr_hrm.int_man
+    def int_man(self) -> EmbeddedMap[AnalyticMixture[Normal], Normal]:
+        return self.lwr_hrm.int_man.prepend_embedding(
+            ObservableEmbedding(self.pst_upr_hrm)
+        )
 
     @property
     @override
@@ -190,8 +193,8 @@ class SymmetricHMoG(
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[Normal, Normal]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.lwr_hrm.int_man
+    def int_man(self) -> EmbeddedMap[Mixture[Normal], Normal]:
+        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))
 
     @property
     @override
@@ -226,12 +229,11 @@ class SymmetricHMoG(
 
 
 @dataclass(frozen=True)
-class AnalyticHMoG(  # pyright: ignore[reportGeneralTypeIssues]
+class AnalyticHMoG(
     AnalyticConjugated[
         Normal,
         AnalyticMixture[Normal],
     ],
-    SymmetricHMoG,
 ):
     """Analytic Hierarchical Mixture of Gaussians.
 
@@ -248,9 +250,55 @@ class AnalyticHMoG(  # pyright: ignore[reportGeneralTypeIssues]
     - upr_hrm: Analytic mixture model (all operations have closed forms)
     """
 
-    # Override upr_hrm type to be AnalyticMixture (stricter than parent's Mixture)
+    # Fields
+    lwr_hrm: NormalAnalyticLGM
+    """Lower harmonium: analytic linear Gaussian model."""
+
     upr_hrm: AnalyticMixture[Normal]
-    """Upper harmonium: analytic mixture model."""
+    """Upper harmonium: mixture model with constrained latent representation."""
+
+    def __post_init__(self):
+        """Validate that component harmoniums are compatible."""
+
+        assert self.lwr_hrm.pst_man == self.upr_hrm.obs_man
+
+    # Overrides from SymmetricConjugated
+
+    @property
+    @override
+    def lat_man(self) -> AnalyticMixture[Normal]:
+        return self.upr_hrm
+
+    @override
+    def extract_likelihood_input(self, prr_sample: Array) -> Array:
+        """Extract y (first latent) from yz sample for likelihood evaluation."""
+        return prr_sample[:, : self.lwr_hrm.prr_man.data_dim]
+
+    @override
+    def conjugation_parameters(
+        self,
+        lkl_params: Array,
+    ) -> Array:
+        """Compute conjugation parameters for the hierarchical structure.
+
+        Parameters
+        ----------
+        lkl_params : Array
+            Natural parameters for likelihood function.
+
+        Returns
+        -------
+        Array
+            Natural parameters for conjugation in Mixture[Normal] space.
+        """
+        return hierarchical_conjugation_parameters(
+            self.lwr_hrm, self.upr_hrm, lkl_params
+        )
+
+    @property
+    @override
+    def int_man(self) -> EmbeddedMap[AnalyticMixture[Normal], Normal]:
+        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))
 
     @override
     def to_natural_likelihood(
