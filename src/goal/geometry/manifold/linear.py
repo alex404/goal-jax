@@ -96,6 +96,46 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
             Parameters of the outer product linear map
         """
 
+    @abstractmethod
+    def map_domain_embedding[NewDomain: Manifold](
+        self,
+        f: Callable[[LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]],
+    ) -> LinearMap[NewDomain, Codomain]:
+        """Transform the domain embedding(s) using the given function.
+
+        This enables operations like tensoring with a new factor by wrapping
+        the domain embedding in a more complex structure.
+        """
+
+    @abstractmethod
+    def map_codomain_embedding[NewCodomain: Manifold](
+        self,
+        f: Callable[[LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]],
+    ) -> LinearMap[Domain, NewCodomain]:
+        """Transform the codomain embedding(s) using the given function.
+
+        This enables operations like tensoring with a new factor by wrapping
+        the codomain embedding in a more complex structure.
+        """
+
+    def prepend_embedding[NewDomain: Manifold](
+        self,
+        emb: LinearEmbedding[Domain, NewDomain],
+    ) -> LinearMap[NewDomain, Codomain]:
+        """Prepend an embedding to the domain."""
+        return self.map_domain_embedding(
+            lambda dom_emb: LinearComposedEmbedding(dom_emb, emb)
+        )
+
+    def append_embedding[NewCodomain: Manifold](
+        self,
+        emb: LinearEmbedding[Codomain, NewCodomain],
+    ) -> LinearMap[Domain, NewCodomain]:
+        """Append an embedding to the codomain."""
+        return self.map_codomain_embedding(
+            lambda cod_emb: LinearComposedEmbedding(cod_emb, emb)
+        )
+
 
 @dataclass(frozen=True)
 class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
@@ -201,6 +241,22 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         # Compute outer product in internal space
         return self.rep.outer_product(internal_w, internal_v)
 
+    @override
+    def map_domain_embedding[NewDomain: Manifold](
+        self,
+        f: Callable[[LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]],
+    ) -> EmbeddedMap[NewDomain, Codomain]:
+        new_dom_emb = f(self.dom_emb)
+        return EmbeddedMap(self.rep, new_dom_emb, self.cod_emb)
+
+    @override
+    def map_codomain_embedding[NewCodomain: Manifold](
+        self,
+        f: Callable[[LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]],
+    ) -> EmbeddedMap[Domain, NewCodomain]:
+        new_cod_emb = f(self.cod_emb)
+        return EmbeddedMap(self.rep, self.dom_emb, new_cod_emb)
+
     def from_dense(self, matrix: Array) -> Array:
         """Create parameters from dense 2D matrix (in internal dimensions).
 
@@ -270,20 +326,6 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         params = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
         return target_man, params
 
-    def prepend_embedding[NewDomain: Manifold](
-        self, emb: LinearEmbedding[Domain, NewDomain]
-    ) -> EmbeddedMap[NewDomain, Codomain]:
-        """Embed the codomain of the embedding into a new codomain."""
-        new_dom_emb = LinearComposedEmbedding(self.dom_emb, emb)
-        return EmbeddedMap(self.rep, new_dom_emb, self.cod_emb)
-
-    def append_embedding[NewCodomain: Manifold](
-        self, emb: LinearEmbedding[Codomain, NewCodomain]
-    ) -> EmbeddedMap[Domain, NewCodomain]:
-        """Embed the codomain of the embedding into a new codomain."""
-        new_cod_emb = LinearComposedEmbedding(self.cod_emb, emb)
-        return EmbeddedMap(self.rep, self.dom_emb, new_cod_emb)
-
 
 @dataclass(frozen=True)
 class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
@@ -296,7 +338,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
     # Fields
 
-    blocks: list[EmbeddedMap[Domain, Codomain]]
+    blocks: list[LinearMap[Domain, Codomain]]
     """The embedded linear maps that compose this block map."""
 
     @property
@@ -383,17 +425,19 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         ]
         return jnp.concatenate(outer_params)
 
-    def prepend_embedding[NewDomain: Manifold](
-        self, emb: LinearEmbedding[Domain, NewDomain]
+    @override
+    def map_domain_embedding[NewDomain: Manifold](
+        self,
+        f: Callable[[LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]],
     ) -> BlockMap[NewDomain, Codomain]:
-        """Embed the codomain of the embedding into a new codomain."""
-        return BlockMap([block.prepend_embedding(emb) for block in self.blocks])
+        return BlockMap([block.map_domain_embedding(f) for block in self.blocks])
 
-    def append_embedding[NewCodomain: Manifold](
-        self, emb: LinearEmbedding[Codomain, NewCodomain]
+    @override
+    def map_codomain_embedding[NewCodomain: Manifold](
+        self,
+        f: Callable[[LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]],
     ) -> BlockMap[Domain, NewCodomain]:
-        """Embed the codomain of the embedding into a new codomain."""
-        return BlockMap([block.append_embedding(emb) for block in self.blocks])
+        return BlockMap([block.map_codomain_embedding(f) for block in self.blocks])
 
 
 class AmbientMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codomain]):
