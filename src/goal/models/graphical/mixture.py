@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import override
 
+import jax
 from jax import Array
 
 from ...geometry import (
@@ -28,15 +29,17 @@ from ...geometry import (
     DifferentiableConjugated,
     EmbeddedMap,
     IdentityEmbedding,
-    LinearComposedEmbedding,
+    InteractionEmbedding,
     LinearEmbedding,
-    MatrixRep,
+    LinearMap,
+    Manifold,
     ObservableEmbedding,
     PosteriorEmbedding,
     Rectangular,
     SymmetricConjugated,
 )
-from ..harmonium.mixture import CompleteMixture
+from ..base.categorical import Categorical
+from ..harmonium.mixture import CompleteMixture, Mixture
 
 ### Embeddings ###
 
@@ -154,7 +157,6 @@ class MixtureComponentEmbedding[
 
 @dataclass(frozen=True)
 class MixtureOfConjugated[
-    IntRep: MatrixRep,
     Observable: Differentiable,
     Latent: Differentiable,
 ](
@@ -168,271 +170,149 @@ class MixtureOfConjugated[
         CompleteMixture[Latent],
     ],
 ):
-    """Mixture of conjugated harmoniums."""
+    """Mixture of conjugated harmoniums.
+
+    This class implements the theory of mixing arbitrary conjugated harmoniums,
+    where a base harmonium $\\mathcal{H}^G_{XY}$ (observable X, latent Y) is
+    composed with a categorical mixture indicator Z to produce a conjugated harmonium with:
+
+    - Observable: X (unchanged from base)
+    - Latent: (Y, Z) represented as CompleteMixture[Latent]
+    - Interaction: Three-block structure $(\\theta_{XY}, \\theta^0_{XYZ}, \\theta_{XZ})$
+
+    **Mathematical structure**: The sufficient statistics decompose as:
+
+    $$s_{XYZ} = s_X \\oplus S_{X(YZ)} \\oplus s_{YZ}$$
+
+    where $S_{X(YZ)}$ has three blocks encoding base interaction, component-specific
+    interactions, and observable bias adjustments.
+
+    **Conjugation parameters**: Computed using the formula:
+
+    - $\\rho_Y$: Base conjugation from component 0
+    - $\\rho^i_Z = \\psi_X(\\theta_X + \\theta^i_{XZ}) - \\psi_X(\\theta_X)$
+    - $\\rho^i_{YZ} = \\rho^i_Y - \\rho_Y$
+
+    **Fields**:
+        - hrm: Base conjugated harmonium (lower level)
+        - n_categories: Number of mixture components
+
+    **Structure**:
+        - Lower harmonium: Base conjugated harmonium with embeddings from hrm
+        - Upper harmonium: CompleteMixture[Latent] with identity embeddings
+    """
 
     n_categories: int
+    """Number of mixture components."""
 
-    _int_obs_emb: LinearEmbedding[
-        IntObservable,
-        Observable,
-    ]
-    _int_pst_emb: LinearEmbedding[
-        IntLatent,
-        Latent,
-    ]
+    hrm: DifferentiableConjugated[Observable, Latent, Latent]
+    """Base conjugated harmonium (lower level)."""
 
     @property
-    def lat_mix_man(
-        self,
-    ) -> CompleteMixture[Latent]:
-        """Latent manifold representing the mixture component assignments."""
-        return CompleteMixture(
-            self._int_pst_emb.amb_man,
-            self.n_categories,
-        )
+    @override
+    def lat_man(self) -> CompleteMixture[Latent]:
+        """Latent manifold: complete mixture over base latent."""
+        return CompleteMixture(self.hrm.pst_man, self.n_categories)
+
+    @property
+    def xy_man(self) -> LinearMap[CompleteMixture[Latent], Observable]:
+        """Base harmonium interaction embedded into mixture structure."""
+        emb = ObservableEmbedding(self.lat_man)
+        return self.hrm.int_man.prepend_embedding(emb)  # pyright: ignore[reportReturnType]
+
+    @property
+    def xyk_man(self) -> LinearMap[CompleteMixture[Latent], Observable]:
+        """Component-specific interactions embedded into mixture structure."""
+
+        def tensorize_emb[SubLatent: Manifold](
+            emb: LinearEmbedding[SubLatent, Latent],
+        ) -> LinearEmbedding[
+            LinearMap[Categorical, Latent], LinearMap[Categorical, Latent]
+        ]:
+            return IdentityEmbedding(
+                Mixture(
+                    self.n_categories,
+                    emb,
+                ).int_man
+            )
+
+        xyk_man0 = self.hrm.int_man.map_domain_embedding(tensorize_emb)
+        return xyk_man0.prepend_embedding(InteractionEmbedding(self.lat_man))  # pyright: ignore[reportReturnType]
+
+    @property
+    def xk_man(self) -> LinearMap[CompleteMixture[Latent], Observable]:
+        """Observable bias adjustments per component."""
+        return EmbeddedMap(
+            Rectangular(),
+            PosteriorEmbedding(self.lat_man),
+            IdentityEmbedding(self.obs_man),
+        )  # pyright: ignore[reportReturnType]
 
     @property
     @override
     def int_man(self) -> BlockMap[CompleteMixture[Latent], Observable]:
-        rep = Rectangular()
-        sxy = EmbeddedMap(
-            rep,
-            LinearComposedEmbedding(
-                self._int_pst_emb, ObservableEmbedding(self.lat_mix_man)
-            ),
-            self._int_obs_emb,
+        """Interaction matrix with three blocks: mxy, mxyz, mxz.
+
+        Following the theory:
+        - mxy: Base harmonium interaction $(\\theta_{XY})$
+        - mxyk: Component-specific interactions $(\\theta^0_{XYZ})$
+        - mxk: Observable bias adjustments per component $(\\theta_{XZ})$
+        """
+        return BlockMap([self.xy_man, self.xyk_man, self.xk_man])
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array) -> Array:
+        """Compute conjugation parameters for mixture of conjugated harmoniums.
+
+        Implements the theory:
+        - $\\rho_Y$: Base conjugation from component 0
+        - $\\rho^i_K$: Log partition differences for categorical (K) variable
+        - $\\rho^i_{YK}$: Differences in Y conjugation across components
+
+        Returns parameters in CompleteMixture[Latent] space.
+        """
+        # Extract base harmonium parameters and interaction matrix
+        x_params, int_mat = self.lkl_fun_man.split_coords(lkl_params)
+
+        xy_params = int_mat[: self.xy_man.dim]
+        xk_params = int_mat[self.xy_man.dim : self.xy_man.dim + self.xk_man.dim]
+        xyk_params = int_mat[self.xy_man.dim + self.xk_man.dim :]
+
+        # reshape xk_params into (obs_dim, n_categories-1)
+        xk_params = xk_params.reshape(-1, self.n_categories - 1)
+        # reshape xyk_params into (obs_dim * latent_dim, n_categories-1)
+        xyk_params = xyk_params.reshape(-1, self.n_categories - 1)
+
+        # Compute base conjugation parameters from component 0
+        aff_0 = self.hrm.lkl_fun_man.join_coords(
+            x_params,
+            xy_params,
         )
-        sxyz = EmbeddedMap(
-            rep,
-            MixtureComponentEmbedding(
-                n_categories=self.n_categories,
-                cmp_emb=self._int_pst_emb,
-            ),
-            self._int_obs_emb,
-        )
-        sxz = EmbeddedMap(
-            rep,
-            PosteriorEmbedding(self.lat_mix_man),
-            IdentityEmbedding(self.obs_man),
-        )
-        return BlockMap([sxy, sxyz, sxz])
+        rho_y = self.hrm.conjugation_parameters(aff_0)
 
-    # @property
-    # @override
-    # def int_obs_emb(
-    #     self,
-    # ) -> LinearEmbedding[
-    #     CompleteMixture[IntObservable],
-    #     CompleteMixture[Observable],
-    # ]:
-    #     return 0
-    #
-    # @property
-    # @override
-    # def int_pst_emb(
-    #     self,
-    # ) -> LinearEmbedding[
-    #     CompleteMixture[IntLatent],
-    #     CompleteMixture[Latent],
-    # ]:
-    #     return 0
-    #
-    # def mix_log_observable_density(
-    #     self,
-    #     params: Array,
-    #     x: Array,
-    # ) -> Array:
-    #     hrm_cmps, cat_params = self.split_natural_mixture(params)
-    #
-    #     def harmonium_log_density_at_x(
-    #         hrm_params: Array,
-    #     ) -> Array:
-    #         return self.obs_man.log_observable_density(hrm_params, x)
-    #
-    #     lds = self.cmp_man.map(harmonium_log_density_at_x, hrm_cmps)
-    #     wghts = self.lat_man.to_probs(self.lat_man.to_mean(cat_params))
-    #     return jax.scipy.special.logsumexp(lds + jnp.log(wghts))
-    #
+        def conjugate_k(x_offset: Array, xy_offset: Array) -> tuple[Array, Array]:
+            """Compute conjugation parameters and log partition difference for component k."""
+            # Compute affine parameters for component k
+            aff_k = self.hrm.lkl_fun_man.join_coords(
+                x_params + x_offset,
+                xy_params + xy_offset,
+            )
 
+            # Compute conjugation parameters for component k
+            rho_yi = self.hrm.conjugation_parameters(aff_k)
 
-### Helper Functions ###
+            # Compute log partition difference
+            rho_zi = self.hrm.obs_man.log_partition_function(
+                x_params + x_offset
+            ) - self.hrm.obs_man.log_partition_function(x_params)
 
-# class LatentMixtureOfConjugated[
-#     IntRep: MatrixRep,
-#     Observable: Differentiable,
-#     IntObservable: ExponentialFamily,
-#     IntLatent: ExponentialFamily,
-#     Posterior: Differentiable,
-#     Prior: Differentiable,
-# ](
-#     CompleteMixture[
-#         DifferentiableConjugated[Observable, IntObservable, IntLatent, Posterior, Prior]
-#     ],
-# ):
-#     """Mixture of conjugated harmoniums where each component is an independent harmonium.
-#
-#     **Structure**: A mixture where each of K components is a conjugated harmonium. The joint
-#     distribution is:
-#
-#     $$p(x,y,z) = p(z) \\prod_{k=1}^K \\mathbb{1}_{z=k} p(x,y|\\theta_k)$$
-#
-#     where each $p(x,y|\\theta_k)$ is a conjugated harmonium with natural parameters $\\theta_k$.
-#
-#     **Parameters**: Naturally split as $(\\theta_1, \\ldots, \\theta_K, \\pi)$ where:
-#     - Each $\\theta_k$ are natural parameters of a ConHarm harmonium
-#     - $\\pi$ are parameters of the Categorical prior over z
-#
-#     **Note**: While this class extends Conjugated, the "observable" in the API refers to
-#     the joint (x,y) from the component harmoniums, and "latent" refers to the component
-#     index z. This allows reuse of the conjugated structure while properly modeling
-#     independent component harmoniums.
-#     """
-#
-#     @property
-#     def mix_pst_man(
-#         self,
-#     ) -> CompleteMixture[Posterior]:
-#         """Latent manifold representing the mixture component assignments."""
-#         return CompleteMixture(
-#             self.obs_man.pst_man,
-#             self.n_categories,
-#         )
-#
-#     @property
-#     def mix_prr_man(
-#         self,
-#     ) -> CompleteMixture[Prior]:
-#         """Latent manifold representing the mixture component assignments."""
-#         return CompleteMixture(
-#             self.obs_man.prr_man,
-#             self.n_categories,
-#         )
-#
-#     def mix_posterior_at(
-#         self,
-#         params: Array,
-#         x: Array,
-#     ) -> Array:
-#         """Compute natural parameters of posterior distribution $p(z \\mid x)$.
-#
-#         Given an observation $x$ with sufficient statistics $s(x)$, computes natural
-#         parameters $\\theta_Z$ of the conditional distribution:
-#
-#         $$p(z \\mid x) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z))$$
-#
-#         Parameters
-#         ----------
-#         params : Array
-#             Natural parameters for the mixture of conjugated harmoniums.
-#         x : Array
-#             Observation data.
-#
-#         Returns
-#         -------
-#         Array
-#             Natural parameters of posterior distribution.
-#         """
-#         ssx = self.obs_man.obs_man.sufficient_statistic(x)
-#         prj_ssx = self.obs_man.int_obs_emb.project(ssx)
-#         obs_params, int_params, lat_params = self.split_coords(params)
-#         _, obs_int_params, obs_lat_params = self.obs_man.split_coords(obs_params)
-#
-#         def component_int_fun0(
-#             comp_params: Array,
-#         ) -> Array:
-#             _, _, lat_params = self.obs_man.split_coords(comp_params)
-#             return lat_params
-#
-#         def component_int_fun1(
-#             comp_params: Array,
-#         ) -> Array:
-#             _, int_params, _ = self.obs_man.split_coords(comp_params)
-#             prj_int_params = self.obs_man.int_man.transpose_apply(int_params, prj_ssx)
-#             return self.obs_man.int_pst_emb.embed(prj_int_params)
-#
-#         def component_lat_fun(
-#             comp_params: Array,
-#         ) -> Array:
-#             obs_params, _, _ = self.obs_man.split_coords(comp_params)
-#             return jnp.dot(obs_params, ssx)
-#
-#         pst_obs_params0 = self.obs_man.int_man.transpose_apply(obs_int_params, prj_ssx)
-#         pst_obs_params = obs_lat_params + self.obs_man.int_pst_emb.embed(
-#             pst_obs_params0
-#         )
-#
-#         int_cols = self.int_man.to_columns(int_params)
-#
-#         pst_int_params0 = self.int_man.col_man.map(component_int_fun0, int_cols)
-#         pst_int_params = self.mix_pst_man.int_man.from_columns(pst_int_params0)
-#         pst_int_params1 = self.int_man.col_man.map(component_int_fun1, int_cols)
-#         pst_int_params += self.mix_pst_man.int_man.from_columns(pst_int_params1)
-#
-#         pst_lat_params0 = self.int_man.col_man.map(component_lat_fun, int_cols)
-#         pst_lat_params = lat_params + pst_lat_params0
-#
-#         return self.mix_pst_man.join_coords(
-#             pst_obs_params, pst_int_params, pst_lat_params
-#         )
-#
-#     def mix_conjugation_parameters(
-#         self,
-#         lkl_params: Array,
-#     ) -> Array:
-#         """Compute conjugation parameters for a mixture of conjugated harmoniums.
-#
-#         This decomposes the joint conjugation parameters into three components:
-#         1. Y conjugation biases (latent variable biases from component 0)
-#         2. K conjugation biases (categorical variable biases from observable component differences)
-#         3. K-Y interaction columns (differences in conjugation parameters across components)
-#
-#         The function extracts observable biases from each component harmonium and computes
-#         a mixture-like conjugation parameter structure encoding the joint (Y, K) latent space.
-#
-#         Parameters
-#         ----------
-#         lkl_params : Array
-#             Natural parameters for likelihood function in AffineMap structure.
-#
-#         Returns
-#         -------
-#         Array
-#             Natural parameters for conjugation in CompleteMixture[Prior] space.
-#         """
-#         # Split mixture parameters into component harmonium parameters and categorical prior
-#         hrm_params_0, int_mat = self.lkl_fun_man.split_coords(lkl_params)
-#         int_man = self.lkl_fun_man.snd_man
-#         int_cols = int_man.to_columns(int_mat)
-#
-#         hrm_man = self.lkl_fun_man.cod_emb.amb_man
-#         lkl_params_0 = hrm_man.likelihood_function(hrm_params_0)
-#         rho_y = hrm_man.conjugation_parameters(lkl_params_0)
-#         obs_params_0, _, _ = hrm_man.split_coords(hrm_params_0)
-#         lp_0 = hrm_man.obs_man.log_partition_function(obs_params_0)
-#
-#         def compute_rho_ks(
-#             comp_params: Array,
-#         ) -> Array:
-#             obs_params_k, _, _ = hrm_man.split_coords(comp_params)
-#             adjusted_obs = obs_params_0 + obs_params_k
-#             return hrm_man.obs_man.log_partition_function(adjusted_obs) - lp_0
-#
-#         def compute_rho_yks(
-#             comp_params: Array,
-#         ) -> Array:
-#             adjusted_hrm = hrm_params_0 + comp_params
-#             adjusted_lkl = hrm_man.likelihood_function(adjusted_hrm)
-#             rho_yk0 = hrm_man.conjugation_parameters(adjusted_lkl)
-#             return rho_yk0 - rho_y
-#
-#         # rho_z shape: (n_categories - 1,)
-#         rho_k0 = int_man.col_man.map(compute_rho_ks, int_cols)
-#         rho_k = rho_k0
-#
-#         rho_yk_comps = int_man.col_man.man_map(compute_rho_yks, int_cols)
-#         rho_yk = self.mix_prr_man.int_man.from_columns(rho_yk_comps)
-#
-#         return self.mix_prr_man.join_coords(rho_y, rho_yk, rho_k)
-#
-#
-#
+            return rho_yi, rho_zi
+
+        # Vmap over columns - returns tuple of (rho_yk, rho_z)
+        rho_yk, rho_z = jax.vmap(conjugate_k, in_axes=(1, 1))(xk_params, xyk_params)
+
+        # Compute differences from base component
+        rho_yz = rho_yk - rho_y
+
+        # Join into complete mixture coordinates
+        return self.lat_man.join_coords(rho_y, rho_yz, rho_z)

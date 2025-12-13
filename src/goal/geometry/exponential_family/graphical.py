@@ -19,6 +19,7 @@ from typing import Any, override
 from jax import Array
 
 from ..manifold.embedding import LinearEmbedding, TupleEmbedding
+from ..manifold.linear import LinearMap
 from .base import ExponentialFamily
 from .harmonium import (
     AnalyticConjugated,
@@ -32,8 +33,8 @@ from .harmonium import (
 @dataclass(frozen=True)
 class ObservableEmbedding[
     Observable: ExponentialFamily,
-    Harm: Harmonium[Any, Any],
-](TupleEmbedding[Observable, Harm]):
+    Posterior: ExponentialFamily,
+](TupleEmbedding[Observable, Harmonium[Observable, Posterior]]):
     """Embedding of the observable manifold of a harmonium into the harmonium itself.
 
     This embedding projects a harmonium coordinates onto the observable component, or embeds an observable point into the full harmonium space by setting interaction and latent parameters to zero. Generally speaking, projection is only safe on mean coordinates, while embedding is only safe on natural coordinates.
@@ -41,7 +42,7 @@ class ObservableEmbedding[
 
     # Fields
 
-    hrm_man: Harm
+    hrm_man: Harmonium[Observable, Posterior]
     """The harmonium that contains the observable manifold."""
 
     # Overrides
@@ -57,7 +58,7 @@ class ObservableEmbedding[
     @override
     def amb_man(
         self,
-    ) -> Harm:
+    ) -> Harmonium[Observable, Posterior]:
         return self.hrm_man
 
     @property
@@ -67,10 +68,47 @@ class ObservableEmbedding[
 
 
 @dataclass(frozen=True)
-class PosteriorEmbedding[
+class InteractionEmbedding[
+    Observable: ExponentialFamily,
     Posterior: ExponentialFamily,
-    Harm: Harmonium[Any, Any],
-](TupleEmbedding[Posterior, Harm]):
+](TupleEmbedding[LinearMap[Posterior, Observable], Harmonium[Observable, Posterior]]):
+    """Embedding of the observable manifold of a harmonium into the harmonium itself.
+
+    This embedding projects a harmonium coordinates onto the observable component, or embeds an observable point into the full harmonium space by setting interaction and latent parameters to zero. Generally speaking, projection is only safe on mean coordinates, while embedding is only safe on natural coordinates.
+    """
+
+    # Fields
+
+    hrm_man: Harmonium[Observable, Posterior]
+    """The harmonium that contains the observable manifold."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(
+        self,
+    ) -> int:
+        return 1
+
+    @property
+    @override
+    def amb_man(
+        self,
+    ) -> Harmonium[Observable, Posterior]:
+        return self.hrm_man
+
+    @property
+    @override
+    def sub_man(self) -> LinearMap[Posterior, Observable]:
+        return self.hrm_man.int_man
+
+
+@dataclass(frozen=True)
+class PosteriorEmbedding[
+    Observable: ExponentialFamily,
+    Posterior: ExponentialFamily,
+](TupleEmbedding[Posterior, Harmonium[Observable, Posterior]]):
     """Embedding of the posterior manifold of a harmonium into the harmonium itself.
 
     This embedding projects harmonium coordinates onto the posterior manifold, or embeds an latent point into the full harmonium space by setting interaction and observable parameters to zero. Generally speaking, projection is only safe on mean coordinates, while embedding is only safe on natural coordinates.
@@ -78,7 +116,7 @@ class PosteriorEmbedding[
 
     # Fields
 
-    hrm_man: Harm
+    hrm_man: Harmonium[Observable, Posterior]
     """The harmonium that contains the latent manifold."""
 
     # Overrides
@@ -94,7 +132,7 @@ class PosteriorEmbedding[
     @override
     def amb_man(
         self,
-    ) -> Harm:
+    ) -> Harmonium[Observable, Posterior]:
         return self.hrm_man
 
     @property

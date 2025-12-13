@@ -105,7 +105,7 @@ class DifferentiableHMoG(
     @property
     @override
     def int_man(self) -> EmbeddedMap[AnalyticMixture[Normal], Normal]:
-        return self.lwr_hrm.int_man.prepend_embedding(
+        return self.lwr_hrm.int_man.prepend_embedding(  # pyright: ignore[reportReturnType]
             ObservableEmbedding(self.pst_upr_hrm)
         )
 
@@ -192,7 +192,7 @@ class SymmetricHMoG(
     @property
     @override
     def int_man(self) -> EmbeddedMap[Mixture[Normal], Normal]:
-        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))
+        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))  # pyright: ignore[reportReturnType]
 
     @property
     @override
@@ -296,7 +296,7 @@ class AnalyticHMoG(
     @property
     @override
     def int_man(self) -> EmbeddedMap[AnalyticMixture[Normal], Normal]:
-        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))
+        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))  # pyright: ignore[reportReturnType]
 
     @override
     def to_natural_likelihood(

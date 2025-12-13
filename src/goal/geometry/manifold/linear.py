@@ -99,7 +99,9 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
     @abstractmethod
     def map_domain_embedding[NewDomain: Manifold](
         self,
-        f: Callable[[LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]],
+        f: Callable[
+            [LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]
+        ],
     ) -> LinearMap[NewDomain, Codomain]:
         """Transform the domain embedding(s) using the given function.
 
@@ -110,7 +112,10 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
     @abstractmethod
     def map_codomain_embedding[NewCodomain: Manifold](
         self,
-        f: Callable[[LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]],
+        f: Callable[
+            [LinearEmbedding[Manifold, Codomain]],
+            LinearEmbedding[Manifold, NewCodomain],
+        ],
     ) -> LinearMap[Domain, NewCodomain]:
         """Transform the codomain embedding(s) using the given function.
 
@@ -244,7 +249,9 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     @override
     def map_domain_embedding[NewDomain: Manifold](
         self,
-        f: Callable[[LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]],
+        f: Callable[
+            [LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]
+        ],
     ) -> EmbeddedMap[NewDomain, Codomain]:
         new_dom_emb = f(self.dom_emb)
         return EmbeddedMap(self.rep, new_dom_emb, self.cod_emb)
@@ -252,10 +259,33 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     @override
     def map_codomain_embedding[NewCodomain: Manifold](
         self,
-        f: Callable[[LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]],
+        f: Callable[
+            [LinearEmbedding[Manifold, Codomain]],
+            LinearEmbedding[Manifold, NewCodomain],
+        ],
     ) -> EmbeddedMap[Domain, NewCodomain]:
         new_cod_emb = f(self.cod_emb)
         return EmbeddedMap(self.rep, self.dom_emb, new_cod_emb)
+
+    @override
+    def prepend_embedding[NewDomain: Manifold](
+        self,
+        emb: LinearEmbedding[Domain, NewDomain],
+    ) -> EmbeddedMap[NewDomain, Codomain]:
+        """Prepend an embedding to the domain."""
+        return self.map_domain_embedding(
+            lambda dom_emb: LinearComposedEmbedding(dom_emb, emb)
+        )
+
+    @override
+    def append_embedding[NewCodomain: Manifold](
+        self,
+        emb: LinearEmbedding[Codomain, NewCodomain],
+    ) -> EmbeddedMap[Domain, NewCodomain]:
+        """Append an embedding to the codomain."""
+        return self.map_codomain_embedding(
+            lambda cod_emb: LinearComposedEmbedding(cod_emb, emb)
+        )
 
     def from_dense(self, matrix: Array) -> Array:
         """Create parameters from dense 2D matrix (in internal dimensions).
@@ -428,14 +458,19 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
     @override
     def map_domain_embedding[NewDomain: Manifold](
         self,
-        f: Callable[[LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]],
+        f: Callable[
+            [LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]
+        ],
     ) -> BlockMap[NewDomain, Codomain]:
         return BlockMap([block.map_domain_embedding(f) for block in self.blocks])
 
     @override
     def map_codomain_embedding[NewCodomain: Manifold](
         self,
-        f: Callable[[LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]],
+        f: Callable[
+            [LinearEmbedding[Manifold, Codomain]],
+            LinearEmbedding[Manifold, NewCodomain],
+        ],
     ) -> BlockMap[Domain, NewCodomain]:
         return BlockMap([block.map_codomain_embedding(f) for block in self.blocks])
 

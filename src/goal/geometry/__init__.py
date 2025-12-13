@@ -13,6 +13,7 @@ from .exponential_family.combinators import (
     StatisticalMoments,
 )
 from .exponential_family.graphical import (
+    InteractionEmbedding,
     LatentHarmoniumEmbedding,
     ObservableEmbedding,
     PosteriorEmbedding,
@@ -84,6 +85,7 @@ __all__ = [
     "Harmonium",
     "Identity",
     "IdentityEmbedding",
+    "InteractionEmbedding",
     "LatentHarmoniumEmbedding",
     "LinearComposedEmbedding",
     "LinearEmbedding",
