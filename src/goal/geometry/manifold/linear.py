@@ -288,13 +288,13 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         )
 
     def from_dense(self, matrix: Array) -> Array:
-        """Create parameters from dense 2D matrix (in internal dimensions).
+        """Create coordinates from dense 2D matrix (in internal dimensions).
 
         Args:
             matrix: Dense 2D matrix array with shape (internal_cod_dim, internal_dom_dim)
 
         Returns:
-            Parameters in this manifold's representation (1D array in storage format)
+            Coordinates in this manifold's representation (1D array in storage format)
         """
         return self.rep.from_dense(matrix)
 
@@ -302,7 +302,7 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         """Convert to dense 2D matrix representation (in internal dimensions).
 
         Args:
-            f_coords: Parameters of the linear map (1D array in representation storage format)
+            f_coords: Coordinates of the linear map (1D array in representation storage format)
 
         Returns:
             Dense 2D matrix array with shape (internal_cod_dim, internal_dom_dim),
@@ -316,11 +316,11 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         """Apply a function to the diagonal elements while preserving matrix structure.
 
         Args:
-            f_coords: Parameters of the linear map
+            f_coords: Coordinates of the linear map
             diagonal_f: Function to apply to diagonal elements
 
         Returns:
-            Modified parameters
+            Modified coordinates
         """
         return self.rep.map_diagonal(self.matrix_shape, f_coords, diagonal_f)
 
@@ -330,15 +330,15 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         """Embed linear map into more complex representation.
 
         Args:
-            f_coords: Parameters of the linear map
+            f_coords: Coordinates of the linear map
             target_rep: Target matrix representation
 
         Returns:
-            Tuple of (new manifold, new parameters)
+            Tuple of (new manifold, new coordinates)
         """
         target_man = EmbeddedMap(target_rep, self.dom_emb, self.cod_emb)
-        params = self.rep.embed_params(self.matrix_shape, f_coords, target_rep)
-        return target_man, params
+        coords = self.rep.embed_params(self.matrix_shape, f_coords, target_rep)
+        return target_man, coords
 
     def project_rep(
         self, f_coords: Array, target_rep: MatrixRep
@@ -346,15 +346,15 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         """Project linear map to simpler representation.
 
         Args:
-            f_coords: Parameters of the linear map
+            f_coords: Coordinates of the linear map
             target_rep: Target matrix representation
 
         Returns:
-            Tuple of (new manifold, new parameters)
+            Tuple of (new manifold, new coordinates)
         """
         target_man = EmbeddedMap(target_rep, self.dom_emb, self.cod_emb)
-        params = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
-        return target_man, params
+        coords = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
+        return target_man, coords
 
 
 @dataclass(frozen=True)
@@ -395,21 +395,15 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         """Apply the block linear map to transform a point.
 
         Args:
-            f_coords: Parameters of the block linear map
+            f_coords: Coordinates of the block linear map
             v_coords: Point in the domain to transform
 
         Returns:
             Transformed point in the codomain
         """
         result = self.cod_man.zeros()
-        param_offset = 0
-
-        for block in self.blocks:
-            block_param_size = block.dim
-            sub_params = f_coords[param_offset : param_offset + block_param_size]
-            result = result + block(sub_params, v_coords)
-            param_offset += block_param_size
-
+        for block, block_coords in zip(self.blocks, self.coord_blocks(f_coords)):
+            result = result + block(block_coords, v_coords)
         return result
 
     @property
@@ -419,25 +413,38 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         transposed_blocks = [block.trn_man for block in self.blocks]
         return BlockMap(transposed_blocks)
 
+    def coord_blocks(self, coords: Array) -> list[Array]:
+        """Section coordinate array into sub-coordinates for each block.
+
+        Args:
+            coords: Coordinate array for the block map
+
+        Returns:
+            List of coordinate arrays, one for each block
+        """
+        sections = []
+        offset = 0
+        for block in self.blocks:
+            dim = block.dim
+            sections.append(coords[offset : offset + dim])
+            offset += dim
+        return sections
+
     @override
     def transpose(self, f_coords: Array) -> Array:
         """Transpose of the block linear map.
 
         Args:
-            f_coords: Parameters of the block linear map
+            f_coords: Coordinates of the block linear map
 
         Returns:
-            Parameters of the transposed linear map
+            Coordinates of the transposed linear map
         """
-        transposed_params = []
-        param_offset = 0
-        for block in self.blocks:
-            block_param_size = block.dim
-            sub_params = f_coords[param_offset : param_offset + block_param_size]
-            transposed_params.append(block.transpose(sub_params))
-            param_offset += block_param_size
-
-        return jnp.concatenate(transposed_params)
+        transposed_coords = [
+            block.transpose(block_coords)
+            for block, block_coords in zip(self.blocks, self.coord_blocks(f_coords))
+        ]
+        return jnp.concatenate(transposed_coords)
 
     @override
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:

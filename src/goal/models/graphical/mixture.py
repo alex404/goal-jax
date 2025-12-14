@@ -30,16 +30,16 @@ from ...geometry import (
     EmbeddedMap,
     IdentityEmbedding,
     InteractionEmbedding,
+    LinearComposedEmbedding,
     LinearEmbedding,
     LinearMap,
-    Manifold,
     ObservableEmbedding,
     PosteriorEmbedding,
     Rectangular,
     SymmetricConjugated,
 )
 from ..base.categorical import Categorical
-from ..harmonium.mixture import CompleteMixture, Mixture
+from ..harmonium.mixture import CompleteMixture
 
 ### Embeddings ###
 
@@ -224,20 +224,22 @@ class MixtureOfConjugated[
     def xyk_man(self) -> LinearMap[CompleteMixture[Latent], Observable]:
         """Component-specific interactions embedded into mixture structure."""
 
-        def tensorize_emb[SubLatent: Manifold](
+        def tensorize_emb[SubLatent: Differentiable](
             emb: LinearEmbedding[SubLatent, Latent],
         ) -> LinearEmbedding[
-            LinearMap[Categorical, Latent], LinearMap[Categorical, Latent]
+            LinearMap[Categorical, SubLatent], CompleteMixture[Latent]
         ]:
-            return IdentityEmbedding(
-                Mixture(
-                    self.n_categories,
-                    emb,
-                ).int_man
+            cmp_emb = MixtureComponentEmbedding(
+                n_categories=self.n_categories,
+                cmp_emb=emb,
+            )
+            int_emb = InteractionEmbedding(cmp_emb.sub_man)
+            return LinearComposedEmbedding(
+                int_emb,
+                cmp_emb,
             )
 
-        xyk_man0 = self.hrm.int_man.map_domain_embedding(tensorize_emb)
-        return xyk_man0.prepend_embedding(InteractionEmbedding(self.lat_man))  # pyright: ignore[reportReturnType]
+        return self.hrm.int_man.map_domain_embedding(tensorize_emb)  # pyright: ignore[reportArgumentType]
 
     @property
     def xk_man(self) -> LinearMap[CompleteMixture[Latent], Observable]:
@@ -245,7 +247,7 @@ class MixtureOfConjugated[
         return EmbeddedMap(
             Rectangular(),
             PosteriorEmbedding(self.lat_man),
-            IdentityEmbedding(self.obs_man),
+            IdentityEmbedding(self.hrm.obs_man),
         )  # pyright: ignore[reportReturnType]
 
     @property
@@ -274,9 +276,8 @@ class MixtureOfConjugated[
         # Extract base harmonium parameters and interaction matrix
         x_params, int_mat = self.lkl_fun_man.split_coords(lkl_params)
 
-        xy_params = int_mat[: self.xy_man.dim]
-        xk_params = int_mat[self.xy_man.dim : self.xy_man.dim + self.xk_man.dim]
-        xyk_params = int_mat[self.xy_man.dim + self.xk_man.dim :]
+        # Section interaction matrix into blocks: xy, xyk, xk
+        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_mat)
 
         # reshape xk_params into (obs_dim, n_categories-1)
         xk_params = xk_params.reshape(-1, self.n_categories - 1)
@@ -315,4 +316,5 @@ class MixtureOfConjugated[
         rho_yz = rho_yk - rho_y
 
         # Join into complete mixture coordinates
-        return self.lat_man.join_coords(rho_y, rho_yz, rho_z)
+        # rho_yz has shape (n_categories-1, lat_dim), need to flatten to ((n_categories-1) * lat_dim,)
+        return self.lat_man.join_coords(rho_y, rho_yz.ravel(), rho_z)

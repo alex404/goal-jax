@@ -15,6 +15,7 @@ from .graphical.hmog import (
     differentiable_hmog,
     symmetric_hmog,
 )
+from .graphical.mixture import MixtureComponentEmbedding, MixtureOfConjugated
 from .harmonium.lgm import (
     LGM,
     BoltzmannLGM,
@@ -50,6 +51,7 @@ __all__ = [
     "Euclidean",
     "FactorAnalysis",
     "Mixture",
+    "MixtureOfConjugated",
     "Normal",
     "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",
