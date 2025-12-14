@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import override
 
 import jax
+import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
@@ -279,17 +280,22 @@ class MixtureOfConjugated[
         # Section interaction matrix into blocks: xy, xyk, xk
         xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_mat)
 
-        # reshape xk_params into (obs_dim, n_categories-1)
-        xk_params = xk_params.reshape(-1, self.n_categories - 1)
-        # reshape xyk_params into (obs_dim * latent_dim, n_categories-1)
-        xyk_params = xyk_params.reshape(-1, self.n_categories - 1)
-
         # Compute base conjugation parameters from component 0
         aff_0 = self.hrm.lkl_fun_man.join_coords(
             x_params,
             xy_params,
         )
         rho_y = self.hrm.conjugation_parameters(aff_0)
+
+        # Handle trivial case: n_categories=1 means no mixture
+        if self.n_categories == 1:
+            # No additional components, return base conjugation with empty interaction/categorical
+            return self.lat_man.join_coords(rho_y, jnp.array([]), jnp.array([]))
+
+        # reshape xk_params into (obs_dim, n_categories-1)
+        xk_params = xk_params.reshape(-1, self.n_categories - 1)
+        # reshape xyk_params into (obs_dim * latent_dim, n_categories-1)
+        xyk_params = xyk_params.reshape(-1, self.n_categories - 1)
 
         def conjugate_k(x_offset: Array, xy_offset: Array) -> tuple[Array, Array]:
             """Compute conjugation parameters and log partition difference for component k."""
