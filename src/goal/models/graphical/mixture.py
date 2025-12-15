@@ -25,6 +25,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
+    AmbientMap,
     BlockMap,
     Differentiable,
     DifferentiableConjugated,
@@ -46,111 +47,87 @@ from ..harmonium.mixture import CompleteMixture
 
 
 @dataclass(frozen=True)
-class MixtureComponentEmbedding[
-    SubComponent: Differentiable,
-    AmbientComponent: Differentiable,
-](LinearEmbedding[CompleteMixture[SubComponent], CompleteMixture[AmbientComponent]]):
-    """Embedding between complete mixtures via per-component observable embedding.
+class TensorizedEmbedding[
+    Domain: Differentiable,
+    Sub: Differentiable,
+    Amb: Differentiable,
+](LinearEmbedding[EmbeddedMap[Domain, Sub], EmbeddedMap[Domain, Amb]]):
+    """Tensorized embedding that applies a base embedding to each 'row' of a linear map.
 
-    This embedding enables transformations on each component of a complete mixture (where
-    Observable = IntObservable). Both mixtures must have the same number of components.
+    Takes a LinearEmbedding[Sub, Amb] and lifts it to LinearEmbedding[LinearMap[Dom, Sub], LinearMap[Dom, Amb]]
+    by applying the base embedding independently to each component (row) of the linear map.
 
-    **Example**: Embedding mixture parameters (Mixture[Euclidean, Euclidean])
-    into posterior distributions (Mixture[FullNormal, FullNormal]) by applying a
-    component embedding (Euclidean → FullNormal) to each mixture component.
+    This is useful for mixture models where we want to apply an embedding to each mixture component
+    without dealing with the complexity of the full mixture structure.
 
-    **Structure**:
-    - Sub-manifold: Complete mixture with observable type SubComponent
-    - Ambient manifold: Complete mixture with observable type AmbientComponent
-    - Same number of components (n_categories)
-    - Derived from single component embedding: sub_man and amb_man are constructed from cmp_emb
-
-    **Coordinate Systems**:
-    - `embed`: Works in Natural coordinates
-    - `project`: Works in Mean coordinates
-
-    **Operations**: Applies component embedding/projection to observable parameters while
-    preserving interaction and latent parameters, since the interaction structure depends only
-    on the observable dimension (which is preserved in complete mixtures).
+    **Example**: If we have an embedding Latent -> SubLatent and n_categories components,
+    we can create a tensorized embedding LinearMap[Categorical, Latent] -> LinearMap[Categorical, SubLatent]
+    that applies the base embedding to each of the n_categories components independently.
     """
 
-    # Fields
+    dom_man: Domain
+    """The domain manifold (determines number of rows)."""
 
-    n_categories: int
-    """Number of mixture components."""
-
-    cmp_emb: LinearEmbedding[SubComponent, AmbientComponent]
-    """The embedding to apply to each observable component."""
-
-    # Overrides
+    cod_emb: LinearEmbedding[Sub, Amb]
+    """The base embedding to apply to each row."""
 
     @property
     @override
-    def sub_man(self) -> CompleteMixture[SubComponent]:
-        """The sub-manifold symmetric mixture."""
-        return CompleteMixture(
-            self.cmp_emb.sub_man,
-            n_categories=self.n_categories,
-        )
+    def sub_man(self) -> EmbeddedMap[Domain, Sub]:
+        """LinearMap from Dom to Sub manifold."""
+        return AmbientMap(Rectangular(), self.dom_man, self.cod_emb.sub_man)
 
     @property
     @override
-    def amb_man(self) -> CompleteMixture[AmbientComponent]:
-        """The ambient manifold symmetric mixture."""
-        return CompleteMixture(
-            self.cmp_emb.amb_man,
-            n_categories=self.n_categories,
-        )
+    def amb_man(self) -> EmbeddedMap[Domain, Amb]:
+        """LinearMap from Dom to Amb manifold."""
+        return AmbientMap(Rectangular(), self.dom_man, self.cod_emb.amb_man)
 
     @override
-    def embed(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self,
-        params: Array,
-    ) -> Array:
-        """Embed by applying the component embedding to each component in Natural coordinates.
-
-        Decomposes the mixture into component natural parameters and prior using
-        `split_natural_mixture`. Maps the component embedding over the product of components.
-        Reconstructs the mixture using `join_natural_mixture`.
+    def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Embed by applying base embedding to each column.
 
         Parameters
         ----------
         params : Array
-            Natural parameters in sub-manifold.
+            Parameters in LinearMap[Dom, Sub].
 
         Returns
         -------
         Array
-            Natural parameters in ambient manifold.
+            Parameters in LinearMap[Dom, Amb].
         """
-        components, prior = self.sub_man.split_natural_mixture(params)
-        emb_components = self.sub_man.cmp_man.map(self.cmp_emb.embed, components)
-        return self.amb_man.join_natural_mixture(emb_components, prior)
+        # Reshape to matrix
+        matrix = self.sub_man.to_matrix(params)
+
+        # Apply base embedding to each column using vmap
+        embedded_matrix = jax.vmap(self.cod_emb.embed, in_axes=1, out_axes=1)(matrix)
+
+        # Flatten back
+        return embedded_matrix.ravel()
 
     @override
-    def project(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self,
-        mean_params: Array,
-    ) -> Array:
-        """Project by applying the component projection to each component in Mean coordinates.
-
-        Decomposes the mixture into component means and weights using `split_mean_mixture`.
-        Maps the component projection over the product of components. Reconstructs the
-        mixture using `join_mean_mixture`.
+    def project(self, mean_params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Project by applying base projection to each column.
 
         Parameters
         ----------
         mean_params : Array
-            Mean parameters in ambient manifold.
+            Mean parameters in LinearMap[Dom, Amb].
 
         Returns
         -------
         Array
-            Mean parameters in sub-manifold.
+            Mean parameters in LinearMap[Dom, Sub].
         """
-        components, weights = self.amb_man.split_mean_mixture(mean_params)
-        prj_components = self.amb_man.cmp_man.map(self.cmp_emb.project, components)
-        return self.sub_man.join_mean_mixture(prj_components, weights)
+        # Reshape to matrix
+        matrix = self.amb_man.to_matrix(mean_params)
+
+        # Apply base projection to each column using vmap
+        projected_matrix = jax.vmap(self.cod_emb.project, in_axes=1, out_axes=1)(matrix)
+
+        # Flatten back
+        return projected_matrix.ravel()
 
 
 ### Mixture of Conjugated Harmoniums ###
@@ -230,14 +207,14 @@ class MixtureOfConjugated[
         ) -> LinearEmbedding[
             LinearMap[Categorical, SubLatent], CompleteMixture[Latent]
         ]:
-            cmp_emb = MixtureComponentEmbedding(
-                n_categories=self.n_categories,
-                cmp_emb=emb,
+            tns_emb = TensorizedEmbedding(
+                Categorical(self.n_categories),
+                emb,
             )
-            int_emb = InteractionEmbedding(cmp_emb.sub_man)
-            return LinearComposedEmbedding(
+            int_emb = InteractionEmbedding(self.lat_man)
+            return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
+                tns_emb,
                 int_emb,
-                cmp_emb,
             )
 
         return self.hrm.int_man.map_domain_embedding(tensorize_emb)  # pyright: ignore[reportArgumentType]
