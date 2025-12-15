@@ -77,31 +77,45 @@ def create_mfa_plots(results: MFAResults) -> Figure:
     ax_ll.axhline(y=results["ground_truth_ll"], color="green", linestyle="--", label="Final LL")
     ax_ll.legend()
 
-    # Plot final marginals with samples
+    # Plot final marginals with samples AND ground truth densities
     final_dens_12 = np.array(results["final_density_x1x2"])
     final_dens_13 = np.array(results["final_density_x1x3"])
     final_dens_23 = np.array(results["final_density_x2x3"])
 
+    gt_dens_12 = np.array(results["ground_truth_density_x1x2"])
+    gt_dens_13 = np.array(results["ground_truth_density_x1x3"])
+    gt_dens_23 = np.array(results["ground_truth_density_x2x3"])
+
     # X1-X2
     ax_final_12.scatter(samples[:, 0], samples[:, 1], alpha=0.3, s=10, c=gt_components, cmap="viridis")
+    ax_final_12.contour(X, Y, gt_dens_12, levels=8, colors="green", alpha=0.5, linestyles="--", linewidths=2)
     ax_final_12.contour(X, Y, final_dens_12, levels=8, colors="blue", alpha=0.6)
-    ax_final_12.set_title("Final: X1 vs X2 (X3=0)")
+    ax_final_12.set_title("Final vs GT: X1 vs X2 (X3=0)")
     ax_final_12.set_xlabel("X1")
     ax_final_12.set_ylabel("X2")
     ax_final_12.grid(True, alpha=0.3)
+    ax_final_12.legend(
+        [plt.Line2D([0], [0], color="green", linestyle="--", linewidth=2),
+         plt.Line2D([0], [0], color="blue", linewidth=1)],
+        ["Ground Truth", "Fitted"],
+        loc="upper right",
+        fontsize=8
+    )
 
     # X1-X3
     ax_final_13.scatter(samples[:, 0], samples[:, 2], alpha=0.3, s=10, c=gt_components, cmap="viridis")
+    ax_final_13.contour(X, Y, gt_dens_13, levels=8, colors="green", alpha=0.5, linestyles="--", linewidths=2)
     ax_final_13.contour(X, Y, final_dens_13, levels=8, colors="blue", alpha=0.6)
-    ax_final_13.set_title("Final: X1 vs X3 (X2=0)")
+    ax_final_13.set_title("Final vs GT: X1 vs X3 (X2=0)")
     ax_final_13.set_xlabel("X1")
     ax_final_13.set_ylabel("X3")
     ax_final_13.grid(True, alpha=0.3)
 
     # X2-X3
     ax_final_23.scatter(samples[:, 1], samples[:, 2], alpha=0.3, s=10, c=gt_components, cmap="viridis")
+    ax_final_23.contour(X, Y, gt_dens_23, levels=8, colors="green", alpha=0.5, linestyles="--", linewidths=2)
     ax_final_23.contour(X, Y, final_dens_23, levels=8, colors="blue", alpha=0.6)
-    ax_final_23.set_title("Final: X2 vs X3 (X1=0)")
+    ax_final_23.set_title("Final vs GT: X2 vs X3 (X1=0)")
     ax_final_23.set_xlabel("X2")
     ax_final_23.set_ylabel("X3")
     ax_final_23.grid(True, alpha=0.3)
