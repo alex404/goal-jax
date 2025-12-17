@@ -43,14 +43,12 @@ def test_sufficient_statistic(boltzmann: Boltzmann):
     """Test sufficient statistic is upper triangular outer product x ⊗ x."""
     state = jax.random.bernoulli(jax.random.PRNGKey(0), 0.5, (boltzmann.n_neurons,))
     suff_stat = boltzmann.sufficient_statistic(state)
-    expected = Symmetric().from_dense(jnp.outer(state, state))
+    expected = Symmetric().from_matrix(jnp.outer(state, state))
 
     assert jnp.allclose(suff_stat, expected, rtol=relative_tol, atol=absolute_tol)
 
 
-def test_log_partition_function(
-    boltzmann: Boltzmann, random_params: Array
-):
+def test_log_partition_function(boltzmann: Boltzmann, random_params: Array):
     """Test log partition function equals log(∑ exp(θ·s(x))) over all states."""
     log_Z = boltzmann.log_partition_function(random_params)
 
@@ -63,9 +61,7 @@ def test_log_partition_function(
     assert jnp.allclose(log_Z, log_Z_direct, rtol=relative_tol, atol=absolute_tol)
 
 
-def test_density_normalization(
-    boltzmann: Boltzmann, random_params: Array
-):
+def test_density_normalization(boltzmann: Boltzmann, random_params: Array):
     """Test densities sum to 1 over all binary states."""
     densities = jax.vmap(lambda s: boltzmann.density(random_params, s))(
         boltzmann.states

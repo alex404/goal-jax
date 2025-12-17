@@ -30,7 +30,7 @@ def generate_random_params(rep: MatrixRep, shape: tuple[int, int], key: Array) -
     if isinstance(rep, PositiveDefinite):
         # Generate valid PD matrix and convert to params
         ell = jax.random.normal(key, (n, n))
-        return rep.from_dense(ell @ ell.T)
+        return rep.from_matrix(ell @ ell.T)
     return jax.random.normal(key, (rep.num_params(shape),))
 
 
@@ -80,7 +80,7 @@ def test_embed_project_vs_dense():
 
                 # Via dense
                 dense = source_rep.to_matrix(shape, src_params)
-                via_dense = target_rep.from_dense(dense)
+                via_dense = target_rep.from_matrix(dense)
 
                 # Print test info
                 print(f"Source: {source_rep}, Embedding Target: {target_rep}")
