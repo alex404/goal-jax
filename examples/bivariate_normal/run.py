@@ -52,7 +52,7 @@ def compute_gaussian_results(
     iso_model = Normal(2, Scale())
 
     # Ground truth
-    gt_cov = pod_model.cov_man.from_dense(covariance)
+    gt_cov = pod_model.cov_man.from_matrix(covariance)
     gt_mean_point = pod_model.join_mean_covariance(mean, gt_cov)
 
     gt_natural_point = pod_model.to_natural(gt_mean_point)

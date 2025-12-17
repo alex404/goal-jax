@@ -287,7 +287,7 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
             lambda cod_emb: LinearComposedEmbedding(cod_emb, emb)
         )
 
-    def from_dense(self, matrix: Array) -> Array:
+    def from_matrix(self, matrix: Array) -> Array:
         """Create coordinates from dense 2D matrix (in internal dimensions).
 
         Args:
@@ -296,7 +296,7 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         Returns:
             Coordinates in this manifold's representation (1D array in storage format)
         """
-        return self.rep.from_dense(matrix)
+        return self.rep.from_matrix(matrix)
 
     def to_matrix(self, f_coords: Array) -> Array:
         """Convert to dense 2D matrix representation (in internal dimensions).

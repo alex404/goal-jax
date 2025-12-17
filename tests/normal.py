@@ -48,7 +48,7 @@ def ground_truth_params(
     ground_truth_normal: Normal,
 ) -> Array:
     """Create ground truth parameters in mean coordinates."""
-    gt_cov = ground_truth_normal.cov_man.from_dense(sampling_covariance)
+    gt_cov = ground_truth_normal.cov_man.from_matrix(sampling_covariance)
     mu = sampling_mean
     return ground_truth_normal.join_mean_covariance(mu, gt_cov)
 
@@ -145,7 +145,7 @@ def test_whiten(
     test_mean = jnp.array([3.0, -2.0])  # Different from ground truth
     test_cov_matrix = jnp.array([[1.5, 0.3], [0.3, 2.0]])  # Different from ground truth
 
-    test_cov_point = ground_truth_normal.cov_man.from_dense(test_cov_matrix)
+    test_cov_point = ground_truth_normal.cov_man.from_matrix(test_cov_matrix)
     test_dist = ground_truth_normal.join_mean_covariance(test_mean, test_cov_point)
 
     # Test 1: Whiten ground truth relative to itself should give standard normal
@@ -193,7 +193,7 @@ def test_whiten(
     third_mean = jnp.array([-1.0, 0.5])
     third_cov_matrix = jnp.array([[0.8, -0.1], [-0.1, 1.2]])
 
-    third_cov_point = ground_truth_normal.cov_man.from_dense(third_cov_matrix)
+    third_cov_point = ground_truth_normal.cov_man.from_matrix(third_cov_matrix)
     third_dist = ground_truth_normal.join_mean_covariance(third_mean, third_cov_point)
 
     # Whiten third_dist with respect to test_dist

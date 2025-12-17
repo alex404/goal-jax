@@ -112,7 +112,7 @@ def _matmat(
                     out_rep = (
                         Square() if out_shape[0] == out_shape[1] else Rectangular()
                     )
-                    out_params = out_rep.from_dense(out_dense)
+                    out_params = out_rep.from_matrix(out_dense)
         case _:
             # General matrix (Rectangular/Square/Symmetric/PositiveDefinite) multiplication
             match right_rep:
@@ -139,7 +139,7 @@ def _matmat(
                         Square() if out_shape[0] == out_shape[1] else Rectangular()
                     )
                     out_dense = left_dense @ right_dense
-                    out_params = out_rep.from_dense(out_dense)
+                    out_params = out_rep.from_matrix(out_dense)
     return out_rep, out_shape, out_params
 
 
@@ -209,7 +209,7 @@ class MatrixRep(ABC):
 
     @classmethod
     @abstractmethod
-    def from_dense(cls, matrix: Array) -> Array:
+    def from_matrix(cls, matrix: Array) -> Array:
         """Convert dense matrix to 1D parameters."""
 
     @classmethod
@@ -301,7 +301,7 @@ class Rectangular(MatrixRep):
 
     @classmethod
     @override
-    def from_dense(cls, matrix: Array) -> Array:
+    def from_matrix(cls, matrix: Array) -> Array:
         return matrix.reshape(-1)
 
     @classmethod
@@ -315,7 +315,7 @@ class Rectangular(MatrixRep):
     def outer_product(cls, v1: Array, v2: Array) -> Array:
         """Create parameters from outer product."""
         matrix = jnp.outer(v1, v2)
-        return cls.from_dense(matrix)
+        return cls.from_matrix(matrix)
 
     @classmethod
     @override
@@ -327,7 +327,7 @@ class Rectangular(MatrixRep):
         diag = jnp.diag(matrix)
         new_diag = f(diag)
         new_matrix = matrix.at[jnp.diag_indices(shape[0])].set(new_diag)
-        return cls.from_dense(new_matrix)
+        return cls.from_matrix(new_matrix)
 
     @classmethod
     @override
@@ -361,7 +361,7 @@ class Square(Rectangular):
     def inverse(cls, shape: tuple[int, int], params: Array) -> Array:
         matrix = cls.to_matrix(shape, params)
         inv = jnp.linalg.inv(matrix)
-        return cls.from_dense(inv)
+        return cls.from_matrix(inv)
 
     @classmethod
     def logdet(cls, shape: tuple[int, int], params: Array) -> Array:
@@ -407,7 +407,7 @@ class Symmetric(Square):
 
     @classmethod
     @override
-    def from_dense(cls, matrix: Array) -> Array:
+    def from_matrix(cls, matrix: Array) -> Array:
         n = matrix.shape[0]
         i_upper = jnp.triu_indices(n)
         return matrix[i_upper]
@@ -432,7 +432,7 @@ class Symmetric(Square):
         """Extract upper triangular parameters from full square matrix parameters."""
         n = shape[0]
         matrix = params.reshape(n, n)
-        return cls.from_dense(matrix)
+        return cls.from_matrix(matrix)
 
 
 class PositiveDefinite(Symmetric):
@@ -500,7 +500,7 @@ class PositiveDefinite(Symmetric):
         temp = jax.scipy.linalg.solve_triangular(chol, matrix1, lower=True)
         whitened_matrix = jax.scipy.linalg.solve_triangular(chol, temp.T, lower=True).T
 
-        return whitened_mean, cls.from_dense(whitened_matrix)
+        return whitened_mean, cls.from_matrix(whitened_matrix)
 
     @classmethod
     @override
@@ -521,7 +521,7 @@ class PositiveDefinite(Symmetric):
         # Solve L L^T x = I
         inv_chol = jax.scipy.linalg.solve_triangular(chol, eye, lower=True)
         inv = inv_chol.T @ inv_chol
-        return cls.from_dense(inv)
+        return cls.from_matrix(inv)
 
     @classmethod
     @override
@@ -577,7 +577,7 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     @override
-    def from_dense(cls, matrix: Array) -> Array:
+    def from_matrix(cls, matrix: Array) -> Array:
         return jnp.diag(matrix)
 
     @classmethod
@@ -686,7 +686,7 @@ class Scale(Diagonal):
 
     @classmethod
     @override
-    def from_dense(cls, matrix: Array) -> Array:
+    def from_matrix(cls, matrix: Array) -> Array:
         return jnp.array([jnp.mean(jnp.diag(matrix))])
 
     @classmethod
@@ -755,7 +755,7 @@ class Identity(Scale):
 
     @classmethod
     @override
-    def from_dense(cls, matrix: Array) -> Array:
+    def from_matrix(cls, matrix: Array) -> Array:
         _ = matrix
         return jnp.array([])
 

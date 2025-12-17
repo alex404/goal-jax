@@ -327,7 +327,7 @@ def differentiable_hmog(
     obs_dim: int,
     obs_rep: PositiveDefinite,
     lat_dim: int,
-    pst_lat_rep: PositiveDefinite,
+    pst_rep: PositiveDefinite,
     n_components: int,
 ) -> DifferentiableHMoG:
     """Create a differentiable hierarchical mixture of Gaussians model.
@@ -340,9 +340,9 @@ def differentiable_hmog(
     Uses full covariance Gaussians in the latent space.
     """
 
-    pst_y_man = Normal(lat_dim, pst_lat_rep)
+    pst_y_man = Normal(lat_dim, pst_rep)
     prr_y_man = Normal(lat_dim, PositiveDefinite())
-    lwr_hrm = NormalLGM(obs_dim, obs_rep, lat_dim, pst_lat_rep)
+    lwr_hrm = NormalLGM(obs_dim, obs_rep, lat_dim, pst_rep)
     mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
     pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
 

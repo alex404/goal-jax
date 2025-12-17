@@ -106,7 +106,7 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
         noise_scale = shape / jnp.sqrt(self.data_dim)
         big_l = noise_scale * jax.random.normal(key, (self.data_dim, self.data_dim))
         base_cov = jnp.eye(self.data_dim) + big_l @ big_l.T
-        return self.from_dense(base_cov)
+        return self.from_matrix(base_cov)
 
     # Methods
 
@@ -297,7 +297,7 @@ class Normal(
         # Add multiplicative noise to second moment
         noise = shape * jax.random.normal(key_cov, (self.data_dim, self.data_dim))
         noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
-        noise_matrix = self.cov_man.from_dense(noise)
+        noise_matrix = self.cov_man.from_matrix(noise)
         second_moment = second_moment * noise_matrix
 
         # Join parameters and convert to natural coordinates
@@ -595,7 +595,7 @@ class Normal(
         """
         return self.join_mean_covariance(
             jnp.zeros(self.data_dim),
-            self.cov_man.from_dense(jnp.eye(self.data_dim)),
+            self.cov_man.from_matrix(jnp.eye(self.data_dim)),
         )
 
     def statistical_mean(self, params: Array) -> Array:

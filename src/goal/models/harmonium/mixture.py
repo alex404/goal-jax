@@ -291,7 +291,7 @@ class CompleteMixture[Observable: Differentiable](
         projected_comps = cmp_man_minus.map(to_interaction, components[1:])
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.rep.from_dense(projected_comps.T)
+        int_mat = self.int_man.rep.from_matrix(projected_comps.T)
         lkl_params = self.lkl_fun_man.join_coords(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
@@ -347,6 +347,6 @@ class AnalyticMixture[Observable: Analytic](
         int_cols = cmp_man1.map(to_interaction, nat_comps[1:])
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.rep.from_dense(int_cols.T)
+        int_mat = self.int_man.rep.from_matrix(int_cols.T)
 
         return self.lkl_fun_man.join_coords(obs_bias, int_mat)

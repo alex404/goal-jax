@@ -339,7 +339,7 @@ class NormalLGM(
     lat_dim: int
     """Dimension of the latent variables."""
 
-    pst_lat_rep: PositiveDefinite
+    pst_rep: PositiveDefinite
 
     # Overrides
 
@@ -347,7 +347,7 @@ class NormalLGM(
     @override
     def pst_man(self) -> Normal:
         """Override to construct directly from fields, avoiding circular dependency."""
-        return Normal(self.lat_dim, self.pst_lat_rep)
+        return Normal(self.lat_dim, self.pst_rep)
 
     @property
     @override
@@ -415,7 +415,7 @@ class NormalLGM(
             obs_dim=self.obs_man.data_dim,
             obs_rep=PositiveDefinite(),
             lat_dim=lat_dim,
-            pst_lat_rep=PositiveDefinite(),
+            pst_rep=PositiveDefinite(),
         )
         obs_params, int_params, lat_params = self.split_coords(params)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
@@ -432,7 +432,7 @@ class NormalLGM(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
         return nor_man.join_location_precision(
-            nor_loc, nor_man.cov_man.from_dense(joint_shape_array)
+            nor_loc, nor_man.cov_man.from_matrix(joint_shape_array)
         )
 
 
@@ -493,7 +493,7 @@ class NormalAnalyticLGM(
             obs_dim=obs_dim,
             obs_rep=obs_rep,
             lat_dim=lat_dim,
-            pst_lat_rep=PositiveDefinite(),
+            pst_rep=PositiveDefinite(),
         )
 
     @property
@@ -543,7 +543,7 @@ class NormalAnalyticLGM(
             lat_prs,
         )
 
-        shaped_cob = ocm.from_dense(cob_man.to_matrix(cob))
+        shaped_cob = ocm.from_matrix(cob_man.to_matrix(cob))
         obs_prs = ocm.inverse(obs_cov - shaped_cob)
         sizes = (
             ocm.matrix_shape[0],
@@ -638,7 +638,7 @@ class FactorAnalysis(NormalAnalyticLGM):
             obs_prs = om.split_location_precision(obs_params)[1]
             dns_prs = om.cov_man.to_matrix(obs_prs)
 
-        int_mat = self.int_man.from_dense(dns_prs @ loadings)
+        int_mat = self.int_man.from_matrix(dns_prs @ loadings)
 
         # Combine parameters
         lkl_params = self.lkl_fun_man.join_coords(obs_params, int_mat)
@@ -751,7 +751,7 @@ def _change_of_basis(
         cov_man = Covariance(fgf_sizes[0], fgf_rep)
     else:
         cov_man = Covariance(fgf_sizes[0], PositiveDefinite())
-        fgf_params = cov_man.from_dense(
+        fgf_params = cov_man.from_matrix(
             fgf_rep.to_matrix(cov_man.matrix_shape, fgf_params)
         )
     return cov_man, fgf_params

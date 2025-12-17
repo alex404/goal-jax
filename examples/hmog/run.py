@@ -71,7 +71,7 @@ def create_ground_truth_model() -> tuple[
         # NB: Multiplying the interaction parameters by the observable precision makes them scale more intuitively
         int_mat0 = jnp.array([1.0, 0.0])
         obs_prs = om.split_location_precision(obs_natural_params)[1]
-        int_mat = hmog.int_man.from_dense(om.cov_man.to_matrix(obs_prs) @ int_mat0)
+        int_mat = hmog.int_man.from_matrix(om.cov_man.to_matrix(obs_prs) @ int_mat0)
 
     lkl_params = hmog.lkl_fun_man.join_coords(obs_natural_params, int_mat)
 

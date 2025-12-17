@@ -44,7 +44,7 @@ def create_ground_truth_parameters(
     component_list: list[Array] = []
     for mean, cov in zip(means, covs):
         with mix_man.obs_man as nm:
-            cov_mat = nm.cov_man.from_dense(cov)
+            cov_mat = nm.cov_man.from_matrix(cov)
             mean_params = nm.join_mean_covariance(mean, cov_mat)
             component_list.append(mean_params)
 

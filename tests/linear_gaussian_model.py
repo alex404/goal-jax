@@ -74,7 +74,7 @@ def ground_truth_params(
     )
 
     mu = joint_mean
-    cov = ground_truth_normal.cov_man.from_dense(joint_cov)
+    cov = ground_truth_normal.cov_man.from_matrix(joint_cov)
     return ground_truth_normal.join_mean_covariance(mu, cov)
 
 
