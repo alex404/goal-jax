@@ -88,10 +88,14 @@ class Mixture[Observable: Differentiable](
         statistics outside the interaction submanifold are irreversibly lost (aggregated into
         observable biases). This is mathematically correct for mean coordinates but makes
         the operation non-invertible without additional information.
+
+        Args:
+            components: Flat 1D array of component parameters (shape ``[n_categories * obs_dim]``)
+            weights: Categorical weights
         """
         probs = self.pst_man.to_probs(weights)
 
-        comps_2d = components.reshape([self.n_categories, self.obs_man.dim])
+        comps_2d = self.cmp_man.to_2d(components)
         weighted_comps = comps_2d * probs[:, None]
 
         obs_means = jnp.sum(weighted_comps, axis=0)
@@ -141,6 +145,10 @@ class Mixture[Observable: Differentiable](
 
         This operation is invertible for general $\\text{IntObservable} \\subsetneq \\text{Observable}$
         because zero-padding in natural space preserves the exponential family structure.
+
+        Returns:
+            Tuple of (components, prior) where components is a flat 1D array of shape
+            ``[n_categories * obs_dim]`` representing parameters on ``cmp_man``.
         """
 
         lkl_params, prr_params = self.split_conjugated(natural_params)
@@ -155,8 +163,8 @@ class Mixture[Observable: Differentiable](
 
         translated = jax.vmap(translate_col)(int_cols)
 
-        # Stack with first component
-        components = jnp.vstack([obs_bias[None, :], translated])
+        # Stack with first component and flatten to match cmp_man convention
+        components = jnp.vstack([obs_bias[None, :], translated]).ravel()
 
         return components, prr_params
 
@@ -240,6 +248,10 @@ class CompleteMixture[Observable: Differentiable](
         Since `join_mean_mixture` projects component statistics to the interaction submanifold,
         information outside that submanifold is irreversibly lost. Only when the full Observable
         space is used for interactions can the decomposition perfectly invert the join operation.
+
+        Returns:
+            Tuple of (components, weights) where components is a flat 1D array of shape
+            ``[n_categories * obs_dim]`` representing parameters on ``cmp_man``.
         """
         obs_means, int_means, cat_means = self.split_coords(means)
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
@@ -257,8 +269,8 @@ class CompleteMixture[Observable: Differentiable](
         # shape: (n_categories-1, obs_dim)
         other_comps = int_cols / probs[1:, None]
 
-        # Combine components - shape: (n_categories, obs_dim)
-        components = jnp.vstack([first_comp[None, :], other_comps])
+        # Combine components and flatten to match cmp_man convention
+        components = jnp.vstack([first_comp[None, :], other_comps]).ravel()
 
         return components, cat_means
 
@@ -277,18 +289,24 @@ class CompleteMixture[Observable: Differentiable](
 
         Algorithm: Uses the first component as an anchor, storing differences in the
         interaction matrix: $\\Theta_{XZ,k} = \\theta_k - \\theta_0$.
+
+        Args:
+            components: Flat 1D array of component parameters (shape ``[n_categories * obs_dim]``)
+            prior: Prior parameters for categorical distribution
         """
         # Get anchor (first component) - shape: (obs_dim,)
-        obs_bias = components[0]
+        obs_bias = self.cmp_man.get_replicate(components, 0)
 
-        def to_interaction(
-            comp: Array,
-        ) -> Array:
+        def to_interaction(comp: Array) -> Array:
             return comp - obs_bias
+
+        # Get remaining components (flat 1D)
+        remaining_start = self.obs_man.dim
+        components_rest = components[remaining_start:]
 
         cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, obs_dim)
-        projected_comps = cmp_man_minus.map(to_interaction, components[1:])
+        projected_comps = cmp_man_minus.map(to_interaction, components_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
         int_mat = self.int_man.rep.from_matrix(projected_comps.T)
@@ -323,28 +341,28 @@ class AnalyticMixture[Observable: Analytic](
         2. Convert each component mean parameter to natural parameters
         3. Compute differences relative to first component (interaction matrix)
         """
-        # Get component means - shape: (n_categories, obs_dim)
+        # Get component means (flat 1D)
         comp_means, _ = self.split_mean_mixture(means)
 
-        # Convert each component to natural parameters
+        # Convert each component to natural parameters (flat 1D)
         def to_natural(mean: Array) -> Array:
             return self.obs_man.to_natural(mean)
 
-        # nat_comps shape: (n_categories, obs_dim)
-        nat_comps = self.cmp_man.map(to_natural, comp_means)
+        nat_comps = self.cmp_man.map(to_natural, comp_means, flatten=True)
 
         # Get anchor (first component) - shape: (obs_dim,)
-        obs_bias = nat_comps[0]
+        obs_bias = self.cmp_man.get_replicate(nat_comps, 0)
 
-        def to_interaction(
-            nat: Array,
-        ) -> Array:
+        def to_interaction(nat: Array) -> Array:
             return nat - obs_bias
 
         # Convert remaining components to interactions
+        remaining_start = self.obs_man.dim
+        nat_comps_rest = nat_comps[remaining_start:]
+
         cmp_man1 = replace(self.cmp_man, n_reps=self.n_categories - 1)
         # int_cols shape: (n_categories-1, obs_dim)
-        int_cols = cmp_man1.map(to_interaction, nat_comps[1:])
+        int_cols = cmp_man1.map(to_interaction, nat_comps_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
         int_mat = self.int_man.rep.from_matrix(int_cols.T)

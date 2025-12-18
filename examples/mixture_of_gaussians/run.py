@@ -48,8 +48,8 @@ def create_ground_truth_parameters(
             mean_params = nm.join_mean_covariance(mean, cov_mat)
             component_list.append(mean_params)
 
-    # Stack rows
-    components = jnp.stack(component_list)
+    # Concatenate components into flat 1D array [n_categories * obs_dim]
+    components = jnp.concatenate(component_list)
 
     weights = jnp.array([0.35, 0.25])
 
@@ -64,14 +64,14 @@ def goal_to_sklearn_mixture(
     # Convert to mean coordinates first
     mean_mixture = mix_man.to_mean(goal_mixture)
 
-    # Split into components and weights
+    # Split into components and weights (components is flat 1D)
     components, weights = mix_man.split_mean_mixture(mean_mixture)
 
     # Get component means and covariances
     means = []
     covariances: list[Array] = []
-    for i in range(components.shape[0]):
-        comp = components[i]
+    for i in range(mix_man.cmp_man.n_reps):
+        comp = mix_man.cmp_man.get_replicate(components, i)
         mean, cov = mix_man.obs_man.split_mean_covariance(comp)
         means.append(mean)
         covariances.append(mix_man.obs_man.cov_man.to_matrix(cov))
@@ -80,7 +80,7 @@ def goal_to_sklearn_mixture(
     mixing_weights = mix_man.lat_man.to_probs(weights)
 
     # Create and configure sklearn model
-    n_components = len(components)
+    n_components = mix_man.cmp_man.n_reps
 
     sklearn_mixture = GaussianMixture(
         n_components=n_components,

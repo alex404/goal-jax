@@ -55,8 +55,8 @@ def create_ground_truth_model() -> tuple[
             jnp.array([1.0]),
         )
 
-        # components = mix_man.cmp_man.mean_point(jnp.stack(component_list))
-        components = jnp.stack([y0_means, y1_means])
+        # Components must be flat 1D array [n_categories * obs_dim]
+        components = jnp.concatenate([y0_means, y1_means])
         mix_mean_params = um.join_mean_mixture(components, cat_mean_params)
         mix_natural_params = um.to_natural(mix_mean_params)
 

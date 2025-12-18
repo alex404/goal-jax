@@ -167,9 +167,10 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             Initialized natural parameters
         """
         keys = jax.random.split(key, self.n_reps)
-        return jax.vmap(self.rep_man.initialize, in_axes=(0, None, None))(
+        params_2d = jax.vmap(self.rep_man.initialize, in_axes=(0, None, None))(
             keys, location, shape
-        ).reshape(-1)
+        )
+        return self.to_1d(params_2d)
 
     @override
     def initialize_from_sample(
@@ -201,7 +202,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             )
 
         init_params = jax.vmap(init_one)(keys, rep_datas)
-        return init_params.reshape(-1)
+        return self.to_1d(init_params)
 
     def statistical_mean(self, params: Array) -> Array:
         """Compute the mean of the product distribution.
@@ -221,7 +222,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
             )
 
         # Map the mean computation across all replicates
-        return self.map(self.rep_man.statistical_mean, params).ravel()
+        return self.map(self.rep_man.statistical_mean, params, flatten=True)
 
     def statistical_covariance(self, params: Array) -> Array:
         """Compute the covariance of the product distribution (block diagonal).
@@ -281,13 +282,13 @@ class GenerativeProduct[M: Differentiable](Product[M], Generative):
             Array of n samples
         """
         rep_keys = jax.random.split(key, self.n_reps)
-        params_reshaped = params.reshape(self.n_reps, -1)
+        params_2d = self.to_2d(params)
 
         def sample_rep(rep_key: Array, rep_params: Array) -> Array:
             return self.rep_man.sample(rep_key, rep_params, n)
 
         # samples dimensions: (n_reps, n_batch, data_dim)
-        samples = jax.vmap(sample_rep)(rep_keys, params_reshaped)
+        samples = jax.vmap(sample_rep)(rep_keys, params_2d)
         # return dimensions: (n_batch, n_reps * data_dim)
         return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 

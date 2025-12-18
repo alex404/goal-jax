@@ -199,19 +199,76 @@ class Replicated[M: Manifold](Manifold):
         end = start + self.rep_man.dim
         return coords[start:end]
 
-    def map(self, f: Callable[[Array], Array], coords: Array) -> Array:
-        """Map a function across replicates, returning stacked array results.
+    def to_2d(self, coords: Array) -> Array:
+        """Convert flat coordinates to 2D array for easier indexing.
+
+        Args:
+            coords: Flat array of replicated coordinates (shape ``[n_reps * rep_man.dim]``)
+
+        Returns:
+            2D array with shape ``[n_reps, rep_man.dim]``
+
+        Raises:
+            ValueError: If input is not 1D or has wrong size
+        """
+        if coords.ndim != 1:
+            raise ValueError(
+                f"to_2d expects 1D array, got shape {coords.shape}. Array is already {coords.ndim}D."
+            )
+        expected_size = self.n_reps * self.rep_man.dim
+        if coords.size != expected_size:
+            raise ValueError(
+                f"to_2d expects array of size {expected_size} (n_reps={self.n_reps} * rep_man.dim={self.rep_man.dim}), got size {coords.size}"
+            )
+        return coords.reshape([self.n_reps, self.rep_man.dim])
+
+    def to_1d(self, array: Array) -> Array:
+        """Convert 2D array to flat coordinates.
+
+        Args:
+            array: 2D array with shape ``[n_reps, rep_man.dim]``
+
+        Returns:
+            Flat array of replicated coordinates (shape ``[n_reps * rep_man.dim]``)
+
+        Raises:
+            ValueError: If input is not 2D or has wrong shape
+        """
+        if array.ndim != 2:
+            raise ValueError(
+                f"to_1d expects 2D array, got shape {array.shape}. Array is already {array.ndim}D."
+            )
+        expected_shape = (self.n_reps, self.rep_man.dim)
+        if array.shape != expected_shape:
+            raise ValueError(
+                f"to_1d expects array of shape {expected_shape}, got {array.shape}"
+            )
+        return array.ravel()
+
+    def map(
+        self,
+        f: Callable[[Array], Array],
+        coords: Array,
+        flatten: bool = False,
+    ) -> Array:
+        """Map a function across replicates.
+
+        By default, returns stacked 2D results for easier indexing and inspection.
+        Use ``flatten=True`` when the result should be flat coordinates on another manifold.
 
         Args:
             f: Function that takes coordinates for one replicate (shape ``[rep_man.dim]``)
-            coords: Array of replicated coordinates (flat, shape ``[n_reps * rep_man.dim]``)
+            coords: Flat array of replicated coordinates (shape ``[n_reps * rep_man.dim]``)
+            flatten: If True, return flat array ``[n_reps * f_result_dim]``.
+                     If False (default), return stacked array ``[n_reps, *f_result_shape]``
+                     for easier indexing and inspection.
 
         Returns:
-            Stacked results with shape ``[n_reps, *f_result_shape]``
+            Stacked 2D array by default, or flat 1D array if ``flatten=True``
         """
-        # Reshape from flat to [n_reps, rep_man.dim] for vmap
-        shaped_coords = coords.reshape([self.n_reps, self.rep_man.dim])
-        return jax.vmap(f)(shaped_coords)
+        shaped = coords.reshape([self.n_reps, self.rep_man.dim])
+        result = jax.vmap(f)(shaped)
+        return result.ravel() if flatten else result
 
     # Overrides
 
