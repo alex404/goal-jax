@@ -35,6 +35,6 @@ class MFAResults(TypedDict):
     final_density_x1x3: list[list[float]]
     final_density_x2x3: list[list[float]]
 
-    # Component responsibilities (posterior over components given data)
-    ground_truth_responsibilities: list[list[float]]  # (n_samples, n_components)
-    final_responsibilities: list[list[float]]  # (n_samples, n_components)
+    # Posterior assignments (posterior probabilities over components given data)
+    ground_truth_assignments: list[list[float]]  # (n_samples, n_components)
+    final_assignments: list[list[float]]  # (n_samples, n_components)

@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import Optimizer, OptState
-from goal.models import FactorAnalysis
+from goal.models import FactorAnalysis, Normal
 from goal.models.graphical.mixture import MixtureOfConjugated
 
 from ..shared import example_paths, initialize_jax
@@ -143,7 +143,7 @@ def create_ground_truth_samples(
     # Sample from each component
     keys_sample = jax.random.split(key_sample, sample_size)
 
-    def sample_one(key_i: Array, component: int) -> Array:
+    def sample_one(key_i: Array, component: Array) -> Array:
         """Sample one observation from the appropriate component."""
         # Sample from component 0 or 1
         sample_0 = fa1.observable_sample(key_i, fa1_params, 1)[0]
@@ -175,7 +175,7 @@ def create_ground_truth_samples(
 
 def fit_mfa(
     key: Array,
-    mfa: MixtureOfConjugated,
+    mfa: MixtureOfConjugated[Normal, Normal],
     n_steps: int,
     sample: Array,
     learning_rate: float = 1e-3,
@@ -195,7 +195,7 @@ def fit_mfa(
     init_params = mfa.initialize_from_sample(key, sample)
 
     # Create optimizer
-    optimizer: Optimizer[MixtureOfConjugated] = Optimizer.adamw(
+    optimizer: Optimizer[MixtureOfConjugated[Normal, Normal]] = Optimizer.adamw(
         man=mfa, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_params)
@@ -318,22 +318,43 @@ def compute_marginals_from_components(
 ) -> tuple[Array, Array, Array]:
     """Compute marginals from known FA components."""
     dens_x1x2 = compute_marginal_density_2d(
-        loadings_1, means_1, diags_1, loadings_2, means_2, diags_2,
-        mixing_weights, x_range, dims=(0, 1)
+        loadings_1,
+        means_1,
+        diags_1,
+        loadings_2,
+        means_2,
+        diags_2,
+        mixing_weights,
+        x_range,
+        dims=(0, 1),
     )
     dens_x1x3 = compute_marginal_density_2d(
-        loadings_1, means_1, diags_1, loadings_2, means_2, diags_2,
-        mixing_weights, x_range, dims=(0, 2)
+        loadings_1,
+        means_1,
+        diags_1,
+        loadings_2,
+        means_2,
+        diags_2,
+        mixing_weights,
+        x_range,
+        dims=(0, 2),
     )
     dens_x2x3 = compute_marginal_density_2d(
-        loadings_1, means_1, diags_1, loadings_2, means_2, diags_2,
-        mixing_weights, x_range, dims=(1, 2)
+        loadings_1,
+        means_1,
+        diags_1,
+        loadings_2,
+        means_2,
+        diags_2,
+        mixing_weights,
+        x_range,
+        dims=(1, 2),
     )
     return dens_x1x2, dens_x1x3, dens_x2x3
 
 
 def compute_marginals_from_mfa(
-    mfa: MixtureOfConjugated,
+    mfa: MixtureOfConjugated[Normal, Normal],
     mfa_params: Array,
     x_range: Array,
 ) -> tuple[Array, Array, Array]:
@@ -358,7 +379,8 @@ def compute_marginals_from_mfa(
 
         def marginal_at_point(point_2d: Array) -> Array:
             """Integrate p(x1, x2, x3) over x_marg."""
-            def density_at_marg(x_marg: float) -> Array:
+
+            def density_at_marg(x_marg: Array) -> Array:
                 # Construct full 3D point
                 point_3d = jnp.zeros(3)
                 point_3d = point_3d.at[dims[0]].set(point_2d[0])
@@ -388,12 +410,12 @@ def compute_marginals_from_mfa(
 ### Responsibility Computation ###
 
 
-def compute_responsibilities(
-    mfa: MixtureOfConjugated,
+def compute_posterior_assignments(
+    mfa: MixtureOfConjugated[Normal, Normal],
     params: Array,
     samples: Array,
 ) -> Array:
-    """Compute posterior responsibilities p(z|x) for each sample.
+    """Compute posterior assignment probabilities p(z|x) for each sample.
 
     Parameters
     ----------
@@ -406,29 +428,10 @@ def compute_responsibilities(
 
     Returns
     -------
-    responsibilities : Array
-        Posterior probabilities (n_samples, n_components)
+    assignments : Array
+        Posterior assignment probabilities (n_samples, n_components)
     """
-
-    def get_responsibilities_one(x: Array) -> Array:
-        """Get responsibilities for one sample."""
-        # Compute posterior latent parameters
-        posterior_params = mfa.posterior_at(params, x)
-
-        # Split CompleteMixture coordinates
-        # CompleteMixture has structure: (observable_params, interaction_params, categorical_params)
-        obs_lat, int_lat, cat_lat = mfa.lat_man.split_coords(posterior_params)
-
-        # Convert categorical natural parameters to probabilities
-        # cat_lat is in natural coordinates for Categorical
-        # For 2 components, cat_lat is 1D (n_categories - 1,)
-        # Convert to probabilities using softmax
-        cat_natural = jnp.concatenate([cat_lat, jnp.array([0.0])])  # Add reference
-        probs = jax.nn.softmax(cat_natural)
-
-        return probs
-
-    return jax.vmap(get_responsibilities_one)(samples)
+    return jax.vmap(mfa.posterior_assignments, in_axes=(None, 0))(params, samples)
 
 
 ### Main Analysis ###
@@ -468,10 +471,10 @@ def compute_mfa_results(
         samples,
         gt_components,
         gt_mfa_params,
-        fa1,
-        fa2,
-        fa1_params,
-        fa2_params,
+        _fa1,
+        _fa2,
+        _fa1_params,
+        _fa2_params,
         mixing_probs,
         loadings_1,
         means_1,
@@ -491,19 +494,30 @@ def compute_mfa_results(
 
     # Compute marginal densities for ground truth using true FA components (analytical)
     gt_x1x2, gt_x1x3, gt_x2x3 = compute_marginals_from_components(
-        loadings_1, means_1, diags_1, loadings_2, means_2, diags_2, mixing_probs, x_range
+        loadings_1,
+        means_1,
+        diags_1,
+        loadings_2,
+        means_2,
+        diags_2,
+        mixing_probs,
+        x_range,
     )
 
     # Compute marginal densities for fitted models by numerically integrating MFA density
     print("Computing initial marginals...")
-    init_x1x2, init_x1x3, init_x2x3 = compute_marginals_from_mfa(mfa, init_params, x_range)
+    init_x1x2, init_x1x3, init_x2x3 = compute_marginals_from_mfa(
+        mfa, init_params, x_range
+    )
 
     print("Computing final marginals...")
-    final_x1x2, final_x1x3, final_x2x3 = compute_marginals_from_mfa(mfa, final_params, x_range)
+    final_x1x2, final_x1x3, final_x2x3 = compute_marginals_from_mfa(
+        mfa, final_params, x_range
+    )
 
-    # Compute responsibilities
-    gt_responsibilities = jnp.eye(2)[gt_components]  # One-hot encode ground truth
-    final_responsibilities = compute_responsibilities(mfa, final_params, samples)
+    # Compute posterior assignments
+    gt_assignments = jnp.eye(2)[gt_components]  # One-hot encode ground truth
+    final_assignments = compute_posterior_assignments(mfa, final_params, samples)
 
     # Compute ground truth log likelihood (using true ground truth params)
     gt_ll = mfa.average_log_observable_density(gt_mfa_params, samples)
@@ -523,8 +537,8 @@ def compute_mfa_results(
         final_density_x1x2=final_x1x2.tolist(),
         final_density_x1x3=final_x1x3.tolist(),
         final_density_x2x3=final_x2x3.tolist(),
-        ground_truth_responsibilities=gt_responsibilities.tolist(),
-        final_responsibilities=final_responsibilities.tolist(),
+        ground_truth_assignments=gt_assignments.tolist(),
+        final_assignments=final_assignments.tolist(),
     )
 
 

@@ -121,8 +121,8 @@ def create_mfa_plots(results: MFAResults) -> Figure:
     ax_final_23.grid(True, alpha=0.3)
 
     # Plot component assignments (predicted vs ground truth)
-    final_resp = np.array(results["final_responsibilities"])
-    pred_components = np.argmax(final_resp, axis=1)
+    final_assignments = np.array(results["final_assignments"])
+    pred_components = np.argmax(final_assignments, axis=1)
 
     # Compute accuracy
     accuracy = np.mean(pred_components == gt_components)

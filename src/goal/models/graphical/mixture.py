@@ -301,3 +301,37 @@ class MixtureOfConjugated[
         # Join into complete mixture coordinates
         # rho_yz has shape (n_categories-1, lat_dim), need to flatten to ((n_categories-1) * lat_dim,)
         return self.lat_man.join_coords(rho_y, rho_yz.ravel(), rho_z)
+
+    def posterior_categorical(self, params: Array, x: Array) -> Array:
+        """Compute posterior categorical distribution p(Z|x) in natural coordinates.
+
+        Returns the natural parameters of the categorical distribution over
+        mixture components given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components-1,) with categorical natural parameters
+        """
+        # Compute posterior harmonium parameters
+        posterior = self.posterior_at(params, x)
+
+        return self.lat_man.prior(posterior)
+
+    def posterior_assignments(self, params: Array, x: Array) -> Array:
+        """Compute posterior assignment probabilities p(Z|x).
+
+        Returns the posterior probability distribution over mixture components,
+        often called "responsibilities" in EM literature.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components,) giving p(z_k|x) for each component k
+        """
+        cat_natural = self.posterior_categorical(params, x)
+        return self.lat_man.lat_man.to_probs(cat_natural)
