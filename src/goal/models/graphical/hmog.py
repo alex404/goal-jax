@@ -151,6 +151,41 @@ class DifferentiableHMoG(
             self.lwr_hrm, self.prr_upr_hrm, lkl_params
         )
 
+    def posterior_categorical(self, params: Array, x: Array) -> Array:
+        """Compute posterior categorical distribution p(Z|x) in natural coordinates.
+
+        Returns the natural parameters of the categorical distribution over
+        mixture components in the latent space given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components-1,) with categorical natural parameters
+        """
+        # Compute posterior latent mixture
+        posterior = self.posterior_at(params, x)
+
+        # Extract categorical marginal from the mixture
+        return self.pst_upr_hrm.prior(posterior)
+
+    def posterior_assignments(self, params: Array, x: Array) -> Array:
+        """Compute posterior assignment probabilities p(Z|x).
+
+        Returns the posterior probability distribution over mixture components
+        in the latent space given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components,) giving p(z_k|x) for each component k
+        """
+        cat_natural = self.posterior_categorical(params, x)
+        return self.pst_upr_hrm.lat_man.to_probs(cat_natural)
+
 
 @dataclass(frozen=True)
 class SymmetricHMoG(
@@ -224,6 +259,41 @@ class SymmetricHMoG(
         return hierarchical_conjugation_parameters(
             self.lwr_hrm, self.upr_hrm, lkl_params
         )
+
+    def posterior_categorical(self, params: Array, x: Array) -> Array:
+        """Compute posterior categorical distribution p(Z|x) in natural coordinates.
+
+        Returns the natural parameters of the categorical distribution over
+        mixture components in the latent space given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components-1,) with categorical natural parameters
+        """
+        # Compute posterior latent mixture
+        posterior = self.posterior_at(params, x)
+
+        # Extract categorical marginal from the mixture
+        return self.upr_hrm.prior(posterior)
+
+    def posterior_assignments(self, params: Array, x: Array) -> Array:
+        """Compute posterior assignment probabilities p(Z|x).
+
+        Returns the posterior probability distribution over mixture components
+        in the latent space given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components,) giving p(z_k|x) for each component k
+        """
+        cat_natural = self.posterior_categorical(params, x)
+        return self.upr_hrm.lat_man.to_probs(cat_natural)
 
 
 @dataclass(frozen=True)
@@ -318,6 +388,41 @@ class AnalyticHMoG(
         return hierarchical_to_natural_likelihood(
             self, self.lwr_hrm, self.upr_hrm, means
         )
+
+    def posterior_categorical(self, params: Array, x: Array) -> Array:
+        """Compute posterior categorical distribution p(Z|x) in natural coordinates.
+
+        Returns the natural parameters of the categorical distribution over
+        mixture components in the latent space given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components-1,) with categorical natural parameters
+        """
+        # Compute posterior latent mixture
+        posterior = self.posterior_at(params, x)
+
+        # Extract categorical marginal from the mixture
+        return self.upr_hrm.prior(posterior)
+
+    def posterior_assignments(self, params: Array, x: Array) -> Array:
+        """Compute posterior assignment probabilities p(Z|x).
+
+        Returns the posterior probability distribution over mixture components
+        in the latent space given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components,) giving p(z_k|x) for each component k
+        """
+        cat_natural = self.posterior_categorical(params, x)
+        return self.upr_hrm.lat_man.to_probs(cat_natural)
 
 
 ## Factory Functions ##
