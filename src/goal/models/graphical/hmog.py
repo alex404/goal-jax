@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import override
 
+import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
@@ -170,7 +171,7 @@ class DifferentiableHMoG(
         # Extract categorical marginal from the mixture
         return self.pst_upr_hrm.prior(posterior)
 
-    def posterior_assignments(self, params: Array, x: Array) -> Array:
+    def posterior_soft_assignments(self, params: Array, x: Array) -> Array:
         """Compute posterior assignment probabilities p(Z|x).
 
         Returns the posterior probability distribution over mixture components
@@ -185,6 +186,22 @@ class DifferentiableHMoG(
         """
         cat_natural = self.posterior_categorical(params, x)
         return self.pst_upr_hrm.lat_man.to_probs(cat_natural)
+
+    def posterior_hard_assignment(self, params: Array, x: Array) -> Array:
+        """Compute hard posterior assignments p(Z|x).
+
+        Returns the index of the most probable mixture component
+        in the latent space given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Integer index of the most probable component
+        """
+        soft_assignments = self.posterior_soft_assignments(params, x)
+        return jnp.argmax(soft_assignments)
 
 
 @dataclass(frozen=True)

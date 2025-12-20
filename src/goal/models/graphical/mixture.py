@@ -320,7 +320,7 @@ class MixtureOfConjugated[
 
         return self.lat_man.prior(posterior)
 
-    def posterior_assignments(self, params: Array, x: Array) -> Array:
+    def posterior_soft_assignments(self, params: Array, x: Array) -> Array:
         """Compute posterior assignment probabilities p(Z|x).
 
         Returns the posterior probability distribution over mixture components,
@@ -335,3 +335,19 @@ class MixtureOfConjugated[
         """
         cat_natural = self.posterior_categorical(params, x)
         return self.lat_man.lat_man.to_probs(cat_natural)
+
+    def posterior_hard_assignment(self, params: Array, x: Array) -> Array:
+        """Compute hard assignment to most probable mixture component.
+
+        Returns the index of the mixture component with the highest posterior
+        probability given the observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Integer Array giving index of most probable component
+        """
+        soft_assignments = self.posterior_soft_assignments(params, x)
+        return jnp.argmax(soft_assignments)
