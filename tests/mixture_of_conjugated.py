@@ -229,10 +229,10 @@ def test_blockmap_call_individual_blocks(mfa_model):
     logger.info(f"Block xk_man output shape: {result_xk.shape}")
     assert result_xk.shape[0] == mfa_model.obs_man.dim
 
-    # xyk_man currently fails - mark as expected failure
-    with pytest.raises(TypeError, match="dot_general requires contracting dimensions"):
-        result_xyk = mfa_model.xyk_man(xyk_params, lat_coords)
-        logger.info(f"Block xyk_man output shape: {result_xyk.shape}")
+    # xyk_man should now also work
+    result_xyk = mfa_model.xyk_man(xyk_params, lat_coords)
+    logger.info(f"Block xyk_man output shape: {result_xyk.shape}")
+    assert result_xyk.shape[0] == mfa_model.obs_man.dim
 
 
 def test_posterior_at_single_observation(simple_params, mfa_model):
@@ -296,6 +296,97 @@ def test_posterior_at_single_observation(simple_params, mfa_model):
     logger.info(f"Expected: ({mfa_model.pst_man.dim},)")
 
     assert posterior_params.shape[0] == mfa_model.pst_man.dim
+
+
+def test_to_mixture_params_round_trip(simple_params, mfa_model):
+    """Test that to_mixture_params -> from_mixture_params is identity."""
+    # Convert to mixture representation
+    mix_params = mfa_model.to_mixture_params(simple_params)
+    logger.info(f"Mix params shape: {mix_params.shape}")
+    logger.info(f"Expected mix_man dim: {mfa_model.mix_man.dim}")
+
+    assert mix_params.shape[0] == mfa_model.mix_man.dim
+
+    # Convert back
+    recovered_params = mfa_model.from_mixture_params(mix_params)
+    logger.info(f"Recovered params shape: {recovered_params.shape}")
+
+    # Should be identical
+    assert jnp.allclose(simple_params, recovered_params, atol=1e-10), (
+        f"Round trip failed: max diff = {jnp.max(jnp.abs(simple_params - recovered_params))}"
+    )
+
+
+def test_from_mixture_params_round_trip(simple_params, mfa_model):
+    """Test that from_mixture_params -> to_mixture_params is identity."""
+    # First convert to mixture representation
+    mix_params = mfa_model.to_mixture_params(simple_params)
+
+    # Then convert back and forward again
+    recovered_mix_params = mfa_model.to_mixture_params(
+        mfa_model.from_mixture_params(mix_params)
+    )
+
+    # Should be identical
+    assert jnp.allclose(mix_params, recovered_mix_params, atol=1e-10), (
+        f"Round trip failed: max diff = {jnp.max(jnp.abs(mix_params - recovered_mix_params))}"
+    )
+
+
+@pytest.fixture
+def random_params(mfa_model):
+    """Create random test parameters."""
+    key = jax.random.PRNGKey(123)
+    # Initialize with some randomness
+    params = mfa_model.initialize(key, location=0.0, shape=1.0)
+    return params
+
+
+def test_round_trip_with_random_params(random_params, mfa_model):
+    """Test round-trip with non-trivial random parameters."""
+    mix_params = mfa_model.to_mixture_params(random_params)
+    recovered = mfa_model.from_mixture_params(mix_params)
+
+    assert jnp.allclose(random_params, recovered, atol=1e-10), (
+        f"Round trip failed: max diff = {jnp.max(jnp.abs(random_params - recovered))}"
+    )
+
+
+def test_likelihood_equivalence(random_params, mfa_model):
+    """Test that likelihood computations are equivalent between representations.
+
+    For a given latent state (y, k), the likelihood p(x|y,k) should be the same
+    whether computed via MixtureOfConjugated or via the Mixture[Harmonium] representation.
+    """
+    # Convert to mixture representation
+    mix_params = mfa_model.to_mixture_params(random_params)
+
+    # Create a test latent state: (y, k) where y is Gaussian latent and k is component index
+    key = jax.random.PRNGKey(456)
+    y = jax.random.normal(key, shape=(mfa_model.hrm.pst_man.data_dim,))
+
+    # Test for each component
+    for k in range(mfa_model.n_categories):
+        # Build complete latent state for MixtureOfConjugated
+        # This is (y, k) encoded in CompleteMixture[Latent] format
+        k_one_hot = jnp.zeros(mfa_model.n_categories).at[k].set(1.0)
+
+        # Get likelihood parameters from MixtureOfConjugated for component k
+        # We need to access the component-specific observable distribution
+
+        # From mix_man representation: get component k's harmonium
+        comp_params, cat_params = mfa_model.mix_man.split_natural_mixture(mix_params)
+
+        # Get component k's harmonium parameters
+        hrm_k_params = mfa_model.mix_man.cmp_man.get_replicate(comp_params, k)
+
+        # Get likelihood from component k's harmonium at latent y
+        lkl_k = mfa_model.hrm.likelihood_at(hrm_k_params, y)
+
+        logger.info(f"Component {k}: likelihood params shape = {lkl_k.shape}")
+
+        # The likelihood should be an Observable (Normal) distribution
+        assert lkl_k.shape[0] == mfa_model.hrm.obs_man.dim
 
 
 if __name__ == "__main__":

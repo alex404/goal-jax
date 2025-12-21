@@ -193,6 +193,16 @@ class MixtureOfConjugated[
         return CompleteMixture(self.hrm.pst_man, self.n_categories)
 
     @property
+    def mix_man(self) -> CompleteMixture[DifferentiableConjugated[Observable, Latent, Latent]]:
+        """Mixture manifold over component harmoniums.
+
+        This provides an alternative representation of the mixture model where each
+        component is a full harmonium, rather than the shared-base-plus-offsets
+        representation used by MixtureOfConjugated.
+        """
+        return CompleteMixture(self.hrm, self.n_categories)
+
+    @property
     def xy_man(self) -> LinearMap[CompleteMixture[Latent], Observable]:
         """Base harmonium interaction embedded into mixture structure."""
         emb = ObservableEmbedding(self.lat_man)
@@ -252,10 +262,10 @@ class MixtureOfConjugated[
         Returns parameters in CompleteMixture[Latent] space.
         """
         # Extract base harmonium parameters and interaction matrix
-        x_params, int_mat = self.lkl_fun_man.split_coords(lkl_params)
+        x_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
 
         # Section interaction matrix into blocks: xy, xyk, xk
-        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_mat)
+        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_params)
 
         # Compute base conjugation parameters from component 0
         aff_0 = self.hrm.lkl_fun_man.join_coords(
@@ -301,6 +311,92 @@ class MixtureOfConjugated[
         # Join into complete mixture coordinates
         # rho_yz has shape (n_categories-1, lat_dim), need to flatten to ((n_categories-1) * lat_dim,)
         return self.lat_man.join_coords(rho_y, rho_yz.ravel(), rho_z)
+
+    def to_mixture_params(self, params: Array) -> Array:
+        """Convert MixtureOfConjugated parameters to Mixture[Harmonium] parameters.
+
+        This converts from the shared-base-plus-offsets representation to the
+        redundant representation where each component harmonium has independent
+        parameters.
+
+        Args:
+            params: Parameters in MixtureOfConjugated representation
+
+        Returns:
+            Parameters in Mixture[Harmonium] representation (mix_man)
+        """
+        # Step 1: Split MixtureOfConjugated parameters
+        x_params, int_params, yk_harm_params = self.split_coords(params)
+
+        # Step 2: Extract interaction blocks
+        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_params)
+
+        # Step 3: Extract latent components
+        y_params, yk_int_params, k_params = self.lat_man.split_coords(yk_harm_params)
+
+        # Step 4: Build base harmonium (component 0)
+        base_hrm_params = self.hrm.join_coords(x_params, xy_params, y_params)
+
+        # Step 5: Build interaction matrix for mix_man
+        # All offset blocks have (n_categories-1) columns when viewed as matrices
+        n_cols = self.n_categories - 1
+
+        xk_matrix = xk_params.reshape(-1, n_cols)
+        xyk_matrix = xyk_params.reshape(-1, n_cols)
+        yk_matrix = yk_int_params.reshape(-1, n_cols)
+
+        # Stack to form (hrm_dim, n_cat-1) matrix
+        hrm_int_matrix = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix])
+
+        # Flatten to get mix_man interaction params
+        mix_int_params = hrm_int_matrix.ravel()
+
+        # Step 6: Join into mix_man parameters
+        return self.mix_man.join_coords(base_hrm_params, mix_int_params, k_params)
+
+    def from_mixture_params(self, mix_params: Array) -> Array:
+        """Convert Mixture[Harmonium] parameters to MixtureOfConjugated parameters.
+
+        This converts from the redundant representation (independent component
+        harmoniums) to the shared-base-plus-offsets representation.
+
+        Args:
+            mix_params: Parameters in Mixture[Harmonium] representation (mix_man)
+
+        Returns:
+            Parameters in MixtureOfConjugated representation
+        """
+        # Step 1: Split mix_man parameters
+        base_hrm_params, mix_int_params, k_params = self.mix_man.split_coords(mix_params)
+
+        # Step 2: Extract base harmonium components
+        x_params, xy_params, y_params = self.hrm.split_coords(base_hrm_params)
+
+        # Step 3: Split mix_man interaction matrix into blocks
+        n_cols = self.n_categories - 1
+        hrm_int_matrix = mix_int_params.reshape(-1, n_cols)
+
+        # Split along rows according to harmonium structure
+        obs_dim = self.hrm.obs_man.dim
+        int_dim = self.hrm.int_man.dim
+
+        xk_matrix = hrm_int_matrix[:obs_dim, :]
+        xyk_matrix = hrm_int_matrix[obs_dim : obs_dim + int_dim, :]
+        yk_matrix = hrm_int_matrix[obs_dim + int_dim :, :]
+
+        # Flatten back to parameter vectors
+        xk_params = xk_matrix.ravel()
+        xyk_params = xyk_matrix.ravel()
+        yk_int_params = yk_matrix.ravel()
+
+        # Step 4: Join interaction blocks
+        int_params = jnp.concatenate([xy_params, xyk_params, xk_params])
+
+        # Step 5: Join latent components
+        yk_harm_params = self.lat_man.join_coords(y_params, yk_int_params, k_params)
+
+        # Step 6: Join into MixtureOfConjugated parameters
+        return self.join_coords(x_params, int_params, yk_harm_params)
 
     def posterior_categorical(self, params: Array, x: Array) -> Array:
         """Compute posterior categorical distribution p(Z|x) in natural coordinates.
