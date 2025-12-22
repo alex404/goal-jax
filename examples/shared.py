@@ -8,17 +8,32 @@ from typing import Any, TypeAlias
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpy as np
 from jax import Array
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from numpy.typing import NDArray
 
-# Custom type aliases
+# Type aliases
 Bounds2D: TypeAlias = tuple[float, float, float, float]  # (x_min, x_max, y_min, y_max)
 
-### Initialization and Path Management ###
+# Standard color schemes for consistent plots
+colors = {
+    "ground_truth": "#000000",  # black
+    "fitted": "#E24A33",  # red
+    "initial": "#348ABD",  # blue
+    "secondary": "#988ED5",  # purple
+    "tertiary": "#8EBA42",  # green
+}
+
+# Sequential colors for multiple models/components
+model_colors = ["#348ABD", "#E24A33", "#988ED5", "#8EBA42", "#FBC15E", "#777777"]
 
 
 @dataclass(frozen=True)
 class ExamplePaths:
+    """Manages paths for example outputs."""
+
     example_name: str
     results_dir: Path
     style_path: Path
@@ -46,6 +61,7 @@ class ExamplePaths:
 
 
 def example_paths(module_path: str | Path) -> ExamplePaths:
+    """Create ExamplePaths from a module's __file__."""
     module_path = Path(module_path)
     example_name = module_path.parent.name
     project_root = module_path.parents[2]
@@ -58,15 +74,22 @@ def example_paths(module_path: str | Path) -> ExamplePaths:
 
 
 def initialize_jax(device: str = "cpu", disable_jit: bool = False) -> None:
+    """Initialize JAX configuration."""
     jax.config.update("jax_platform_name", device)
     if disable_jit:
         jax.config.update("jax_disable_jit", True)
 
 
-### Grid Creation ###
+def apply_style(paths: ExamplePaths) -> None:
+    """Apply the default matplotlib style for consistent plots."""
+    plt.style.use(str(paths.style_path))
+
+
+# Grid utilities
 
 
 def create_grid(bounds: Bounds2D, n_points: int = 50) -> tuple[Array, Array]:
+    """Create a 2D meshgrid within the given bounds."""
     x_min, x_max, y_min, y_max = bounds
     x = jnp.linspace(x_min, x_max, n_points)
     y = jnp.linspace(y_min, y_max, n_points)
@@ -75,6 +98,7 @@ def create_grid(bounds: Bounds2D, n_points: int = 50) -> tuple[Array, Array]:
 
 
 def get_plot_bounds(sample: Array, margin: float = 0.2) -> Bounds2D:
+    """Compute bounds from sample with margin."""
     min_vals = jnp.min(sample, axis=0)
     max_vals = jnp.max(sample, axis=0)
     range_vals = max_vals - min_vals
@@ -85,18 +109,58 @@ def get_plot_bounds(sample: Array, margin: float = 0.2) -> Bounds2D:
     return (x_min, x_max, y_min, y_max)
 
 
-# In shared.py, add to the Grid Creation section:
-
-
-def get_normal_bounds(
-    mean: Array,
-    cov: Array,
-    n_std: float = 3.0,
-) -> Bounds2D:
+def get_normal_bounds(mean: Array, cov: Array, n_std: float = 3.0) -> Bounds2D:
+    """Compute bounds from normal distribution parameters."""
     std_devs = jnp.sqrt(jnp.diag(cov))
     return (
-        float(mean[0] - n_std * std_devs[0]),  # x_min
-        float(mean[0] + n_std * std_devs[0]),  # x_max
-        float(mean[1] - n_std * std_devs[1]),  # y_min
-        float(mean[1] + n_std * std_devs[1]),  # y_max
+        float(mean[0] - n_std * std_devs[0]),
+        float(mean[0] + n_std * std_devs[0]),
+        float(mean[1] - n_std * std_devs[1]),
+        float(mean[1] + n_std * std_devs[1]),
     )
+
+
+# Common plotting functions
+
+
+def plot_density_contours(
+    ax: Axes,
+    xs: NDArray[np.float64],
+    ys: NDArray[np.float64],
+    densities: list[NDArray[np.float64]],
+    labels: list[str],
+    sample: NDArray[np.float64] | None = None,
+    plot_colors: list[str] | None = None,
+) -> None:
+    """Plot density contours with optional sample overlay."""
+    if plot_colors is None:
+        plot_colors = [colors["ground_truth"], colors["fitted"]]
+
+    if sample is not None:
+        ax.scatter(sample[:, 0], sample[:, 1], alpha=0.3, s=10, label="Samples")
+
+    for density, label, color in zip(densities, labels, plot_colors):
+        ax.contour(xs, ys, density, levels=6, colors=color, alpha=0.6)
+        ax.plot([], [], color=color, label=label)
+
+    min_val = min(float(xs.min()), float(ys.min()))
+    max_val = max(float(xs.max()), float(ys.max()))
+    ax.set_xlim(min_val, max_val)
+    ax.set_ylim(min_val, max_val)
+    ax.set_aspect("equal")
+    ax.legend()
+
+
+def plot_training_history(
+    ax: Axes,
+    histories: dict[str, list[float]],
+    ylabel: str = "Log Likelihood",
+) -> None:
+    """Plot training histories for one or more models."""
+    for (name, history), color in zip(histories.items(), model_colors):
+        ax.plot(history, label=name, color=color)
+
+    ax.set_xlabel("Step")
+    ax.set_ylabel(ylabel)
+    ax.legend()
+    ax.grid(True, alpha=0.3)

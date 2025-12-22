@@ -1,167 +1,96 @@
-"""Test script for univariate auistributions in the exponential family."""
+"""Univariate analytic exponential family distributions."""
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import PositiveDefinite
-from goal.models import (
-    Categorical,
-    Normal,
-    Poisson,
-)
+from goal.models import Categorical, Normal, Poisson
 
 from ..shared import example_paths, initialize_jax
-from .types import (
-    CategoricalResults,
-    NormalResults,
-    PoissonResults,
-    UnivariateResults,
-)
+from .types import CategoricalResults, NormalResults, PoissonResults, UnivariateResults
 
 
-def compute_gaussian_results(
-    key: Array,
-    model: Normal,
-    mu: Array,
-    sigma: Array,
-    xs: Array,
-    sample_size: int,
+def fit_normal(
+    key: Array, model: Normal, mu: Array, sigma: Array, xs: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
-    """Run Normal computations with JAX.
+    """Fit Normal and return sample, true densities, estimated densities."""
+    mean_params = model.join_mean_covariance(mu, sigma)
+    natural_params = model.to_natural(mean_params)
 
-    Returns:
-        sample, true_densities, estimated_densities
-    """
-    # Create ground truth distribution
-    p_mean = model.join_mean_covariance(mu, sigma)
-    p_natural = model.to_natural(p_mean)
+    sample = model.sample(key, natural_params, n_samples)
+    estimated_mean = model.average_sufficient_statistic(sample)
+    estimated_natural = model.to_natural(estimated_mean)
 
-    # Sample and estimate
-    sample = model.sample(key, p_natural, sample_size)
-    p_mean_est = model.average_sufficient_statistic(sample)
-    p_natural_est = model.to_natural(p_mean_est)
-
-    true_dens = jax.vmap(model.density, in_axes=(None, 0))(p_natural, xs)
-    est_dens = jax.vmap(model.density, in_axes=(None, 0))(p_natural_est, xs)
+    true_dens = jax.vmap(model.density, in_axes=(None, 0))(natural_params, xs)
+    est_dens = jax.vmap(model.density, in_axes=(None, 0))(estimated_natural, xs)
 
     return sample, true_dens, est_dens
 
 
-def compute_categorical_results(
-    key: Array,
-    model: Categorical,
-    probs: Array,
-    sample_size: int,
+def fit_categorical(
+    key: Array, model: Categorical, probs: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
-    """Run Categorical computations with JAX.
+    """Fit Categorical and return sample, true probs, estimated probs."""
+    mean_params = model.from_probs(probs)
+    natural_params = model.to_natural(mean_params)
 
-    Returns:
-        sample, true_probs, estimated_probs
-    """
-    # Create ground truth distribution
-    p_mean = model.from_probs(probs)
-    p_natural = model.to_natural(p_mean)
+    sample = model.sample(key, natural_params, n_samples)
+    estimated_mean = model.average_sufficient_statistic(sample)
+    estimated_natural = model.to_natural(estimated_mean)
 
-    # Sample and estimate
-    sample = model.sample(key, p_natural, sample_size)
-    p_mean_est = model.average_sufficient_statistic(sample)
-    p_natural_est = model.to_natural(p_mean_est)
-
-    # Compute densities using vmap
     categories = jnp.arange(probs.shape[0])
-
-    def compute_prob(p: Array, k: Array) -> Array:
-        return model.density(p, k)
-
-    true_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural, categories)
-    est_probs = jax.vmap(compute_prob, in_axes=(None, 0))(p_natural_est, categories)
+    true_probs = jax.vmap(model.density, in_axes=(None, 0))(natural_params, categories)
+    est_probs = jax.vmap(model.density, in_axes=(None, 0))(estimated_natural, categories)
 
     return sample, true_probs, est_probs
 
 
-def compute_poisson_results(
-    key: Array,
-    model: Poisson,
-    rate: float,
-    ks: Array,
-    sample_size: int,
+def fit_poisson(
+    key: Array, model: Poisson, rate: float, ks: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
-    """Run Poisson computations with JAX.
+    """Fit Poisson and return sample, true pmf, estimated pmf."""
+    mean_params = jnp.atleast_1d(rate)
+    natural_params = model.to_natural(mean_params)
 
-    Returns:
-        sample, true_pmf, estimated_pmf
-    """
-    # Create ground truth distribution
-    p_mean = jnp.atleast_1d(rate)
-    p_natural = model.to_natural(p_mean)
+    sample = model.sample(key, natural_params, n_samples)
+    estimated_mean = model.average_sufficient_statistic(sample)
+    estimated_natural = model.to_natural(estimated_mean)
 
-    # Sample and estimate
-    sample = model.sample(key, p_natural, sample_size)
-    p_mean_est = model.average_sufficient_statistic(sample)
-    p_natural_est = model.to_natural(p_mean_est)
+    true_pmf = jax.vmap(model.density, in_axes=(None, 0))(natural_params, ks)
+    est_pmf = jax.vmap(model.density, in_axes=(None, 0))(estimated_natural, ks)
 
-    def compute_pmf(p: Array, k: Array) -> Array:
-        return model.density(p, k)
-
-    true_pmf = jax.vmap(compute_pmf, in_axes=(None, 0))(p_natural, ks)
-    estimated_pmf = jax.vmap(compute_pmf, in_axes=(None, 0))(p_natural_est, ks)
-
-    return sample, true_pmf, estimated_pmf
-
-
-### Main ###
+    return sample, true_pmf, est_pmf
 
 
 def main():
     initialize_jax()
     paths = example_paths(__file__)
 
-    """Run all distribution tests and plots."""
-    # Create figure
     key = jax.random.PRNGKey(0)
     keys = jax.random.split(key, 3)
+    n_samples = 20
 
-    # Parameters
-    sample_size = 20
-
-    # # Normal test
-    print("\nTesting Normal Distribution...")
-
+    # Normal
     normal = Normal(1, PositiveDefinite())
-    mu0 = 2.0
-    sigma = 1.5
-    mu = jnp.atleast_1d(mu0)
-    cov = jnp.atleast_1d(sigma**2)
-    xs = jnp.linspace(mu0 - 4 * sigma, mu0 + 4 * sigma, 200)
-
-    sample, true_dens, est_dens = compute_gaussian_results(
-        keys[0],
-        normal,
-        mu,
-        cov,
-        xs,
-        sample_size,
+    mu, sigma = 2.0, 1.5
+    xs = jnp.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
+    sample, true_dens, est_dens = fit_normal(
+        keys[0], normal, jnp.atleast_1d(mu), jnp.atleast_1d(sigma**2), xs, n_samples
     )
-
-    gaussian_results = NormalResults(
-        mu=mu0,
+    normal_results = NormalResults(
+        mu=mu,
         sigma=sigma,
         sample=sample.ravel().tolist(),
         true_densities=true_dens.tolist(),
         estimated_densities=est_dens.tolist(),
         eval_points=xs.tolist(),
     )
-    # Categorical test
-    print("\nTesting Categorical Distribution...")
 
+    # Categorical
     probs = jnp.array([0.1, 0.2, 0.4, 0.2, 0.1])
     categorical = Categorical(n_categories=len(probs))
-
-    sample, true_probs, est_probs = compute_categorical_results(
-        keys[1], categorical, probs, sample_size
-    )
-
+    sample, true_probs, est_probs = fit_categorical(keys[1], categorical, probs, n_samples)
     categorical_results = CategoricalResults(
         probs=probs.tolist(),
         sample=sample.ravel().tolist(),
@@ -169,18 +98,11 @@ def main():
         estimated_probs=est_probs.tolist(),
     )
 
-    # Poisson test
-    print("\nTesting Poisson Distribution...")
-
+    # Poisson
     poisson = Poisson()
     rate = 5.0
-    max_k = 20
-    ks = jnp.arange(0, max_k + 1, dtype=int)
-
-    sample, true_pmf, est_pmf = compute_poisson_results(
-        keys[2], poisson, rate, ks, sample_size
-    )
-
+    ks = jnp.arange(0, 21, dtype=int)
+    sample, true_pmf, est_pmf = fit_poisson(keys[2], poisson, rate, ks, n_samples)
     poisson_results = PoissonResults(
         rate=rate,
         sample=sample.ravel().tolist(),
@@ -190,11 +112,10 @@ def main():
     )
 
     results = UnivariateResults(
-        gaussian=gaussian_results,
+        gaussian=normal_results,
         categorical=categorical_results,
         poisson=poisson_results,
     )
-
     paths.save_analysis(results)
 
 

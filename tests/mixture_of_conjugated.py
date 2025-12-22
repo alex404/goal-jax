@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.models import FactorAnalysis
+from goal.models import FactorAnalysis, Normal
 from goal.models.graphical.mixture import MixtureOfConjugated
 
 jax.config.update("jax_platform_name", "cpu")
@@ -18,21 +18,21 @@ jax.config.update("jax_enable_x64", True)
 
 
 @pytest.fixture(params=[(3, 2, 2), (4, 2, 3)])
-def model(request) -> MixtureOfConjugated:
+def model(request) -> MixtureOfConjugated[Normal, Normal]:
     """Create MixtureOfConjugated with FactorAnalysis base."""
     obs_dim, lat_dim, n_cat = request.param
     base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
-    return MixtureOfConjugated(n_categories=n_cat, hrm=base_fa)
+    return MixtureOfConjugated[Normal, Normal](n_categories=n_cat, hrm=base_fa)
 
 
 @pytest.fixture
-def params(model: MixtureOfConjugated) -> Array:
+def params(model: MixtureOfConjugated[Normal, Normal]) -> Array:
     """Generate random model parameters."""
     key = jax.random.PRNGKey(42)
     return model.initialize(key, location=0.0, shape=1.0)
 
 
-def test_dimension_consistency(model: MixtureOfConjugated, params: Array):
+def test_dimension_consistency(model: MixtureOfConjugated[Normal, Normal], params: Array):
     """Test that all manifold dimensions are consistent."""
     # Parameter dimension matches model
     assert params.shape[0] == model.dim
@@ -52,7 +52,7 @@ def test_dimension_consistency(model: MixtureOfConjugated, params: Array):
     assert model.int_man.cod_man.dim == model.obs_man.dim
 
 
-def test_conjugation_parameters(model: MixtureOfConjugated, params: Array):
+def test_conjugation_parameters(model: MixtureOfConjugated[Normal, Normal], params: Array):
     """Test conjugation parameters have correct shape."""
     obs, int_params, _ = model.split_coords(params)
     lkl_params = model.lkl_fun_man.join_coords(obs, int_params)
@@ -61,7 +61,7 @@ def test_conjugation_parameters(model: MixtureOfConjugated, params: Array):
     assert rho.shape[0] == model.lat_man.dim
 
 
-def test_posterior_computation(model: MixtureOfConjugated, params: Array):
+def test_posterior_computation(model: MixtureOfConjugated[Normal, Normal], params: Array):
     """Test posterior computation for single observation."""
     obs = jnp.ones(model.obs_man.data_dim)
 
@@ -79,7 +79,7 @@ def test_posterior_computation(model: MixtureOfConjugated, params: Array):
     assert 0 <= hard < model.n_categories
 
 
-def test_interaction_blocks_callable(model: MixtureOfConjugated):
+def test_interaction_blocks_callable(model: MixtureOfConjugated[Normal, Normal]):
     """Test that each interaction block is callable."""
     xy_params = model.xy_man.zeros()
     xyk_params = model.xyk_man.zeros()
@@ -96,7 +96,7 @@ def test_interaction_blocks_callable(model: MixtureOfConjugated):
     assert result_xk.shape[0] == model.obs_man.dim
 
 
-def test_mixture_representation_round_trip(model: MixtureOfConjugated, params: Array):
+def test_mixture_representation_round_trip(model: MixtureOfConjugated[Normal, Normal], params: Array):
     """Test conversion to/from Mixture[Harmonium] is an isomorphism."""
     # Forward and back
     mix_params = model.to_mixture_params(params)
@@ -107,7 +107,7 @@ def test_mixture_representation_round_trip(model: MixtureOfConjugated, params: A
     assert mix_params.shape[0] == model.mix_man.dim
 
 
-def test_mixture_representation_likelihood(model: MixtureOfConjugated, params: Array):
+def test_mixture_representation_likelihood(model: MixtureOfConjugated[Normal, Normal], params: Array):
     """Test likelihood equivalence between representations."""
     mix_params = model.to_mixture_params(params)
 

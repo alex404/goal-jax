@@ -56,8 +56,6 @@ goal = ["py.typed"]
 include = ["src/goal", "examples", "tests"]
 extraPaths = ["src"]
 typeCheckingMode = "recommended"
-venvPath = "."
-venv = ".venv"
 
 # External library typing issues - incomplete type stubs in JAX/optax/scipy
 reportUnknownParameterType = "none"
@@ -69,6 +67,13 @@ reportUnknownVariableType = "none"
 # (e.g., covariance/contravariance in generics, Self type inference in overrides)
 reportAny = "none"
 reportExplicitAny = "none"
+
+# Plotting code doesn't use return values from matplotlib
+reportUnusedCallResult = "none"
+
+# Pytest fixtures use untyped request parameter
+reportMissingParameterType = "none"
+reportUnknownLambdaType = "none"
 
 [tool.ruff]
 src = ["src"]

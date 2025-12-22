@@ -31,18 +31,24 @@ jobs:
         run: |
           python -m examples.bivariate_normal.run
           python -m examples.bivariate_normal.plot
+          python -m examples.boltzmann.run
+          python -m examples.boltzmann.plot
           python -m examples.dimensionality_reduction.run
           python -m examples.dimensionality_reduction.plot
+          python -m examples.gaussian_boltzmann.run
+          python -m examples.gaussian_boltzmann.plot
           python -m examples.hmog.run
           python -m examples.hmog.plot
+          python -m examples.mfa.run
+          python -m examples.mfa.plot
           python -m examples.mixture_of_gaussians.run
           python -m examples.mixture_of_gaussians.plot
+          python -m examples.poisson_mixture.run
+          python -m examples.poisson_mixture.plot
           python -m examples.univariate_analytic.run
           python -m examples.univariate_analytic.plot
           python -m examples.univariate_differentiable.run
           python -m examples.univariate_differentiable.plot
-          python -m examples.poisson_mixture.run
-          python -m examples.poisson_mixture.plot
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

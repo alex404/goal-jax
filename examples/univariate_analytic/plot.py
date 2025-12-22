@@ -1,140 +1,71 @@
-"""Test script for univariate auistributions in the exponential family."""
+"""Plotting for univariate analytic distributions."""
 
 from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.axes import Axes
-from numpy.typing import NDArray
 from scipy import stats
 from scipy.special import factorial
 
-from ..shared import example_paths
-from .types import (
-    CategoricalResults,
-    NormalResults,
-    PoissonResults,
-    UnivariateResults,
-)
-
-
-def plot_gaussian_results(ax: Axes, results: NormalResults) -> None:
-    """Plot Normal results using numpy/matplotlib."""
-    mu = results["mu"]
-    sigma = results["sigma"]
-    sample = results["sample"]
-    true_densities = results["true_densities"]
-    estimated_densities = results["estimated_densities"]
-
-    x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
-
-    # Convert everything to numpy for plotting
-    np_sample: NDArray[np.float64] = np.array(sample)
-    np_true_densities: NDArray[np.float64] = np.array(true_densities)
-    np_est_densities: NDArray[np.float64] = np.array(estimated_densities)
-
-    ax.hist(np_sample, bins=20, density=True, alpha=0.3, label="sample")
-    ax.plot(x, np_true_densities, "b-", label="Implementation")
-    ax.plot(x, np_est_densities, "g--", label="MLE Estimate")
-    ax.plot(
-        x,
-        stats.norm.pdf(x, loc=mu, scale=sigma),
-        "r--",
-        label="Scipy",
-    )
-
-    ax.set_title("Gaussian Density")
-    ax.set_xlabel("x")
-    ax.set_ylabel("Density")
-    ax.legend()
-
-
-def plot_categorical_results(
-    ax: Axes,
-    results: CategoricalResults,
-) -> None:
-    """Plot Categorical results using numpy/matplotlib."""
-
-    probs = results["probs"]
-    sample = results["sample"]
-    true_probs = results["true_probs"]
-    est_probs = results["estimated_probs"]
-
-    categories = np.arange(len(probs))
-    width = 0.25
-
-    # Convert everything to numpy for plotting
-    np_sample: NDArray[np.float64] = np.array(sample)
-    np_true_probs: NDArray[np.float64] = np.array(true_probs)
-    np_est_probs: NDArray[np.float64] = np.array(est_probs)
-    np_probs: NDArray[np.float64] = np.array(probs)
-
-    # Sample frequencies
-    sample_freqs = np.bincount(np_sample, minlength=len(np_probs)) / len(np_sample)
-    ax.bar(categories, sample_freqs, width=1.0, alpha=0.2, label="sample")
-
-    # Plot bars
-    ax.bar(categories - width, np_true_probs, width, alpha=0.6, label="Implementation")
-    ax.bar(categories, np_est_probs, width, alpha=0.6, label="MLE Estimate")
-    ax.bar(categories + width, np_probs, width, alpha=0.6, label="True Probabilities")
-
-    ax.set_title("Categorical PMF")
-    ax.set_xlabel("Category")
-    ax.set_ylabel("Probability")
-    ax.legend()
-
-
-def plot_poisson_results(
-    ax: Axes,
-    results: PoissonResults,
-) -> None:
-    """Plot Poisson results using numpy/matplotlib."""
-
-    rate = results["rate"]
-    sample = results["sample"]
-    true_pmf = results["true_pmf"]
-    est_pmf = results["estimated_pmf"]
-
-    max_k = 20
-    k = np.arange(0, max_k + 1)
-
-    # Convert everything to numpy for plotting
-    np_sample: NDArray[np.float64] = np.array(sample)
-    np_true_pmf: NDArray[np.float64] = np.array(true_pmf)
-    np_est_pmf: NDArray[np.float64] = np.array(est_pmf)
-
-    ax.hist(np_sample, bins=range(max_k + 2), density=True, alpha=0.3, label="sample")
-    ax.plot(k, np_true_pmf, "b-", label="Implementation", alpha=0.8)
-    ax.plot(k, np_est_pmf, "g--", label="MLE Estimate", alpha=0.8)
-    ax.plot(
-        k,
-        rate**k * np.exp(-rate) / factorial(k),
-        "r:",
-        label="Theory",
-        alpha=0.8,
-    )
-
-    ax.set_title(f"Poisson PMF (λ={rate})")
-    ax.set_xlabel("k")
-    ax.set_ylabel("Probability")
-    ax.legend()
+from ..shared import apply_style, colors, example_paths, model_colors
+from .types import UnivariateResults
 
 
 def main():
-    """Run all distribution tests and plots."""
-    # Load results
     paths = example_paths(__file__)
+    apply_style(paths)
 
-    analysis = cast(UnivariateResults, paths.load_analysis())
+    results = cast(UnivariateResults, paths.load_analysis())
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    # Normal
+    g = results["gaussian"]
+    mu, sigma = g["mu"], g["sigma"]
+    x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
+    sample = np.array(g["sample"])
 
-    plot_gaussian_results(axes[0], analysis["gaussian"])
+    axes[0].hist(sample, bins=20, density=True, alpha=0.3, label="Sample")
+    axes[0].plot(x, g["true_densities"], color=colors["ground_truth"], label="True")
+    axes[0].plot(x, g["estimated_densities"], color=colors["fitted"], ls="--", label="MLE")
+    axes[0].plot(x, stats.norm.pdf(x, mu, sigma), color=colors["tertiary"], ls=":", label="Scipy")
+    axes[0].set_title("Normal")
+    axes[0].set_xlabel("x")
+    axes[0].set_ylabel("Density")
+    axes[0].legend()
 
-    plot_categorical_results(axes[1], analysis["categorical"])
+    # Categorical
+    c = results["categorical"]
+    probs = np.array(c["probs"])
+    sample = np.array(c["sample"])
+    categories = np.arange(len(probs))
+    width = 0.25
 
-    # Plot and save Poisson
-    plot_poisson_results(axes[2], analysis["poisson"])
+    sample_freqs = np.bincount(sample, minlength=len(probs)) / len(sample)
+    axes[1].bar(categories, sample_freqs, width=1.0, alpha=0.2, label="Sample")
+    axes[1].bar(categories - width, c["true_probs"], width, color=model_colors[0], alpha=0.6, label="True")
+    axes[1].bar(categories, c["estimated_probs"], width, color=model_colors[1], alpha=0.6, label="MLE")
+    axes[1].bar(categories + width, probs, width, color=model_colors[2], alpha=0.6, label="Target")
+    axes[1].set_title("Categorical")
+    axes[1].set_xlabel("Category")
+    axes[1].set_ylabel("Probability")
+    axes[1].legend()
+
+    # Poisson
+    p = results["poisson"]
+    rate = p["rate"]
+    k = np.array(p["eval_points"])
+    sample = np.array(p["sample"])
+
+    axes[2].hist(sample, bins=range(22), density=True, alpha=0.3, label="Sample")
+    axes[2].plot(k, p["true_pmf"], color=colors["ground_truth"], label="True")
+    axes[2].plot(k, p["estimated_pmf"], color=colors["fitted"], ls="--", label="MLE")
+    axes[2].plot(k, rate**k * np.exp(-rate) / factorial(k), color=colors["tertiary"], ls=":", label="Theory")
+    axes[2].set_title(f"Poisson (λ={rate})")
+    axes[2].set_xlabel("k")
+    axes[2].set_ylabel("Probability")
+    axes[2].legend()
+
+    plt.tight_layout()
     paths.save_plot(fig)
 
 
