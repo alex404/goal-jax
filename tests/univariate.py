@@ -8,7 +8,8 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import PositiveDefinite
+from goal.geometry import Differentiable, PositiveDefinite
+from goal.geometry.exponential_family.base import Analytic
 from goal.models import Categorical, CoMPoisson, Normal, Poisson, VonMises
 
 jax.config.update("jax_platform_name", "cpu")
@@ -34,25 +35,25 @@ analytic_models = [
 ]
 
 
-def integrate_density(model, params: Array, xs: Array, dx: float = 1.0) -> Array:
+def integrate_density(model: Differentiable, params: Array, xs: Array, dx: float = 1.0) -> Array:
     """Integrate density over given points."""
     densities = jax.vmap(model.density, in_axes=(None, 0))(params, xs)
     return jnp.sum(densities) * dx
 
 
 @pytest.fixture(params=all_models, ids=lambda x: x[0])
-def model(request):
+def model(request: pytest.FixtureRequest) -> Differentiable:
     """All differentiable models."""
     return request.param[1]
 
 
 @pytest.fixture(params=analytic_models, ids=lambda x: x[0])
-def analytic_model(request):
+def analytic_model(request: pytest.FixtureRequest) -> Analytic:
     """Analytic models only."""
     return request.param[1]
 
 
-def test_density_integrates_to_one(model):
+def test_density_integrates_to_one(model: Differentiable):
     """Test that density integrates to 1."""
     key = jax.random.PRNGKey(0)
     results = []
@@ -84,7 +85,7 @@ def test_density_integrates_to_one(model):
     assert jnp.allclose(mean_total, 1.0, rtol=1e-2)
 
 
-def test_sufficient_statistic_convergence(model):
+def test_sufficient_statistic_convergence(model: Differentiable):
     """Test that sample sufficient statistics converge to expected values."""
     key = jax.random.PRNGKey(42)
     params = model.initialize(key)
@@ -101,7 +102,7 @@ def test_sufficient_statistic_convergence(model):
     assert mses[0] > mses[-1], f"MSE did not decrease: {mses}"
 
 
-def test_natural_parameters_valid(model):
+def test_natural_parameters_valid(model: Differentiable):
     """Test that initialized parameters pass validity check."""
     key = jax.random.PRNGKey(789)
 
@@ -110,7 +111,7 @@ def test_natural_parameters_valid(model):
         assert model.check_natural_parameters(params)
 
 
-def test_parameter_recovery(analytic_model):
+def test_parameter_recovery(analytic_model: Analytic):
     """Test natural -> mean -> natural round trip."""
     key = jax.random.PRNGKey(123)
 
@@ -122,7 +123,7 @@ def test_parameter_recovery(analytic_model):
         assert error < 1e-5, f"Parameter recovery error: {error}"
 
 
-def test_relative_entropy_with_self(analytic_model):
+def test_relative_entropy_with_self(analytic_model: Analytic):
     """Test that relative entropy with itself is zero."""
     key = jax.random.PRNGKey(456)
 

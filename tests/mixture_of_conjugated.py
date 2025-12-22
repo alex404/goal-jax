@@ -18,7 +18,7 @@ jax.config.update("jax_enable_x64", True)
 
 
 @pytest.fixture(params=[(3, 2, 2), (4, 2, 3)])
-def model(request) -> MixtureOfConjugated[Normal, Normal]:
+def model(request: pytest.FixtureRequest) -> MixtureOfConjugated[Normal, Normal]:
     """Create MixtureOfConjugated with FactorAnalysis base."""
     obs_dim, lat_dim, n_cat = request.param
     base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)

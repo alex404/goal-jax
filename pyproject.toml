@@ -68,11 +68,10 @@ reportUnknownVariableType = "none"
 reportAny = "none"
 reportExplicitAny = "none"
 
-# Plotting code doesn't use return values from matplotlib
+# Matplotlib methods return values that are intentionally unused
 reportUnusedCallResult = "none"
 
-# Pytest fixtures use untyped request parameter
-reportMissingParameterType = "none"
+# JAX lambda type inference limitations
 reportUnknownLambdaType = "none"
 
 [tool.ruff]

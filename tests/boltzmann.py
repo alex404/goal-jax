@@ -20,7 +20,7 @@ absolute_tol = 1e-7
 
 
 @pytest.fixture(params=[3, 4, 5])
-def n_neurons(request) -> int:
+def n_neurons(request: pytest.FixtureRequest) -> int:
     """Parametrize tests over different numbers of neurons."""
     return request.param
 
