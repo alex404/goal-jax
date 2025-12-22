@@ -24,7 +24,7 @@ def main():
     dia_dens = np.array(results["diagonal_densities"])
     scl_dens = np.array(results["scale_densities"])
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(7.5, 7.5))
 
     # Scipy vs GOAL ground truth
     plot_density_contours(

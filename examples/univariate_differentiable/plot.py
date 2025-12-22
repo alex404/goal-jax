@@ -14,7 +14,7 @@ def main():
     apply_style(paths)
 
     results = cast(DifferentiableUnivariateResults, paths.load_analysis())
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(9, 7.5))
 
     # von Mises density
     vm = results["von_mises"]

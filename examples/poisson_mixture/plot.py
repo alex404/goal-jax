@@ -66,7 +66,7 @@ def main():
     psn_corr = np.array(results["psn_stats"]["correlation_matrix"])
     com_corr = np.array(results["com_stats"]["correlation_matrix"])
 
-    fig = plt.figure(figsize=(15, 10))
+    fig = plt.figure(figsize=(12, 7.5))
     gs = fig.add_gridspec(2, 3)
 
     ax_means = fig.add_subplot(gs[0, 0])

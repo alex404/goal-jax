@@ -34,7 +34,7 @@ def main():
     dia_final = np.array(results["diagonal_densities"])
     iso_final = np.array(results["isotropic_densities"])
 
-    fig = plt.figure(figsize=(15, 10))
+    fig = plt.figure(figsize=(12, 7.5))
     gs = fig.add_gridspec(2, 3)
 
     ax_gt = fig.add_subplot(gs[0, 0])

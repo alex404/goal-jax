@@ -47,7 +47,7 @@ image.cmap: viridis             ## A colormap name, gray etc...
 scatter.marker : o
 
 #### * SAVING FIGURES *
-savefig.dpi: 300      # figure dots per inch or 'figure'
+savefig.dpi: 200      # figure dots per inch or 'figure'
 savefig.facecolor: white
 savefig.format: png
 savefig.bbox: tight

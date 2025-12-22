@@ -29,7 +29,7 @@ def main():
 
     results = cast(GaussianBoltzmannResults, paths.load_analysis())
 
-    fig = plt.figure(figsize=(12, 10))
+    fig = plt.figure(figsize=(9, 7.5))
     outer_grid = gridspec.GridSpec(2, 2, wspace=0.3, hspace=0.3)
 
     # Likelihood (confidence ellipses)

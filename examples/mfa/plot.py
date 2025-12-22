@@ -20,7 +20,7 @@ def main():
     x_range = np.array(results["plot_range"])
     X, Y = np.meshgrid(x_range, x_range)
 
-    fig = plt.figure(figsize=(20, 10))
+    fig = plt.figure(figsize=(15, 7.5))
     gs = fig.add_gridspec(2, 4, hspace=0.3, wspace=0.3)
 
     # Row 1: Initial densities + training

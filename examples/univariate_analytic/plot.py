@@ -16,7 +16,7 @@ def main():
     apply_style(paths)
 
     results = cast(UnivariateResults, paths.load_analysis())
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
     # Normal
     g = results["gaussian"]

@@ -33,7 +33,7 @@ def main():
     fa_final = np.array(results["learned_densities"]["factor_analysis"]).reshape(n, n)
     pca_final = np.array(results["learned_densities"]["pca"]).reshape(n, n)
 
-    fig = plt.figure(figsize=(10, 10))
+    fig = plt.figure(figsize=(7.5, 7.5))
     gs = fig.add_gridspec(2, 2)
 
     ax_init = fig.add_subplot(gs[0, 0])

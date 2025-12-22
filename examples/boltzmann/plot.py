@@ -15,7 +15,7 @@ def main():
 
     results = cast(BoltzmannPatternResults, paths.load_analysis())
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(9, 7.5))
 
     # True vs learned probabilities
     true_probs = np.array(results["true_probabilities"])

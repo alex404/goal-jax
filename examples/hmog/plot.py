@@ -36,7 +36,7 @@ def main():
     iso_lls = np.array(results["log_likelihoods"]["Isotropic"])
     dia_lls = np.array(results["log_likelihoods"]["Diagonal"])
 
-    fig = plt.figure(figsize=(20, 10))
+    fig = plt.figure(figsize=(15, 7.5))
     gs = fig.add_gridspec(2, 4)
 
     ax_gt = fig.add_subplot(gs[0, 0])
