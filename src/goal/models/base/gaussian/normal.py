@@ -556,8 +556,8 @@ class Normal(
 
     def whiten(
         self,
-        given: Array,
-        relative: Array,
+        given_means: Array,
+        relative_means: Array,
     ) -> Array:
         """Whiten a normal distribution relative to another normal distribution.
 
@@ -574,8 +574,8 @@ class Normal(
         Returns:
             Whitened mean parameters.
         """
-        old_mean, old_cov = self.split_mean_covariance(given)
-        rel_mean, rel_cov = self.split_mean_covariance(relative)
+        old_mean, old_cov = self.split_mean_covariance(given_means)
+        rel_mean, rel_cov = self.split_mean_covariance(relative_means)
 
         new_array, new_matrix = self.cov_man.rep.cholesky_whiten(
             self.cov_man.matrix_shape,
