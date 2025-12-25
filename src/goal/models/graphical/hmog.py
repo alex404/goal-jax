@@ -185,7 +185,8 @@ class DifferentiableHMoG(
             Array of shape (n_components,) giving p(z_k|x) for each component k
         """
         cat_natural = self.posterior_categorical(params, x)
-        return self.pst_upr_hrm.lat_man.to_probs(cat_natural)
+        cat_means = self.pst_upr_hrm.lat_man.to_mean(cat_natural)
+        return self.pst_upr_hrm.lat_man.to_probs(cat_means)
 
     def posterior_hard_assignment(self, params: Array, x: Array) -> Array:
         """Compute hard posterior assignments p(Z|x).

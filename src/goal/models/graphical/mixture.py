@@ -430,7 +430,8 @@ class MixtureOfConjugated[
             Array of shape (n_components,) giving p(z_k|x) for each component k
         """
         cat_natural = self.posterior_categorical(params, x)
-        return self.lat_man.lat_man.to_probs(cat_natural)
+        cat_mean = self.lat_man.lat_man.to_mean(cat_natural)
+        return self.lat_man.lat_man.to_probs(cat_mean)
 
     def posterior_hard_assignment(self, params: Array, x: Array) -> Array:
         """Compute hard assignment to most probable mixture component.

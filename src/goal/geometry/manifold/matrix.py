@@ -478,6 +478,10 @@ class PositiveDefinite(Symmetric):
     ) -> tuple[Array, Array]:
         """Whiten a distribution (mean1, params1) with respect to another (mean2, params2).
 
+        Transforms the first Gaussian into a coordinate system in which the second Gaussian
+        standard normal N(0, I). This is useful for computing KL divergences
+        and other relative measures between Gaussians.
+
         Perform the transformation:
         - new_mean = L^(-1) @ (mean1 - mean2)
         - new_params = L^(-1) @ params1 @ L^(-T)
