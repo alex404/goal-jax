@@ -286,9 +286,13 @@ class Normal(
         avg_stats = self.average_sufficient_statistic(sample)
         mean, second_moment = self.split_mean_second_moment(avg_stats)
 
-        # Add noise to mean based on observed scale
+        # Compute variance for proper scaling: Var(x) = E[x²] - E[x]²
+        second_moment_diag = jnp.diag(self.cov_man.to_matrix(second_moment))
+        variance_diag = jnp.maximum(second_moment_diag - mean**2, 1e-6)
+        observed_scale = jnp.sqrt(variance_diag)
+
+        # Add noise to mean based on observed standard deviation
         key_mean, key_cov = jax.random.split(key)
-        observed_scale = jnp.sqrt(jnp.diag(self.cov_man.to_matrix(second_moment)))
         mean_noise = observed_scale * (
             location + shape * jax.random.normal(key_mean, mean.shape)
         )
@@ -299,6 +303,10 @@ class Normal(
         noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
         noise_matrix = self.cov_man.from_matrix(noise)
         second_moment = second_moment * noise_matrix
+
+        # Ensure second_moment > mean² to maintain positive variance
+        min_second_moment = self.cov_man.from_matrix(jnp.diag(mean**2 + 1e-6))
+        second_moment = jnp.maximum(second_moment, min_second_moment)
 
         # Join parameters and convert to natural coordinates
         means = self.join_mean_second_moment(mean, second_moment)
