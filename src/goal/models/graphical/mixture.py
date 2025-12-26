@@ -309,8 +309,9 @@ class MixtureOfConjugated[
         rho_yz = rho_yk - rho_y
 
         # Join into complete mixture coordinates
-        # rho_yz has shape (n_categories-1, lat_dim), need to flatten to ((n_categories-1) * lat_dim,)
-        return self.lat_man.join_coords(rho_y, rho_yz.ravel(), rho_z)
+        # rho_yz has shape (n_categories-1, lat_dim), need to transpose to (lat_dim, n_categories-1)
+        # before flattening to match lat_man's expected interaction layout
+        return self.lat_man.join_coords(rho_y, rho_yz.T.ravel(), rho_z)
 
     def to_mixture_params(self, params: Array) -> Array:
         """Convert MixtureOfConjugated parameters to Mixture[Harmonium] parameters.
