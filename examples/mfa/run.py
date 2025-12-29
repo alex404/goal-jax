@@ -1,7 +1,5 @@
 """Mixture of Factor Analyzers (MFA) example."""
 
-from typing import Any
-
 import jax
 import jax.numpy as jnp
 from jax import Array
@@ -38,7 +36,9 @@ def create_ground_truth(key: Array, sample_size: int) -> tuple[Array, Array, Arr
     fa3_params = fa.from_loadings(loadings_3, means_3, diags_3)
 
     key_assign, key_sample = jax.random.split(key)
-    components = jax.random.categorical(key_assign, jnp.log(mixing_probs), shape=(sample_size,))
+    components = jax.random.categorical(
+        key_assign, jnp.log(mixing_probs), shape=(sample_size,)
+    )
     keys = jax.random.split(key_sample, sample_size)
 
     def sample_one(k: Array, c: Array) -> Array:
@@ -53,7 +53,9 @@ def create_ground_truth(key: Array, sample_size: int) -> tuple[Array, Array, Arr
 
 def compute_marginal_2d(
     components: list[tuple[Array, Array, Array]],
-    mixing: Array, x_range: Array, dims: tuple[int, int]
+    mixing: Array,
+    x_range: Array,
+    dims: tuple[int, int],
 ) -> Array:
     """Compute 2D marginal density analytically."""
     grid_2d = jnp.stack(jnp.meshgrid(x_range, x_range), axis=-1).reshape(-1, 2)
@@ -62,19 +64,29 @@ def compute_marginal_2d(
         total = 0.0
         for i, (loadings, means, diags) in enumerate(components):
             mu = means[jnp.array(dims)]
-            cov = (loadings @ loadings.T + jnp.diag(diags))[jnp.array(dims)][:, jnp.array(dims)]
+            cov = (loadings @ loadings.T + jnp.diag(diags))[jnp.array(dims)][
+                :, jnp.array(dims)
+            ]
             diff = pt - mu
             inv_cov = jnp.linalg.inv(cov)
             log_det = jnp.linalg.slogdet(cov)[1]
-            log_dens = -0.5 * jnp.dot(diff, inv_cov @ diff) - 0.5 * log_det - jnp.log(2 * jnp.pi)
+            log_dens = (
+                -0.5 * jnp.dot(diff, inv_cov @ diff)
+                - 0.5 * log_det
+                - jnp.log(2 * jnp.pi)
+            )
             total = total + mixing[i] * jnp.exp(log_dens)
-        return total
+        return total  # pyright: ignore[reportReturnType]
 
     return jax.vmap(point_density)(grid_2d).reshape(len(x_range), len(x_range))
 
 
 def compute_mfa_marginal_2d(
-    mfa: MixtureOfConjugated[Normal, Normal], params: Array, x_range: Array, dims: tuple[int, int], marg_dim: int
+    mfa: MixtureOfConjugated[Normal, Normal],
+    params: Array,
+    x_range: Array,
+    dims: tuple[int, int],
+    marg_dim: int,
 ) -> Array:
     """Compute 2D marginal by numerical integration."""
     grid_2d = jnp.stack(jnp.meshgrid(x_range, x_range), axis=-1).reshape(-1, 2)
@@ -83,19 +95,34 @@ def compute_mfa_marginal_2d(
 
     def point_marginal(pt: Array) -> Array:
         def density_at_marg(x_marg: Array) -> Array:
-            pt_3d = jnp.zeros(3).at[dims[0]].set(pt[0]).at[dims[1]].set(pt[1]).at[marg_dim].set(x_marg)
+            pt_3d = (
+                jnp.zeros(3)
+                .at[dims[0]]
+                .set(pt[0])
+                .at[dims[1]]
+                .set(pt[1])
+                .at[marg_dim]
+                .set(x_marg)
+            )
             return mfa.observable_density(params, pt_3d)
+
         return jnp.sum(jax.vmap(density_at_marg)(marg_range)) * dmarg
 
     return jax.vmap(point_marginal)(grid_2d).reshape(len(x_range), len(x_range))
 
 
 def fit_mfa(
-    key: Array, mfa: MixtureOfConjugated[Normal, Normal], sample: Array, n_steps: int, learning_rate: float = 1e-2
+    key: Array,
+    mfa: MixtureOfConjugated[Normal, Normal],
+    sample: Array,
+    n_steps: int,
+    learning_rate: float = 1e-3,
 ) -> tuple[Array, Array, Array]:
     """Fit MFA via gradient descent."""
     init_params = mfa.initialize_from_sample(key, sample)
-    optimizer: Optimizer[MixtureOfConjugated[Normal, Normal]] = Optimizer.adamw(man=mfa, learning_rate=learning_rate)
+    optimizer: Optimizer[MixtureOfConjugated[Normal, Normal]] = Optimizer.adamw(
+        man=mfa, learning_rate=learning_rate
+    )
     opt_state = optimizer.init(init_params)
 
     def loss_fn(params: Array) -> Array:
@@ -140,9 +167,21 @@ def main():
     loadings_1 = jnp.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
     loadings_2 = jnp.array([[-1.0, 0.0], [0.5, -0.5], [0.0, -1.0]])
     loadings_3 = jnp.array([[0.0, 1.0], [-0.5, 0.5], [1.0, 0.0]])
-    means_1, means_2, means_3 = jnp.array([2.0, 1.0, 2.0]), jnp.array([-2.0, -1.0, -2.0]), jnp.array([0.0, 3.0, -3.0])
-    diags_1, diags_2, diags_3 = jnp.array([0.3, 0.3, 0.3]), jnp.array([0.3, 0.3, 0.3]), jnp.array([0.3, 0.3, 0.3])
-    gt_components = [(loadings_1, means_1, diags_1), (loadings_2, means_2, diags_2), (loadings_3, means_3, diags_3)]
+    means_1, means_2, means_3 = (
+        jnp.array([2.0, 1.0, 2.0]),
+        jnp.array([-2.0, -1.0, -2.0]),
+        jnp.array([0.0, 3.0, -3.0]),
+    )
+    diags_1, diags_2, diags_3 = (
+        jnp.array([0.3, 0.3, 0.3]),
+        jnp.array([0.3, 0.3, 0.3]),
+        jnp.array([0.3, 0.3, 0.3]),
+    )
+    gt_components = [
+        (loadings_1, means_1, diags_1),
+        (loadings_2, means_2, diags_2),
+        (loadings_3, means_3, diags_3),
+    ]
 
     gt_x1x2 = compute_marginal_2d(gt_components, mixing, x_range, (0, 1))
     gt_x1x3 = compute_marginal_2d(gt_components, mixing, x_range, (0, 2))
@@ -159,14 +198,18 @@ def main():
 
     # Assignments
     gt_assign = jnp.eye(3)[gt_assignments]
-    final_assign = jax.vmap(mfa.posterior_soft_assignments, in_axes=(None, 0))(final_params, samples)
+    final_assign = jax.vmap(mfa.posterior_soft_assignments, in_axes=(None, 0))(
+        final_params, samples
+    )
 
     results = MFAResults(
         observations=samples.tolist(),
         ground_truth_components=gt_assignments.tolist(),
         plot_range=x_range.tolist(),
         log_likelihoods=lls.tolist(),
-        ground_truth_ll=float(mfa.average_log_observable_density(final_params, samples)),
+        ground_truth_ll=float(
+            mfa.average_log_observable_density(final_params, samples)
+        ),
         ground_truth_density_x1x2=gt_x1x2.tolist(),
         ground_truth_density_x1x3=gt_x1x3.tolist(),
         ground_truth_density_x2x3=gt_x2x3.tolist(),

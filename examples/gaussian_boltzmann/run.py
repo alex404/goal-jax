@@ -85,8 +85,8 @@ def compute_ellipse(
 ) -> Array:
     """Compute confidence ellipse for p(x|z)."""
     cond_params = model.lkl_fun_man(lkl_params, latent_state)
-    mean_params = model.obs_man.to_mean(cond_params)
-    mean, cov = model.obs_man.split_mean_covariance(mean_params)
+    means = model.obs_man.to_mean(cond_params)
+    mean, cov = model.obs_man.split_mean_covariance(means)
     cov_mat = model.obs_man.cov_man.to_matrix(cov)
 
     angles = jnp.linspace(0, 2 * jnp.pi, n_points)

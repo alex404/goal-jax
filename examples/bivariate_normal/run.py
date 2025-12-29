@@ -21,8 +21,8 @@ def compute_densities(model: Normal, params: Array, xs: Array, ys: Array) -> Arr
 
 def fit_and_evaluate(model: Normal, sample: Array, xs: Array, ys: Array) -> Array:
     """Fit model to sample and evaluate densities on grid."""
-    mean_params = model.average_sufficient_statistic(sample)
-    natural_params = model.to_natural(mean_params)
+    means = model.average_sufficient_statistic(sample)
+    natural_params = model.to_natural(means)
     return compute_densities(model, natural_params, xs, ys)
 
 
@@ -47,8 +47,8 @@ def main():
 
     # Ground truth distribution
     gt_cov = pod_model.cov_man.from_matrix(cov)
-    gt_mean_params = pod_model.join_mean_covariance(mean, gt_cov)
-    gt_natural = pod_model.to_natural(gt_mean_params)
+    gt_means = pod_model.join_mean_covariance(mean, gt_cov)
+    gt_natural = pod_model.to_natural(gt_means)
 
     # Generate sample
     sample = pod_model.sample(key, gt_natural, sample_size)

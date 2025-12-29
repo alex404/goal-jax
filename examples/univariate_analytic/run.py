@@ -15,8 +15,8 @@ def fit_normal(
     key: Array, model: Normal, mu: Array, sigma: Array, xs: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
     """Fit Normal and return sample, true densities, estimated densities."""
-    mean_params = model.join_mean_covariance(mu, sigma)
-    natural_params = model.to_natural(mean_params)
+    means = model.join_mean_covariance(mu, sigma)
+    natural_params = model.to_natural(means)
 
     sample = model.sample(key, natural_params, n_samples)
     estimated_mean = model.average_sufficient_statistic(sample)
@@ -32,8 +32,8 @@ def fit_categorical(
     key: Array, model: Categorical, probs: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
     """Fit Categorical and return sample, true probs, estimated probs."""
-    mean_params = model.from_probs(probs)
-    natural_params = model.to_natural(mean_params)
+    means = model.from_probs(probs)
+    natural_params = model.to_natural(means)
 
     sample = model.sample(key, natural_params, n_samples)
     estimated_mean = model.average_sufficient_statistic(sample)
@@ -41,7 +41,9 @@ def fit_categorical(
 
     categories = jnp.arange(probs.shape[0])
     true_probs = jax.vmap(model.density, in_axes=(None, 0))(natural_params, categories)
-    est_probs = jax.vmap(model.density, in_axes=(None, 0))(estimated_natural, categories)
+    est_probs = jax.vmap(model.density, in_axes=(None, 0))(
+        estimated_natural, categories
+    )
 
     return sample, true_probs, est_probs
 
@@ -50,8 +52,8 @@ def fit_poisson(
     key: Array, model: Poisson, rate: float, ks: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
     """Fit Poisson and return sample, true pmf, estimated pmf."""
-    mean_params = jnp.atleast_1d(rate)
-    natural_params = model.to_natural(mean_params)
+    means = jnp.atleast_1d(rate)
+    natural_params = model.to_natural(means)
 
     sample = model.sample(key, natural_params, n_samples)
     estimated_mean = model.average_sufficient_statistic(sample)
@@ -90,7 +92,9 @@ def main():
     # Categorical
     probs = jnp.array([0.1, 0.2, 0.4, 0.2, 0.1])
     categorical = Categorical(n_categories=len(probs))
-    sample, true_probs, est_probs = fit_categorical(keys[1], categorical, probs, n_samples)
+    sample, true_probs, est_probs = fit_categorical(
+        keys[1], categorical, probs, n_samples
+    )
     categorical_results = CategoricalResults(
         probs=probs.tolist(),
         sample=sample.ravel().tolist(),

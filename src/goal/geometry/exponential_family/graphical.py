@@ -25,6 +25,7 @@ from .harmonium import (
     AnalyticConjugated,
     DifferentiableConjugated,
     Harmonium,
+    SymmetricConjugated,
 )
 
 ### Helper Classes ###
@@ -238,74 +239,205 @@ class LatentHarmoniumEmbedding[
         return self.amb_man.join_coords(emb_obs_params, int_params, lat_params)
 
 
-### Helper Functions ###
+### Hierarchical Harmonium Classes ###
 
 
-def hierarchical_conjugation_parameters(
-    lwr_hrm: DifferentiableConjugated[Any, Any, Any],
-    upr_hrm: Harmonium[Any, Any],
-    lkl_params: Array,
-) -> Array:
-    """Compute conjugation parameters for hierarchical structure.
+@dataclass(frozen=True)
+class DifferentiableHierarchical[
+    LowerHarmonium: DifferentiableConjugated[Any, Any, Any],
+    PstUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
+    PrrUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
+](
+    DifferentiableConjugated[Any, PstUpperHarmonium, PrrUpperHarmonium],
+):
+    """Differentiable hierarchical conjugated harmonium.
 
-    This embeds the lower harmonium's conjugation parameters into the
-    upper harmonium's parameter space. The embedding is always via the
-    observable space of the upper harmonium, since in hierarchical models
-    the lower prior space = upper observable space.
+    Composes a lower harmonium (Observable → MiddleLatent) with an upper harmonium
+    (MiddleLatent → TopLatent) to form a hierarchical structure. Supports asymmetric
+    posterior/prior structures where the prior uses a fuller parameterization.
 
-    Runtime requirement: lwr_hrm.prr_man == upr_hrm.obs_man
+    The joint distribution factors as: p(x,y,z) = p(x|y)p(y|z)p(z)
 
-    Parameters
-    ----------
-    lwr_hrm : LowerHarmonium
-        The lower harmonium in the hierarchy
-    upr_hrm : UpperHarmonium
-        The upper harmonium we're embedding into (observable = lower prior)
-    lkl_params : Array
-        Likelihood parameters from the lower harmonium (natural coordinates)
-
-    Returns
-    -------
-    Array
-        Conjugation parameters in the upper harmonium's space (natural coordinates)
+    Type Parameters:
+        LowerHarmonium: The lower harmonium type (Observable → MiddleLatent)
+        PstUpperHarmonium: Posterior upper harmonium type (possibly restricted)
+        PrrUpperHarmonium: Prior upper harmonium type (for conjugation)
     """
-    assert lwr_hrm.prr_man == upr_hrm.obs_man, (
-        "Lower harmonium's prior space must match upper harmonium's observable space"
-    )
 
-    hrm_lat_emb = ObservableEmbedding(upr_hrm)
-    return hrm_lat_emb.embed(lwr_hrm.conjugation_parameters(lkl_params))
+    lwr_hrm: LowerHarmonium
+    """Lower harmonium: maps observable to middle latent."""
+
+    pst_upr_hrm: PstUpperHarmonium
+    """Posterior upper harmonium with possibly restricted structure."""
+
+    prr_upr_hrm: PrrUpperHarmonium
+    """Prior upper harmonium for conjugation parameter computation."""
+
+    def __post_init__(self) -> None:
+        """Validate that component harmoniums are compatible."""
+        assert self.lwr_hrm.pst_man == self.pst_upr_hrm.obs_man, (
+            "Lower harmonium's posterior must match posterior upper harmonium's observable"
+        )
+        assert self.lwr_hrm.prr_man == self.prr_upr_hrm.obs_man, (
+            "Lower harmonium's prior must match prior upper harmonium's observable"
+        )
+
+    @property
+    @override
+    def int_man(self) -> Any:
+        """Interaction manifold: lower interaction prepended with upper observable embedding."""
+        return self.lwr_hrm.int_man.prepend_embedding(
+            ObservableEmbedding(self.pst_upr_hrm)
+        )
+
+    @property
+    @override
+    def pst_prr_emb(self) -> LatentHarmoniumEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
+        """Embedding from posterior to prior latent space via LatentHarmoniumEmbedding."""
+        return LatentHarmoniumEmbedding(
+            self.lwr_hrm.pst_prr_emb,
+            self.pst_upr_hrm,
+            self.prr_upr_hrm,
+        )
+
+    @override
+    def extract_likelihood_input(self, prr_sample: Array) -> Array:
+        """Extract middle latent (y) from full prior sample (y,z) for likelihood evaluation."""
+        return prr_sample[:, : self.lwr_hrm.prr_man.data_dim]
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array) -> Array:
+        """Compute conjugation parameters for the hierarchical structure.
+
+        Embeds the lower harmonium's conjugation parameters into the upper
+        harmonium's parameter space via the observable embedding.
+        """
+        upr_obs_emb = ObservableEmbedding(self.prr_upr_hrm)
+        return upr_obs_emb.embed(self.lwr_hrm.conjugation_parameters(lkl_params))
 
 
-def hierarchical_to_natural_likelihood(
-    harmonium: Harmonium[Any, Any],
-    lwr_hrm: AnalyticConjugated[Any, Any],
-    upr_hrm: Harmonium[Any, Any],
-    params: Array,
-) -> Array:
-    """Convert mean parameters to natural likelihood parameters for hierarchical models.
+@dataclass(frozen=True)
+class SymmetricHierarchical[
+    LowerHarmonium: SymmetricConjugated[Any, Any],
+    UpperHarmonium: DifferentiableConjugated[Any, Any, Any],
+](
+    SymmetricConjugated[Any, UpperHarmonium],
+):
+    """Symmetric hierarchical conjugated harmonium.
 
-    This projects the hierarchical mean parameters down to the lower harmonium's
-    space and converts them to natural parameters.
+    Composes a lower harmonium with an upper harmonium where both use symmetric
+    posterior/prior structure (posterior = prior manifold).
 
-    Parameters
-    ----------
-    harmonium : HrmType
-        The full hierarchical harmonium
-    lwr_hrm : AnalyticConjugated
-        The lower harmonium in the hierarchy
-    upr_hrm : ExponentialFamily
-        The upper harmonium (for embedding construction)
-    params : Array
-        Mean parameters of the hierarchical model
+    The joint distribution factors as: p(x,y,z) = p(x|y)p(y|z)p(z)
 
-    Returns
-    -------
-    Array
-        Natural parameters for the lower likelihood
+    Type Parameters:
+        LowerHarmonium: The lower harmonium type (must be symmetric)
+        UpperHarmonium: The upper harmonium type
     """
-    obs_means, lwr_int_means, lat_means = harmonium.split_coords(params)
-    hrm_lat_emb = ObservableEmbedding(upr_hrm)
-    lwr_lat_means = hrm_lat_emb.project(lat_means)
-    lwr_means = lwr_hrm.join_coords(obs_means, lwr_int_means, lwr_lat_means)
-    return lwr_hrm.to_natural_likelihood(lwr_means)
+
+    lwr_hrm: LowerHarmonium
+    """Lower harmonium: maps observable to middle latent."""
+
+    upr_hrm: UpperHarmonium
+    """Upper harmonium: maps middle latent to top latent."""
+
+    def __post_init__(self) -> None:
+        """Validate that component harmoniums are compatible."""
+        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man, (
+            "Lower harmonium's latent must match upper harmonium's observable"
+        )
+
+    @property
+    @override
+    def lat_man(self) -> UpperHarmonium:
+        """The latent manifold is the upper harmonium."""
+        return self.upr_hrm
+
+    @property
+    @override
+    def int_man(self) -> Any:
+        """Interaction manifold: lower interaction prepended with upper observable embedding."""
+        return self.lwr_hrm.int_man.prepend_embedding(
+            ObservableEmbedding(self.upr_hrm)
+        )
+
+    @override
+    def extract_likelihood_input(self, prr_sample: Array) -> Array:
+        """Extract middle latent (y) from full prior sample (y,z) for likelihood evaluation."""
+        return prr_sample[:, : self.lwr_hrm.lat_man.data_dim]
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array) -> Array:
+        """Compute conjugation parameters for the hierarchical structure."""
+        upr_obs_emb = ObservableEmbedding(self.upr_hrm)
+        return upr_obs_emb.embed(self.lwr_hrm.conjugation_parameters(lkl_params))
+
+
+@dataclass(frozen=True)
+class AnalyticHierarchical[
+    LowerHarmonium: AnalyticConjugated[Any, Any],
+    UpperHarmonium: AnalyticConjugated[Any, Any],
+](
+    AnalyticConjugated[Any, UpperHarmonium],
+):
+    """Analytic hierarchical conjugated harmonium.
+
+    Composes a lower harmonium with an upper harmonium, enabling closed-form EM
+    and bidirectional parameter conversion.
+
+    The joint distribution factors as: p(x,y,z) = p(x|y)p(y|z)p(z)
+
+    Type Parameters:
+        LowerHarmonium: The lower harmonium type (must be analytic)
+        UpperHarmonium: The upper harmonium type
+    """
+
+    lwr_hrm: LowerHarmonium
+    """Lower harmonium: maps observable to middle latent."""
+
+    upr_hrm: UpperHarmonium
+    """Upper harmonium: maps middle latent to top latent."""
+
+    def __post_init__(self) -> None:
+        """Validate that component harmoniums are compatible."""
+        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man, (
+            "Lower harmonium's latent must match upper harmonium's observable"
+        )
+
+    @property
+    @override
+    def lat_man(self) -> UpperHarmonium:
+        """The latent manifold is the upper harmonium."""
+        return self.upr_hrm
+
+    @property
+    @override
+    def int_man(self) -> Any:
+        """Interaction manifold: lower interaction prepended with upper observable embedding."""
+        return self.lwr_hrm.int_man.prepend_embedding(
+            ObservableEmbedding(self.upr_hrm)
+        )
+
+    @override
+    def extract_likelihood_input(self, prr_sample: Array) -> Array:
+        """Extract middle latent (y) from full prior sample (y,z) for likelihood evaluation."""
+        return prr_sample[:, : self.lwr_hrm.lat_man.data_dim]
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array) -> Array:
+        """Compute conjugation parameters for the hierarchical structure."""
+        upr_obs_emb = ObservableEmbedding(self.upr_hrm)
+        return upr_obs_emb.embed(self.lwr_hrm.conjugation_parameters(lkl_params))
+
+    @override
+    def to_natural_likelihood(self, means: Array) -> Array:
+        """Convert mean parameters to natural likelihood parameters.
+
+        Projects the hierarchical mean parameters down to the lower harmonium's
+        space and converts them to natural parameters.
+        """
+        obs_means, lwr_int_means, lat_means = self.split_coords(means)
+        upr_obs_emb = ObservableEmbedding(self.upr_hrm)
+        lwr_lat_means = upr_obs_emb.project(lat_means)
+        lwr_means = self.lwr_hrm.join_coords(obs_means, lwr_int_means, lwr_lat_means)
+        return self.lwr_hrm.to_natural_likelihood(lwr_means)

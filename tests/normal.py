@@ -27,16 +27,16 @@ def ground_truth() -> tuple[Normal, Array]:
     """Ground truth normal model and mean parameters."""
     model = Normal(sample_mean.shape[0], PositiveDefinite())
     cov_params = model.cov_man.from_matrix(sample_cov)
-    mean_params = model.join_mean_covariance(sample_mean, cov_params)
-    return model, mean_params
+    means = model.join_mean_covariance(sample_mean, cov_params)
+    return model, means
 
 
 @pytest.fixture
 def samples(ground_truth: tuple[Normal, Array]) -> Array:
     """Sample data from ground truth distribution."""
-    model, mean_params = ground_truth
+    model, means = ground_truth
     key = jax.random.PRNGKey(0)
-    natural_params = model.to_natural(mean_params)
+    natural_params = model.to_natural(means)
     return model.sample(key, natural_params, sample_size)
 
 
@@ -97,28 +97,30 @@ def test_representation_consistency(samples: Array):
 
 def test_precision_is_covariance_inverse(ground_truth: tuple[Normal, Array]):
     """Test that precision matrix is the inverse of covariance."""
-    model, mean_params = ground_truth
-    natural_params = model.to_natural(mean_params)
+    model, means = ground_truth
+    natural_params = model.to_natural(means)
 
     _, precision = model.split_location_precision(natural_params)
-    _, covariance = model.split_mean_covariance(mean_params)
+    _, covariance = model.split_mean_covariance(means)
 
     prec_dense = model.cov_man.to_matrix(precision)
     cov_dense = model.cov_man.to_matrix(covariance)
     expected_prec = jnp.linalg.inv(cov_dense)
 
     assert jnp.allclose(prec_dense, expected_prec, rtol=rtol, atol=atol)
-    assert jnp.allclose(prec_dense @ cov_dense, jnp.eye(model.data_dim), rtol=rtol, atol=atol)
+    assert jnp.allclose(
+        prec_dense @ cov_dense, jnp.eye(model.data_dim), rtol=rtol, atol=atol
+    )
 
 
 def test_whiten(ground_truth: tuple[Normal, Array]):
     """Test whitening transformation."""
-    model, mean_params = ground_truth
-    gt_mean, gt_cov = model.split_mean_covariance(mean_params)
+    model, means = ground_truth
+    gt_mean, gt_cov = model.split_mean_covariance(means)
     gt_cov_mat = model.cov_man.to_matrix(gt_cov)
 
     # Whitening relative to itself should give standard normal
-    whitened = model.whiten(mean_params, mean_params)
+    whitened = model.whiten(means, means)
     w_mean, w_cov = model.split_mean_covariance(whitened)
 
     assert jnp.allclose(w_mean, jnp.zeros_like(gt_mean), rtol=rtol, atol=atol)
@@ -133,7 +135,7 @@ def test_whiten(ground_truth: tuple[Normal, Array]):
         test_mean, model.cov_man.from_matrix(test_cov_mat)
     )
 
-    whitened_test = model.whiten(test_params, mean_params)
+    whitened_test = model.whiten(test_params, means)
     wt_mean, wt_cov = model.split_mean_covariance(whitened_test)
 
     # Verify against manual computation
@@ -145,4 +147,6 @@ def test_whiten(ground_truth: tuple[Normal, Array]):
     expected_cov = jax.scipy.linalg.solve_triangular(chol, temp.T, lower=True).T
 
     assert jnp.allclose(wt_mean, expected_mean, rtol=rtol, atol=atol)
-    assert jnp.allclose(model.cov_man.to_matrix(wt_cov), expected_cov, rtol=rtol, atol=atol)
+    assert jnp.allclose(
+        model.cov_man.to_matrix(wt_cov), expected_cov, rtol=rtol, atol=atol
+    )

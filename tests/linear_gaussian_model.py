@@ -33,16 +33,16 @@ def joint_normal() -> tuple[Normal, Array]:
     joint_mean = jnp.concatenate([obs_mean, lat_mean])
     joint_cov = jnp.block([[obs_cov, int_cov], [int_cov.T, lat_cov]])
     cov_params = model.cov_man.from_matrix(joint_cov)
-    mean_params = model.join_mean_covariance(joint_mean, cov_params)
-    return model, mean_params
+    means = model.join_mean_covariance(joint_mean, cov_params)
+    return model, means
 
 
 @pytest.fixture
 def samples(joint_normal: tuple[Normal, Array]) -> Array:
     """Sample data from ground truth distribution."""
-    model, mean_params = joint_normal
+    model, means = joint_normal
     key = jax.random.PRNGKey(0)
-    natural_params = model.to_natural(mean_params)
+    natural_params = model.to_natural(means)
     return model.sample(key, natural_params, sample_size)
 
 
@@ -85,7 +85,9 @@ def test_observable_distribution_consistency(samples: Array):
 
 @pytest.mark.parametrize("rep", [Scale(), Diagonal(), PositiveDefinite()])
 def test_lgm_matches_normal(
-    rep: Scale | Diagonal | PositiveDefinite, samples: Array, joint_normal: tuple[Normal, Array]
+    rep: Scale | Diagonal | PositiveDefinite,
+    samples: Array,
+    joint_normal: tuple[Normal, Array],
 ):
     """Test LGM log-density matches equivalent Normal distribution."""
     obs_dim, lat_dim = obs_mean.shape[0], lat_mean.shape[0]

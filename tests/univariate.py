@@ -35,7 +35,9 @@ analytic_models = [
 ]
 
 
-def integrate_density(model: Differentiable, params: Array, xs: Array, dx: float = 1.0) -> Array:
+def integrate_density(
+    model: Differentiable, params: Array, xs: Array, dx: float = 1.0
+) -> Array:
     """Integrate density over given points."""
     densities = jax.vmap(model.density, in_axes=(None, 0))(params, xs)
     return jnp.sum(densities) * dx
@@ -71,13 +73,13 @@ def test_density_integrates_to_one(model: Differentiable):
             xs = jnp.linspace(-jnp.pi, jnp.pi, 1000)
             total = integrate_density(model, params, xs, dx=2 * jnp.pi / 1000)
         elif isinstance(model, Normal):
-            mean_params = model.to_mean(params)
-            mean, var = model.split_mean_covariance(mean_params)
+            means = model.to_mean(params)
+            mean, var = model.split_mean_covariance(means)
             std = jnp.sqrt(var)
             xs = jnp.linspace(mean - 6 * std, mean + 6 * std, 1000).ravel()
             total = integrate_density(model, params, xs, dx=12 * std.item() / 1000)
         else:
-            raise ValueError(f"Unknown model type: {type(model)}")
+            raise TypeError(f"Unknown model type: {type(model)}")
 
         results.append(float(total))
 
@@ -117,8 +119,8 @@ def test_parameter_recovery(analytic_model: Analytic):
 
     for i in range(n_trials):
         params = analytic_model.initialize(jax.random.fold_in(key, i))
-        mean_params = analytic_model.to_mean(params)
-        recovered = analytic_model.to_natural(mean_params)
+        means = analytic_model.to_mean(params)
+        recovered = analytic_model.to_natural(means)
         error = float(jnp.mean((recovered - params) ** 2))
         assert error < 1e-5, f"Parameter recovery error: {error}"
 
@@ -129,7 +131,7 @@ def test_relative_entropy_with_self(analytic_model: Analytic):
 
     for i in range(n_trials):
         params = analytic_model.initialize(jax.random.fold_in(key, i))
-        mean_params = analytic_model.to_mean(params)
-        re = analytic_model.relative_entropy(mean_params, params)
+        means = analytic_model.to_mean(params)
+        re = analytic_model.relative_entropy(means, params)
         assert re >= -1e-6, f"Negative relative entropy: {re}"
         assert jnp.abs(re) < 1e-5, f"Self relative entropy not zero: {re}"

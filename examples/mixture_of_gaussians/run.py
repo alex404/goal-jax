@@ -31,8 +31,8 @@ def create_ground_truth(mix_man: AnalyticMixture[Normal]) -> Array:
     components = []
     for mean, cov in zip(means, covs):
         cov_params = mix_man.obs_man.cov_man.from_matrix(cov)
-        mean_params = mix_man.obs_man.join_mean_covariance(mean, cov_params)
-        components.append(mean_params)
+        means = mix_man.obs_man.join_mean_covariance(mean, cov_params)
+        components.append(means)
 
     weights = jnp.array([0.35, 0.25])
     mean_mix = mix_man.join_mean_mixture(jnp.concatenate(components), weights)
@@ -41,8 +41,8 @@ def create_ground_truth(mix_man: AnalyticMixture[Normal]) -> Array:
 
 def to_sklearn(mix_man: AnalyticMixture[Normal], params: Array) -> GaussianMixture:
     """Convert GOAL mixture to sklearn GaussianMixture."""
-    mean_params = mix_man.to_mean(params)
-    components, weights = mix_man.split_mean_mixture(mean_params)
+    means = mix_man.to_mean(params)
+    components, weights = mix_man.split_mean_mixture(means)
 
     means, covs = [], []
     for i in range(mix_man.cmp_man.n_reps):
@@ -123,9 +123,13 @@ def main():
             params, grid_points
         ).reshape(xs.shape)
 
-    gt_ll = float(jnp.mean(
-        jax.vmap(pd_mix.log_observable_density, in_axes=(None, 0))(gt_params, sample)
-    ))
+    gt_ll = float(
+        jnp.mean(
+            jax.vmap(pd_mix.log_observable_density, in_axes=(None, 0))(
+                gt_params, sample
+            )
+        )
+    )
     sklearn_dens = np.exp(sklearn_gmm.score_samples(grid_points)).reshape(xs.shape)
 
     results = MixtureResults(

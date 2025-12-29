@@ -13,12 +13,13 @@ from .exponential_family.combinators import (
     StatisticalMoments,
 )
 from .exponential_family.graphical import (
+    AnalyticHierarchical,
+    DifferentiableHierarchical,
     InteractionEmbedding,
     LatentHarmoniumEmbedding,
     ObservableEmbedding,
     PosteriorEmbedding,
-    hierarchical_conjugation_parameters,
-    hierarchical_to_natural_likelihood,
+    SymmetricHierarchical,
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
@@ -69,6 +70,7 @@ __all__ = [
     "AmbientMap",
     "Analytic",
     "AnalyticConjugated",
+    "AnalyticHierarchical",
     "AnalyticProduct",
     "BlockMap",
     "ComposedEmbedding",
@@ -76,6 +78,7 @@ __all__ = [
     "Diagonal",
     "Differentiable",
     "DifferentiableConjugated",
+    "DifferentiableHierarchical",
     "DifferentiableProduct",
     "EmbeddedMap",
     "Embedding",
@@ -109,8 +112,7 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
+    "SymmetricHierarchical",
     "Triple",
     "TupleEmbedding",
-    "hierarchical_conjugation_parameters",
-    "hierarchical_to_natural_likelihood",
 ]

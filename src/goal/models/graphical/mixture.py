@@ -107,12 +107,12 @@ class TensorizedEmbedding[
         return embedded_matrix.ravel()
 
     @override
-    def project(self, mean_params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Project by applying base projection to each column.
 
         Parameters
         ----------
-        mean_params : Array
+        means : Array
             Mean parameters in LinearMap[Dom, Amb].
 
         Returns
@@ -121,7 +121,7 @@ class TensorizedEmbedding[
             Mean parameters in LinearMap[Dom, Sub].
         """
         # Reshape to matrix
-        matrix = self.amb_man.to_matrix(mean_params)
+        matrix = self.amb_man.to_matrix(means)
 
         # Apply base projection to each column using vmap
         projected_matrix = jax.vmap(self.cod_emb.project, in_axes=1, out_axes=1)(matrix)
@@ -193,7 +193,9 @@ class MixtureOfConjugated[
         return CompleteMixture(self.hrm.pst_man, self.n_categories)
 
     @property
-    def mix_man(self) -> CompleteMixture[DifferentiableConjugated[Observable, Latent, Latent]]:
+    def mix_man(
+        self,
+    ) -> CompleteMixture[DifferentiableConjugated[Observable, Latent, Latent]]:
         """Mixture manifold over component harmoniums.
 
         This provides an alternative representation of the mixture model where each
@@ -368,7 +370,9 @@ class MixtureOfConjugated[
             Parameters in MixtureOfConjugated representation
         """
         # Step 1: Split mix_man parameters
-        base_hrm_params, mix_int_params, k_params = self.mix_man.split_coords(mix_params)
+        base_hrm_params, mix_int_params, k_params = self.mix_man.split_coords(
+            mix_params
+        )
 
         # Step 2: Extract base harmonium components
         x_params, xy_params, y_params = self.hrm.split_coords(base_hrm_params)
