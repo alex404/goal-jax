@@ -43,6 +43,7 @@ from .manifold.embedding import (
     IdentityEmbedding,
     LinearComposedEmbedding,
     LinearEmbedding,
+    TrivialEmbedding,
     TupleEmbedding,
 )
 from .manifold.linear import (
@@ -114,5 +115,6 @@ __all__ = [
     "SymmetricConjugated",
     "SymmetricHierarchical",
     "Triple",
+    "TrivialEmbedding",
     "TupleEmbedding",
 ]

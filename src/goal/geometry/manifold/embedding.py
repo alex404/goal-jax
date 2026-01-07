@@ -17,7 +17,7 @@ import jax
 from jax import Array
 
 from .base import Manifold
-from .combinators import Tuple
+from .combinators import Null, Tuple
 
 ### Linear Subspaces ###
 
@@ -290,6 +290,45 @@ class LinearComposedEmbedding[
         mid_zero = self.mid_man.zeros()
         mid = self.sub_emb.translate(mid_zero, q_coords)
         return self.mid_emb.translate(p_coords, mid)
+
+
+@dataclass(frozen=True)
+class TrivialEmbedding[Ambient: Manifold](LinearEmbedding[Null, Ambient]):
+    """Trivial embedding from zero-dimensional manifold to any ambient manifold.
+
+    This embedding is used to indicate that a component does not vary in a
+    mixture or product structure. The submanifold has zero dimension, so:
+    - embed() returns zeros in the ambient space
+    - project() returns an empty array
+    """
+
+    _amb_man: Ambient
+    """The ambient manifold."""
+
+    @property
+    @override
+    def amb_man(self) -> Ambient:
+        return self._amb_man
+
+    @property
+    @override
+    def sub_man(self) -> Null:
+        return Null()
+
+    @override
+    def project(self, coords: Array) -> Array:
+        """Project to zero-dimensional space (returns empty array)."""
+        return jax.numpy.array([])
+
+    @override
+    def embed(self, coords: Array) -> Array:
+        """Embed from zero-dimensional space (returns zeros)."""
+        return self._amb_man.zeros()
+
+    @override
+    def translate(self, p_coords: Array, q_coords: Array) -> Array:
+        """Translation does nothing since q_coords is empty."""
+        return p_coords
 
 
 @dataclass(frozen=True)
