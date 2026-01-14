@@ -125,7 +125,7 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
 
 @dataclass(frozen=True)
 class Normal(
-    GeneralizedGaussian[Covariance],
+    GeneralizedGaussian[Euclidean, Covariance],
     LocationShape[Euclidean, Covariance],
     Analytic,
 ):

@@ -1,4 +1,9 @@
-"""The categorical distribution (probability simplex) models distributions over finite sets of elements, and has sufficient parameters to model any such distribution."""
+"""Categorical distributions over finite sets.
+
+This module provides:
+- `Categorical`: Distribution over n states with probabilities summing to 1
+- `Bernoulli`: Special case for binary variables (equivalent to Categorical(2))
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,91 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import Analytic
+
+
+@dataclass(frozen=True)
+class Bernoulli(Analytic):
+    """Bernoulli distribution for a single binary variable.
+
+    Mathematically equivalent to Categorical(n_categories=2).
+
+    The distribution over binary values x ∈ {0, 1} is:
+
+    .. math::
+
+        p(x; \\theta) = \\sigma(\\theta)^x (1 - \\sigma(\\theta))^{1-x}
+
+    where σ(θ) = 1/(1 + exp(-θ)) is the sigmoid function.
+
+    As an exponential family:
+        - Sufficient statistic: s(x) = x (identity)
+        - Base measure: μ(x) = 0
+        - Natural parameter: θ = log(p/(1-p)) (log odds)
+        - Mean parameter: η = p = P(x=1)
+        - Log partition: ψ(θ) = log(1 + exp(θ)) = softplus(θ)
+        - Negative entropy: φ(η) = η*log(η) + (1-η)*log(1-η)
+    """
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Parameter dimension is 1."""
+        return 1
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        """Data dimension is 1 (single binary value)."""
+        return 1
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Identity sufficient statistic s(x) = x."""
+        return jnp.atleast_1d(x).astype(jnp.float32)
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        """Base measure is constant (zero in log space)."""
+        return jnp.array(0.0)
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        """Log partition function: log(1 + exp(θ)) = softplus(θ)."""
+        return jax.nn.softplus(params[0])
+
+    @override
+    def negative_entropy(self, means: Array) -> Array:
+        """Negative entropy: η*log(η) + (1-η)*log(1-η)."""
+        p = means[0]
+        p0 = 1 - p
+        # Add small epsilon for numerical stability
+        eps = 1e-10
+        return p * jnp.log(p + eps) + p0 * jnp.log(p0 + eps)
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        """Sample from Bernoulli distribution.
+
+        Args:
+            key: JAX random key
+            params: Natural parameters (log odds)
+            n: Number of samples
+
+        Returns:
+            Array of shape (n, 1) with binary values
+        """
+        prob = jax.nn.sigmoid(params[0])
+        return jax.random.bernoulli(key, prob, shape=(n, 1)).astype(jnp.float32)
+
+    # Convenience methods
+
+    def to_prob(self, means: Array) -> Array:
+        """Extract P(x=1) from mean parameters."""
+        return means[0]
+
+    def from_prob(self, prob: float) -> Array:
+        """Construct mean parameters from P(x=1)."""
+        return jnp.array([prob])
 
 
 @dataclass(frozen=True)

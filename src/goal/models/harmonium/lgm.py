@@ -22,7 +22,7 @@ from ...geometry import (
     Scale,
     SymmetricConjugated,
 )
-from ..base.gaussian.boltzmann import Boltzmann
+from ..base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
@@ -33,7 +33,7 @@ from ..base.gaussian.normal import (
 
 
 @dataclass(frozen=True)
-class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any]](
+class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
     LinearEmbedding[Euclidean, G],
 ):
     """Embedding of the Euclidean location component into a GeneralizedGaussian distribution.
@@ -207,9 +207,97 @@ class NormalCovarianceEmbedding(LinearEmbedding[Normal, Normal]):
 
 
 @dataclass(frozen=True)
+class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, Boltzmann]):
+    """Embedding of DiagonalBoltzmann (mean-field) into full Boltzmann.
+
+    This embedding connects the mean-field approximation (independent binary units)
+    to the full Boltzmann machine (with pairwise coupling).
+
+    - DiagonalBoltzmann has n parameters (biases only, no coupling)
+    - Boltzmann has n(n+1)/2 parameters (biases absorbed into diagonal + off-diagonal coupling)
+
+    The embedding places DiagonalBoltzmann parameters on the diagonal of the coupling matrix
+    (as bias terms) with zero off-diagonal coupling.
+    """
+
+    _sub_man: DiagonalBoltzmann
+    """The mean-field Boltzmann (diagonal/independent units)."""
+
+    _amb_man: Boltzmann
+    """The full Boltzmann machine with coupling."""
+
+    @property
+    @override
+    def sub_man(self) -> DiagonalBoltzmann:
+        return self._sub_man
+
+    @property
+    @override
+    def amb_man(self) -> Boltzmann:
+        return self._amb_man
+
+    @override
+    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Extract first moment (location) from full Boltzmann means.
+
+        Parameters
+        ----------
+        means : Array
+            Mean parameters in Boltzmann space.
+
+        Returns
+        -------
+        Array
+            Mean parameters in DiagonalBoltzmann space (first moments E[x_i]).
+        """
+        loc, _ = self._amb_man.split_mean_second_moment(means)
+        return loc
+
+    @override
+    def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Embed DiagonalBoltzmann params into full Boltzmann with zero coupling.
+
+        Parameters
+        ----------
+        params : Array
+            Natural parameters in DiagonalBoltzmann space (biases).
+
+        Returns
+        -------
+        Array
+            Natural parameters in Boltzmann space (biases on diagonal, zero coupling).
+        """
+        zero_prec = self._amb_man.shp_man.zeros()
+        return self._amb_man.join_location_precision(params, zero_prec)
+
+    @override
+    def translate(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self,
+        params: Array,
+        delta: Array,
+    ) -> Array:
+        """Add DiagonalBoltzmann delta to Boltzmann params (location/bias only).
+
+        Parameters
+        ----------
+        params : Array
+            Natural parameters in Boltzmann space.
+        delta : Array
+            Natural parameters in DiagonalBoltzmann space to add.
+
+        Returns
+        -------
+        Array
+            Translated natural parameters in Boltzmann space.
+        """
+        loc, prec = self._amb_man.split_location_precision(params)
+        return self._amb_man.join_location_precision(loc + delta, prec)
+
+
+@dataclass(frozen=True)
 class LGM[
-    PostGaussian: GeneralizedGaussian[Any],
-    PriorGaussian: GeneralizedGaussian[Any],
+    PostGaussian: GeneralizedGaussian[Any, Any],
+    PriorGaussian: GeneralizedGaussian[Any, Any],
 ](
     DifferentiableConjugated[Normal, PostGaussian, PriorGaussian],
     ABC,
@@ -479,6 +567,44 @@ class BoltzmannLGM(
     def lat_man(self) -> Boltzmann:
         """The latent manifold is a Boltzmann machine."""
         return Boltzmann(self.lat_dim)
+
+
+@dataclass(frozen=True)
+class DifferentiableBoltzmannLGM(
+    LGM[DiagonalBoltzmann, Boltzmann],
+):
+    """Differentiable Linear Gaussian Model with mean-field Boltzmann latent variables.
+
+    This model combines a Normal observable distribution with Boltzmann (binary)
+    latent variables, using a mean-field (independent units) approximation for
+    the posterior.
+
+    **Posterior vs Prior Structure**:
+    - Posterior: Uses `DiagonalBoltzmann` (independent binary units) for computational
+      efficiency. This mean-field approximation has O(n) log partition computation.
+    - Prior: Uses full `Boltzmann` with pairwise coupling. The conjugation parameters
+      naturally produce coupling terms even when the posterior is mean-field.
+
+    This asymmetric structure enables efficient inference while maintaining the
+    expressiveness of the full Boltzmann prior for modeling complex dependencies.
+    """
+
+    lat_dim: int
+    """Number of binary latent units."""
+
+    # Overrides
+
+    @property
+    @override
+    def pst_man(self) -> DiagonalBoltzmann:
+        """Mean-field posterior: diagonal Boltzmann (independent units)."""
+        return DiagonalBoltzmann(self.lat_dim)
+
+    @property
+    @override
+    def pst_prr_emb(self) -> BoltzmannEmbedding:
+        """Embedding from mean-field DiagonalBoltzmann to full Boltzmann."""
+        return BoltzmannEmbedding(self.pst_man, Boltzmann(self.lat_dim))
 
 
 @dataclass(frozen=True)

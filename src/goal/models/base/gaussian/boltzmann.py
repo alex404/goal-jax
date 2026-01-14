@@ -1,3 +1,12 @@
+"""Boltzmann machines and related distributions for binary random variables.
+
+This module provides:
+- `Bernoullis`: Product of n independent Bernoullis (core exponential family)
+- `DiagonalBoltzmann`: Mean-field wrapper with GeneralizedGaussian interface
+- `CouplingMatrix`: Exponential family over moment matrices (x⊗x)
+- `Boltzmann`: Full Boltzmann machine with pairwise coupling
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,11 +17,155 @@ import jax.numpy as jnp
 from jax import Array
 
 from ....geometry import (
+    Analytic,
     Differentiable,
     SquareMap,
     Symmetric,
 )
+from ....geometry.exponential_family.combinators import AnalyticProduct
+from ..categorical import Bernoulli
 from .generalized import Euclidean, GeneralizedGaussian
+
+
+class Bernoullis(AnalyticProduct[Bernoulli]):
+    """Product of n independent Bernoulli distributions.
+
+    Core exponential family for mean-field approximation of Boltzmann machines,
+    analogous to CouplingMatrix for full Boltzmann machines.
+
+    The parameters represent the bias/activation of each binary unit in a
+    mean-field (no coupling) approximation.
+
+    Attributes:
+        n_neurons: Number of binary units
+    """
+
+    def __init__(self, n_neurons: int):
+        """Create a product of n independent Bernoullis.
+
+        Args:
+            n_neurons: Number of binary units
+        """
+        super().__init__(Bernoulli(), n_neurons)
+
+    @property
+    def n_neurons(self) -> int:
+        """Number of binary units."""
+        return self.n_reps
+
+
+@dataclass(frozen=True)
+class DiagonalBoltzmann(
+    GeneralizedGaussian[Bernoullis, Bernoullis],
+    Analytic,
+):
+    """Mean-field Boltzmann machine with GeneralizedGaussian interface.
+
+    Wraps Bernoullis (product of independent Bernoullis) to provide the
+    GeneralizedGaussian interface for use in harmoniums (LGM) and embeddings.
+
+    As a GeneralizedGaussian: both loc_man and shp_man are Bernoullis because
+    for independent binary variables, E[x²] = E[x] (complete redundancy between
+    first and second order statistics). This mirrors Boltzmann's structure where
+    the location (bias) is absorbed into the shape.
+
+    Analogous to how Boltzmann wraps CouplingMatrix.
+    """
+
+    n_neurons: int
+
+    # Properties
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Parameter dimension equals number of neurons."""
+        return self.n_neurons
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        """Data dimension equals number of neurons."""
+        return self.n_neurons
+
+    @property
+    @override
+    def loc_man(self) -> Bernoullis:
+        """Location manifold is Bernoullis."""
+        return Bernoullis(self.n_neurons)
+
+    @property
+    @override
+    def shp_man(self) -> Bernoullis:
+        """Shape manifold is Bernoullis (E[x²] = E[x] for binary)."""
+        return Bernoullis(self.n_neurons)
+
+    # Exponential family - delegate to shp_man
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Sufficient statistic: identity for independent binary."""
+        return self.shp_man.sufficient_statistic(x)
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        return self.shp_man.log_base_measure(x)
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        """Log partition: sum of softplus (O(n) computation)."""
+        return self.shp_man.log_partition_function(params)
+
+    @override
+    def negative_entropy(self, means: Array) -> Array:
+        return self.shp_man.negative_entropy(means)
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        """Sample from independent Bernoullis."""
+        return self.shp_man.sample(key, params, n)
+
+    # GeneralizedGaussian interface
+
+    @override
+    def split_location_precision(self, params: Array) -> tuple[Array, Array]:
+        """Split natural parameters into location and precision.
+
+        Following Boltzmann's pattern: location is absorbed into shape params.
+        Returns zeros for location since it's fully absorbed.
+
+        The scaling by -2 matches the GeneralizedGaussian convention where
+        precision relates to natural params by θ₂ = -½Σ⁻¹.
+        """
+        n = self.n_neurons
+        return jnp.zeros(n), -2 * params
+
+    @override
+    def join_location_precision(self, location: Array, precision: Array) -> Array:
+        """Join location and precision with absorption.
+
+        Inverse of split_location_precision. Location is absorbed into
+        the precision (they represent the same thing for independent binary).
+        """
+        return -0.5 * precision + location
+
+    @override
+    def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
+        """Split mean parameters into first and second moments.
+
+        For independent binary variables, E[xᵢ²] = E[xᵢ] since x² = x for {0,1}.
+        Both moments are identical - complete redundancy.
+        """
+        return means, means
+
+    @override
+    def join_mean_second_moment(self, mean: Array, second_moment: Array) -> Array:
+        """Join mean and second moment.
+
+        Returns second moment (which equals first moment for independent binary).
+        The mean is redundant information.
+        """
+        return second_moment
 
 
 class CouplingMatrix(SquareMap[Euclidean], Differentiable):
@@ -150,7 +303,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
 
 @dataclass(frozen=True)
 class Boltzmann(
-    GeneralizedGaussian[CouplingMatrix],
+    GeneralizedGaussian[Bernoullis, CouplingMatrix],
     Differentiable,
 ):
     """Boltzmann machine with GeneralizedGaussian interface for harmoniums.
@@ -183,9 +336,9 @@ class Boltzmann(
 
     @property
     @override
-    def loc_man(self) -> Euclidean:
-        """Return the Euclidean location component manifold."""
-        return Euclidean(self.n_neurons)
+    def loc_man(self) -> Bernoullis:
+        """Return the Bernoullis location component manifold."""
+        return Bernoullis(self.n_neurons)
 
     @property
     @override

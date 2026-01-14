@@ -88,7 +88,7 @@ class Euclidean(Differentiable):
         return 0.5 * jnp.sum(params**2) + 0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
-class GeneralizedGaussian[S: ExponentialFamily](Differentiable, ABC):
+class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Differentiable, ABC):
     r"""ABC for exponential families with Gaussian-like sufficient statistics.
 
     This abc captures the shared structure between Normal distributions and
@@ -107,14 +107,17 @@ class GeneralizedGaussian[S: ExponentialFamily](Differentiable, ABC):
     exponential family models) that can work with either continuous or discrete
     distributions.
 
-    The location component is always Euclidean space, as both Normal and Boltzmann
-    distributions use Euclidean for their first-order sufficient statistics.
+    Type Parameters:
+        L: The location component manifold type (e.g., Euclidean for Normal,
+           Bernoullis for Boltzmann)
+        S: The shape component manifold type (e.g., Covariance for Normal,
+           CouplingMatrix for Boltzmann)
     """
 
     @property
     @abstractmethod
-    def loc_man(self) -> Euclidean:
-        """Return the Euclidean location component manifold."""
+    def loc_man(self) -> L:
+        """Return the location component manifold."""
 
     @property
     @abstractmethod
