@@ -6,7 +6,7 @@ from jax import Array
 
 from goal.geometry import Optimizer, OptState
 from goal.models import FactorAnalysis, Normal
-from goal.models.graphical.mixture import MixtureOfConjugated
+from goal.models.graphical.mixture import CompleteMixtureOfConjugated
 
 from ..shared import example_paths, initialize_jax
 from .types import MFAResults
@@ -82,7 +82,7 @@ def compute_marginal_2d(
 
 
 def compute_mfa_marginal_2d(
-    mfa: MixtureOfConjugated[Normal, Normal],
+    mfa: CompleteMixtureOfConjugated[Normal, Normal],
     params: Array,
     x_range: Array,
     dims: tuple[int, int],
@@ -113,14 +113,14 @@ def compute_mfa_marginal_2d(
 
 def fit_mfa(
     key: Array,
-    mfa: MixtureOfConjugated[Normal, Normal],
+    mfa: CompleteMixtureOfConjugated[Normal, Normal],
     sample: Array,
     n_steps: int,
     learning_rate: float = 1e-3,
 ) -> tuple[Array, Array, Array]:
     """Fit MFA via gradient descent."""
     init_params = mfa.initialize_from_sample(key, sample)
-    optimizer: Optimizer[MixtureOfConjugated[Normal, Normal]] = Optimizer.adamw(
+    optimizer: Optimizer[CompleteMixtureOfConjugated[Normal, Normal]] = Optimizer.adamw(
         man=mfa, learning_rate=learning_rate
     )
     opt_state = optimizer.init(init_params)
@@ -159,8 +159,10 @@ def main():
     samples, gt_assignments, mixing = create_ground_truth(key_data, 1000)
 
     # Model
-    mfa = MixtureOfConjugated(n_categories=3, hrm=FactorAnalysis(obs_dim=3, lat_dim=2))
-    lls, init_params, final_params = fit_mfa(key_train, mfa, samples, 2000)
+    mfa = CompleteMixtureOfConjugated(
+        n_categories=3, bas_hrm=FactorAnalysis(obs_dim=3, lat_dim=2)
+    )
+    lls, init_params, final_params = fit_mfa(key_train, mfa, samples, 5000)
 
     # Ground truth marginals (analytic)
     x_range = jnp.linspace(-5.0, 5.0, 50)

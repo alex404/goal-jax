@@ -185,8 +185,8 @@ class Harmonium[
         # Initialize interaction matrix with appropriate scaling
         # Get internal dimensions from the linear map
         if isinstance(self.int_man, EmbeddedMap):
-            obs_dim = self.int_man.cod_emb.sub_man.dim  # type: ignore
-            lat_dim = self.int_man.dom_emb.sub_man.dim  # type: ignore
+            obs_dim = self.int_man.cod_emb.sub_man.dim
+            lat_dim = self.int_man.dom_emb.sub_man.dim
         else:
             # Fallback to full manifold dimensions
             obs_dim = self.obs_man.dim

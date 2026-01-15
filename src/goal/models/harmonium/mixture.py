@@ -63,7 +63,7 @@ class Mixture[Observable: Differentiable](
     """Number of mixture components."""
 
     obs_emb: LinearEmbedding[Manifold, Observable]
-    """Observable embedding - determines the interaction submanifold structure."""
+    """Observable embedding - determines which observable parameters are mixed."""
 
     # Template Methods
 
