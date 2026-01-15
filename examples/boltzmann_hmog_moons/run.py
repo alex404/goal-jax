@@ -29,11 +29,12 @@ from .types import BoltzmannHMoGMoonsResults
 # Configuration
 n_samples = 500
 noise = 0.1
-n_neurons = 20  # Binary latent dimensions
+n_neurons = 8  # Binary latent dimensions
 n_components = 2  # Mixture components
 n_gmm_components = 2  # More components for GMM to approximate curves
-learning_rate = 1e-2
-n_epochs = 1000
+learning_rate = 3e-3  # Match gaussian_boltzmann example
+n_steps_per_epoch = 200  # Match gaussian_boltzmann example
+n_epochs = 1000  # Total steps = 200,000
 plot_resolution = 80
 
 
@@ -73,8 +74,6 @@ def train_gmm(
     key: Array,
     model: CompleteMixture[Normal],
     data: Array,
-    n_epochs: int,
-    learning_rate: float,
 ) -> tuple[Array, list[float]]:
     """Train Gaussian mixture model via gradient descent."""
     params = model.initialize_from_sample(key, data)
@@ -94,21 +93,24 @@ def train_gmm(
         opt_state, params = optimizer.update(opt_state, grads, params)
         return (opt_state, params), -loss
 
+    total_steps = n_steps_per_epoch * n_epochs
     (_, final_params), lls = jax.lax.scan(
-        step, (opt_state, params), None, length=n_epochs
+        step, (opt_state, params), None, length=total_steps
     )
-    return final_params, lls.tolist()
+    # Return epoch-averaged log likelihoods
+    epoch_lls = lls.reshape(n_epochs, n_steps_per_epoch).mean(axis=1)
+    return final_params, epoch_lls.tolist()
 
 
 def train_symmetric_hmog(
     key: Array,
     model: SymmetricBoltzmannHMoG,
     data: Array,
-    n_epochs: int,
-    learning_rate: float,
 ) -> tuple[Array, list[float]]:
     """Train SymmetricBoltzmannHMoG via gradient descent."""
-    params = model.initialize(key, location=0.0, shape=0.1)
+    params = model.initialize(
+        key, location=0.0, shape=1.0
+    )  # shape=1.0 like gaussian_boltzmann
     optimizer: Optimizer[SymmetricBoltzmannHMoG] = Optimizer.adamw(
         man=model, learning_rate=learning_rate
     )
@@ -125,10 +127,13 @@ def train_symmetric_hmog(
         opt_state, params = optimizer.update(opt_state, grads, params)
         return (opt_state, params), -loss
 
+    total_steps = n_steps_per_epoch * n_epochs
     (_, final_params), lls = jax.lax.scan(
-        step, (opt_state, params), None, length=n_epochs
+        step, (opt_state, params), None, length=total_steps
     )
-    return final_params, lls.tolist()
+    # Return epoch-averaged log likelihoods
+    epoch_lls = lls.reshape(n_epochs, n_steps_per_epoch).mean(axis=1)
+    return final_params, epoch_lls.tolist()
 
 
 def compute_density_grid(
@@ -185,13 +190,16 @@ def compute_hmog_assignments(
 def compute_binary_activations(
     model: SymmetricBoltzmannHMoG, params: Array, data: Array
 ) -> Array:
-    """Compute posterior binary activations (mean of Boltzmann) for each observation."""
+    """Compute posterior binary activations (marginal E[x_i]) for each observation."""
 
     def get_activation(x: Array) -> Array:
         # Get posterior Boltzmann parameters
         boltz_params = model.posterior_boltzmann(params, x)
-        # Convert to mean (activation probabilities)
-        return model.lwr_hrm.lat_man.to_mean(boltz_params)
+        # Convert to mean parameters (full moment matrix)
+        means = model.lwr_hrm.lat_man.to_mean(boltz_params)
+        # Extract just the marginal activations E[x_i] (diagonal of moment matrix)
+        marginals, _ = model.lwr_hrm.lat_man.split_mean_second_moment(means)
+        return marginals
 
     return jax.vmap(get_activation)(data)
 
@@ -220,12 +228,10 @@ def main():
 
     # Train models
     print("Training GMM...")
-    gmm_params, gmm_lls = train_gmm(key_gmm, gmm, data, n_epochs, learning_rate)
+    gmm_params, gmm_lls = train_gmm(key_gmm, gmm, data)
 
     print("Training SymmetricBoltzmannHMoG...")
-    boltz_params, boltz_lls = train_symmetric_hmog(
-        key_boltz, boltz_hmog, data, n_epochs, learning_rate
-    )
+    boltz_params, boltz_lls = train_symmetric_hmog(key_boltz, boltz_hmog, data)
 
     # Compute densities
     print("Computing densities...")

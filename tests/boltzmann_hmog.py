@@ -5,7 +5,7 @@ Tests the mathematical properties of BoltzmannHMoG models including:
 - Conjugation equation verification
 - Posterior computation and normalization
 - Observable density via marginalization
-- Sampling functionality
+- Equivalence of 1-component HMoG to BoltzmannLGM
 """
 
 import jax
@@ -15,7 +15,7 @@ from jax import Array
 from pytest import FixtureRequest
 
 from goal.geometry import PositiveDefinite
-from goal.models import SymmetricBoltzmannHMoG, symmetric_boltzmann_hmog
+from goal.models import BoltzmannLGM, SymmetricBoltzmannHMoG, symmetric_boltzmann_hmog
 
 jax.config.update("jax_platform_name", "cpu")
 
@@ -139,21 +139,110 @@ def test_log_partition_function(model: SymmetricBoltzmannHMoG, params: Array):
     assert jnp.isfinite(log_z)
 
 
-def test_log_observable_density(model: SymmetricBoltzmannHMoG, params: Array):
-    """Test log observable density is finite."""
+def test_observable_density(model: SymmetricBoltzmannHMoG, params: Array):
+    """Test observable density is finite and positive."""
     key = jax.random.PRNGKey(222)
     obs = jax.random.normal(key, (model.obs_man.data_dim,))
 
     log_density = model.log_observable_density(params, obs)
     assert jnp.isfinite(log_density)
 
-
-def test_observable_density_positive(model: SymmetricBoltzmannHMoG, params: Array):
-    """Test observable density is positive."""
-    key = jax.random.PRNGKey(333)
-    obs = jax.random.normal(key, (model.obs_man.data_dim,))
-
     density = model.observable_density(params, obs)
     assert density > 0
+    assert jnp.allclose(density, jnp.exp(log_density), rtol=rtol, atol=atol)
+
+
+# === 1-Component HMoG Equivalence to BoltzmannLGM ===
+
+
+@pytest.fixture(
+    params=[
+        (2, 3),  # (obs_dim, boltz_dim)
+        (3, 2),
+        (4, 4),
+    ]
+)
+def lgm_hmog_params(
+    request: FixtureRequest,
+) -> tuple[BoltzmannLGM, SymmetricBoltzmannHMoG, Array, Array]:
+    """Create matched BoltzmannLGM and 1-component HMoG with equivalent parameters.
+
+    The initialize function uses random keys differently for hierarchical vs flat models,
+    so we construct equivalent parameters manually by using LGM params and mapping them
+    to the HMoG structure.
+    """
+    obs_dim, boltz_dim = request.param
+    obs_rep = PositiveDefinite()
+
+    lgm = BoltzmannLGM(obs_dim=obs_dim, obs_rep=obs_rep, lat_dim=boltz_dim)
+    hmog = symmetric_boltzmann_hmog(
+        obs_dim=obs_dim, obs_rep=obs_rep, boltz_dim=boltz_dim, n_components=1
+    )
+
+    # Initialize LGM params
+    key = jax.random.PRNGKey(111)
+    lgm_params = lgm.initialize(key, location=0.0, shape=1.0)
+
+    # Construct equivalent HMoG params by mapping LGM structure to HMoG structure
+    # LGM: (obs, int, boltzmann)
+    # HMoG: (obs, int, upper_harmonium) where upper_harmonium = (boltzmann, [], [])
+    lgm_obs, lgm_int, lgm_lat = lgm.split_coords(lgm_params)
+
+    # For 1-component HMoG, the upper harmonium lat_params is just the Boltzmann params
+    # (since Categorical(1) has dim 0 and interaction is empty)
+    hmog_lat = hmog.upr_hrm.join_coords(lgm_lat, jnp.array([]), jnp.array([]))
+    hmog_params = hmog.join_coords(lgm_obs, lgm_int, hmog_lat)
+
+    return lgm, hmog, lgm_params, hmog_params
+
+
+def test_one_component_log_partition_equivalence(
+    lgm_hmog_params: tuple[BoltzmannLGM, SymmetricBoltzmannHMoG, Array, Array],
+):
+    """Test that 1-component HMoG has same log partition as BoltzmannLGM."""
+    lgm, hmog, lgm_params, hmog_params = lgm_hmog_params
+
+    lgm_log_z = lgm.log_partition_function(lgm_params)
+    hmog_log_z = hmog.log_partition_function(hmog_params)
+
+    assert jnp.allclose(lgm_log_z, hmog_log_z, rtol=rtol, atol=atol)
+
+
+def test_one_component_density_equivalence(
+    lgm_hmog_params: tuple[BoltzmannLGM, SymmetricBoltzmannHMoG, Array, Array],
+):
+    """Test that 1-component HMoG produces same density as BoltzmannLGM."""
+    lgm, hmog, lgm_params, hmog_params = lgm_hmog_params
+
+    # Test on multiple observations
+    key = jax.random.PRNGKey(222)
+    obs = jax.random.normal(key, (10, lgm.obs_man.data_dim))
+
+    lgm_densities = jax.vmap(lgm.log_observable_density, in_axes=(None, 0))(
+        lgm_params, obs
+    )
+    hmog_densities = jax.vmap(hmog.log_observable_density, in_axes=(None, 0))(
+        hmog_params, obs
+    )
+
+    assert jnp.allclose(lgm_densities, hmog_densities, rtol=rtol, atol=atol)
+
+
+def test_one_component_posterior_equivalence(
+    lgm_hmog_params: tuple[BoltzmannLGM, SymmetricBoltzmannHMoG, Array, Array],
+):
+    """Test that 1-component HMoG posterior over Boltzmann matches BoltzmannLGM."""
+    lgm, hmog, lgm_params, hmog_params = lgm_hmog_params
+
+    key = jax.random.PRNGKey(333)
+    obs = jax.random.normal(key, (lgm.obs_man.data_dim,))
+
+    # LGM posterior is directly over Boltzmann
+    lgm_posterior = lgm.posterior_at(lgm_params, obs)
+
+    # HMoG posterior over Boltzmann (marginalizing out the trivial categorical)
+    hmog_boltz_posterior = hmog.posterior_boltzmann(hmog_params, obs)
+
+    assert jnp.allclose(lgm_posterior, hmog_boltz_posterior, rtol=rtol, atol=atol)
 
 
