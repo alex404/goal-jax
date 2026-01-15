@@ -7,12 +7,6 @@ from .base.gaussian.normal import (
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson
 from .base.von_mises import VonMises
-from .graphical.boltzmann_hmog import (
-    DifferentiableBoltzmannHMoG,
-    SymmetricBoltzmannHMoG,
-    differentiable_boltzmann_hmog,
-    symmetric_boltzmann_hmog,
-)
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -21,7 +15,6 @@ from .graphical.hmog import (
     differentiable_hmog,
     symmetric_hmog,
 )
-from .graphical.mixture import MixtureOfConjugated
 from .harmonium.lgm import (
     LGM,
     BoltzmannEmbedding,
@@ -52,9 +45,7 @@ __all__ = [
     "BoltzmannEmbedding",
     "BoltzmannLGM",
     "DiagonalBoltzmann",
-    "DifferentiableBoltzmannHMoG",
     "DifferentiableBoltzmannLGM",
-    "SymmetricBoltzmannHMoG",
     "Categorical",
     "CoMPoisson",
     "CoMPoissonMixture",
@@ -66,7 +57,6 @@ __all__ = [
     "Euclidean",
     "FactorAnalysis",
     "Mixture",
-    "MixtureOfConjugated",
     "Normal",
     "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",
@@ -78,9 +68,7 @@ __all__ = [
     "VonMises",
     "analytic_hmog",
     "com_poisson_mixture",
-    "differentiable_boltzmann_hmog",
     "differentiable_hmog",
     "poisson_mixture",
-    "symmetric_boltzmann_hmog",
     "symmetric_hmog",
 ]

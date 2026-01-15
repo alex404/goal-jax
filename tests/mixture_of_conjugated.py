@@ -1,8 +1,8 @@
-"""Tests for MixtureOfConjugated.
+"""Tests for CompleteMixtureOfConjugated.
 
-Tests MixtureOfConjugated with FactorAnalysis as the base harmonium,
+Tests CompleteMixtureOfConjugated with FactorAnalysis as the base harmonium,
 covering dimension consistency, conjugation, posterior computation,
-and the isomorphism with Mixture[Harmonium] representation.
+and the isomorphism with CompleteMixture[Harmonium] representation.
 """
 
 import jax
@@ -11,29 +11,29 @@ import pytest
 from jax import Array
 
 from goal.models import FactorAnalysis, Normal
-from goal.models.graphical.mixture import MixtureOfConjugated
+from goal.models.graphical.mixture import CompleteMixtureOfConjugated
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
 
 
 @pytest.fixture(params=[(3, 2, 2), (4, 2, 3)])
-def model(request: pytest.FixtureRequest) -> MixtureOfConjugated[Normal, Normal]:
-    """Create MixtureOfConjugated with FactorAnalysis base."""
+def model(request: pytest.FixtureRequest) -> CompleteMixtureOfConjugated[Normal, Normal]:
+    """Create CompleteMixtureOfConjugated with FactorAnalysis base."""
     obs_dim, lat_dim, n_cat = request.param
     base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
-    return MixtureOfConjugated[Normal, Normal](n_categories=n_cat, hrm=base_fa)
+    return CompleteMixtureOfConjugated[Normal, Normal](n_categories=n_cat, bas_hrm=base_fa)
 
 
 @pytest.fixture
-def params(model: MixtureOfConjugated[Normal, Normal]) -> Array:
+def params(model: CompleteMixtureOfConjugated[Normal, Normal]) -> Array:
     """Generate random model parameters."""
     key = jax.random.PRNGKey(42)
     return model.initialize(key, location=0.0, shape=1.0)
 
 
 def test_dimension_consistency(
-    model: MixtureOfConjugated[Normal, Normal], params: Array
+    model: CompleteMixtureOfConjugated[Normal, Normal], params: Array
 ):
     """Test that all manifold dimensions are consistent."""
     # Parameter dimension matches model
@@ -55,7 +55,7 @@ def test_dimension_consistency(
 
 
 def test_conjugation_parameters(
-    model: MixtureOfConjugated[Normal, Normal], params: Array
+    model: CompleteMixtureOfConjugated[Normal, Normal], params: Array
 ):
     """Test conjugation parameters have correct shape."""
     obs, int_params, _ = model.split_coords(params)
@@ -66,7 +66,7 @@ def test_conjugation_parameters(
 
 
 def test_posterior_computation(
-    model: MixtureOfConjugated[Normal, Normal], params: Array
+    model: CompleteMixtureOfConjugated[Normal, Normal], params: Array
 ):
     """Test posterior computation for single observation."""
     obs = jnp.ones(model.obs_man.data_dim)
@@ -85,7 +85,7 @@ def test_posterior_computation(
     assert 0 <= hard < model.n_categories
 
 
-def test_interaction_blocks_callable(model: MixtureOfConjugated[Normal, Normal]):
+def test_interaction_blocks_callable(model: CompleteMixtureOfConjugated[Normal, Normal]):
     """Test that each interaction block is callable."""
     xy_params = model.xy_man.zeros()
     xyk_params = model.xyk_man.zeros()
@@ -103,31 +103,31 @@ def test_interaction_blocks_callable(model: MixtureOfConjugated[Normal, Normal])
 
 
 def test_mixture_representation_round_trip(
-    model: MixtureOfConjugated[Normal, Normal], params: Array
+    model: CompleteMixtureOfConjugated[Normal, Normal], params: Array
 ):
-    """Test conversion to/from Mixture[Harmonium] is an isomorphism."""
+    """Test conversion to/from CompleteMixture[Harmonium] is an isomorphism."""
     # Forward and back
     mix_params = model.to_mixture_params(params)
     recovered = model.from_mixture_params(mix_params)
     assert jnp.allclose(params, recovered, atol=1e-10)
 
     # mix_man has correct dimension
-    assert mix_params.shape[0] == model.raw_mix_man.dim
+    assert mix_params.shape[0] == model.mix_man.dim
 
 
 def test_mixture_representation_likelihood(
-    model: MixtureOfConjugated[Normal, Normal], params: Array
+    model: CompleteMixtureOfConjugated[Normal, Normal], params: Array
 ):
     """Test likelihood equivalence between representations."""
     mix_params = model.to_mixture_params(params)
 
     key = jax.random.PRNGKey(456)
-    y = jax.random.normal(key, (model.hrm.pst_man.data_dim,))
+    y = jax.random.normal(key, (model.bas_hrm.pst_man.data_dim,))
 
     # Get component harmoniums from mixture representation
-    comp_params, _ = model.raw_mix_man.split_natural_mixture(mix_params)
+    comp_params, _ = model.mix_man.split_natural_mixture(mix_params)
 
     for k in range(model.n_categories):
-        hrm_k = model.raw_mix_man.cmp_man.get_replicate(comp_params, k)
-        lkl_k = model.hrm.likelihood_at(hrm_k, y)
-        assert lkl_k.shape[0] == model.hrm.obs_man.dim
+        hrm_k = model.mix_man.cmp_man.get_replicate(comp_params, k)
+        lkl_k = model.bas_hrm.likelihood_at(hrm_k, y)
+        assert lkl_k.shape[0] == model.bas_hrm.obs_man.dim

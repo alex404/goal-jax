@@ -10,7 +10,6 @@ Tests the mathematical properties of:
 import jax
 import jax.numpy as jnp
 import pytest
-from jax import Array
 from pytest import FixtureRequest
 
 from goal.models import (
@@ -43,8 +42,12 @@ def test_bernoulli_dim(bernoulli: Bernoulli):
 
 def test_bernoulli_sufficient_statistic(bernoulli: Bernoulli):
     """Test sufficient statistic is identity."""
-    assert jnp.allclose(bernoulli.sufficient_statistic(jnp.array(0.0)), jnp.array([0.0]))
-    assert jnp.allclose(bernoulli.sufficient_statistic(jnp.array(1.0)), jnp.array([1.0]))
+    assert jnp.allclose(
+        bernoulli.sufficient_statistic(jnp.array(0.0)), jnp.array([0.0])
+    )
+    assert jnp.allclose(
+        bernoulli.sufficient_statistic(jnp.array(1.0)), jnp.array([1.0])
+    )
 
 
 def test_bernoulli_log_partition_function(bernoulli: Bernoulli):
@@ -203,7 +206,9 @@ def test_diagonal_boltzmann_generalized_gaussian_interface(
     assert diagonal_boltzmann.shp_man.n_neurons == n
 
 
-def test_diagonal_boltzmann_split_join_round_trip(diagonal_boltzmann: DiagonalBoltzmann):
+def test_diagonal_boltzmann_split_join_round_trip(
+    diagonal_boltzmann: DiagonalBoltzmann,
+):
     """Test split/join location_precision round-trip."""
     key = jax.random.PRNGKey(999)
     n = diagonal_boltzmann.n_neurons
@@ -249,7 +254,9 @@ def test_boltzmann_embedding_manifolds(boltzmann_embedding: BoltzmannEmbedding):
     assert boltzmann_embedding.amb_man.dim == n * (n + 1) // 2
 
 
-def test_boltzmann_embedding_embed_zero_coupling(boltzmann_embedding: BoltzmannEmbedding):
+def test_boltzmann_embedding_embed_zero_coupling(
+    boltzmann_embedding: BoltzmannEmbedding,
+):
     """Test that embedding creates zero off-diagonal coupling."""
     key = jax.random.PRNGKey(111)
     n = boltzmann_embedding.sub_man.n_neurons
@@ -257,9 +264,6 @@ def test_boltzmann_embedding_embed_zero_coupling(boltzmann_embedding: BoltzmannE
 
     # Embed biases into Boltzmann
     boltz_params = boltzmann_embedding.embed(biases)
-
-    # Extract location and precision
-    loc, prec = boltzmann_embedding.amb_man.split_location_precision(boltz_params)
 
     # Location should be absorbed into diagonal, but precision should show biases
     # For Boltzmann, the bias is absorbed into diagonal of coupling matrix
