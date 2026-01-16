@@ -77,3 +77,37 @@ def test_split_join_round_trip(boltzmann: Boltzmann, random_params: Array):
     recovered = boltzmann.join_location_precision(loc, prec)
 
     assert jnp.allclose(random_params, recovered, rtol=relative_tol, atol=absolute_tol)
+
+
+def test_unit_conditional_prob(boltzmann: Boltzmann, random_params: Array):
+    """Test unit_conditional_prob computes correct conditional probability.
+
+    Verifies P(x_i=1|x_{-i}) = p(x with x_i=1) / (p(x with x_i=0) + p(x with x_i=1))
+    """
+    # Use shp_man (CouplingMatrix) which has unit_conditional_prob
+    coupling = boltzmann.shp_man
+
+    # Test with a few random states
+    key = jax.random.PRNGKey(123)
+    for _ in range(5):
+        key, state_key, unit_key = jax.random.split(key, 3)
+        state = jax.random.bernoulli(state_key, 0.5, (boltzmann.n_neurons,)).astype(
+            jnp.float32
+        )
+        unit_idx = jax.random.randint(unit_key, (), 0, boltzmann.n_neurons)
+
+        # Compute using unit_conditional_prob
+        prob_fast = coupling.unit_conditional_prob(state, unit_idx, random_params)
+
+        # Compute directly using density ratio
+        state_0 = state.at[unit_idx].set(0.0)
+        state_1 = state.at[unit_idx].set(1.0)
+
+        # Use unnormalized probabilities (densities without partition function)
+        energy_0 = jnp.dot(random_params, coupling.sufficient_statistic(state_0))
+        energy_1 = jnp.dot(random_params, coupling.sufficient_statistic(state_1))
+
+        # P(x_i=1|x_{-i}) = exp(E_1) / (exp(E_0) + exp(E_1)) = sigmoid(E_1 - E_0)
+        prob_direct = jax.nn.sigmoid(energy_1 - energy_0)
+
+        assert jnp.allclose(prob_fast, prob_direct, rtol=relative_tol, atol=absolute_tol)

@@ -229,17 +229,37 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
     def _unit_conditional_energy_diff(
         self, state: Array, unit_idx: Array | int, params: Array
     ) -> Array:
-        """Compute energy difference for unit being 1 vs 0 using sufficient statistics."""
-        # Create states with unit_idx = 0 and unit_idx = 1
-        state_0 = state.at[unit_idx].set(0.0)
-        state_1 = state.at[unit_idx].set(1.0)
+        """Compute energy difference for unit being 1 vs 0 - O(n) computation.
 
-        # Compute sufficient statistics for both states
-        suff_stat_0 = self.sufficient_statistic(state_0)
-        suff_stat_1 = self.sufficient_statistic(state_1)
+        The energy difference when flipping unit k from 0 to 1 is:
+            ΔE = θ_kk + sum_{j≠k} θ_kj * x_j
 
-        # Energy difference = $\\theta^T (s(x_1) - s(x_0))$
-        return jnp.dot(params, suff_stat_1 - suff_stat_0)
+        This extracts just the k-th row/column from the upper triangular storage
+        rather than computing full O(n²) sufficient statistics.
+        """
+        n = self.n_neurons
+        k = jnp.asarray(unit_idx)
+
+        # Helper to get flat index for (i, j) where i <= j in upper triangular storage
+        # Index formula: i * n - i * (i + 1) / 2 + j
+        def get_triu_idx(i: Array, j: Array) -> Array:
+            return i * n - i * (i + 1) // 2 + j
+
+        # For each j in 0..n-1, get the parameter θ_kj (symmetric: θ_kj = θ_jk)
+        j = jnp.arange(n)
+        # If j >= k: element (k, j) is in row k -> use get_triu_idx(k, j)
+        # If j < k: element (j, k) is in row j -> use get_triu_idx(j, k)
+        row_idx = get_triu_idx(k, j)
+        col_idx = get_triu_idx(j, k)
+        idx = jnp.where(j >= k, row_idx, col_idx)
+
+        # Extract the k-th row/column of the parameter matrix
+        theta_k = params[idx]
+
+        # Energy diff = θ_kk + sum_{j≠k} θ_kj * x_j
+        # Rewrite as: θ_kk * (1 - x_k) + dot(theta_k, state)
+        # This avoids creating a masked state array
+        return theta_k[k] * (1 - state[k]) + jnp.dot(theta_k, state)
 
     def unit_conditional_prob(
         self, state: Array, unit_idx: Array | int, params: Array
