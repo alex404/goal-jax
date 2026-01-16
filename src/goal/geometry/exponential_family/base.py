@@ -146,6 +146,48 @@ class Generative(ExponentialFamily, ABC):
         samples = self.sample(key, params, n)
         return self.average_sufficient_statistic(samples)
 
+    def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
+        """Perform one Gibbs sampling step from current state.
+
+        Default implementation: sample independently (ignoring state).
+        Override for models with efficient conditional sampling.
+
+        Args:
+            key: JAX random key
+            params: Natural parameters
+            state: Current state (same shape as data)
+
+        Returns:
+            New state after one Gibbs step
+        """
+        return self.sample(key, params, n=1)[0]
+
+    def gibbs_chain(
+        self,
+        key: Array,
+        params: Array,
+        initial_state: Array,
+        k: int,
+    ) -> Array:
+        """Run k Gibbs sampling steps from initial state.
+
+        Args:
+            key: JAX random key
+            params: Natural parameters
+            initial_state: Starting state
+            k: Number of Gibbs steps
+
+        Returns:
+            Final state after k steps
+        """
+
+        def step(state: Array, step_idx: Array) -> tuple[Array, None]:
+            subkey = jax.random.fold_in(key, step_idx)
+            return self.gibbs_step(subkey, params, state), None
+
+        final_state, _ = jax.lax.scan(step, initial_state, jnp.arange(k))
+        return final_state
+
 
 class Differentiable(Generative, ABC):
     """Differentiable adds the ability to compute exact mean parameters from natural parameters, enabling efficient parameter estimation, density evaluation, and data-fitting via gradient descent.

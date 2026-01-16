@@ -402,6 +402,37 @@ class DifferentiableConjugated[
         # Use latent family's partition function
         return self.prr_man.log_partition_function(adjusted_lat) + chi
 
+    @override
+    def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
+        """Gibbs step alternating between likelihood and posterior.
+
+        1. Sample x ~ p(x|z) using likelihood conditional
+        2. Sample z ~ p(z|x) using posterior conditional
+
+        Args:
+            key: JAX random key
+            params: Natural parameters
+            state: Current state [x, z] concatenated
+
+        Returns:
+            New state [x_new, z_new] after one Gibbs sweep
+        """
+        key1, key2 = jax.random.split(key)
+
+        # Split state into observable and latent
+        obs_dim = self.obs_man.data_dim
+        x, z = state[:obs_dim], state[obs_dim:]
+
+        # Step 1: Sample x|z from likelihood
+        lkl_params = self.likelihood_at(params, z)
+        x_new = self.obs_man.gibbs_step(key1, lkl_params, x)
+
+        # Step 2: Sample z|x from posterior
+        post_params = self.posterior_at(params, x_new)
+        z_new = self.pst_man.gibbs_step(key2, post_params, z)
+
+        return jnp.concatenate([x_new, z_new])
+
     # Templates
     def log_observable_density(self, params: Array, x: Array) -> Array:
         """Compute log density of the observable distribution $p(x)$.
@@ -476,6 +507,89 @@ class DifferentiableConjugated[
             return self.posterior_statistics(params, x)
 
         return batched_mean(infer_missing_expectations, xs, batch_size)
+
+    def contrastive_divergence_step(
+        self,
+        key: Array,
+        params: Array,
+        x: Array,
+        k: int = 1,
+    ) -> Array:
+        """Compute CD-k gradient contribution for a single observation.
+
+        Algorithm:
+        1. Sample z_0 from posterior p(z|x) (positive phase)
+        2. Run k Gibbs steps on joint (x,z) alternating x|z and z|x (negative phase)
+        3. Return positive_stats - negative_stats
+
+        Args:
+            key: JAX random key
+            params: Natural parameters
+            x: Single observation
+            k: Number of Gibbs steps
+
+        Returns:
+            CD gradient statistics (same shape as params)
+        """
+        key1, key2 = jax.random.split(key)
+
+        # Positive phase: sample z from posterior p(z|x), keep x clamped
+        post_params = self.posterior_at(params, x)
+        z_0 = self.pst_man.gibbs_step(
+            key1, post_params, jnp.zeros(self.pst_man.data_dim)
+        )
+
+        # Compute positive phase sufficient statistics
+        obs_stats_pos = self.obs_man.sufficient_statistic(x)
+        z_0_stats = self.pst_man.sufficient_statistic(z_0)
+        int_stats_pos = self.int_man.outer_product(obs_stats_pos, z_0_stats)
+        positive_stats = self.join_coords(obs_stats_pos, int_stats_pos, z_0_stats)
+
+        # Negative phase: run k Gibbs steps on JOINT (x,z)
+        # This alternates between sampling x|z and z|x
+        initial_state = jnp.concatenate([x, z_0])
+        final_state = self.gibbs_chain(key2, params, initial_state, k)
+
+        # Extract final x and z
+        obs_dim = self.obs_man.data_dim
+        x_k, z_k = final_state[:obs_dim], final_state[obs_dim:]
+
+        # Compute negative phase sufficient statistics
+        obs_stats_neg = self.obs_man.sufficient_statistic(x_k)
+        z_k_stats = self.pst_man.sufficient_statistic(z_k)
+        int_stats_neg = self.int_man.outer_product(obs_stats_neg, z_k_stats)
+        negative_stats = self.join_coords(obs_stats_neg, int_stats_neg, z_k_stats)
+
+        # Return gradient of -log p(x) for direct use with optimizers
+        # (negative - positive) approximates E_model[s] - E_data[s]
+        return negative_stats - positive_stats
+
+    def mean_contrastive_divergence_gradient(
+        self,
+        key: Array,
+        params: Array,
+        xs: Array,
+        k: int = 1,
+    ) -> Array:
+        """Compute average CD-k gradient over a batch of observations.
+
+        Args:
+            key: JAX random key
+            params: Natural parameters
+            xs: Batch of observations, shape (n_obs, obs_dim)
+            k: Number of Gibbs steps
+
+        Returns:
+            Average CD gradient (same shape as params)
+        """
+        n = xs.shape[0]
+        keys = jax.random.split(key, n)
+
+        cd_grads = jax.vmap(
+            self.contrastive_divergence_step, in_axes=(0, None, 0, None)
+        )(keys, params, xs, k)
+
+        return jnp.mean(cd_grads, axis=0)
 
 
 class AnalyticConjugated[

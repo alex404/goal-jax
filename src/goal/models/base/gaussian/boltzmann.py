@@ -300,6 +300,11 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         )
         return samples
 
+    @override
+    def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
+        """Gibbs step updating all units via conditional distributions."""
+        return self._gibbs_step(state, key, params)
+
 
 @dataclass(frozen=True)
 class Boltzmann(
@@ -373,6 +378,11 @@ class Boltzmann(
     ) -> Array:
         """Delegate to CouplingMatrix."""
         return self.shp_man.sample(key, params, n, n_burnin, n_thin)
+
+    @override
+    def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
+        """Delegate to CouplingMatrix gibbs_step."""
+        return self.shp_man.gibbs_step(key, params, state)
 
     # GeneralizedGaussian interface
 
