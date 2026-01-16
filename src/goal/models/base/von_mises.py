@@ -112,10 +112,12 @@ class VonMises(Differentiable):
         # Explicitly cast i0e output to Array
         return jnp.log(i0e(kappa)) + kappa
 
-    # TODO: Right now this is based on rejection sampling, but we should switch to a more efficient method that's more suitable for JAX
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Generate n samples from the Von Mises distribution.
+
+        Uses batched rejection sampling with wrapped Cauchy proposal,
+        adapted from NumPyro's implementation (Devroye, 1986).
 
         Args:
             key: JAX random key
@@ -123,40 +125,63 @@ class VonMises(Differentiable):
             n: Number of samples
 
         Returns:
-            Array of n samples
+            Array of n samples with shape (n, 1)
         """
         mu, kappa = self.split_mean_concentration(params)
         kappa = jnp.maximum(kappa, 1e-5)
 
-        tau = 1 + jnp.sqrt(1 + 4 * kappa**2)
-        rho = (tau - jnp.sqrt(2 * tau)) / (2 * kappa)
-        r = (1 + rho**2) / (2 * rho)
+        # Compute shape parameter s with numerical stability
+        # For small kappa, use approximate formula; for large kappa, use exact
+        s_cutoff = 1.2e-4  # Cutoff for float64
+        r = 1.0 + jnp.sqrt(1.0 + 4.0 * kappa**2)
+        rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * kappa)
+        s_exact = (1.0 + rho**2) / (2.0 * rho)
+        s_approximate = 1.0 / kappa
+        s = jnp.where(kappa > s_cutoff, s_exact, s_approximate)
 
-        def sample_one(key: Array) -> Array:
-            def cond_fn(val: tuple[Array, Array, Array]) -> Array:
-                _, _, accept = val
-                return jnp.logical_not(accept)
+        # Broadcast s to sample shape
+        shape = (n,)
+        s = jnp.broadcast_to(s, shape)
+        kappa_broadcast = jnp.broadcast_to(kappa, shape)
 
-            def body_fn(val: tuple[Array, Array, Array]) -> tuple[Array, Array, Array]:
-                key, _, _ = val
-                key, key1, key2, key3 = jax.random.split(key, 4)
+        def cond_fn(val: tuple[Array, Array, Array, Array, Array]) -> Array:
+            """Check if all samples done or reached max iterations."""
+            i, _, done, _, _ = val
+            return jnp.logical_and(i < 100, jnp.logical_not(jnp.all(done)))
 
-                u1 = jax.random.uniform(key1)
-                u2 = jax.random.uniform(key2)
-                u3 = jax.random.uniform(key3)
+        def body_fn(
+            val: tuple[Array, Array, Array, Array, Array],
+        ) -> tuple[Array, Array, Array, Array, Array]:
+            i, key, done, u, w = val
+            key, key_u, key_v = jax.random.split(key, 3)
 
-                z = jnp.cos(jnp.pi * u1)
-                f = (1 + r * z) / (r + z)
-                c = kappa * (r - f)
+            # Sample uniform in [-1, 1] and [0, 1]
+            u_new = jax.random.uniform(key_u, shape=shape, minval=-1.0, maxval=1.0)
+            v = jax.random.uniform(key_v, shape=shape)
 
-                accept = jnp.log(c / u2) + 1 - c >= 0
-                new_angle = jnp.where(u3 < 0.5, -jnp.arccos(f), jnp.arccos(f))
-                return key, new_angle, accept
+            # Wrapped Cauchy proposal
+            z = jnp.cos(jnp.pi * u_new)
+            w_new = (1.0 + s * z) / (s + z)
 
-            init_val = (key, jnp.array(0.0), jnp.array(False))
-            _, angle, _ = jax.lax.while_loop(cond_fn, body_fn, init_val)
-            return angle + mu
+            # Acceptance criterion
+            y = kappa_broadcast * (s - w_new)
+            accept = jnp.logical_or(y * (2.0 - y) >= v, jnp.log(y / v) + 1.0 >= y)
 
-        keys = jax.random.split(key, n)
-        samples = jax.vmap(sample_one)(keys)
+            # Update only where not already done
+            u = jnp.where(done, u, u_new)
+            w = jnp.where(done, w, w_new)
+            done = jnp.logical_or(done, accept)
+
+            return i + 1, key, done, u, w
+
+        # Initialize rejection sampling loop
+        init_done = jnp.zeros(shape, dtype=bool)
+        init_u = jnp.zeros(shape)
+        init_w = jnp.zeros(shape)
+        init_val = (jnp.array(0), key, init_done, init_u, init_w)
+
+        _, _, _, u, w = jax.lax.while_loop(cond_fn, body_fn, init_val)
+
+        # Convert to angle and shift by mean
+        samples = jnp.sign(u) * jnp.arccos(w) + mu
         return samples[..., None]

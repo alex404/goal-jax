@@ -34,6 +34,10 @@ from .harmonium.poisson_mixture import (
     com_poisson_mixture,
     poisson_mixture,
 )
+from .harmonium.population_codes import (
+    VonMisesPopulationCode,
+    von_mises_population_code,
+)
 
 __all__ = [
     "LGM",
@@ -66,9 +70,11 @@ __all__ = [
     "PrincipalComponentAnalysis",
     "SymmetricHMoG",
     "VonMises",
+    "VonMisesPopulationCode",
     "analytic_hmog",
     "com_poisson_mixture",
     "differentiable_hmog",
     "poisson_mixture",
     "symmetric_hmog",
+    "von_mises_population_code",
 ]
