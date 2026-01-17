@@ -38,7 +38,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
     where:
     - v ∈ {0,1}^n_visible are visible units
     - h ∈ {0,1}^n_hidden are hidden units
-    - W is the weight matrix (n_visible × n_hidden)
+    - W is the weight matrix (n_visible x n_hidden)
     - b are visible biases
     - c are hidden biases
 
@@ -105,7 +105,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
             Probabilities for each visible unit (shape: n_visible)
         """
         lkl_params = self.likelihood_at(params, h)
-        return jax.nn.sigmoid(lkl_params)
+        return self.obs_man.to_mean(lkl_params)
 
     def hidden_probabilities(self, params: Array, v: Array) -> Array:
         """Compute P(h_j = 1 | v) for all hidden units.
@@ -118,7 +118,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
             Probabilities for each hidden unit (shape: n_hidden)
         """
         post_params = self.posterior_at(params, v)
-        return jax.nn.sigmoid(post_params)
+        return self.pst_man.to_mean(post_params)
 
     def reconstruct(self, params: Array, v: Array) -> Array:
         """Reconstruct visible units via one mean-field step.
@@ -161,7 +161,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
 
         # F(v) = -b^T v - sum_j softplus(c_j + W_j^T v)
         visible_term = -jnp.dot(vis_bias, v)
-        hidden_term = -jnp.sum(jax.nn.softplus(post_params))
+        hidden_term = -self.pst_man.log_partition_function(post_params)
 
         return visible_term + hidden_term
 

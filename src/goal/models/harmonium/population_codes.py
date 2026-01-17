@@ -17,10 +17,11 @@ The tuning curve for neuron i is:
 **Approximate Conjugation**:
 
 The log-partition function of the likelihood is approximated via regression:
-    ψ_X(z) ≈ χ + ρᵀ·T(z)
 
-where T(z) = (cos(z), sin(z)) are the VonMises sufficient statistics.
-This makes the posterior tractable: p(z|x) ∝ exp((θ_Z + Θ_XZ^T·x)^T·T(z))
+$$\\psi_X(z) \\approx \\chi + \\rho^T \\cdot T(z)$$
+
+where $T(z) = (\\cos(z), \\sin(z))$ are the VonMises sufficient statistics.
+This makes the posterior tractable: $p(z|x) \\propto \\exp((\\theta_Z + \\Theta_{XZ}^T \\cdot x)^T \\cdot T(z))$
 """
 
 from __future__ import annotations
@@ -103,20 +104,20 @@ class VonMisesPopulationCode(SymmetricConjugated[PoissonPopulation, VonMises]):
     def conjugation_parameters(self, lkl_params: Array) -> Array:
         """Compute approximate conjugation parameters via regression.
 
-        Fits χ + ρᵀ·T(z) ≈ ψ_X(z) where ψ_X(z) is the log-partition
-        of the likelihood at stimulus z.
+        Fits $\\chi + \\rho^T \\cdot T(z) \\approx \\psi_X(z)$ where $\\psi_X(z)$ is the
+        log-partition of the likelihood at stimulus z.
 
         Algorithm:
-        1. Create grid of stimulus values z_1, ..., z_M in [0, 2π)
-        2. For each z_m, compute log-partition: ψ(z_m) = Σ_i exp(θ_i + Θ_i·T(z_m))
-        3. Regress: [1, T(z_m)] @ [χ, ρ] ≈ ψ(z_m)
-        4. Return ρ (χ is used in log_partition_function)
+        1. Create grid of stimulus values $z_1, ..., z_M$ in $[0, 2\\pi)$
+        2. For each $z_m$, compute log-partition: $\\psi(z_m) = \\sum_i \\exp(\\theta_i + \\Theta_i \\cdot T(z_m))$
+        3. Regress: $[1, T(z_m)] @ [\\chi, \\rho] \\approx \\psi(z_m)$
+        4. Return $\\rho$ ($\\chi$ is used in log_partition_function)
 
         Args:
             lkl_params: Likelihood parameters [obs_params, int_params]
 
         Returns:
-            Conjugation parameters ρ with shape (2,)
+            Conjugation parameters $\\rho$ with shape (2,)
         """
         obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
 
@@ -139,10 +140,10 @@ class VonMisesPopulationCode(SymmetricConjugated[PoissonPopulation, VonMises]):
         suff_stats = jax.vmap(self.lat_man.sufficient_statistic)(grid)  # (n_grid, 2)
         design = jnp.column_stack([jnp.ones(self.n_grid_points), suff_stats])
 
-        # Solve least squares: design @ [χ, ρ] ≈ log_partitions
+        # Solve least squares: design @ [chi, rho] ~ log_partitions
         coeffs, _, _, _ = jnp.linalg.lstsq(design, log_partitions, rcond=None)
 
-        # Return ρ (coefficients 1 and 2)
+        # Return rho (coefficients 1 and 2)
         return coeffs[1:]
 
     def regression_diagnostics(
@@ -276,7 +277,8 @@ class VonMisesPopulationCode(SymmetricConjugated[PoissonPopulation, VonMises]):
         Returns:
             Firing rates λ_i(z) for each neuron, shape (n_neurons,)
         """
-        return jnp.exp(self.tuning_curve(params, z))
+        log_rates = self.tuning_curve(params, z)
+        return self.obs_man.to_mean(log_rates)
 
     # Sampling
 
@@ -297,7 +299,7 @@ class VonMisesPopulationCode(SymmetricConjugated[PoissonPopulation, VonMises]):
             Spike counts for each neuron, shape (n_neurons,)
         """
         log_rates = self.tuning_curve(params, z)
-        rates = jnp.exp(log_rates)
+        rates = self.obs_man.to_mean(log_rates)
         return jax.random.poisson(key, rates)
 
     def sample_joint(

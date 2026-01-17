@@ -266,7 +266,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
     ) -> Array:
         """Compute P(x_unit = 1 | x_other) for a single unit."""
         energy_diff = self._unit_conditional_energy_diff(state, unit_idx, params)
-        return jax.nn.sigmoid(energy_diff)
+        return Bernoulli().to_mean(jnp.atleast_1d(energy_diff))[0]
 
     def _gibbs_step(self, state: Array, key: Array, params: Array) -> Array:
         """Single Gibbs sampling step updating all units in random order."""

@@ -29,7 +29,7 @@ class Bernoulli(Analytic):
 
         p(x; \\theta) = \\sigma(\\theta)^x (1 - \\sigma(\\theta))^{1-x}
 
-    where σ(θ) = 1/(1 + exp(-θ)) is the sigmoid function.
+    where $\\sigma(\\theta) = 1/(1 + \\exp(-\\theta))$ is the sigmoid function.
 
     As an exponential family:
         - Sufficient statistic: s(x) = x (identity)
@@ -88,7 +88,7 @@ class Bernoulli(Analytic):
         Returns:
             Array of shape (n, 1) with binary values
         """
-        prob = jax.nn.sigmoid(params[0])
+        prob = self.to_mean(params)[0]
         return jax.random.bernoulli(key, prob, shape=(n, 1)).astype(jnp.float32)
 
     @override
