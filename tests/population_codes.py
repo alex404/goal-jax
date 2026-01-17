@@ -83,7 +83,7 @@ def test_tuning_curve_peaks_at_preferred(
 ):
     """Test tuning curve peaks at preferred direction."""
     model, params = pop_code_params
-    gains, preferred, baselines, _ = model.split_tuning_parameters(params)
+    _, preferred, _, _ = model.split_tuning_parameters(params)
 
     # For each neuron, the tuning curve should peak at its preferred direction
     for i in range(model.n_neurons):
@@ -111,9 +111,9 @@ def test_join_split_round_trip(
 
     # Use larger tolerance because conjugation_parameters involves regression
     # which introduces small numerical differences on each computation
-    assert jnp.allclose(
-        params, params_reconstructed, rtol=1e-3, atol=1e-5
-    ), "Round-trip should recover original parameters"
+    assert jnp.allclose(params, params_reconstructed, rtol=1e-3, atol=1e-5), (
+        "Round-trip should recover original parameters"
+    )
 
 
 def test_conjugation_regression_quality(n_neurons: int):
@@ -171,12 +171,14 @@ def test_conjugation_regression_quality(n_neurons: int):
         # The linear approximation is not exact, especially for small populations
         # With more neurons, the approximation improves
         min_correlation = 0.3 if n_neurons < 8 else 0.5 if n_neurons < 16 else 0.8
-        assert (
-            correlation > min_correlation
-        ), f"Regression correlation {correlation:.3f} should be > {min_correlation}"
+        assert correlation > min_correlation, (
+            f"Regression correlation {correlation:.3f} should be > {min_correlation}"
+        )
     else:
         # With uniform coverage, log-partition is constant - regression should give small rho
-        assert jnp.linalg.norm(rho) < 1.0, "With constant log-partition, rho should be small"
+        assert jnp.linalg.norm(rho) < 1.0, (
+            "With constant log-partition, rho should be small"
+        )
 
 
 def test_posterior_is_valid_vonmises(
@@ -195,7 +197,7 @@ def test_posterior_is_valid_vonmises(
     assert post_params.shape == (2,)
 
     # The concentration (norm of params) should be positive
-    mu, kappa = model.lat_man.split_mean_concentration(post_params)
+    _, kappa = model.lat_man.split_mean_concentration(post_params)
     assert kappa >= 0, "Concentration should be non-negative"
 
 
@@ -240,9 +242,9 @@ def test_posterior_concentration_increases_with_spike_count(
     kappa_low = model.posterior_concentration(params, x_low)
     kappa_high = model.posterior_concentration(params, x_high)
 
-    assert (
-        kappa_high > kappa_low
-    ), "Higher spike counts should give higher concentration"
+    assert kappa_high > kappa_low, (
+        "Higher spike counts should give higher concentration"
+    )
 
 
 def test_sample_spikes_shape(

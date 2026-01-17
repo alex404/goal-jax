@@ -38,8 +38,8 @@ from ...geometry import (
     Rectangular,
 )
 from ...geometry.exponential_family.harmonium import SymmetricConjugated
-from ...geometry.manifold.linear import EmbeddedMap
 from ...geometry.manifold.embedding import IdentityEmbedding
+from ...geometry.manifold.linear import EmbeddedMap
 from ..base.poisson import Poisson
 from ..base.von_mises import VonMises
 
@@ -146,9 +146,7 @@ class VonMisesPopulationCode(SymmetricConjugated[PoissonPopulation, VonMises]):
         # Return rho (coefficients 1 and 2)
         return coeffs[1:]
 
-    def regression_diagnostics(
-        self, params: Array
-    ) -> tuple[Array, Array, Array]:
+    def regression_diagnostics(self, params: Array) -> tuple[Array, Array, Array]:
         """Get regression fit diagnostics for visualization.
 
         Returns the actual log-partition values and the fitted regression
@@ -417,6 +415,8 @@ def von_mises_population_code(
         Tuple of (model, parameters)
     """
     model = VonMisesPopulationCode(n_neurons)
-    prior_params = model.lat_man.join_mean_concentration(prior_mean, prior_concentration)
+    prior_params = model.lat_man.join_mean_concentration(
+        prior_mean, prior_concentration
+    )
     params = model.join_tuning_parameters(gains, preferred, baselines, prior_params)
     return model, params

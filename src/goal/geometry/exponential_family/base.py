@@ -160,6 +160,7 @@ class Generative(ExponentialFamily, ABC):
         Returns:
             New state after one Gibbs step
         """
+        _ = state  # Unused in default implementation
         return self.sample(key, params, n=1)[0]
 
     def gibbs_chain(
