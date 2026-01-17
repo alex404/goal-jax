@@ -25,6 +25,7 @@ from .exponential_family.harmonium import (
     AnalyticConjugated,
     Conjugated,
     DifferentiableConjugated,
+    GibbsHarmonium,
     Harmonium,
     SymmetricConjugated,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "ExponentialFamily",
     "Generative",
     "GenerativeProduct",
+    "GibbsHarmonium",
     "Harmonium",
     "Identity",
     "IdentityEmbedding",

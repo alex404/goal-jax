@@ -23,6 +23,7 @@ from .population_codes import (
     VonMisesPopulationCode,
     von_mises_population_code,
 )
+from .rbm import RestrictedBoltzmannMachine, rbm
 
 __all__ = [
     "LGM",
@@ -40,8 +41,10 @@ __all__ = [
     "NormalLGM",
     "PoissonMixture",
     "PrincipalComponentAnalysis",
+    "RestrictedBoltzmannMachine",
     "VonMisesPopulationCode",
     "com_poisson_mixture",
     "poisson_mixture",
+    "rbm",
     "von_mises_population_code",
 ]

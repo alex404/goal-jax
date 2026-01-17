@@ -38,6 +38,7 @@ from .harmonium.population_codes import (
     VonMisesPopulationCode,
     von_mises_population_code,
 )
+from .harmonium.rbm import RestrictedBoltzmannMachine, rbm
 
 __all__ = [
     "LGM",
@@ -68,6 +69,7 @@ __all__ = [
     "Poisson",
     "PoissonMixture",
     "PrincipalComponentAnalysis",
+    "RestrictedBoltzmannMachine",
     "SymmetricHMoG",
     "VonMises",
     "VonMisesPopulationCode",
@@ -75,6 +77,7 @@ __all__ = [
     "com_poisson_mixture",
     "differentiable_hmog",
     "poisson_mixture",
+    "rbm",
     "symmetric_hmog",
     "von_mises_population_code",
 ]

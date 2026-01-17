@@ -317,6 +317,18 @@ class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
     # Overrides
 
     @override
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        """Initialize by delegating to each replicate's initialize_from_sample.
+
+        This override ensures we use the Product version (which respects
+        domain-specific initialization in each replicate) rather than
+        the generic Analytic version.
+        """
+        return Product.initialize_from_sample(self, key, sample, location, shape)
+
+    @override
     def negative_entropy(self, means: Array) -> Array:
         """Compute sum of negative entropies.
 

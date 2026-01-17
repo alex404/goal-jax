@@ -91,6 +91,37 @@ class Bernoulli(Analytic):
         prob = jax.nn.sigmoid(params[0])
         return jax.random.bernoulli(key, prob, shape=(n, 1)).astype(jnp.float32)
 
+    @override
+    def initialize_from_sample(
+        self,
+        key: Array,
+        sample: Array,
+        location: float = 0.0,
+        shape: float = 0.1,
+    ) -> Array:
+        """Initialize Bernoulli parameters from sample data.
+
+        Shrinks sample means toward 0.5 to handle boundary cases (exact 0s and 1s),
+        converts to natural parameters (logits), then adds noise in that space.
+
+        Args:
+            key: Random key
+            sample: Sample data (binary values)
+            location: Mean of noise distribution
+            shape: Std dev of noise distribution
+
+        Returns:
+            Natural parameters (log-odds).
+        """
+        avg_suff = self.average_sufficient_statistic(sample)
+        # Shrink toward 0.5 to handle exact 0s and 1s smoothly
+        shrinkage = 0.01
+        shrunk_means = (1 - shrinkage) * avg_suff + shrinkage * 0.5
+        # Convert to natural parameters (logits) and add noise there
+        natural = self.to_natural(shrunk_means)
+        noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
+        return natural + noise
+
     # Convenience methods
 
     def to_prob(self, means: Array) -> Array:
