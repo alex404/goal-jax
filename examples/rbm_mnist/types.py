@@ -1,21 +1,44 @@
+# ruff: noqa: RUF003
 """Type definitions for RBM MNIST example."""
 
 from typing import TypedDict
 
 
+class ConjugationConfig(TypedDict):
+    """Configuration for approximate conjugation."""
+
+    alpha_cd: float
+    alpha_conj: float
+    n_conj_samples: int
+    n_gibbs_conj: int
+
+
 class RBMResults(TypedDict):
-    """Results from RBM training on MNIST."""
+    """Results from RBM training on MNIST.
 
-    # Training metrics
-    reconstruction_errors: list[float]
-    free_energies: list[float]
+    Compares baseline CD training with conjugation-regularized training.
+    """
 
-    # Learned filters (n_hidden x 28 x 28)
-    weight_filters: list[list[list[float]]]
+    # Baseline results
+    baseline_reconstruction_errors: list[float]
+    baseline_free_energies: list[float]
+    baseline_weight_filters: list[list[list[float]]]
+    baseline_reconstructed_images: list[list[float]]
+    baseline_generated_samples: list[list[float]]
 
-    # Sample reconstructions
-    original_images: list[list[float]]  # (n_samples, 784)
-    reconstructed_images: list[list[float]]  # (n_samples, 784)
+    # Conjugated results
+    conj_reconstruction_errors: list[float]
+    conj_free_energies: list[float]
+    conj_weight_filters: list[list[list[float]]]
+    conj_reconstructed_images: list[list[float]]
+    conj_generated_samples: list[list[float]]
 
-    # Generated samples from Gibbs chain
-    generated_samples: list[list[float]]  # (n_samples, 784)
+    # Conjugation-specific metrics
+    conjugation_errors: list[float]  # Estimated D(Q_ρ || Q_Z) over training
+    rho_norms: list[float]  # ||ρ|| over training
+
+    # Shared data
+    original_images: list[list[float]]
+
+    # Configuration
+    config: ConjugationConfig
