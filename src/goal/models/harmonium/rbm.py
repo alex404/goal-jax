@@ -192,6 +192,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
 
     # Parameter utilities
 
+    # TODO: This and join_params are not really in the spirit of the library. They should be factored out and join/split coords should be used directly.
     def split_params(self, params: Array) -> tuple[Array, Array, Array]:
         """Split parameters into visible biases, weights, hidden biases.
 
@@ -206,9 +207,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
         weights = int_params.reshape(self.n_visible, self.n_hidden)
         return vis_bias, weights, hid_bias
 
-    def join_params(
-        self, vis_bias: Array, weights: Array, hid_bias: Array
-    ) -> Array:
+    def join_params(self, vis_bias: Array, weights: Array, hid_bias: Array) -> Array:
         """Join parameters from visible biases, weights, hidden biases.
 
         Args:
@@ -239,6 +238,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
         return weights.T.reshape(self.n_hidden, *img_shape)
 
 
+# TODO: Even though visible/hidden language is fairly standard for RBMs, in the rest of the library I'm using observable/latent, so lets switch back to that.
 def rbm(n_visible: int, n_hidden: int) -> RestrictedBoltzmannMachine:
     """Create a binary-binary Restricted Boltzmann Machine.
 
