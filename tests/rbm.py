@@ -13,8 +13,8 @@ jax.config.update("jax_platform_name", "cpu")
 @pytest.fixture(params=[(10, 5), (20, 10), (8, 4)])
 def model(request: pytest.FixtureRequest) -> RestrictedBoltzmannMachine:
     """Create RBMs with various sizes."""
-    n_vis, n_hid = request.param
-    return rbm(n_vis, n_hid)
+    n_obs, n_lat = request.param
+    return rbm(n_obs, n_lat)
 
 
 @pytest.fixture
@@ -29,80 +29,82 @@ class TestRBMBasics:
     def test_factory_function(self) -> None:
         """Test the rbm factory function creates correct model."""
         model = rbm(100, 50)
-        assert model.n_visible == 100
-        assert model.n_hidden == 50
+        assert model.n_observable == 100
+        assert model.n_latent == 50
 
     def test_dimensions(self, model: RestrictedBoltzmannMachine) -> None:
         """Test dimension properties are correct."""
-        assert model.obs_man.data_dim == model.n_visible
-        assert model.pst_man.data_dim == model.n_hidden
-        assert model.data_dim == model.n_visible + model.n_hidden
+        assert model.obs_man.data_dim == model.n_observable
+        assert model.pst_man.data_dim == model.n_latent
+        assert model.data_dim == model.n_observable + model.n_latent
 
     def test_manifold_aliases(self, model: RestrictedBoltzmannMachine) -> None:
-        """Test vis_man and hid_man are correct aliases."""
-        assert model.vis_man.data_dim == model.n_visible
-        assert model.hid_man.data_dim == model.n_hidden
+        """Test lat_man is correct alias for pst_man."""
+        assert model.lat_man.data_dim == model.n_latent
+        assert model.lat_man.data_dim == model.pst_man.data_dim
 
     def test_initialize(
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:
         """Test parameter initialization."""
         params = model.initialize(key)
-        expected_dim = model.n_visible + model.n_visible * model.n_hidden + model.n_hidden
+        expected_dim = (
+            model.n_observable + model.n_observable * model.n_latent + model.n_latent
+        )
         assert params.shape == (expected_dim,)
         # Check parameters are finite
         assert jnp.all(jnp.isfinite(params))
 
-    def test_split_join_params(
+    def test_split_join_coords(
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:
-        """Test splitting and rejoining parameters is invertible."""
+        """Test splitting and rejoining coordinates is invertible."""
         params = model.initialize(key)
-        vis_bias, weights, hid_bias = model.split_params(params)
+        obs_bias, int_params, lat_bias = model.split_coords(params)
 
-        assert vis_bias.shape == (model.n_visible,)
-        assert weights.shape == (model.n_visible, model.n_hidden)
-        assert hid_bias.shape == (model.n_hidden,)
+        assert obs_bias.shape == (model.n_observable,)
+        assert int_params.shape == (model.n_observable * model.n_latent,)
+        assert lat_bias.shape == (model.n_latent,)
 
         # Rejoin should give same params
-        params_rejoined = model.join_params(vis_bias, weights, hid_bias)
+        params_rejoined = model.join_coords(obs_bias, int_params, lat_bias)
         assert jnp.allclose(params, params_rejoined)
 
 
 class TestConditionalDistributions:
     """Test conditional distribution computations."""
 
-    def test_visible_probabilities_shape(
+    def test_observable_probabilities_shape(
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:
-        """Test visible probabilities have correct shape."""
+        """Test observable probabilities have correct shape."""
         params = model.initialize(key)
-        h = jnp.zeros(model.n_hidden)
-        v_probs = model.visible_probabilities(params, h)
-        assert v_probs.shape == (model.n_visible,)
+        z = jnp.zeros(model.n_latent)
+        x_probs = model.observable_probabilities(params, z)
+        assert x_probs.shape == (model.n_observable,)
 
-    def test_hidden_probabilities_shape(
+    def test_latent_probabilities_shape(
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:
-        """Test hidden probabilities have correct shape."""
+        """Test latent probabilities have correct shape."""
         params = model.initialize(key)
-        v = jnp.zeros(model.n_visible)
-        h_probs = model.hidden_probabilities(params, v)
-        assert h_probs.shape == (model.n_hidden,)
+        x = jnp.zeros(model.n_observable)
+        z_probs = model.latent_probabilities(params, x)
+        assert z_probs.shape == (model.n_latent,)
 
     def test_probabilities_in_range(
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:
         """Test probabilities are in [0, 1]."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
-        h = jax.random.bernoulli(key, 0.5, (model.n_hidden,)).astype(float)
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
+        z = jax.random.bernoulli(key, 0.5, (model.n_latent,)).astype(float)
 
-        v_probs = model.visible_probabilities(params, h)
-        h_probs = model.hidden_probabilities(params, v)
+        x_probs = model.observable_probabilities(params, z)
+        z_probs = model.latent_probabilities(params, x)
 
-        assert jnp.all((v_probs >= 0) & (v_probs <= 1))
-        assert jnp.all((h_probs >= 0) & (h_probs <= 1))
+        assert jnp.all((x_probs >= 0) & (x_probs <= 1))
+        assert jnp.all((z_probs >= 0) & (z_probs <= 1))
 
 
 class TestReconstruction:
@@ -113,17 +115,17 @@ class TestReconstruction:
     ) -> None:
         """Test reconstruction has correct shape."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
-        recon = model.reconstruct(params, v)
-        assert recon.shape == v.shape
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
+        recon = model.reconstruct(params, x)
+        assert recon.shape == x.shape
 
     def test_reconstruct_probabilities(
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:
         """Test reconstruction returns probabilities."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
-        recon = model.reconstruct(params, v)
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
+        recon = model.reconstruct(params, x)
         assert jnp.all((recon >= 0) & (recon <= 1))
 
 
@@ -135,8 +137,8 @@ class TestFreeEnergy:
     ) -> None:
         """Test free energy is a scalar."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
-        fe = model.free_energy(params, v)
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
+        fe = model.free_energy(params, x)
         assert fe.shape == ()
 
     def test_free_energy_finite(
@@ -144,8 +146,8 @@ class TestFreeEnergy:
     ) -> None:
         """Test free energy is finite."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
-        fe = model.free_energy(params, v)
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
+        fe = model.free_energy(params, x)
         assert jnp.isfinite(fe)
 
     def test_mean_free_energy(
@@ -154,8 +156,8 @@ class TestFreeEnergy:
         """Test mean free energy over batch."""
         params = model.initialize(key)
         key, subkey = jax.random.split(key)
-        vs = jax.random.bernoulli(subkey, 0.5, (20, model.n_visible)).astype(float)
-        mfe = model.mean_free_energy(params, vs)
+        xs = jax.random.bernoulli(subkey, 0.5, (20, model.n_observable)).astype(float)
+        mfe = model.mean_free_energy(params, xs)
         assert mfe.shape == ()
         assert jnp.isfinite(mfe)
 
@@ -212,9 +214,9 @@ class TestContrastiveDivergence:
     ) -> None:
         """Test CD step returns gradient with parameter shape."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
         key, subkey = jax.random.split(key)
-        cd_grad = model.contrastive_divergence_step(subkey, params, v, k=1)
+        cd_grad = model.contrastive_divergence_step(subkey, params, x, k=1)
         assert cd_grad.shape == params.shape
 
     def test_cd_gradient_finite(
@@ -222,9 +224,9 @@ class TestContrastiveDivergence:
     ) -> None:
         """Test CD gradient is finite."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
         key, subkey = jax.random.split(key)
-        cd_grad = model.contrastive_divergence_step(subkey, params, v, k=1)
+        cd_grad = model.contrastive_divergence_step(subkey, params, x, k=1)
         assert jnp.all(jnp.isfinite(cd_grad))
 
     def test_mean_cd_gradient(
@@ -233,9 +235,9 @@ class TestContrastiveDivergence:
         """Test mean CD gradient over batch."""
         params = model.initialize(key)
         key, subkey = jax.random.split(key)
-        vs = jax.random.bernoulli(subkey, 0.5, (10, model.n_visible)).astype(float)
+        xs = jax.random.bernoulli(subkey, 0.5, (10, model.n_observable)).astype(float)
         key, subkey = jax.random.split(key)
-        mean_grad = model.mean_contrastive_divergence_gradient(subkey, params, vs, k=1)
+        mean_grad = model.mean_contrastive_divergence_gradient(subkey, params, xs, k=1)
         assert mean_grad.shape == params.shape
         assert jnp.all(jnp.isfinite(mean_grad))
 
@@ -244,11 +246,11 @@ class TestContrastiveDivergence:
     ) -> None:
         """Test CD with different numbers of Gibbs steps."""
         params = model.initialize(key)
-        v = jax.random.bernoulli(key, 0.5, (model.n_visible,)).astype(float)
+        x = jax.random.bernoulli(key, 0.5, (model.n_observable,)).astype(float)
 
         for k in [1, 3, 5]:
             key, subkey = jax.random.split(key)
-            cd_grad = model.contrastive_divergence_step(subkey, params, v, k=k)
+            cd_grad = model.contrastive_divergence_step(subkey, params, x, k=k)
             assert cd_grad.shape == params.shape
 
 
@@ -271,8 +273,8 @@ class TestVisualization:
         """Test reconstruction error computation."""
         params = model.initialize(key)
         key, subkey = jax.random.split(key)
-        vs = jax.random.bernoulli(subkey, 0.5, (20, model.n_visible)).astype(float)
-        error = model.reconstruction_error(params, vs)
+        xs = jax.random.bernoulli(subkey, 0.5, (20, model.n_observable)).astype(float)
+        error = model.reconstruction_error(params, xs)
         assert error.shape == ()
         assert jnp.isfinite(error)
         assert error >= 0  # MSE is non-negative
@@ -293,7 +295,7 @@ class TestIntegration:
 
         # Generate some random data
         key, subkey = jax.random.split(key)
-        data = jax.random.bernoulli(subkey, 0.5, (32, model.n_visible)).astype(float)
+        data = jax.random.bernoulli(subkey, 0.5, (32, model.n_observable)).astype(float)
 
         # Compute CD gradient
         key, subkey = jax.random.split(key)

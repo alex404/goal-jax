@@ -1,0 +1,1 @@
+"""Poisson RBM MNIST example."""

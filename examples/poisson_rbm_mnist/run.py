@@ -1,16 +1,23 @@
-# ruff: noqa: RUF001, RUF002
-"""Train RBM on binarized MNIST digits.
+"""Train Poisson RBM on grayscale MNIST digits.
 
 This example demonstrates:
-1. Loading and binarizing MNIST digits
-2. Training an RBM using contrastive divergence (baseline)
-3. Training an RBM with approximate conjugation regularization
+1. Loading MNIST as grayscale counts (0-255)
+2. Training a Poisson RBM using contrastive divergence (baseline)
+3. Training a Poisson RBM with approximate conjugation regularization
 4. Comparing the two approaches
 
-The combined objective for conjugated training is:
-    L = α_cd · D(P_X || Q_X) + α_conj · D(Q_ρ || Q_Z)
+The Poisson RBM treats each pixel as a Poisson(rate_i) random variable,
+where rate_i = exp(b_i + W_i^T z). Unlike Binomial, Poisson counts are
+unbounded, so outputs are clipped to [0, 255] for visualization.
 
-where D(Q_ρ || Q_Z) keeps the latent marginal close to an exponential family.
+Key advantage: For Poisson distributions, the "sum of tuning curves being
+constant" property that enables effective conjugation-based learning holds
+exactly, unlike for Binomial distributions where it's only approximate.
+
+The combined objective for conjugated training is:
+    L = alpha_cd * D(P_X || Q_X) + alpha_conj * D(Q_rho || Q_Z)
+
+where D(Q_rho || Q_Z) keeps the latent marginal close to an exponential family.
 """
 
 from typing import Any
@@ -21,7 +28,7 @@ import numpy as np
 from jax import Array
 
 from goal.geometry import Optimizer
-from goal.models import rbm
+from goal.models import poisson_rbm
 
 from ..shared import example_paths, initialize_jax
 from .approximate_conjugation import (
@@ -32,15 +39,16 @@ from .approximate_conjugation import (
     make_train_epoch_fn,
     make_train_step_fn,
 )
-from .types import RBMResults
+from .types import PoissonRBMResults
 
 # Configuration
-N_LATENT = 100  # Number of latent units
+N_LATENT = 10000  # Number of latent units
 BATCH_SIZE = 64
-LEARNING_RATE = 0.01
-N_EPOCHS = 100
+LEARNING_RATE = 3e-4  # Lower learning rate for count data
+N_EPOCHS = 10000
 CD_STEPS = 1
 N_TRAIN = 5000  # Subset of MNIST for faster training
+PIXEL_SCALE = 255.0  # Maximum pixel value for normalization/clipping
 
 IMG_HEIGHT = 28
 IMG_WIDTH = 28
@@ -48,7 +56,7 @@ N_OBSERVABLE = IMG_HEIGHT * IMG_WIDTH
 
 # Conjugation configuration
 ALPHA_CD = 1.0
-ALPHA_CONJ = 1.0
+ALPHA_CONJ = 10.0  # Lower weight since counts have larger scale
 N_CONJ_SAMPLES = 100
 N_GIBBS_CONJ = 5
 
@@ -70,17 +78,20 @@ def load_mnist_sklearn() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
 
 
 def load_mnist() -> Array:
-    """Load and binarize MNIST digits."""
-    print("Loading MNIST data...")
+    """Load MNIST as grayscale counts (0-255)."""
+    print("Loading MNIST data as grayscale counts...")
     data, _ = load_mnist_sklearn()
 
-    # Take subset and normalize
-    data = data[:N_TRAIN].astype(np.float32) / 255.0
+    # Take subset - data is already 0-255
+    data = data[:N_TRAIN].astype(np.float32)
 
-    # Binarize (threshold at 0.5)
-    data = (data > 0.5).astype(np.float32)
-
+    print(f"Data range: [{data.min()}, {data.max()}]")
     return jnp.array(data)
+
+
+def clip_for_display(x: Array) -> Array:
+    """Clip Poisson counts to valid grayscale range [0, 255]."""
+    return jnp.clip(x, 0, PIXEL_SCALE)
 
 
 def train_baseline_rbm(
@@ -88,7 +99,7 @@ def train_baseline_rbm(
     model: Any,
     data: Array,
 ) -> tuple[Array, list[float], list[float]]:
-    """Train baseline RBM using standard contrastive divergence with scan."""
+    """Train baseline Poisson RBM using standard contrastive divergence with scan."""
     n_samples = data.shape[0]
     n_batches = n_samples // BATCH_SIZE
 
@@ -111,7 +122,7 @@ def train_baseline_rbm(
 
     @jax.jit
     def compute_metrics(p: Array, d: Array) -> tuple[Array, Array]:
-        recon = model.reconstruction_error(p, d)
+        recon = model.normalized_reconstruction_error(p, d, scale=PIXEL_SCALE)
         fe = model.mean_free_energy(p, d[:1000])
         return recon, fe
 
@@ -164,7 +175,7 @@ def train_conjugated_rbm(
     list[float],
     list[float],
 ]:
-    """Train RBM with approximate conjugation regularization using scan."""
+    """Train Poisson RBM with approximate conjugation regularization using scan."""
     # Initialize with zero interaction for exact conjugation at start
     key, init_key = jax.random.split(key)
     state = initialize_conjugated(
@@ -192,7 +203,7 @@ def train_conjugated_rbm(
     def compute_metrics(
         harm_params: Array, conj_params: Array, d: Array, err_key: Array
     ) -> tuple[Array, Array, Array]:
-        recon = model.reconstruction_error(harm_params, d)
+        recon = model.normalized_reconstruction_error(harm_params, d, scale=PIXEL_SCALE)
         fe = model.mean_free_energy(harm_params, d[:1000])
         conj_err = estimate_error_fn(err_key, harm_params, conj_params)
         return recon, fe, conj_err
@@ -233,7 +244,7 @@ def train_conjugated_rbm(
         print(
             f"[Conjugated] Epoch {epoch + 1}/{N_EPOCHS}: "
             + f"Recon={float(recon):.4f}, FE={float(fe):.2f}, "
-            + f"ConjErr={float(conj_err):.4f}, ||ρ||={rho_norm:.4f}"
+            + f"ConjErr={float(conj_err):.4f}, ||rho||={rho_norm:.4f}"
         )
 
     final_state = ConjugatedHarmoniumState(harm_params, conj_params)
@@ -250,8 +261,9 @@ def main():
     print(f"Loaded {data.shape[0]} samples, shape: {data.shape}")
 
     # Create model
-    print(f"\nCreating RBM: {N_OBSERVABLE} observable, {N_LATENT} latent units")
-    model = rbm(N_OBSERVABLE, N_LATENT)
+    print(f"\nCreating Poisson RBM: {N_OBSERVABLE} observable, {N_LATENT} latent units")
+    print("Note: Poisson counts are unbounded; outputs clipped to [0, 255] for display")
+    model = poisson_rbm(N_OBSERVABLE, N_LATENT)
 
     # Configuration for approximate conjugation
     config = ApproximateConjugationConfig(
@@ -296,17 +308,21 @@ def main():
         conj_state.harmonium_params, originals
     )
 
+    # Clip reconstructions for display
+    baseline_recons = clip_for_display(baseline_recons)
+    conj_recons = clip_for_display(conj_recons)
+
     # Generate samples via Gibbs chain
     print("\nGenerating samples...")
     key, sample_key1, sample_key2 = jax.random.split(key, 3)
     baseline_samples = model.sample(sample_key1, baseline_params, n=n_viz)
-    baseline_generated = baseline_samples[:, :N_OBSERVABLE]
+    baseline_generated = clip_for_display(baseline_samples[:, :N_OBSERVABLE])
 
     conj_samples = model.sample(sample_key2, conj_state.harmonium_params, n=n_viz)
-    conj_generated = conj_samples[:, :N_OBSERVABLE]
+    conj_generated = clip_for_display(conj_samples[:, :N_OBSERVABLE])
 
     # Save results
-    results: RBMResults = {
+    results: PoissonRBMResults = {
         # Baseline results
         "baseline_reconstruction_errors": baseline_recon,
         "baseline_free_energies": baseline_fe,

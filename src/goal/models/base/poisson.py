@@ -27,6 +27,7 @@ from ...geometry import (
     ExponentialFamily,
     LocationShape,
 )
+from ...geometry.exponential_family.combinators import AnalyticProduct
 
 ### Classes ###
 
@@ -95,6 +96,36 @@ class Poisson(Analytic):
 
     def statistical_covariance(self, params: Array) -> Array:
         return self.to_mean(params).reshape([1, 1])
+
+    @override
+    def initialize_from_sample(
+        self,
+        key: Array,
+        sample: Array,
+        location: float = 0.0,
+        shape: float = 0.1,
+    ) -> Array:
+        """Initialize Poisson parameters from sample data.
+
+        Handles the case where some observations are 0 by clipping the mean
+        to a small positive value before converting to natural parameters.
+
+        Args:
+            key: Random key
+            sample: Sample data (count values)
+            location: Mean of noise distribution
+            shape: Std dev of noise distribution
+
+        Returns:
+            Natural parameters (log rate).
+        """
+        avg_suff = self.average_sufficient_statistic(sample)
+        # Clip mean to small positive value to avoid log(0) = -inf
+        # Use 0.1 as minimum rate (small but not too small)
+        clipped_mean = jnp.clip(avg_suff, 0.1, None)
+        natural = jnp.log(clipped_mean)
+        noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
+        return natural + noise
 
 
 @dataclass(frozen=True)
@@ -415,6 +446,30 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
         # Convert to natural parameters
         return self.join_mode_dispersion(mu, nu)
+
+
+class Poissons(AnalyticProduct[Poisson]):
+    """Product of n independent Poisson distributions.
+
+    Useful for modeling count data like image pixel intensities.
+    Unlike Binomial, Poisson counts are unbounded (can exceed any fixed value).
+
+    Attributes:
+        n_neurons: Number of independent Poisson units
+    """
+
+    def __init__(self, n_neurons: int):
+        """Create a product of n independent Poissons.
+
+        Args:
+            n_neurons: Number of units
+        """
+        super().__init__(Poisson(), n_neurons)
+
+    @property
+    def n_neurons(self) -> int:
+        """Number of Poisson units."""
+        return self.n_reps
 
 
 ### Helper Functions ###
