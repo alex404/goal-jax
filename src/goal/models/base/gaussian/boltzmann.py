@@ -1,10 +1,11 @@
 """Boltzmann machines and related distributions for binary random variables.
 
 This module provides:
-- `Bernoullis`: Product of n independent Bernoullis (core exponential family)
 - `DiagonalBoltzmann`: Mean-field wrapper with GeneralizedGaussian interface
 - `CouplingMatrix`: Exponential family over moment matrices (x⊗x)
 - `Boltzmann`: Full Boltzmann machine with pairwise coupling
+
+Note: `Bernoullis` (product of independent Bernoullis) is in categorical.py.
 """
 
 from __future__ import annotations
@@ -22,36 +23,8 @@ from ....geometry import (
     SquareMap,
     Symmetric,
 )
-from ....geometry.exponential_family.combinators import AnalyticProduct
-from ..categorical import Bernoulli
+from ..categorical import Bernoulli, Bernoullis
 from .generalized import Euclidean, GeneralizedGaussian
-
-
-class Bernoullis(AnalyticProduct[Bernoulli]):
-    """Product of n independent Bernoulli distributions.
-
-    Core exponential family for mean-field approximation of Boltzmann machines,
-    analogous to CouplingMatrix for full Boltzmann machines.
-
-    The parameters represent the bias/activation of each binary unit in a
-    mean-field (no coupling) approximation.
-
-    Attributes:
-        n_neurons: Number of binary units
-    """
-
-    def __init__(self, n_neurons: int):
-        """Create a product of n independent Bernoullis.
-
-        Args:
-            n_neurons: Number of binary units
-        """
-        super().__init__(Bernoulli(), n_neurons)
-
-    @property
-    def n_neurons(self) -> int:
-        """Number of binary units."""
-        return self.n_reps
 
 
 @dataclass(frozen=True)

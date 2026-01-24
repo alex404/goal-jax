@@ -28,12 +28,12 @@ from jax import Array
 
 from ..manifold.combinators import Pair
 from .base import Differentiable, Generative
-from .harmonium import GibbsHarmonium
+from .harmonium import GenerativeHarmonium
 
 
 @dataclass(frozen=True)
 class VariationalConjugated[Observable: Generative, Posterior: Generative](
-    Pair[Posterior, GibbsHarmonium[Observable, Posterior]],
+    Pair[Posterior, GenerativeHarmonium[Observable, Posterior]],
     ABC,
 ):
     """Variational conjugated harmonium combining conjugation parameters with a generative model.
@@ -53,12 +53,12 @@ class VariationalConjugated[Observable: Generative, Posterior: Generative](
         q(z|x) has natural params: theta_Z + Theta_{XZ}^T s_X(x) - rho
 
     Attributes:
-        hrm: The underlying GibbsHarmonium model
+        hrm: The underlying GenerativeHarmonium model
     """
 
     # Field
 
-    hrm: GibbsHarmonium[Observable, Posterior]
+    hrm: GenerativeHarmonium[Observable, Posterior]
     """The underlying harmonium model."""
 
     # Pair implementation
@@ -71,7 +71,7 @@ class VariationalConjugated[Observable: Generative, Posterior: Generative](
 
     @property
     @override
-    def snd_man(self) -> GibbsHarmonium[Observable, Posterior]:
+    def snd_man(self) -> GenerativeHarmonium[Observable, Posterior]:
         """Second component: the harmonium manifold."""
         return self.hrm
 
@@ -282,7 +282,12 @@ class DifferentiableVariationalConjugated[
     # ELBO computation
 
     def elbo_at(
-        self, key: Array, params: Array, x: Array, n_samples: int, kl_weight: float = 1.0
+        self,
+        key: Array,
+        params: Array,
+        x: Array,
+        n_samples: int,
+        kl_weight: float = 1.0,
     ) -> Array:
         """Compute the ELBO at observation x.
 

@@ -38,11 +38,6 @@ class TestRBMBasics:
         assert model.pst_man.data_dim == model.n_latent
         assert model.data_dim == model.n_observable + model.n_latent
 
-    def test_manifold_aliases(self, model: RestrictedBoltzmannMachine) -> None:
-        """Test lat_man is correct alias for pst_man."""
-        assert model.lat_man.data_dim == model.n_latent
-        assert model.lat_man.data_dim == model.pst_man.data_dim
-
     def test_initialize(
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:

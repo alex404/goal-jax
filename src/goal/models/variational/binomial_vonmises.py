@@ -17,7 +17,9 @@ from ..harmonium.rbm import BinomialVonMisesRBM
 
 
 @dataclass(frozen=True)
-class BinomialVonMisesVI(DifferentiableVariationalConjugated[Binomials, VonMisesProduct]):
+class BinomialVonMisesVI(
+    DifferentiableVariationalConjugated[Binomials, VonMisesProduct]
+):
     """Variational conjugated model with Binomial observables and VonMises latents.
 
     This wraps a BinomialVonMisesRBM harmonium with learnable conjugation
@@ -254,9 +256,9 @@ def make_elbo_loss_and_grad_fn(
         keys = jax.random.split(key, batch_size)
 
         # Compute ELBO and gradients for each sample
-        elbos, grads = jax.vmap(lambda k, x: single_sample_elbo_and_grads(k, params, x))(
-            keys, batch
-        )
+        elbos, grads = jax.vmap(
+            lambda k, x: single_sample_elbo_and_grads(k, params, x)
+        )(keys, batch)
 
         # Average
         mean_elbo = jnp.mean(elbos)

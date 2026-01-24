@@ -1,6 +1,6 @@
 from .base.binomial import Binomial, Binomials
-from .base.categorical import Bernoulli, Categorical
-from .base.gaussian.boltzmann import Bernoullis, Boltzmann, DiagonalBoltzmann
+from .base.categorical import Bernoulli, Bernoullis, Categorical
+from .base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
 from .base.gaussian.generalized import Euclidean
 from .base.gaussian.normal import (
     Covariance,

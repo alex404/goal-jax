@@ -129,9 +129,7 @@ class DifferentiableHMoG(
 
 
 @dataclass(frozen=True)
-class SymmetricHMoG(
-    SymmetricHierarchical[NormalAnalyticLGM, Mixture[Normal]]
-):
+class SymmetricHMoG(SymmetricHierarchical[NormalAnalyticLGM, Mixture[Normal]]):
     """Symmetric Hierarchical Mixture of Gaussians.
 
     This model supports gradient-based optimization with additional functionality
@@ -183,9 +181,7 @@ class SymmetricHMoG(
 
 
 @dataclass(frozen=True)
-class AnalyticHMoG(
-    AnalyticHierarchical[NormalAnalyticLGM, AnalyticMixture[Normal]]
-):
+class AnalyticHMoG(AnalyticHierarchical[NormalAnalyticLGM, AnalyticMixture[Normal]]):
     """Analytic Hierarchical Mixture of Gaussians.
 
     This model enables:

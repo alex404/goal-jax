@@ -218,8 +218,8 @@ class Harmonium[
 
         # Initialize interaction matrix with appropriate scaling
         if isinstance(self.int_man, EmbeddedMap):
-            obs_dim = self.int_man.cod_emb.sub_man.dim  # type: ignore
-            lat_dim = self.int_man.dom_emb.sub_man.dim  # type: ignore
+            obs_dim = self.int_man.cod_emb.sub_man.dim
+            lat_dim = self.int_man.dom_emb.sub_man.dim
         else:
             # Fallback to full manifold dimensions
             obs_dim = self.obs_man.dim
@@ -232,7 +232,7 @@ class Harmonium[
         return self.join_coords(obs_params, int_params, lat_params)
 
 
-class GibbsHarmonium[
+class GenerativeHarmonium[
     Observable: Generative,
     Posterior: Generative,
 ](
@@ -405,6 +405,96 @@ class GibbsHarmonium[
         return jnp.mean(cd_grads, axis=0)
 
 
+class DifferentiableHarmonium[
+    Observable: Differentiable,
+    Posterior: Differentiable,
+](
+    GenerativeHarmonium[Observable, Posterior],
+    ABC,
+):
+    """A GenerativeHarmonium with Differentiable component families.
+
+    Extends GenerativeHarmonium with methods that require computing mean parameters
+    and log-partition functions, which need Differentiable (not just Generative)
+    component families.
+
+    Provides:
+    - reconstruct: Mean-field reconstruction E[x|E[z|x]]
+    - free_energy: Compute F(x) = -log ∫ exp(-E(x,z)) dz
+    - mean_free_energy: Batch average of free energy
+    - reconstruction_error: Mean squared reconstruction error
+    """
+
+    def reconstruct(self, params: Array, x: Array) -> Array:
+        """Reconstruct observable via mean-field step: $\\mathbb{E}[x \\mid \\mathbb{E}[z \\mid x]]$.
+
+        Computes the expected observable given the expected latent sufficient
+        statistics from the posterior. Uses the mean sufficient statistics
+        $\\mathbb{E}[s(z)]$ rather than $s(\\mathbb{E}[z])$ for correct mean-field updates.
+
+        Args:
+            params: Harmonium natural parameters
+            x: Observable data point
+
+        Returns:
+            Reconstructed observable (expected value)
+        """
+        post_params = self.posterior_at(params, x)
+        z_mean_stats = self.pst_man.to_mean(post_params)
+        lkl_params = self.lkl_fun_man(self.likelihood_function(params), z_mean_stats)
+        return self.obs_man.to_mean(lkl_params)
+
+    def free_energy(self, params: Array, x: Array) -> Array:
+        """Compute free energy $F(x) = -\\log \\sum_z \\exp(-E(x,z))$.
+
+        The free energy is computed as:
+        $$F(x) = -\\theta_X \\cdot s_X(x) - \\psi(\\text{posterior}) + \\psi(\\text{prior}) - \\log h(x)$$
+
+        where $\\psi$ is the log-partition function and $h(x)$ is the base measure.
+
+        Args:
+            params: Harmonium natural parameters
+            x: Observable data point
+
+        Returns:
+            Free energy (scalar)
+        """
+        obs_bias, _, lat_params = self.split_coords(params)
+        post_params = self.posterior_at(params, x)
+
+        obs_term = -jnp.dot(obs_bias, self.obs_man.sufficient_statistic(x))
+        post_psi = self.pst_man.log_partition_function(post_params)
+        prior_psi = self.pst_man.log_partition_function(lat_params)
+        base_measure = self.obs_man.log_base_measure(x)
+
+        return obs_term - post_psi + prior_psi - base_measure
+
+    def mean_free_energy(self, params: Array, xs: Array) -> Array:
+        """Compute mean free energy over a batch of observations.
+
+        Args:
+            params: Harmonium natural parameters
+            xs: Batch of observations, shape (n, obs_dim)
+
+        Returns:
+            Mean free energy (scalar)
+        """
+        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
+
+    def reconstruction_error(self, params: Array, xs: Array) -> Array:
+        """Compute mean squared reconstruction error over a batch.
+
+        Args:
+            params: Harmonium natural parameters
+            xs: Batch of observations, shape (n, obs_dim)
+
+        Returns:
+            Mean squared error (scalar)
+        """
+        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
+        return jnp.mean((xs - recons) ** 2)
+
+
 class Conjugated[
     Observable: Differentiable,
     Posterior: ExponentialFamily,
@@ -546,13 +636,13 @@ class DifferentiableConjugated[
     Prior: Differentiable,
 ](
     Conjugated[Observable, Posterior, Prior],
-    GibbsHarmonium[Observable, Posterior],
+    GenerativeHarmonium[Observable, Posterior],
     Differentiable,
     ABC,
 ):
     """A conjugated harmonium with an analytical log-partition function.
 
-    Inherits Gibbs sampling and contrastive divergence from GibbsHarmonium.
+    Inherits Gibbs sampling and contrastive divergence from GenerativeHarmonium.
     Provides additional methods using conjugation structure for efficient
     density computation.
     """

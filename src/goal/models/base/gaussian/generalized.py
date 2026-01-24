@@ -88,7 +88,9 @@ class Euclidean(Differentiable):
         return 0.5 * jnp.sum(params**2) + 0.5 * self.dim * jnp.log(2 * jnp.pi)
 
 
-class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](Differentiable, ABC):
+class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](
+    Differentiable, ABC
+):
     r"""ABC for exponential families with Gaussian-like sufficient statistics.
 
     This abc captures the shared structure between Normal distributions and

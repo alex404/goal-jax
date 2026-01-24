@@ -1,37 +1,102 @@
-# TODO: Need to refactor this module. There's a lot of redundancy here.
 """Restricted Boltzmann Machine (RBM) implementations.
 
 This module provides:
 - RestrictedBoltzmannMachine: Binary-binary RBM (Bernoulli observable, Bernoulli latent)
 - BinomialRBM: Binomial-binary RBM (Binomial observable, Bernoulli latent)
+- PoissonRBM: Poisson-binary RBM (Poisson observable, Bernoulli latent)
+- BernoulliVonMisesRBM: Bernoulli-VonMises RBM
+- BinomialVonMisesRBM: Binomial-VonMises RBM
+- BinomialGaussianHarmonium: Binomial-Gaussian harmonium
+- BinomialNormalHarmonium: Binomial-Normal harmonium
 
 RBMs are bipartite undirected graphical models that learn to represent
 probability distributions. They are trained using contrastive divergence,
-which is provided by the GibbsHarmonium base class.
+which is provided by the GenerativeHarmonium base class.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import Diagonal, EmbeddedMap, IdentityEmbedding, Rectangular
-from ...geometry.exponential_family.harmonium import GibbsHarmonium
+from ...geometry.exponential_family.harmonium import (
+    DifferentiableHarmonium,
+    GenerativeHarmonium,
+)
 from ..base.binomial import Binomials
-from ..base.gaussian.boltzmann import Bernoullis
+from ..base.categorical import Bernoullis
 from ..base.gaussian.generalized import Euclidean
 from ..base.gaussian.normal import Normal
 from ..base.poisson import Poissons
 from ..base.von_mises import VonMisesProduct
 from .lgm import GeneralizedGaussianLocationEmbedding
 
+# Standalone filter visualization functions
+
+
+def get_rectangular_filters(
+    harmonium: GenerativeHarmonium[Any, Any],
+    params: Array,
+    img_shape: tuple[int, int],
+) -> Array:
+    """Reshape interaction weights into filter images for visualization.
+
+    For harmoniums with rectangular interaction (standard case).
+    Each latent unit's weights form one filter image.
+
+    Args:
+        harmonium: The harmonium model
+        params: Model parameters
+        img_shape: Shape of each observable image (height, width)
+
+    Returns:
+        Array of shape (n_latent, height, width)
+    """
+    _, int_params, _ = harmonium.split_coords(params)
+    n_obs = harmonium.obs_man.dim
+    n_lat = harmonium.pst_man.dim
+    weights = int_params.reshape(n_obs, n_lat)
+    return weights.T.reshape(-1, *img_shape)
+
+
+def get_vonmises_filters(
+    harmonium: GenerativeHarmonium[Any, Any],
+    params: Array,
+    img_shape: tuple[int, int],
+) -> Array:
+    """Reshape interaction weights for VonMises latents into filter images.
+
+    Combines cos/sin pairs into magnitude for each latent unit.
+
+    Args:
+        harmonium: The harmonium model with VonMises latents
+        params: Model parameters
+        img_shape: Shape of each observable image (height, width)
+
+    Returns:
+        Array of shape (n_latent_units, height, width)
+    """
+    _, int_params, _ = harmonium.split_coords(params)
+    n_obs = harmonium.obs_man.dim
+    n_lat_pairs = harmonium.pst_man.dim // 2
+    weights = int_params.reshape(n_obs, -1)
+
+    # Combine cos and sin weights for each latent into magnitude
+    # weights[:, 2*i] is cos weight, weights[:, 2*i+1] is sin weight
+    w_cos = weights[:, 0::2]  # Shape: (n_obs, n_lat_pairs)
+    w_sin = weights[:, 1::2]  # Shape: (n_obs, n_lat_pairs)
+    magnitudes = jnp.sqrt(w_cos**2 + w_sin**2)  # Shape: (n_obs, n_lat_pairs)
+
+    return magnitudes.T.reshape(n_lat_pairs, *img_shape)
+
 
 @dataclass(frozen=True)
-class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
+class RestrictedBoltzmannMachine(DifferentiableHarmonium[Bernoullis, Bernoullis]):
     """Binary-binary Restricted Boltzmann Machine.
 
     An RBM is a bipartite undirected graphical model with:
@@ -90,11 +155,6 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
             IdentityEmbedding(obs),
         )
 
-    @property
-    def lat_man(self) -> Bernoullis:
-        """Latent layer manifold (alias for pst_man)."""
-        return self.pst_man
-
     # Convenience methods
 
     def observable_probabilities(self, params: Array, z: Array) -> Array:
@@ -123,76 +183,6 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
         post_params = self.posterior_at(params, x)
         return self.pst_man.to_mean(post_params)
 
-    def reconstruct(self, params: Array, x: Array) -> Array:
-        """Reconstruct observable units via one mean-field step.
-
-        Computes E[x|E[z|x]], which is a deterministic reconstruction
-        using the mean latent probabilities.
-
-        Args:
-            params: RBM parameters
-            x: Input observable pattern
-
-        Returns:
-            Reconstructed observable pattern (probabilities)
-        """
-        z_probs = self.latent_probabilities(params, x)
-        return self.observable_probabilities(params, z_probs)
-
-    def free_energy(self, params: Array, x: Array) -> Array:
-        """Compute the free energy F(x) = -log sum_z exp(-E(x,z)).
-
-        For binary RBMs with energy E(x,z) = -b^T x - c^T z - x^T W z:
-
-        F(x) = -b^T x - sum_j softplus(c_j + sum_i W_ij x_i)
-
-        The free energy is useful for:
-        - Computing gradients: dF/dx = -b - W @ sigmoid(c + W^T @ x)
-        - Approximating log-likelihood: log p(x) = -F(x) + const
-
-        Args:
-            params: RBM parameters
-            x: Observable pattern
-
-        Returns:
-            Free energy (scalar)
-        """
-        obs_bias, _, _ = self.split_coords(params)
-
-        # Get latent inputs given x
-        post_params = self.posterior_at(params, x)  # c + W^T x
-
-        # F(x) = -b^T x - sum_j softplus(c_j + W_j^T x)
-        obs_term = -jnp.dot(obs_bias, x)
-        lat_term = -self.pst_man.log_partition_function(post_params)
-
-        return obs_term + lat_term
-
-    def mean_free_energy(self, params: Array, xs: Array) -> Array:
-        """Compute mean free energy over a batch of observable patterns.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable patterns (shape: n_samples, n_observable)
-
-        Returns:
-            Mean free energy (scalar)
-        """
-        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
-
-    def reconstruction_error(self, params: Array, xs: Array) -> Array:
-        """Compute mean squared reconstruction error over a batch.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable patterns (shape: n_samples, n_observable)
-
-        Returns:
-            Mean squared error (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        return jnp.mean((xs - recons) ** 2)
-
     def get_filters(self, params: Array, img_shape: tuple[int, int]) -> Array:
         """Reshape weight matrix into filter images for visualization.
 
@@ -206,9 +196,7 @@ class RestrictedBoltzmannMachine(GibbsHarmonium[Bernoullis, Bernoullis]):
         Returns:
             Array of shape (n_latent, height, width)
         """
-        _, int_params, _ = self.split_coords(params)
-        weights = int_params.reshape(self.n_observable, self.n_latent)
-        return weights.T.reshape(self.n_latent, *img_shape)
+        return get_rectangular_filters(self, params, img_shape)
 
 
 def rbm(n_observable: int, n_latent: int) -> RestrictedBoltzmannMachine:
@@ -227,7 +215,7 @@ def rbm(n_observable: int, n_latent: int) -> RestrictedBoltzmannMachine:
 
 
 @dataclass(frozen=True)
-class BinomialRBM(GibbsHarmonium[Binomials, Bernoullis]):
+class BinomialRBM(DifferentiableHarmonium[Binomials, Bernoullis]):
     """RBM with Binomial observable units and Bernoulli latent units.
 
     For modeling count data (e.g., grayscale images as pixel counts).
@@ -282,11 +270,6 @@ class BinomialRBM(GibbsHarmonium[Binomials, Bernoullis]):
     def pst_man(self) -> Bernoullis:
         """Latent layer manifold (Bernoulli units)."""
         return Bernoullis(self.n_latent)
-
-    @property
-    def lat_man(self) -> Bernoullis:
-        """Latent layer manifold (alias for pst_man)."""
-        return self.pst_man
 
     @property
     @override
@@ -350,81 +333,6 @@ class BinomialRBM(GibbsHarmonium[Binomials, Bernoullis]):
         post_params = self.posterior_at(params, x)
         return self.pst_man.to_mean(post_params)
 
-    def reconstruct(self, params: Array, x: Array) -> Array:
-        """Reconstruct observable units via one mean-field step.
-
-        Computes E[x|E[z|x]], returning expected counts.
-
-        Args:
-            params: RBM parameters
-            x: Input observable counts
-
-        Returns:
-            Reconstructed observable counts (expected values)
-        """
-        z_probs = self.latent_probabilities(params, x)
-        return self.observable_means(params, z_probs)
-
-    def free_energy(self, params: Array, x: Array) -> Array:
-        """Compute the free energy F(x) = -log sum_z exp(-E(x,z)).
-
-        For Binomial RBMs:
-
-        F(x) = -b^T x - sum_j softplus(c_j + sum_i W_ij x_i) - sum_i log C(n, x_i)
-
-        Note: The binomial coefficient terms are constant given x, so they don't
-        affect gradients w.r.t. parameters, but they do affect the absolute value.
-
-        Args:
-            params: RBM parameters
-            x: Observable counts
-
-        Returns:
-            Free energy (scalar)
-        """
-        obs_bias, _, _ = self.split_coords(params)
-
-        # Get latent inputs given x
-        post_params = self.posterior_at(params, x)  # c + W^T x
-
-        # F(x) = -b^T x - sum_j softplus(c_j + W_j^T x) - sum_i log C(n, x_i)
-        obs_term = -jnp.dot(obs_bias, x)
-        lat_term = -self.pst_man.log_partition_function(post_params)
-
-        # Base measure contribution (binomial coefficients)
-        base_measure_term = -jnp.sum(
-            jax.vmap(self.obs_man.rep_man.log_base_measure)(x.reshape(-1, 1))
-        )
-
-        return obs_term + lat_term + base_measure_term
-
-    def mean_free_energy(self, params: Array, xs: Array) -> Array:
-        """Compute mean free energy over a batch of observable patterns.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean free energy (scalar)
-        """
-        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
-
-    def reconstruction_error(self, params: Array, xs: Array) -> Array:
-        """Compute mean squared reconstruction error over a batch.
-
-        Error is computed on raw counts, not normalized.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean squared error (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        return jnp.mean((xs - recons) ** 2)
-
     def normalized_reconstruction_error(self, params: Array, xs: Array) -> Array:
         """Compute mean squared reconstruction error on normalized data.
 
@@ -455,9 +363,7 @@ class BinomialRBM(GibbsHarmonium[Binomials, Bernoullis]):
         Returns:
             Array of shape (n_latent, height, width)
         """
-        _, int_params, _ = self.split_coords(params)
-        weights = int_params.reshape(self.n_observable, self.n_latent)
-        return weights.T.reshape(self.n_latent, *img_shape)
+        return get_rectangular_filters(self, params, img_shape)
 
 
 def binomial_rbm(n_observable: int, n_latent: int, n_trials: int = 255) -> BinomialRBM:
@@ -477,7 +383,7 @@ def binomial_rbm(n_observable: int, n_latent: int, n_trials: int = 255) -> Binom
 
 
 @dataclass(frozen=True)
-class PoissonRBM(GibbsHarmonium[Poissons, Bernoullis]):
+class PoissonRBM(DifferentiableHarmonium[Poissons, Bernoullis]):
     """RBM with Poisson observable units and Bernoulli latent units.
 
     For modeling count data (e.g., grayscale images as pixel counts).
@@ -533,11 +439,6 @@ class PoissonRBM(GibbsHarmonium[Poissons, Bernoullis]):
         return Bernoullis(self.n_latent)
 
     @property
-    def lat_man(self) -> Bernoullis:
-        """Latent layer manifold (alias for pst_man)."""
-        return self.pst_man
-
-    @property
     @override
     def int_man(self) -> EmbeddedMap[Bernoullis, Poissons]:
         """Interaction matrix with identity embeddings (full connectivity).
@@ -580,81 +481,6 @@ class PoissonRBM(GibbsHarmonium[Poissons, Bernoullis]):
         post_params = self.posterior_at(params, x)
         return self.pst_man.to_mean(post_params)
 
-    def reconstruct(self, params: Array, x: Array) -> Array:
-        """Reconstruct observable units via one mean-field step.
-
-        Computes E[x|E[z|x]], returning expected Poisson rates.
-
-        Args:
-            params: RBM parameters
-            x: Input observable counts
-
-        Returns:
-            Reconstructed observable counts (expected rates)
-        """
-        z_probs = self.latent_probabilities(params, x)
-        return self.observable_rates(params, z_probs)
-
-    def free_energy(self, params: Array, x: Array) -> Array:
-        """Compute the free energy F(x) = -log sum_z exp(-E(x,z)).
-
-        For Poisson RBMs:
-
-        F(x) = -b^T x - sum_j softplus(c_j + sum_i W_ij x_i) - sum_i log(x_i!)
-
-        The log(x_i!) terms are from the base measure and don't affect gradients
-        w.r.t. parameters, but they affect the absolute value.
-
-        Args:
-            params: RBM parameters
-            x: Observable counts
-
-        Returns:
-            Free energy (scalar)
-        """
-        obs_bias, _, _ = self.split_coords(params)
-
-        # Get latent inputs given x
-        post_params = self.posterior_at(params, x)  # c + W^T x
-
-        # F(x) = -b^T x - sum_j softplus(c_j + W_j^T x) - sum_i log(x_i!)
-        obs_term = -jnp.dot(obs_bias, x)
-        lat_term = -self.pst_man.log_partition_function(post_params)
-
-        # Base measure contribution (log factorial)
-        base_measure_term = -jnp.sum(
-            jax.vmap(self.obs_man.rep_man.log_base_measure)(x.reshape(-1, 1))
-        )
-
-        return obs_term + lat_term + base_measure_term
-
-    def mean_free_energy(self, params: Array, xs: Array) -> Array:
-        """Compute mean free energy over a batch of observable patterns.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean free energy (scalar)
-        """
-        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
-
-    def reconstruction_error(self, params: Array, xs: Array) -> Array:
-        """Compute mean squared reconstruction error over a batch.
-
-        Error is computed on raw counts.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean squared error (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        return jnp.mean((xs - recons) ** 2)
-
     def normalized_reconstruction_error(
         self, params: Array, xs: Array, scale: float = 255.0
     ) -> Array:
@@ -689,9 +515,7 @@ class PoissonRBM(GibbsHarmonium[Poissons, Bernoullis]):
         Returns:
             Array of shape (n_latent, height, width)
         """
-        _, int_params, _ = self.split_coords(params)
-        weights = int_params.reshape(self.n_observable, self.n_latent)
-        return weights.T.reshape(self.n_latent, *img_shape)
+        return get_rectangular_filters(self, params, img_shape)
 
 
 def poisson_rbm(n_observable: int, n_latent: int) -> PoissonRBM:
@@ -710,7 +534,7 @@ def poisson_rbm(n_observable: int, n_latent: int) -> PoissonRBM:
 
 
 @dataclass(frozen=True)
-class BernoulliVonMisesRBM(GibbsHarmonium[Bernoullis, VonMisesProduct]):
+class BernoulliVonMisesRBM(DifferentiableHarmonium[Bernoullis, VonMisesProduct]):
     """RBM with Bernoulli observable units and Von Mises latent units.
 
     For modeling binary data with circular/angular latent representations.
@@ -764,11 +588,6 @@ class BernoulliVonMisesRBM(GibbsHarmonium[Bernoullis, VonMisesProduct]):
         return VonMisesProduct(self.n_latent)
 
     @property
-    def lat_man(self) -> VonMisesProduct:
-        """Latent layer manifold (alias for pst_man)."""
-        return self.pst_man
-
-    @property
     @override
     def int_man(self) -> EmbeddedMap[VonMisesProduct, Bernoullis]:
         """Interaction matrix with identity embeddings (full connectivity).
@@ -797,99 +616,6 @@ class BernoulliVonMisesRBM(GibbsHarmonium[Bernoullis, VonMisesProduct]):
         lkl_params = self.likelihood_at(params, z)
         return self.obs_man.to_mean(lkl_params)
 
-    def latent_params_given_x(self, params: Array, x: Array) -> Array:
-        """Compute Von Mises natural parameters for p(z | x).
-
-        Args:
-            params: RBM parameters
-            x: Observable unit activations (shape: n_observable)
-
-        Returns:
-            Von Mises natural parameters (shape: 2*n_latent)
-        """
-        return self.posterior_at(params, x)
-
-    def reconstruct(self, params: Array, x: Array) -> Array:
-        """Reconstruct observable units via one mean-field step.
-
-        Computes E[x|E[z|x]], using the mean of the posterior Von Mises
-        distributions to compute the expected observables.
-
-        Args:
-            params: RBM parameters
-            x: Input observable pattern
-
-        Returns:
-            Reconstructed observable pattern (probabilities)
-        """
-        # Get posterior parameters
-        post_params = self.posterior_at(params, x)
-
-        # Compute mean sufficient statistics from Von Mises posterior
-        # For Von Mises, to_mean gives E[cos(z), sin(z)]
-        z_mean_stats = self.pst_man.to_mean(post_params)
-
-        # Get likelihood parameters using mean sufficient statistics
-        # This is a slight approximation since we use E[s(z)] instead of s(E[z])
-        obs_bias, int_params, _ = self.split_coords(params)
-        int_matrix = int_params.reshape(self.n_observable, 2 * self.n_latent)
-        lkl_natural = obs_bias + int_matrix @ z_mean_stats
-
-        return self.obs_man.to_mean(lkl_natural)
-
-    def free_energy(self, params: Array, x: Array) -> Array:
-        """Compute the free energy F(x) = -log sum_z exp(-E(x,z)).
-
-        For Bernoulli-VonMises RBMs, the free energy involves integrating
-        over the circular latent variables. This is approximated using
-        the log-partition function of the posterior Von Mises.
-
-        F(x) ≈ -b^T x - ψ_z(posterior_params(x)) + ψ_z(prior_params)
-
-        Args:
-            params: RBM parameters
-            x: Observable pattern
-
-        Returns:
-            Free energy (scalar)
-        """
-        obs_bias, _, lat_params = self.split_coords(params)
-
-        # Get posterior parameters given x
-        post_params = self.posterior_at(params, x)
-
-        # F(x) = -b^T x - ψ(posterior) + ψ(prior)
-        obs_term = -jnp.dot(obs_bias, x)
-        post_log_partition = self.pst_man.log_partition_function(post_params)
-        prior_log_partition = self.pst_man.log_partition_function(lat_params)
-
-        return obs_term - post_log_partition + prior_log_partition
-
-    def mean_free_energy(self, params: Array, xs: Array) -> Array:
-        """Compute mean free energy over a batch of observable patterns.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable patterns (shape: n_samples, n_observable)
-
-        Returns:
-            Mean free energy (scalar)
-        """
-        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
-
-    def reconstruction_error(self, params: Array, xs: Array) -> Array:
-        """Compute mean squared reconstruction error over a batch.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable patterns (shape: n_samples, n_observable)
-
-        Returns:
-            Mean squared error (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        return jnp.mean((xs - recons) ** 2)
-
     def get_filters(self, params: Array, img_shape: tuple[int, int]) -> Array:
         """Reshape weight matrix into filter images for visualization.
 
@@ -903,19 +629,7 @@ class BernoulliVonMisesRBM(GibbsHarmonium[Bernoullis, VonMisesProduct]):
         Returns:
             Array of shape (n_latent, height, width)
         """
-        _, int_params, _ = self.split_coords(params)
-        weights = int_params.reshape(self.n_observable, 2 * self.n_latent)
-
-        # Combine cos and sin weights for each latent into magnitude
-        # weights[:, 2*i] is cos weight, weights[:, 2*i+1] is sin weight
-        filters = []
-        for i in range(self.n_latent):
-            w_cos = weights[:, 2 * i]
-            w_sin = weights[:, 2 * i + 1]
-            magnitude = jnp.sqrt(w_cos**2 + w_sin**2)
-            filters.append(magnitude.reshape(*img_shape))
-
-        return jnp.stack(filters)
+        return get_vonmises_filters(self, params, img_shape)
 
 
 def bernoulli_vonmises_rbm(n_observable: int, n_latent: int) -> BernoulliVonMisesRBM:
@@ -934,7 +648,7 @@ def bernoulli_vonmises_rbm(n_observable: int, n_latent: int) -> BernoulliVonMise
 
 
 @dataclass(frozen=True)
-class BinomialVonMisesRBM(GibbsHarmonium[Binomials, VonMisesProduct]):
+class BinomialVonMisesRBM(DifferentiableHarmonium[Binomials, VonMisesProduct]):
     """RBM with Binomial observable units and Von Mises latent units.
 
     For modeling count data with circular/angular latent representations.
@@ -988,11 +702,6 @@ class BinomialVonMisesRBM(GibbsHarmonium[Binomials, VonMisesProduct]):
         return VonMisesProduct(self.n_latent)
 
     @property
-    def lat_man(self) -> VonMisesProduct:
-        """Latent layer manifold (alias for pst_man)."""
-        return self.pst_man
-
-    @property
     @override
     def int_man(self) -> EmbeddedMap[VonMisesProduct, Binomials]:
         """Interaction matrix with identity embeddings (full connectivity).
@@ -1037,103 +746,6 @@ class BinomialVonMisesRBM(GibbsHarmonium[Binomials, VonMisesProduct]):
         """
         return self.observable_means(params, z) / self.n_trials
 
-    def latent_params_given_x(self, params: Array, x: Array) -> Array:
-        """Compute Von Mises natural parameters for p(z | x).
-
-        Args:
-            params: RBM parameters
-            x: Observable unit counts (shape: n_observable)
-
-        Returns:
-            Von Mises natural parameters (shape: 2*n_latent)
-        """
-        return self.posterior_at(params, x)
-
-    def reconstruct(self, params: Array, x: Array) -> Array:
-        """Reconstruct observable units via one mean-field step.
-
-        Computes E[x|E[z|x]], using the mean of the posterior Von Mises
-        distributions to compute the expected observables.
-
-        Args:
-            params: RBM parameters
-            x: Input observable counts
-
-        Returns:
-            Reconstructed observable counts (expected values)
-        """
-        # Get posterior parameters
-        post_params = self.posterior_at(params, x)
-
-        # Compute mean sufficient statistics from Von Mises posterior
-        z_mean_stats = self.pst_man.to_mean(post_params)
-
-        # Get likelihood parameters using mean sufficient statistics
-        obs_bias, int_params, _ = self.split_coords(params)
-        int_matrix = int_params.reshape(self.n_observable, 2 * self.n_latent)
-        lkl_natural = obs_bias + int_matrix @ z_mean_stats
-
-        return self.obs_man.to_mean(lkl_natural)
-
-    def free_energy(self, params: Array, x: Array) -> Array:
-        """Compute the free energy F(x) = -log sum_z exp(-E(x,z)).
-
-        For Binomial-VonMises RBMs, the free energy involves integrating
-        over the circular latent variables.
-
-        F(x) = -b^T x - psi_z(posterior_params(x)) + psi_z(prior_params) - sum_i log C(n, x_i)
-
-        Args:
-            params: RBM parameters
-            x: Observable counts
-
-        Returns:
-            Free energy (scalar)
-        """
-        obs_bias, _, lat_params = self.split_coords(params)
-
-        # Get posterior parameters given x
-        post_params = self.posterior_at(params, x)
-
-        # F(x) = -b^T x - psi(posterior) + psi(prior) - base_measure
-        obs_term = -jnp.dot(obs_bias, x)
-        post_log_partition = self.pst_man.log_partition_function(post_params)
-        prior_log_partition = self.pst_man.log_partition_function(lat_params)
-
-        # Base measure contribution (binomial coefficients)
-        base_measure_term = -jnp.sum(
-            jax.vmap(self.obs_man.rep_man.log_base_measure)(x.reshape(-1, 1))
-        )
-
-        return obs_term - post_log_partition + prior_log_partition + base_measure_term
-
-    def mean_free_energy(self, params: Array, xs: Array) -> Array:
-        """Compute mean free energy over a batch of observable patterns.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean free energy (scalar)
-        """
-        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
-
-    def reconstruction_error(self, params: Array, xs: Array) -> Array:
-        """Compute mean squared reconstruction error over a batch.
-
-        Error is computed on raw counts.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean squared error (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        return jnp.mean((xs - recons) ** 2)
-
     def normalized_reconstruction_error(self, params: Array, xs: Array) -> Array:
         """Compute mean squared reconstruction error on normalized data.
 
@@ -1164,18 +776,7 @@ class BinomialVonMisesRBM(GibbsHarmonium[Binomials, VonMisesProduct]):
         Returns:
             Array of shape (n_latent, height, width)
         """
-        _, int_params, _ = self.split_coords(params)
-        weights = int_params.reshape(self.n_observable, 2 * self.n_latent)
-
-        # Combine cos and sin weights for each latent into magnitude
-        filters = []
-        for i in range(self.n_latent):
-            w_cos = weights[:, 2 * i]
-            w_sin = weights[:, 2 * i + 1]
-            magnitude = jnp.sqrt(w_cos**2 + w_sin**2)
-            filters.append(magnitude.reshape(*img_shape))
-
-        return jnp.stack(filters)
+        return get_vonmises_filters(self, params, img_shape)
 
 
 def binomial_vonmises_rbm(
@@ -1199,7 +800,7 @@ def binomial_vonmises_rbm(
 
 
 @dataclass(frozen=True)
-class BinomialGaussianHarmonium(GibbsHarmonium[Binomials, Euclidean]):
+class BinomialGaussianHarmonium(DifferentiableHarmonium[Binomials, Euclidean]):
     """Harmonium with Binomial observable units and standard Gaussian latent units.
 
     This model uses standard Gaussians (unit variance) for the latent layer,
@@ -1268,11 +869,6 @@ class BinomialGaussianHarmonium(GibbsHarmonium[Binomials, Euclidean]):
         return Euclidean(self.n_latent)
 
     @property
-    def lat_man(self) -> Euclidean:
-        """Latent layer manifold (alias for pst_man)."""
-        return self.pst_man
-
-    @property
     @override
     def int_man(self) -> EmbeddedMap[Euclidean, Binomials]:
         """Interaction matrix with identity embeddings (full connectivity).
@@ -1317,99 +913,6 @@ class BinomialGaussianHarmonium(GibbsHarmonium[Binomials, Euclidean]):
         """
         return self.observable_means(params, z) / self.n_trials
 
-    def latent_mean(self, params: Array, x: Array) -> Array:
-        """Compute E[z | x] for latent units.
-
-        For standard Gaussians, the mean parameters equal the natural parameters.
-
-        Args:
-            params: Harmonium parameters
-            x: Observable unit counts (shape: n_observable)
-
-        Returns:
-            Mean of latent Gaussian given x (shape: n_latent)
-        """
-        post_params = self.posterior_at(params, x)
-        # For Euclidean/standard Gaussian, to_mean returns the mean
-        return self.pst_man.to_mean(post_params)
-
-    def reconstruct(self, params: Array, x: Array) -> Array:
-        """Reconstruct observable units via one mean-field step.
-
-        Computes E[x|E[z|x]], using the mean of the posterior Gaussian
-        to compute the expected observables.
-
-        Args:
-            params: Harmonium parameters
-            x: Input observable counts
-
-        Returns:
-            Reconstructed observable counts (expected values)
-        """
-        # Get posterior mean (for Euclidean, mean = natural params)
-        z_mean = self.latent_mean(params, x)
-        return self.observable_means(params, z_mean)
-
-    def free_energy(self, params: Array, x: Array) -> Array:
-        """Compute the free energy F(x) = -log sum_z exp(-E(x,z)).
-
-        For Binomial-Gaussian harmoniums, the latent integral is Gaussian
-        and can be computed analytically.
-
-        F(x) = -b^T x - 0.5 ||posterior_mean||^2 + 0.5 ||prior_mean||^2 - base_measure
-
-        Args:
-            params: Harmonium parameters
-            x: Observable counts
-
-        Returns:
-            Free energy (scalar)
-        """
-        obs_bias, _, lat_params = self.split_coords(params)
-
-        # Get posterior parameters given x
-        post_params = self.posterior_at(params, x)
-
-        # F(x) = -b^T x - psi(posterior) + psi(prior) - base_measure
-        # For Euclidean: psi(theta) = 0.5 ||theta||^2 + const
-        obs_term = -jnp.dot(obs_bias, x)
-        post_log_partition = self.pst_man.log_partition_function(post_params)
-        prior_log_partition = self.pst_man.log_partition_function(lat_params)
-
-        # Base measure contribution (binomial coefficients)
-        base_measure_term = -jnp.sum(
-            jax.vmap(self.obs_man.rep_man.log_base_measure)(x.reshape(-1, 1))
-        )
-
-        return obs_term - post_log_partition + prior_log_partition + base_measure_term
-
-    def mean_free_energy(self, params: Array, xs: Array) -> Array:
-        """Compute mean free energy over a batch of observable patterns.
-
-        Args:
-            params: Harmonium parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean free energy (scalar)
-        """
-        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
-
-    def reconstruction_error(self, params: Array, xs: Array) -> Array:
-        """Compute mean squared reconstruction error over a batch.
-
-        Error is computed on raw counts.
-
-        Args:
-            params: Harmonium parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean squared error (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        return jnp.mean((xs - recons) ** 2)
-
     def normalized_reconstruction_error(self, params: Array, xs: Array) -> Array:
         """Compute mean squared reconstruction error on normalized data.
 
@@ -1440,9 +943,7 @@ class BinomialGaussianHarmonium(GibbsHarmonium[Binomials, Euclidean]):
         Returns:
             Array of shape (n_latent, height, width)
         """
-        _, int_params, _ = self.split_coords(params)
-        weights = int_params.reshape(self.n_observable, self.n_latent)
-        return weights.T.reshape(self.n_latent, *img_shape)
+        return get_rectangular_filters(self, params, img_shape)
 
 
 def binomial_gaussian_harmonium(
@@ -1467,7 +968,7 @@ def binomial_gaussian_harmonium(
 
 
 @dataclass(frozen=True)
-class BinomialNormalHarmonium(GibbsHarmonium[Binomials, Normal]):
+class BinomialNormalHarmonium(DifferentiableHarmonium[Binomials, Normal]):
     """Harmonium with Binomial observable units and diagonal Normal latent units.
 
     This model uses diagonal Gaussians (independent latent dimensions with learned
@@ -1534,11 +1035,6 @@ class BinomialNormalHarmonium(GibbsHarmonium[Binomials, Normal]):
         return Normal(self.n_latent, Diagonal())
 
     @property
-    def lat_man(self) -> Normal:
-        """Latent layer manifold (alias for pst_man)."""
-        return self.pst_man
-
-    @property
     @override
     def int_man(self) -> EmbeddedMap[Normal, Binomials]:
         """Interaction matrix that only affects latent means.
@@ -1586,97 +1082,6 @@ class BinomialNormalHarmonium(GibbsHarmonium[Binomials, Normal]):
         """
         return self.observable_means(params, z) / self.n_trials
 
-    def latent_mean(self, params: Array, x: Array) -> Array:
-        """Compute E[z | x] for latent units.
-
-        Args:
-            params: Harmonium parameters
-            x: Observable unit counts (shape: n_observable)
-
-        Returns:
-            Mean of latent Normal given x (shape: n_latent)
-        """
-        post_params = self.posterior_at(params, x)
-        mean_params = self.pst_man.to_mean(post_params)
-        # For Normal, to_mean returns [mean, second_moment], extract mean
-        mean, _ = self.pst_man.split_mean_second_moment(mean_params)
-        return mean
-
-    def reconstruct(self, params: Array, x: Array) -> Array:
-        """Reconstruct observable units via one mean-field step.
-
-        Computes E[x|E[z|x]], using the mean of the posterior Gaussian
-        to compute the expected observables.
-
-        Args:
-            params: Harmonium parameters
-            x: Input observable counts
-
-        Returns:
-            Reconstructed observable counts (expected values)
-        """
-        z_mean = self.latent_mean(params, x)
-        return self.observable_means(params, z_mean)
-
-    def free_energy(self, params: Array, x: Array) -> Array:
-        """Compute the free energy F(x) = -log sum_z exp(-E(x,z)).
-
-        For Binomial-Normal harmoniums with diagonal covariance, the latent
-        integral is Gaussian and can be computed analytically.
-
-        F(x) = -b^T x - psi(posterior) + psi(prior) - base_measure
-
-        Args:
-            params: Harmonium parameters
-            x: Observable counts
-
-        Returns:
-            Free energy (scalar)
-        """
-        obs_bias, _, lat_params = self.split_coords(params)
-
-        # Get posterior parameters given x
-        post_params = self.posterior_at(params, x)
-
-        # F(x) = -b^T x - psi(posterior) + psi(prior) - base_measure
-        obs_term = -jnp.dot(obs_bias, x)
-        post_log_partition = self.pst_man.log_partition_function(post_params)
-        prior_log_partition = self.pst_man.log_partition_function(lat_params)
-
-        # Base measure contribution (binomial coefficients)
-        base_measure_term = -jnp.sum(
-            jax.vmap(self.obs_man.rep_man.log_base_measure)(x.reshape(-1, 1))
-        )
-
-        return obs_term - post_log_partition + prior_log_partition + base_measure_term
-
-    def mean_free_energy(self, params: Array, xs: Array) -> Array:
-        """Compute mean free energy over a batch of observable patterns.
-
-        Args:
-            params: Harmonium parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean free energy (scalar)
-        """
-        return jnp.mean(jax.vmap(self.free_energy, in_axes=(None, 0))(params, xs))
-
-    def reconstruction_error(self, params: Array, xs: Array) -> Array:
-        """Compute mean squared reconstruction error over a batch.
-
-        Error is computed on raw counts.
-
-        Args:
-            params: Harmonium parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-
-        Returns:
-            Mean squared error (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        return jnp.mean((xs - recons) ** 2)
-
     def normalized_reconstruction_error(self, params: Array, xs: Array) -> Array:
         """Compute mean squared reconstruction error on normalized data.
 
@@ -1707,9 +1112,7 @@ class BinomialNormalHarmonium(GibbsHarmonium[Binomials, Normal]):
         Returns:
             Array of shape (n_latent, height, width)
         """
-        _, int_params, _ = self.split_coords(params)
-        weights = int_params.reshape(self.n_observable, self.n_latent)
-        return weights.T.reshape(self.n_latent, *img_shape)
+        return get_rectangular_filters(self, params, img_shape)
 
 
 def binomial_normal_harmonium(

@@ -123,6 +123,7 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
         return self.map_diagonal(params, lambda x: x + epsilon)
 
 
+# TODO: I think I want to re-expose the rep as a type parameter for Normals. Then we can type synonym for StandardNormal, IsotropicNormal, DiagonalNormal, and FullNormal, which is helpful to track throughout the library.
 @dataclass(frozen=True)
 class Normal(
     GeneralizedGaussian[Euclidean, Covariance],

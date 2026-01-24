@@ -3,6 +3,7 @@
 This module provides:
 - `Categorical`: Distribution over n states with probabilities summing to 1
 - `Bernoulli`: Special case for binary variables (equivalent to Categorical(2))
+- `Bernoullis`: Product of n independent Bernoulli distributions
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import Analytic
+from ...geometry.exponential_family.combinators import AnalyticProduct
 
 
 @dataclass(frozen=True)
@@ -210,3 +212,31 @@ class Categorical(Analytic):
         # Use Gumbel-Max trick: argmax(log(p) + Gumbel(0,1)) ~ Categorical(p)
         g = jax.random.gumbel(key, shape=(n, self.n_categories))
         return jnp.argmax(jnp.log(probs) + g, axis=-1)[..., None]
+
+
+class Bernoullis(AnalyticProduct[Bernoulli]):
+    """Product of n independent Bernoulli distributions.
+
+    Represents the distribution over n binary random variables where each
+    variable is independent. Commonly used for:
+    - Mean-field approximation of Boltzmann machines
+    - Observable/latent layers in Restricted Boltzmann Machines
+
+    The parameters represent the bias/activation of each binary unit.
+
+    Attributes:
+        n_neurons: Number of binary units
+    """
+
+    def __init__(self, n_neurons: int):
+        """Create a product of n independent Bernoullis.
+
+        Args:
+            n_neurons: Number of binary units
+        """
+        super().__init__(Bernoulli(), n_neurons)
+
+    @property
+    def n_neurons(self) -> int:
+        """Number of binary units."""
+        return self.n_reps

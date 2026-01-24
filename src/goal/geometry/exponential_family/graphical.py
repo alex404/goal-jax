@@ -292,7 +292,9 @@ class DifferentiableHierarchical[
 
     @property
     @override
-    def pst_prr_emb(self) -> LatentHarmoniumEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
+    def pst_prr_emb(
+        self,
+    ) -> LatentHarmoniumEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
         """Embedding from posterior to prior latent space via LatentHarmoniumEmbedding."""
         return LatentHarmoniumEmbedding(
             self.lwr_hrm.pst_prr_emb,
@@ -357,9 +359,7 @@ class SymmetricHierarchical[
     @override
     def int_man(self) -> Any:
         """Interaction manifold: lower interaction prepended with upper observable embedding."""
-        return self.lwr_hrm.int_man.prepend_embedding(
-            ObservableEmbedding(self.upr_hrm)
-        )
+        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))
 
     @override
     def extract_likelihood_input(self, prr_sample: Array) -> Array:
@@ -414,9 +414,7 @@ class AnalyticHierarchical[
     @override
     def int_man(self) -> Any:
         """Interaction manifold: lower interaction prepended with upper observable embedding."""
-        return self.lwr_hrm.int_man.prepend_embedding(
-            ObservableEmbedding(self.upr_hrm)
-        )
+        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))
 
     @override
     def extract_likelihood_input(self, prr_sample: Array) -> Array:
