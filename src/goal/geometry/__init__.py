@@ -29,6 +29,10 @@ from .exponential_family.harmonium import (
     Harmonium,
     SymmetricConjugated,
 )
+from .exponential_family.variational import (
+    DifferentiableVariationalConjugated,
+    VariationalConjugated,
+)
 from .manifold.base import (
     Manifold,
 )
@@ -82,6 +86,7 @@ __all__ = [
     "DifferentiableConjugated",
     "DifferentiableHierarchical",
     "DifferentiableProduct",
+    "DifferentiableVariationalConjugated",
     "EmbeddedMap",
     "Embedding",
     "ExponentialFamily",
@@ -119,4 +124,5 @@ __all__ = [
     "Triple",
     "TrivialEmbedding",
     "TupleEmbedding",
+    "VariationalConjugated",
 ]

@@ -7,7 +7,7 @@ from .base.gaussian.normal import (
     Normal,
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson, Poissons
-from .base.von_mises import VonMises
+from .base.von_mises import VonMises, VonMisesProduct
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -40,12 +40,26 @@ from .harmonium.population_codes import (
     von_mises_population_code,
 )
 from .harmonium.rbm import (
+    BernoulliVonMisesRBM,
+    BinomialGaussianHarmonium,
+    BinomialNormalHarmonium,
     BinomialRBM,
+    BinomialVonMisesRBM,
     PoissonRBM,
     RestrictedBoltzmannMachine,
+    bernoulli_vonmises_rbm,
+    binomial_gaussian_harmonium,
+    binomial_normal_harmonium,
     binomial_rbm,
+    binomial_vonmises_rbm,
     poisson_rbm,
     rbm,
+)
+from .variational import (
+    BinomialVonMisesVI,
+    binomial_vonmises_vi,
+    make_binomial_vonmises_loss_fn,
+    make_binomial_vonmises_metrics_fn,
 )
 
 __all__ = [
@@ -53,9 +67,14 @@ __all__ = [
     "AnalyticHMoG",
     "AnalyticMixture",
     "Bernoulli",
+    "BernoulliVonMisesRBM",
     "Bernoullis",
     "Binomial",
+    "BinomialGaussianHarmonium",
+    "BinomialNormalHarmonium",
     "BinomialRBM",
+    "BinomialVonMisesRBM",
+    "BinomialVonMisesVI",
     "Binomials",
     "Boltzmann",
     "BoltzmannEmbedding",
@@ -86,10 +105,18 @@ __all__ = [
     "SymmetricHMoG",
     "VonMises",
     "VonMisesPopulationCode",
+    "VonMisesProduct",
     "analytic_hmog",
+    "bernoulli_vonmises_rbm",
+    "binomial_gaussian_harmonium",
+    "binomial_normal_harmonium",
     "binomial_rbm",
+    "binomial_vonmises_rbm",
+    "binomial_vonmises_vi",
     "com_poisson_mixture",
     "differentiable_hmog",
+    "make_binomial_vonmises_loss_fn",
+    "make_binomial_vonmises_metrics_fn",
     "poisson_mixture",
     "poisson_rbm",
     "rbm",

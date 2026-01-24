@@ -11,6 +11,7 @@ from jax import Array
 from jax.scipy.special import i0e
 
 from ...geometry import Differentiable
+from ...geometry.exponential_family.combinators import DifferentiableProduct
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,9 @@ class VonMises(Differentiable):
         Uses batched rejection sampling with wrapped Cauchy proposal,
         adapted from NumPyro's implementation (Devroye, 1986).
 
+        For very small concentration (kappa < 0.01), samples uniformly
+        on the circle since the distribution is nearly uniform.
+
         Args:
             key: JAX random key
             params: Natural parameters
@@ -128,21 +132,28 @@ class VonMises(Differentiable):
             Array of n samples with shape (n, 1)
         """
         mu, kappa = self.split_mean_concentration(params)
-        kappa = jnp.maximum(kappa, 1e-5)
+
+        # For very small kappa, the distribution is nearly uniform
+        # Use uniform sampling to avoid numerical issues
+        kappa_threshold = 0.01
+        use_uniform = kappa < kappa_threshold
+
+        # Clamp kappa for rejection sampling (used when kappa >= threshold)
+        kappa_clamped = jnp.maximum(kappa, kappa_threshold)
 
         # Compute shape parameter s with numerical stability
         # For small kappa, use approximate formula; for large kappa, use exact
         s_cutoff = 1.2e-4  # Cutoff for float64
-        r = 1.0 + jnp.sqrt(1.0 + 4.0 * kappa**2)
-        rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * kappa)
+        r = 1.0 + jnp.sqrt(1.0 + 4.0 * kappa_clamped**2)
+        rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * kappa_clamped)
         s_exact = (1.0 + rho**2) / (2.0 * rho)
-        s_approximate = 1.0 / kappa
-        s = jnp.where(kappa > s_cutoff, s_exact, s_approximate)
+        s_approximate = 1.0 / kappa_clamped
+        s = jnp.where(kappa_clamped > s_cutoff, s_exact, s_approximate)
 
         # Broadcast s to sample shape
         shape = (n,)
         s = jnp.broadcast_to(s, shape)
-        kappa_broadcast = jnp.broadcast_to(kappa, shape)
+        kappa_broadcast = jnp.broadcast_to(kappa_clamped, shape)
 
         def cond_fn(val: tuple[Array, Array, Array, Array, Array]) -> Array:
             """Check if all samples done or reached max iterations."""
@@ -165,7 +176,13 @@ class VonMises(Differentiable):
 
             # Acceptance criterion
             y = kappa_broadcast * (s - w_new)
-            accept = jnp.logical_or(y * (2.0 - y) >= v, jnp.log(y / v) + 1.0 >= y)
+            # Add small epsilon to avoid log(0) or division issues
+            y_safe = jnp.maximum(y, 1e-10)
+            v_safe = jnp.maximum(v, 1e-10)
+            accept = jnp.logical_or(
+                y_safe * (2.0 - y_safe) >= v_safe,
+                jnp.log(y_safe / v_safe) + 1.0 >= y_safe,
+            )
 
             # Update only where not already done
             u = jnp.where(done, u, u_new)
@@ -182,6 +199,43 @@ class VonMises(Differentiable):
 
         _, _, _, u, w = jax.lax.while_loop(cond_fn, body_fn, init_val)
 
-        # Convert to angle and shift by mean
-        samples = jnp.sign(u) * jnp.arccos(w) + mu
+        # Convert to angle and shift by mean (rejection sampling result)
+        rejection_samples = jnp.sign(u) * jnp.arccos(jnp.clip(w, -1.0, 1.0)) + mu
+
+        # Uniform samples on the circle
+        key, uniform_key = jax.random.split(key)
+        uniform_samples = jax.random.uniform(
+            uniform_key, shape=shape, minval=-jnp.pi, maxval=jnp.pi
+        )
+
+        # Use uniform samples when kappa is very small
+        samples = jnp.where(use_uniform, uniform_samples, rejection_samples)
         return samples[..., None]
+
+
+class VonMisesProduct(DifferentiableProduct[VonMises]):
+    """Product of n independent Von Mises distributions.
+
+    Useful for modeling multiple circular/angular latent variables.
+    Each component has natural parameters (κ·cos(μ), κ·sin(μ)) where
+    μ is the mean direction and κ is the concentration.
+
+    The sufficient statistic for n components is a 2n-dimensional vector:
+        [cos(θ_1), sin(θ_1), cos(θ_2), sin(θ_2), ..., cos(θ_n), sin(θ_n)]
+
+    Attributes:
+        n_components: Number of independent Von Mises variables
+    """
+
+    def __init__(self, n_components: int):
+        """Create a product of n independent Von Mises distributions.
+
+        Args:
+            n_components: Number of Von Mises variables
+        """
+        super().__init__(VonMises(), n_components)
+
+    @property
+    def n_components(self) -> int:
+        """Number of Von Mises components."""
+        return self.n_reps

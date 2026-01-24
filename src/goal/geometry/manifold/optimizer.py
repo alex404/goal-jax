@@ -1,5 +1,7 @@
 """This module is a thin, type-safe wrapper around `Optax`. It provides optimization tools tailored to the geometric structure of manifolds, enabling gradient-based optimization that respects the intrinsic properties of the parameter space."""
 
+# TODO: Should consider just deleting this class, it's too thin and creates a lot of mental overhead so we typically need to pull in optax anyway. This will require a lot of work in examples but probably not too bad.
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -364,6 +364,7 @@ class Analytic(Differentiable, ABC):
         """
         return jax.value_and_grad(self.negative_entropy)(means)[1]
 
+    # TODO: This actually can be implemented for differentiable models using the bregmann divergence form, so we should refactor this into that class
     def relative_entropy(self, p_means: Array, q_params: Array) -> Array:
         """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
 
