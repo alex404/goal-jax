@@ -1,7 +1,7 @@
-"""Training utilities for structured variational inference.
+"""Training utilities for hierarchical variational inference.
 
 This module provides initialization, training step, and epoch functions
-for the structured VI harmonium.
+for the hierarchical VI harmonium with mixture of VonMises clustering.
 """
 
 from typing import Any
@@ -10,56 +10,102 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.models import BinomialVonMisesRBM
+from goal.models import BinomialVonMisesMixture
 
-from .core import StructuredVIConfig, StructuredVIState, make_elbo_loss_and_grad_fn
+from .core import HierarchicalVIConfig, HierarchicalVIState, make_elbo_loss_and_grad_fn
 
 
-def initialize_structured_vi(
+def initialize_hierarchical_vi(
     key: Array,
-    model: BinomialVonMisesRBM,
+    model: BinomialVonMisesMixture,
     data: Array,
     shape: float = 0.01,
     zero_interaction: bool = True,
-) -> StructuredVIState:
-    """Initialize structured VI state.
+) -> HierarchicalVIState:
+    """Initialize hierarchical VI state.
 
-    Initializes with small interaction and zero rho for starting point
-    where the approximate posterior equals the exact conjugate posterior.
+    Initializes with:
+    - Small random observable biases based on data statistics
+    - Zero (or small) interaction weights
+    - Mixture prior with spread components
+    - Zero rho for starting point where approximate = exact posterior
 
     Args:
         key: JAX random key
-        model: The harmonium model
+        model: The hierarchical harmonium model
         data: Training data for initialization
         shape: Scale for random initialization
         zero_interaction: If True, start with W = 0
 
     Returns:
-        Initial StructuredVIState
+        Initial HierarchicalVIState
     """
-    harmonium_params = model.initialize_from_sample(key, data, shape=shape)
+    key, obs_key, mix_key, int_key = jax.random.split(key, 4)
 
+    # Initialize observable biases from data
+    obs_params = model.obs_man.initialize_from_sample(obs_key, data, shape=shape)
+
+    # Initialize mixture prior parameters
+    # Spread VonMises components across different angles
+    vm_dim = model.vonmises_man.dim  # 2 * n_latent
+
+    # Base VonMises parameters (low concentration)
+    base_kappa = 0.5
+    base_vm = jnp.zeros(vm_dim)
+    for i in range(model.n_latent):
+        base_vm = base_vm.at[2 * i].set(base_kappa)  # cos component
+
+    # Component differences: spread means across angles
+    n_components = model.n_clusters
+    int_dim = vm_dim * (n_components - 1)
+    int_mat = jnp.zeros(int_dim)
+
+    # Each component gets a different mean direction spread
+    for k in range(n_components - 1):
+        angle_offset = 2 * jnp.pi * (k + 1) / n_components
+        for i in range(model.n_latent):
+            idx = k * vm_dim + 2 * i
+            # Offset from base mean
+            int_mat = int_mat.at[idx].set(base_kappa * (jnp.cos(angle_offset) - 1))
+            int_mat = int_mat.at[idx + 1].set(base_kappa * jnp.sin(angle_offset))
+
+    # Categorical prior: uniform
+    cat_params = jnp.zeros(n_components - 1)
+
+    # Join mixture parameters
+    mixture_params = model.pst_man.join_coords(base_vm, int_mat, cat_params)
+
+    # Add small noise to mixture parameters
+    mixture_params = (
+        mixture_params
+        + jax.random.normal(mix_key, shape=mixture_params.shape) * shape * 0.1
+    )
+
+    # Interaction parameters
     if zero_interaction:
-        obs_params, _, lat_params = model.split_coords(harmonium_params)
         int_params = jnp.zeros(model.int_man.dim)
-        harmonium_params = model.join_coords(obs_params, int_params, lat_params)
+    else:
+        int_params = jax.random.normal(int_key, shape=(model.int_man.dim,)) * shape
 
-    # Initialize rho = 0 so approximate posterior = exact posterior initially
-    rho_params = jnp.zeros(model.pst_man.dim)
+    # Join all harmonium parameters
+    harmonium_params = model.join_coords(obs_params, int_params, mixture_params)
 
-    return StructuredVIState(harmonium_params, rho_params)
+    # Initialize rho = 0 (only VonMises dim, not full mixture)
+    rho_params = jnp.zeros(model.vonmises_man.dim)
+
+    return HierarchicalVIState(harmonium_params, rho_params)
 
 
 def make_train_step_fn(
-    model: BinomialVonMisesRBM,
-    config: StructuredVIConfig,
+    model: BinomialVonMisesMixture,
+    config: HierarchicalVIConfig,
 ):
     """Create a JIT-compiled training step function.
 
     Returns a function that computes gradients for a single batch.
 
     Args:
-        model: The harmonium model
+        model: The hierarchical harmonium model
         config: VI configuration
 
     Returns:

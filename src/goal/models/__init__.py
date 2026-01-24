@@ -16,6 +16,11 @@ from .graphical.hmog import (
     differentiable_hmog,
     symmetric_hmog,
 )
+from .harmonium.binomial_vonmises_mixture import (
+    BinomialVonMisesMixture,
+    MixtureObservableEmbedding,
+    binomial_vonmises_mixture,
+)
 from .harmonium.lgm import (
     LGM,
     BoltzmannEmbedding,
@@ -73,6 +78,7 @@ __all__ = [
     "BinomialGaussianHarmonium",
     "BinomialNormalHarmonium",
     "BinomialRBM",
+    "BinomialVonMisesMixture",
     "BinomialVonMisesRBM",
     "BinomialVonMisesVI",
     "Binomials",
@@ -92,6 +98,7 @@ __all__ = [
     "Euclidean",
     "FactorAnalysis",
     "Mixture",
+    "MixtureObservableEmbedding",
     "Normal",
     "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",
@@ -111,6 +118,7 @@ __all__ = [
     "binomial_gaussian_harmonium",
     "binomial_normal_harmonium",
     "binomial_rbm",
+    "binomial_vonmises_mixture",
     "binomial_vonmises_rbm",
     "binomial_vonmises_vi",
     "com_poisson_mixture",

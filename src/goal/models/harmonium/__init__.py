@@ -1,5 +1,10 @@
 """Harmonium models for probabilistic modeling."""
 
+from .binomial_vonmises_mixture import (
+    BinomialVonMisesMixture,
+    MixtureObservableEmbedding,
+    binomial_vonmises_mixture,
+)
 from .lgm import (
     LGM,
     BoltzmannEmbedding,
@@ -28,6 +33,7 @@ from .rbm import RestrictedBoltzmannMachine, rbm
 __all__ = [
     "LGM",
     "AnalyticMixture",
+    "BinomialVonMisesMixture",
     "BoltzmannEmbedding",
     "BoltzmannLGM",
     "CoMPoissonMixture",
@@ -36,6 +42,7 @@ __all__ = [
     "DifferentiableBoltzmannLGM",
     "FactorAnalysis",
     "Mixture",
+    "MixtureObservableEmbedding",
     "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",
     "NormalLGM",
@@ -43,6 +50,7 @@ __all__ = [
     "PrincipalComponentAnalysis",
     "RestrictedBoltzmannMachine",
     "VonMisesPopulationCode",
+    "binomial_vonmises_mixture",
     "com_poisson_mixture",
     "poisson_mixture",
     "rbm",

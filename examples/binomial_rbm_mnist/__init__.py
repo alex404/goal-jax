@@ -1,1 +1,0 @@
-"""Binomial RBM MNIST example."""
