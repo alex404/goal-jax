@@ -32,7 +32,10 @@ from .exponential_family.harmonium import (
 )
 from .exponential_family.variational import (
     DifferentiableVariationalConjugated,
+    DifferentiableVariationalHierarchicalMixture,
+    SimpleVariationalConjugated,
     VariationalConjugated,
+    VariationalHierarchicalMixture,
 )
 from .manifold.base import (
     Manifold,
@@ -89,6 +92,7 @@ __all__ = [
     "DifferentiableHierarchical",
     "DifferentiableProduct",
     "DifferentiableVariationalConjugated",
+    "DifferentiableVariationalHierarchicalMixture",
     "EmbeddedMap",
     "Embedding",
     "ExponentialFamily",
@@ -117,6 +121,7 @@ __all__ = [
     "Rectangular",
     "Replicated",
     "Scale",
+    "SimpleVariationalConjugated",
     "Square",
     "SquareMap",
     "StatisticalMoments",
@@ -127,4 +132,5 @@ __all__ = [
     "TrivialEmbedding",
     "TupleEmbedding",
     "VariationalConjugated",
+    "VariationalHierarchicalMixture",
 ]

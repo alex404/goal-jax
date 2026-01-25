@@ -16,41 +16,49 @@ parameters together form the complete model parameterization.
 Classes:
     VariationalConjugated: Base class combining conjugation params with harmonium
     DifferentiableVariationalConjugated: Adds ELBO and gradient computation
+    VariationalHierarchicalMixture: Variational inference for hierarchical mixture models
+    DifferentiableVariationalHierarchicalMixture: Adds ELBO for mixture models
 """
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.combinators import Pair
-from .base import Differentiable, Generative
+from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
+from .base import Differentiable, ExponentialFamily, Generative
 from .harmonium import GenerativeHarmonium
 
 
 @dataclass(frozen=True)
-class VariationalConjugated[Observable: Generative, Posterior: Generative](
-    Pair[Posterior, GenerativeHarmonium[Observable, Posterior]],
+class VariationalConjugated[
+    Observable: Generative,
+    Posterior: Generative,
+    Conjugation: ExponentialFamily,
+](
+    Pair[Conjugation, GenerativeHarmonium[Observable, Posterior]],
     ABC,
 ):
-    """Variational conjugated harmonium combining conjugation parameters with a generative model.
+    """Variational harmonium with learnable conjugation correction.
 
-    This class represents a variational approximation to a conjugated harmonium where
-    the conjugation parameters (rho) are learned rather than computed analytically.
-    The full parameter space is the product of:
-    - Conjugation parameters rho on the posterior manifold
-    - Harmonium parameters [theta_X, Theta_XZ, theta_Z]
+    The full parameter space is Pair[rho_params, harmonium_params].
+
+    The rho correction is applied via an embedding that maps Conjugation
+    to Posterior space:
+        q(z|x) = rho_emb.translate(posterior_at(x), -rho)
+
+    This generalizes:
+    - Simple case: Conjugation = Posterior, embedding = Identity, so q = posterior - rho
+    - Mixture case: Conjugation = BaseLatent, embedding maps to obs_bias of mixture
 
     Unlike true `Conjugated` harmoniums:
     - The conjugation parameters are learned, not derived from likelihood structure
     - Uses ELBO optimization instead of EM
     - The model is not strictly an exponential family
-
-    The approximate posterior at observation x is:
-        q(z|x) has natural params: theta_Z + Theta_{XZ}^T s_X(x) - rho
 
     Attributes:
         hrm: The underlying GenerativeHarmonium model
@@ -61,13 +69,28 @@ class VariationalConjugated[Observable: Generative, Posterior: Generative](
     hrm: GenerativeHarmonium[Observable, Posterior]
     """The underlying harmonium model."""
 
+    # Contract: subclasses provide the embedding
+
+    @property
+    @abstractmethod
+    def rho_emb(self) -> LinearEmbedding[Conjugation, Posterior]:
+        """Embedding from conjugation manifold to posterior manifold.
+
+        Defines how rho correction is applied to the posterior parameters.
+        """
+
     # Pair implementation
 
     @property
+    def rho_man(self) -> Conjugation:
+        """Manifold for rho correction parameters."""
+        return self.rho_emb.sub_man
+
+    @property
     @override
-    def fst_man(self) -> Posterior:
-        """First component: conjugation parameter manifold (same as posterior)."""
-        return self.hrm.pst_man
+    def fst_man(self) -> Conjugation:
+        """First component: conjugation parameter manifold."""
+        return self.rho_man
 
     @property
     @override
@@ -118,7 +141,7 @@ class VariationalConjugated[Observable: Generative, Posterior: Generative](
     def approximate_posterior_at(self, params: Array, x: Array) -> Array:
         """Compute approximate posterior natural parameters at observation x.
 
-        q(z|x) has natural params: theta_Z + Theta_{XZ}^T s_X(x) - rho
+        q(z|x) = rho_emb.translate(posterior_at(x), -rho)
 
         Args:
             params: Full model parameters [rho, harmonium_params]
@@ -129,7 +152,7 @@ class VariationalConjugated[Observable: Generative, Posterior: Generative](
         """
         rho, hrm_params = self.split_coords(params)
         exact_posterior = self.hrm.posterior_at(hrm_params, x)
-        return exact_posterior - rho
+        return self.rho_emb.translate(exact_posterior, -rho)
 
     def likelihood_at(self, params: Array, z: Array) -> Array:
         """Compute likelihood natural parameters at latent z.
@@ -177,7 +200,7 @@ class VariationalConjugated[Observable: Generative, Posterior: Generative](
         Returns:
             Full model parameters [rho, harmonium_params]
         """
-        rho = jnp.zeros(self.fst_man.dim)
+        rho = jnp.zeros(self.rho_man.dim)
         hrm_params = self.hrm.initialize(key, location, shape)
         return self.join_coords(rho, hrm_params)
 
@@ -198,9 +221,27 @@ class VariationalConjugated[Observable: Generative, Posterior: Generative](
         Returns:
             Full model parameters
         """
-        rho = jnp.zeros(self.fst_man.dim)
+        rho = jnp.zeros(self.rho_man.dim)
         hrm_params = self.hrm.initialize_from_sample(key, sample, location, shape)
         return self.join_coords(rho, hrm_params)
+
+
+@dataclass(frozen=True)
+class SimpleVariationalConjugated[Observable: Generative, Posterior: Generative](
+    VariationalConjugated[Observable, Posterior, Posterior],
+    ABC,
+):
+    """Variational conjugated harmonium with identity rho embedding.
+
+    This is the simple case where Conjugation = Posterior and the embedding is identity,
+    so the approximate posterior is: q(z|x) = posterior_at(x) - rho
+    """
+
+    @property
+    @override
+    def rho_emb(self) -> IdentityEmbedding[Posterior]:
+        """Identity embedding: rho directly subtracts from posterior params."""
+        return IdentityEmbedding(self.hrm.pst_man)
 
 
 @dataclass(frozen=True)
@@ -208,12 +249,12 @@ class DifferentiableVariationalConjugated[
     Observable: Differentiable,
     Posterior: Differentiable,
 ](
-    VariationalConjugated[Observable, Posterior],
+    SimpleVariationalConjugated[Observable, Posterior],
     ABC,
 ):
     """Variational conjugated harmonium with ELBO computation.
 
-    Extends VariationalConjugated with methods for computing the ELBO and its
+    Extends SimpleVariationalConjugated with methods for computing the ELBO and its
     components. Requires both Observable and Posterior to be Differentiable
     (have to_mean and log_partition_function methods).
 
@@ -444,3 +485,400 @@ class DifferentiableVariationalConjugated[
         x_samples = jax.vmap(sample_x_given_z)(x_keys, z_samples)
 
         return jnp.concatenate([x_samples, z_samples], axis=-1)
+
+
+@dataclass(frozen=True)
+class VariationalHierarchicalMixture[
+    Observable: Generative,
+    BaseLatent: Differentiable,
+](
+    VariationalConjugated[Observable, Any, BaseLatent],
+    ABC,
+):
+    """Variational harmonium with mixture latent structure.
+
+    For a three-level hierarchy (Observable <-> BaseLatent <-> Categorical),
+    the rho correction only affects the BaseLatent (observable) component
+    of the mixture, leaving interaction and categorical unchanged.
+
+    Model structure:
+        Observable (X) <-> Base Latent (Y) <-> Categorical (K)
+           |                    |                    |
+        e.g., Binomials     Bernoullis        Mixture component
+
+    Joint distribution: p(x, y, k) = p(k) * p(y|k) * p(x|y)
+
+    The posterior is a CompleteMixture[BaseLatent], and the rho correction
+    is applied only to the observable (BaseLatent) bias, not to the
+    mixture interaction or categorical parameters.
+    """
+
+    @property
+    @abstractmethod
+    def n_categories(self) -> int:
+        """Number of mixture components."""
+
+    @property
+    @abstractmethod
+    def bas_lat_man(self) -> BaseLatent:
+        """Base latent manifold (before mixture)."""
+
+    @property
+    def mix_man(self) -> Any:
+        """Complete mixture over base latent.
+
+        Returns CompleteMixture[BaseLatent] - typed as Any to avoid circular imports.
+        """
+        return self.hrm.pst_man
+
+    @property
+    @override
+    def rho_emb(self) -> LinearEmbedding[BaseLatent, Any]:
+        """Embedding from BaseLatent to mixture's observable component.
+
+        The rho correction only affects the observable (BaseLatent) bias,
+        not the mixture interaction or categorical parameters.
+
+        Note: Return type uses Any due to generic type limitations with
+        CompleteMixture being a subtype of Harmonium.
+        """
+        # Lazy import to avoid circular dependency
+        from .graphical import ObservableEmbedding
+
+        return ObservableEmbedding(self.mix_man)
+
+    # Mixture-specific methods
+
+    def sample_from_posterior(
+        self, key: Array, posterior_params: Array, n_samples: int
+    ) -> tuple[Array, Array]:
+        """Sample (y, k) pairs from the mixture posterior.
+
+        First samples k from the marginal q(k), then samples y from q(y|k).
+
+        Args:
+            key: JAX random key
+            posterior_params: Mixture natural parameters
+            n_samples: Number of samples
+
+        Returns:
+            Tuple of (y_samples, k_samples) where:
+            - y_samples: shape (n_samples, base_lat_dim)
+            - k_samples: shape (n_samples,) cluster indices
+        """
+        key_k, key_y = jax.random.split(key)
+
+        # Get cluster probabilities using the correct marginal computation
+        probs = self.get_cluster_probs(posterior_params)
+
+        # Sample cluster assignments
+        k_samples = jax.random.categorical(key_k, jnp.log(probs), shape=(n_samples,))
+
+        # Get component parameters
+        components, _ = self.mix_man.split_natural_mixture(posterior_params)
+        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
+
+        # Sample y for each k
+        def sample_y_given_k(key: Array, k: Array) -> Array:
+            y_params = comp_params_2d[k]
+            return self.bas_lat_man.sample(key, y_params, 1)[0]
+
+        y_keys = jax.random.split(key_y, n_samples)
+        y_samples = jax.vmap(sample_y_given_k)(y_keys, k_samples)
+
+        return y_samples, k_samples
+
+    def get_cluster_probs(self, mixture_params: Array) -> Array:
+        """Extract cluster probabilities from mixture parameters.
+
+        For a mixture q(y,k), the marginal over k is:
+            q(k) ∝ exp(θ_K[k] + ψ_Y(θ_Y[k]))
+
+        where ψ_Y is the log-partition function of the base latent.
+
+        Args:
+            mixture_params: Natural parameters of the mixture
+
+        Returns:
+            Array of shape (n_categories,) with cluster probabilities
+        """
+        # Get component parameters for each cluster
+        components, _ = self.mix_man.split_natural_mixture(mixture_params)
+        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
+
+        # Get categorical natural parameters
+        _, _, cat_params = self.mix_man.split_coords(mixture_params)
+
+        # Compute log-partition for each component
+        log_partitions = jax.vmap(self.bas_lat_man.log_partition_function)(comp_params_2d)
+
+        # Compute unnormalized log probabilities for each cluster k
+        # log q(k) = cat_params[k-1] + ψ_Y(θ_Y[k]) for k > 0
+        # log q(0) = 0 + ψ_Y(θ_Y[0])
+        n_clusters = self.n_categories
+        log_probs = jnp.zeros(n_clusters)
+
+        # First cluster (k=0): implicit cat param is 0
+        log_probs = log_probs.at[0].set(log_partitions[0])
+
+        # Other clusters (k=1,...,K-1): use cat_params
+        for k in range(1, n_clusters):
+            log_probs = log_probs.at[k].set(cat_params[k - 1] + log_partitions[k])
+
+        # Normalize (log-sum-exp trick for numerical stability)
+        log_probs = log_probs - jax.scipy.special.logsumexp(log_probs)
+        return jnp.exp(log_probs)
+
+    def get_component_params(self, mixture_params: Array, k: int) -> Array:
+        """Get base latent parameters for a specific mixture component.
+
+        Args:
+            mixture_params: Natural parameters of the mixture
+            k: Component index (0 to n_categories-1)
+
+        Returns:
+            Natural parameters for component k
+        """
+        components, _ = self.mix_man.split_natural_mixture(mixture_params)
+        return self.mix_man.cmp_man.get_replicate(components, k)
+
+
+@dataclass(frozen=True)
+class DifferentiableVariationalHierarchicalMixture[
+    Observable: Differentiable,
+    BaseLatent: Differentiable,
+](
+    VariationalHierarchicalMixture[Observable, BaseLatent],
+    ABC,
+):
+    """Differentiable variational hierarchical mixture with ELBO support.
+
+    Provides ELBO computation for mixture models, using REINFORCE gradients
+    for non-reparameterizable sampling from the mixture posterior.
+    """
+
+    def compute_log_joint(
+        self, params: Array, x: Array, y: Array, k: Array
+    ) -> Array:
+        """Compute log p(x, y, k) = log p(k) + log p(y|k) + log p(x|y).
+
+        Args:
+            params: Full model parameters
+            x: Observation
+            y: Base latent (shape: base_lat_dim)
+            k: Cluster index (scalar)
+
+        Returns:
+            Log joint probability (scalar)
+        """
+        s_x = self.obs_man.sufficient_statistic(x)
+
+        # Get prior mixture parameters
+        _, _, prior_mixture_params = self.hrm.split_coords(
+            self.generative_params(params)
+        )
+
+        # log p(k)
+        _, _, cat_params = self.mix_man.split_coords(prior_mixture_params)
+        cat_means = self.mix_man.lat_man.to_mean(cat_params)
+        probs = self.mix_man.lat_man.to_probs(cat_means)
+        log_pk = jnp.log(probs[k])
+
+        # log p(y|k) - component distribution for cluster k
+        components, _ = self.mix_man.split_natural_mixture(prior_mixture_params)
+        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
+        y_params_k = comp_params_2d[k]
+        s_y = self.bas_lat_man.sufficient_statistic(y)
+        log_py_given_k = (
+            jnp.dot(s_y, y_params_k)
+            - self.bas_lat_man.log_partition_function(y_params_k)
+            + self.bas_lat_man.log_base_measure(y)
+        )
+
+        # log p(x|y)
+        lkl_params = self.likelihood_at(params, y)
+        log_px_given_y = (
+            jnp.dot(s_x, lkl_params)
+            - self.obs_man.log_partition_function(lkl_params)
+            + self.obs_man.log_base_measure(x)
+        )
+
+        return log_pk + log_py_given_k + log_px_given_y
+
+    def compute_log_posterior(
+        self, posterior_params: Array, y: Array, k: Array
+    ) -> Array:
+        """Compute log q(y, k | x) from approximate posterior.
+
+        Args:
+            posterior_params: Approximate posterior mixture parameters
+            y: Base latent
+            k: Cluster index
+
+        Returns:
+            Log posterior probability (scalar)
+        """
+        # log q(k)
+        _, _, cat_params = self.mix_man.split_coords(posterior_params)
+        cat_means = self.mix_man.lat_man.to_mean(cat_params)
+        probs = self.mix_man.lat_man.to_probs(cat_means)
+        log_qk = jnp.log(probs[k])
+
+        # log q(y|k)
+        components, _ = self.mix_man.split_natural_mixture(posterior_params)
+        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
+        y_params_k = comp_params_2d[k]
+        s_y = self.bas_lat_man.sufficient_statistic(y)
+        log_qy_given_k = (
+            jnp.dot(s_y, y_params_k)
+            - self.bas_lat_man.log_partition_function(y_params_k)
+            + self.bas_lat_man.log_base_measure(y)
+        )
+
+        return log_qk + log_qy_given_k
+
+    def elbo_at(
+        self,
+        key: Array,
+        params: Array,
+        x: Array,
+        n_samples: int,
+        kl_weight: float = 1.0,
+    ) -> Array:
+        """Compute ELBO using Monte Carlo samples from the mixture posterior.
+
+        ELBO = E_q[log p(x,y,k) - log q(y,k|x)]
+
+        Args:
+            key: JAX random key
+            params: Full model parameters
+            x: Observation
+            n_samples: Number of MC samples
+            kl_weight: Weight on KL term (for beta-VAE style training)
+
+        Returns:
+            ELBO value (scalar)
+        """
+        # Get approximate posterior
+        q_params = self.approximate_posterior_at(params, x)
+
+        # Sample (y, k) from posterior
+        y_samples, k_samples = self.sample_from_posterior(key, q_params, n_samples)
+
+        # Compute log joint and log posterior for each sample
+        log_joints = jax.vmap(
+            lambda y, k: self.compute_log_joint(params, x, y, k)
+        )(y_samples, k_samples)
+
+        log_posteriors = jax.vmap(
+            lambda y, k: self.compute_log_posterior(q_params, y, k)
+        )(y_samples, k_samples)
+
+        # ELBO = E_q[log p - log q]
+        # With kl_weight: ELBO = E_q[log p(x|y)] - kl_weight * KL(q||p)
+        # But since log p - log q = log p(x|y) + log p(y,k) - log q - (log p(y,k) - log q)
+        # Simpler to just weight the log_q term
+        if kl_weight != 1.0:
+            return jnp.mean(log_joints - kl_weight * log_posteriors)
+        return jnp.mean(log_joints - log_posteriors)
+
+    def elbo_components(
+        self,
+        key: Array,
+        params: Array,
+        x: Array,
+        n_samples: int,
+        kl_weight: float = 1.0,
+    ) -> tuple[Array, Array, Array]:
+        """Compute ELBO and its components for monitoring.
+
+        Returns:
+            Tuple of (elbo, reconstruction_term, kl_term)
+        """
+        # Get approximate posterior
+        q_params = self.approximate_posterior_at(params, x)
+
+        # Sample (y, k)
+        y_samples, k_samples = self.sample_from_posterior(key, q_params, n_samples)
+
+        # Reconstruction: E_q[log p(x|y)]
+        s_x = self.obs_man.sufficient_statistic(x)
+
+        def log_likelihood_at_y(y: Array) -> Array:
+            lkl_params = self.likelihood_at(params, y)
+            return (
+                jnp.dot(s_x, lkl_params)
+                - self.obs_man.log_partition_function(lkl_params)
+                + self.obs_man.log_base_measure(x)
+            )
+
+        recon = jnp.mean(jax.vmap(log_likelihood_at_y)(y_samples))
+
+        # KL = E_q[log q(y,k|x)] - E_q[log p(y,k)]
+        log_posteriors = jax.vmap(
+            lambda y, k: self.compute_log_posterior(q_params, y, k)
+        )(y_samples, k_samples)
+
+        # log p(y,k) from joint minus log p(x|y)
+        log_joints = jax.vmap(
+            lambda y, k: self.compute_log_joint(params, x, y, k)
+        )(y_samples, k_samples)
+
+        log_priors = log_joints - jax.vmap(log_likelihood_at_y)(y_samples)
+        kl = jnp.mean(log_posteriors - log_priors)
+
+        elbo = recon - kl_weight * kl
+        return elbo, recon, kl
+
+    def mean_elbo(
+        self,
+        key: Array,
+        params: Array,
+        xs: Array,
+        n_samples: int,
+        kl_weight: float = 1.0,
+    ) -> Array:
+        """Compute mean ELBO over a batch of observations."""
+        batch_size = xs.shape[0]
+        keys = jax.random.split(key, batch_size)
+
+        elbos = jax.vmap(
+            lambda k, x: self.elbo_at(k, params, x, n_samples, kl_weight)
+        )(keys, xs)
+
+        return jnp.mean(elbos)
+
+    def sample_from_model(
+        self, key: Array, params: Array, n: int
+    ) -> tuple[Array, Array, Array]:
+        """Sample from the generative model.
+
+        Uses ancestral sampling:
+        1. Sample k ~ p(k)
+        2. Sample y ~ p(y|k)
+        3. Sample x ~ p(x|y)
+
+        Returns:
+            Tuple of (x_samples, y_samples, k_samples)
+        """
+        key_yk, key_x = jax.random.split(key)
+
+        # Get prior mixture parameters
+        _, _, prior_mixture_params = self.hrm.split_coords(
+            self.generative_params(params)
+        )
+
+        # Sample (y, k) from prior mixture
+        y_samples, k_samples = self.sample_from_posterior(
+            key_yk, prior_mixture_params, n
+        )
+
+        # Sample x given y
+        def sample_x_given_y(subkey: Array, y: Array) -> Array:
+            lkl_params = self.likelihood_at(params, y)
+            return self.obs_man.sample(subkey, lkl_params, 1)[0]
+
+        x_keys = jax.random.split(key_x, n)
+        x_samples = jax.vmap(sample_x_given_y)(x_keys, y_samples)
+
+        return x_samples, y_samples, k_samples
