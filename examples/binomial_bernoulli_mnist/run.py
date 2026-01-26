@@ -33,7 +33,7 @@ IMG_SIZE = 28
 N_OBSERVABLE = IMG_SIZE * IMG_SIZE  # 784
 
 # Model architecture
-N_LATENT = 512  # Binary hidden units (like RBM)
+N_LATENT = 2048  # Binary hidden units (like RBM)
 N_CLUSTERS = 10  # For 10 digits
 N_TRIALS = 16  # Binomial trials for pixel values
 
@@ -47,7 +47,7 @@ N_STEPS = 50000
 LEARNING_RATE = 1e-3
 N_MC_SAMPLES = 5
 ENTROPY_WEIGHT = 1.0  # Prevent cluster collapse
-CONJ_REG_WEIGHT = 1.0  # Weight for conjugation regularization
+CONJ_REG_WEIGHT = 10.0  # Weight for conjugation regularization
 
 # How often to compute conjugation error (expensive)
 CONJ_ERROR_INTERVAL = 50
@@ -118,14 +118,20 @@ def compute_nmi(assignments: Array, labels: Array) -> float:
     )
 
 
-def compute_conjugation_error_jit(model: Any, params: Array, y_samples: Array) -> Array:
+def compute_conjugation_error_jit(
+    model: Any, params: Array, key: Array, n_samples: int
+) -> Array:
     """JIT-compatible conjugation error computation.
 
-    f_tilde(y) = rho · s_Y(y) - psi_X(theta_X + Theta_XY · s_Y(y))
+    Samples from the CURRENT prior and computes Var[f_tilde(y)].
 
-    Returns variance of f_tilde over the provided samples.
+    f_tilde(y) = rho · s_Y(y) - psi_X(theta_X + Theta_XY · s_Y(y))
     """
-    rho, _ = model.split_coords(params)
+    rho, hrm_params = model.split_coords(params)
+
+    # Sample from CURRENT prior (not stale samples!)
+    _, _, prior_mixture_params = model.hrm.split_coords(hrm_params)
+    y_samples, _ = model.sample_from_posterior(key, prior_mixture_params, n_samples)
 
     def reduced_learning_signal(y: Array) -> Array:
         s_y = model.bas_lat_man.sufficient_statistic(y)
@@ -136,19 +142,6 @@ def compute_conjugation_error_jit(model: Any, params: Array, y_samples: Array) -
 
     f_vals = jax.vmap(reduced_learning_signal)(y_samples)
     return jnp.var(f_vals)
-
-
-def compute_conjugation_error(
-    key: Array,
-    model: Any,
-    params: Array,
-    n_samples: int = 100,
-) -> float:
-    """Compute conjugation error: Var[f_tilde(y)] under the prior."""
-    _, hrm_params = model.split_coords(params)
-    _, _, prior_mixture_params = model.hrm.split_coords(hrm_params)
-    y_samples, _ = model.sample_from_posterior(key, prior_mixture_params, n_samples)
-    return float(compute_conjugation_error_jit(model, params, y_samples))
 
 
 def train_model(
@@ -213,19 +206,13 @@ def train_model(
         optimizer = optax.adam(LEARNING_RATE)
         opt_state = optimizer.init(params)
 
-    # Get prior samples for conjugation error (fixed throughout training for stability)
-    key, prior_key = jax.random.split(key)
-    _, _, prior_mixture_params = model.hrm.split_coords(new_hrm_params)
-    prior_y_samples, _ = model.sample_from_posterior(
-        prior_key, prior_mixture_params, N_CONJ_SAMPLES
-    )
-
     # Loss functions
     def loss_fn_full(
-        params: Array, key: Array, batch: Array, y_samples: Array
+        params: Array, key: Array, batch: Array
     ) -> tuple[Array, tuple[Array, Array]]:
         """Loss for learnable rho with optional conjugation regularization."""
-        elbo = model.mean_elbo(key, params, batch, N_MC_SAMPLES)
+        key, elbo_key, conj_key = jax.random.split(key, 3)
+        elbo = model.mean_elbo(elbo_key, params, batch, N_MC_SAMPLES)
 
         def get_cluster_probs(x: Array) -> Array:
             q_params = model.approximate_posterior_at(params, x)
@@ -237,9 +224,10 @@ def train_model(
         loss = -elbo - ENTROPY_WEIGHT * entropy
 
         # Add conjugation regularization if weight > 0
+        # Now samples from CURRENT prior, not stale initial samples
         conj_err = jnp.where(
             conj_reg_weight > 0,
-            compute_conjugation_error_jit(model, params, y_samples),
+            compute_conjugation_error_jit(model, params, conj_key, N_CONJ_SAMPLES),
             0.0,
         )
         loss = loss + conj_reg_weight * conj_err
@@ -287,7 +275,7 @@ def train_model(
 
         @jax.jit
         def train_step(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
-            params, opt_state, key, data, y_samples = carry
+            params, opt_state, key, data = carry
             key, step_key, batch_key = jax.random.split(key, 3)
 
             batch_idx = jax.random.choice(batch_key, N_TRAIN, shape=(BATCH_SIZE,))
@@ -295,12 +283,12 @@ def train_model(
 
             (_, (elbo, conj_err)), grads = jax.value_and_grad(
                 loss_fn_full, has_aux=True
-            )(params, step_key, batch, y_samples)
+            )(params, step_key, batch)
 
             updates, new_opt_state = optimizer.update(grads, opt_state, params)
             new_params = optax.apply_updates(params, updates)
 
-            return (new_params, new_opt_state, key, data, y_samples), (elbo, conj_err)
+            return (new_params, new_opt_state, key, data), (elbo, conj_err)
 
     # Training loop
     elbos_list: list[float] = []
@@ -332,7 +320,6 @@ def train_model(
                     current_opt_state,
                     train_key,
                     _,
-                    _,
                 ),
                 (elbo, _),
             ) = train_step(
@@ -341,7 +328,6 @@ def train_model(
                     current_opt_state,
                     step_key,
                     train_data,
-                    prior_y_samples,
                 ),
                 None,
             )
@@ -351,7 +337,9 @@ def train_model(
         # Compute metrics periodically
         if step % CONJ_ERROR_INTERVAL == 0 or step == N_STEPS - 1:
             key, conj_key = jax.random.split(key)
-            conj_error = compute_conjugation_error(conj_key, model, current_params, 100)
+            conj_error = float(
+                model.conjugation_error(conj_key, current_params, n_samples=100)
+            )
             conj_errors_list.append(conj_error)
 
             rho_current, _ = model.split_coords(current_params)

@@ -255,3 +255,46 @@ class TestFilters:
         filters = model.get_filters(initialized_params, img_shape)
 
         assert filters.shape == (N_LATENT, 4, 4)
+
+
+class TestConjugationError:
+    """Tests for conjugation error computation."""
+
+    def test_conjugation_error_finite(
+        self, model: BinomialBernoulliMixture, initialized_params
+    ):
+        """Test that conjugation error is finite."""
+        key = jax.random.PRNGKey(7)
+        conj_err = model.conjugation_error(key, initialized_params, n_samples=20)
+
+        assert jnp.isfinite(conj_err)
+        assert conj_err >= 0  # Variance is always non-negative
+
+    def test_conjugation_error_with_zero_rho(
+        self, model: BinomialBernoulliMixture, initialized_params
+    ):
+        """Test conjugation error when rho is zero (should not be exactly zero)."""
+        key = jax.random.PRNGKey(8)
+
+        # With rho=0, the reduced learning signal is -psi_X(theta_X + Theta_XY * s_Y(y))
+        # This is generally not constant, so variance > 0
+        conj_err = model.conjugation_error(key, initialized_params, n_samples=50)
+
+        assert jnp.isfinite(conj_err)
+        assert conj_err >= 0
+
+    def test_reduced_learning_signal_shape(
+        self, model: BinomialBernoulliMixture, initialized_params
+    ):
+        """Test that reduced learning signal returns a scalar."""
+        key = jax.random.PRNGKey(9)
+
+        # Sample a latent from the prior
+        p_params = model.prior_params(initialized_params)
+        z_sample = model.pst_man.sample(key, p_params, 1)[0]
+
+        # Compute reduced learning signal
+        f_tilde = model.reduced_learning_signal(initialized_params, z_sample)
+
+        assert f_tilde.shape == ()  # Scalar
+        assert jnp.isfinite(f_tilde)

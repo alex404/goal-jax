@@ -407,7 +407,11 @@ class DifferentiableVariationalConjugated[
     def reduced_learning_signal(self, params: Array, z: Array) -> Array:
         """Compute the reduced learning signal f_tilde(z).
 
-        f_tilde(z) = rho . s_Z(z) - psi_X(theta_X + Theta_{XZ} . s_Z(z))
+        f_tilde(z) = rho . s_rho(z) - psi_X(theta_X + Theta_{XZ} . s_Z(z))
+
+        where s_rho(z) is the projection of s_Z(z) onto the conjugation manifold.
+        For simple models, s_rho = s_Z (identity embedding).
+        For hierarchical mixtures, s_rho extracts the base latent component.
 
         For a perfectly conjugate model, f_tilde(z) would be constant.
 
@@ -421,8 +425,13 @@ class DifferentiableVariationalConjugated[
         rho, hrm_params = self.split_coords(params)
         s_z = self.pst_man.sufficient_statistic(z)
 
-        # Linear term: rho . s_Z(z)
-        term1 = jnp.dot(rho, s_z)
+        # Project sufficient statistics to conjugation manifold
+        # For simple case: identity projection (s_rho = s_z)
+        # For hierarchical: extract base latent component from mixture
+        s_rho = self.rho_emb.project(s_z)
+
+        # Linear term: rho . s_rho(z)
+        term1 = jnp.dot(rho, s_rho)
 
         # Log partition of likelihood: psi_X(theta_X + Theta_XZ . s_Z(z))
         lkl_params = self.hrm.likelihood_at(hrm_params, z)
@@ -882,3 +891,60 @@ class DifferentiableVariationalHierarchicalMixture[
         x_samples = jax.vmap(sample_x_given_y)(x_keys, y_samples)
 
         return x_samples, y_samples, k_samples
+
+    # Conjugation error (measures departure from exact conjugation)
+
+    def reduced_learning_signal(self, params: Array, z: Array) -> Array:
+        """Compute the reduced learning signal f_tilde(z).
+
+        f_tilde(z) = rho . s_rho(z) - psi_X(theta_X + Theta_{XZ} . s_Z(z))
+
+        where s_rho(z) is the projection of s_Z(z) onto the conjugation manifold.
+        For hierarchical mixtures, s_rho extracts the base latent component.
+
+        For a perfectly conjugate model, f_tilde(z) would be constant.
+
+        Args:
+            params: Full model parameters
+            z: Latent sample (full mixture sample [y, k])
+
+        Returns:
+            Scalar value of reduced learning signal
+        """
+        rho, hrm_params = self.split_coords(params)
+        s_z = self.pst_man.sufficient_statistic(z)
+
+        # Project sufficient statistics to conjugation manifold
+        # For hierarchical: extract base latent component from mixture
+        s_rho = self.rho_emb.project(s_z)
+
+        # Linear term: rho . s_rho(z)
+        term1 = jnp.dot(rho, s_rho)
+
+        # Log partition of likelihood: psi_X(theta_X + Theta_XZ . s_Z(z))
+        lkl_params = self.hrm.likelihood_at(hrm_params, z)
+        term2 = self.obs_man.log_partition_function(lkl_params)
+
+        return term1 - term2
+
+    def conjugation_error(
+        self, key: Array, params: Array, n_samples: int = 100
+    ) -> Array:
+        """Compute the conjugation error: Var[f_tilde(z)] under the prior.
+
+        If perfectly conjugate, f_tilde(z) = const and variance = 0.
+
+        Args:
+            key: JAX random key
+            params: Full model parameters
+            n_samples: Number of samples for variance estimation
+
+        Returns:
+            Conjugation error (variance of f_tilde)
+        """
+        p_params = self.prior_params(params)
+        z_samples = self.pst_man.sample(key, p_params, n_samples)
+
+        f_vals = jax.vmap(lambda z: self.reduced_learning_signal(params, z))(z_samples)
+
+        return jnp.var(f_vals)
