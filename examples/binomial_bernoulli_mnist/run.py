@@ -33,25 +33,25 @@ IMG_SIZE = 28
 N_OBSERVABLE = IMG_SIZE * IMG_SIZE  # 784
 
 # Model architecture
-N_LATENT = 2048  # Binary hidden units (like RBM)
+N_LATENT = 4096  # Binary hidden units (like RBM)
 N_CLUSTERS = 10  # For 10 digits
 N_TRIALS = 16  # Binomial trials for pixel values
 
 # Data configuration
-N_TRAIN = 30000  # Subset for faster training
-N_TEST = 3000
+N_TRAIN = 60000  # Subset for faster training
+N_TEST = 10000
 
 # Training configuration
 BATCH_SIZE = 512
 N_STEPS = 50000
-LEARNING_RATE = 1e-3
-N_MC_SAMPLES = 5
+LEARNING_RATE = 1e-4
+N_MC_SAMPLES = 10
 ENTROPY_WEIGHT = 1.0  # Prevent cluster collapse
-CONJ_REG_WEIGHT = 10.0  # Weight for conjugation regularization
+CONJ_REG_WEIGHT = 1.0  # Weight for conjugation regularization
 
-# How often to compute conjugation error (expensive)
-CONJ_ERROR_INTERVAL = 50
-N_CONJ_SAMPLES = 50  # Samples for conjugation error estimation
+# Conjugation error estimation
+N_CONJ_SAMPLES = 100  # Samples for conjugation error estimation
+LOG_INTERVAL = 200  # How often to print progress
 
 
 def load_mnist_sklearn() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
@@ -118,14 +118,19 @@ def compute_nmi(assignments: Array, labels: Array) -> float:
     )
 
 
-def compute_conjugation_error_jit(
+def compute_conjugation_metrics_jit(
     model: Any, params: Array, key: Array, n_samples: int
-) -> Array:
-    """JIT-compatible conjugation error computation.
+) -> tuple[Array, Array, Array]:
+    """JIT-compatible conjugation metrics computation.
 
-    Samples from the CURRENT prior and computes Var[f_tilde(y)].
+    Samples from the CURRENT prior and computes Var[f̃], Std[f̃], and R².
 
     f_tilde(y) = rho · s_Y(y) - psi_X(theta_X + Theta_XY · s_Y(y))
+
+    R² = 1 - Var[f̃] / Var[psi_X] measures how well rho·s approximates psi_X.
+
+    Returns:
+        Tuple of (variance, std, r_squared)
     """
     rho, hrm_params = model.split_coords(params)
 
@@ -140,8 +145,21 @@ def compute_conjugation_error_jit(
         term2 = model.obs_man.log_partition_function(lkl_params)
         return term1 - term2
 
+    def psi_x_at_y(y: Array) -> Array:
+        lkl_params = model.likelihood_at(params, y)
+        return model.obs_man.log_partition_function(lkl_params)
+
     f_vals = jax.vmap(reduced_learning_signal)(y_samples)
-    return jnp.var(f_vals)
+    psi_vals = jax.vmap(psi_x_at_y)(y_samples)
+
+    var_f = jnp.var(f_vals)
+    std_f = jnp.sqrt(var_f)
+    var_psi = jnp.var(psi_vals)
+
+    # R² = 1 - Var[residual] / Var[target]
+    r_squared = jnp.where(var_psi > 1e-10, 1.0 - var_f / var_psi, 1.0)
+
+    return var_f, std_f, r_squared
 
 
 def train_model(
@@ -209,7 +227,7 @@ def train_model(
     # Loss functions
     def loss_fn_full(
         params: Array, key: Array, batch: Array
-    ) -> tuple[Array, tuple[Array, Array]]:
+    ) -> tuple[Array, tuple[Array, Array, Array, Array]]:
         """Loss for learnable rho with optional conjugation regularization."""
         key, elbo_key, conj_key = jax.random.split(key, 3)
         elbo = model.mean_elbo(elbo_key, params, batch, N_MC_SAMPLES)
@@ -221,25 +239,22 @@ def train_model(
         all_probs = jax.vmap(get_cluster_probs)(batch)
         entropy = compute_batch_entropy(all_probs)
 
-        loss = -elbo - ENTROPY_WEIGHT * entropy
-
-        # Add conjugation regularization if weight > 0
-        # Now samples from CURRENT prior, not stale initial samples
-        conj_err = jnp.where(
-            conj_reg_weight > 0,
-            compute_conjugation_error_jit(model, params, conj_key, N_CONJ_SAMPLES),
-            0.0,
+        # Compute all conjugation metrics
+        conj_var, conj_std, conj_r2 = compute_conjugation_metrics_jit(
+            model, params, conj_key, N_CONJ_SAMPLES
         )
-        loss = loss + conj_reg_weight * conj_err
 
-        return loss, (elbo, conj_err)
+        loss = -elbo - ENTROPY_WEIGHT * entropy + conj_reg_weight * conj_var
+
+        return loss, (elbo, conj_var, conj_std, conj_r2)
 
     def loss_fn_fixed(
         hrm_params: Array, key: Array, batch: Array
-    ) -> tuple[Array, tuple[Array, Array]]:
+    ) -> tuple[Array, tuple[Array, Array, Array, Array]]:
         """Loss for fixed rho=0."""
+        key, elbo_key, conj_key = jax.random.split(key, 3)
         params = model.join_coords(zero_rho, hrm_params)
-        elbo = model.mean_elbo(key, params, batch, N_MC_SAMPLES)
+        elbo = model.mean_elbo(elbo_key, params, batch, N_MC_SAMPLES)
 
         def get_cluster_probs(x: Array) -> Array:
             q_params = model.approximate_posterior_at(params, x)
@@ -248,51 +263,62 @@ def train_model(
         all_probs = jax.vmap(get_cluster_probs)(batch)
         entropy = compute_batch_entropy(all_probs)
 
+        # Compute all conjugation metrics for monitoring
+        conj_var, conj_std, conj_r2 = compute_conjugation_metrics_jit(
+            model, params, conj_key, N_CONJ_SAMPLES
+        )
+
         loss = -elbo - ENTROPY_WEIGHT * entropy
-        return loss, (elbo, jnp.array(0.0))
+        return loss, (elbo, conj_var, conj_std, conj_r2)
 
     # Training steps
     if fix_rho:
 
         @jax.jit
-        def train_step(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
+        def train_step(
+            carry: Any, _: None
+        ) -> tuple[Any, tuple[Array, Array, Array, Array]]:
             hrm_params, opt_state, key, data = carry
             key, step_key, batch_key = jax.random.split(key, 3)
 
             batch_idx = jax.random.choice(batch_key, N_TRAIN, shape=(BATCH_SIZE,))
             batch = data[batch_idx]
 
-            (_, (elbo, conj_err)), grads = jax.value_and_grad(
-                loss_fn_fixed, has_aux=True
-            )(hrm_params, step_key, batch)
+            (_, metrics), grads = jax.value_and_grad(loss_fn_fixed, has_aux=True)(
+                hrm_params, step_key, batch
+            )
 
             updates, new_opt_state = optimizer.update(grads, opt_state, hrm_params)
             new_hrm_params = optax.apply_updates(hrm_params, updates)
 
-            return (new_hrm_params, new_opt_state, key, data), (elbo, conj_err)
+            return (new_hrm_params, new_opt_state, key, data), metrics
 
     else:
 
         @jax.jit
-        def train_step(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
+        def train_step(
+            carry: Any, _: None
+        ) -> tuple[Any, tuple[Array, Array, Array, Array]]:
             params, opt_state, key, data = carry
             key, step_key, batch_key = jax.random.split(key, 3)
 
             batch_idx = jax.random.choice(batch_key, N_TRAIN, shape=(BATCH_SIZE,))
             batch = data[batch_idx]
 
-            (_, (elbo, conj_err)), grads = jax.value_and_grad(
-                loss_fn_full, has_aux=True
-            )(params, step_key, batch)
+            (_, metrics), grads = jax.value_and_grad(loss_fn_full, has_aux=True)(
+                params, step_key, batch
+            )
 
             updates, new_opt_state = optimizer.update(grads, opt_state, params)
             new_params = optax.apply_updates(params, updates)
 
-            return (new_params, new_opt_state, key, data), (elbo, conj_err)
+            return (new_params, new_opt_state, key, data), metrics
 
     # Training loop
     elbos_list: list[float] = []
-    conj_errors_list: list[float] = []
+    conj_vars_list: list[float] = []
+    conj_stds_list: list[float] = []
+    conj_r2s_list: list[float] = []
     rho_norms_list: list[float] = []
 
     key, train_key = jax.random.split(key)
@@ -306,50 +332,33 @@ def train_model(
     for step in range(N_STEPS):
         if fix_rho:
             train_key, step_key = jax.random.split(train_key)
-            (current_hrm_params, current_opt_state, train_key, _), (elbo, _) = (
-                train_step(
-                    (current_hrm_params, current_opt_state, step_key, train_data), None
-                )
+            (current_hrm_params, current_opt_state, train_key, _), metrics = train_step(
+                (current_hrm_params, current_opt_state, step_key, train_data), None
             )
             current_params = model.join_coords(zero_rho, current_hrm_params)
         else:
             train_key, step_key = jax.random.split(train_key)
-            (
-                (
-                    current_params,
-                    current_opt_state,
-                    train_key,
-                    _,
-                ),
-                (elbo, _),
-            ) = train_step(
-                (
-                    current_params,
-                    current_opt_state,
-                    step_key,
-                    train_data,
-                ),
-                None,
+            (current_params, current_opt_state, train_key, _), metrics = train_step(
+                (current_params, current_opt_state, step_key, train_data), None
             )
 
+        elbo, conj_var, conj_std, conj_r2 = metrics
+
+        # Store metrics every step
         elbos_list.append(float(elbo))
+        conj_vars_list.append(float(conj_var))
+        conj_stds_list.append(float(conj_std))
+        conj_r2s_list.append(float(conj_r2))
 
-        # Compute metrics periodically
-        if step % CONJ_ERROR_INTERVAL == 0 or step == N_STEPS - 1:
-            key, conj_key = jax.random.split(key)
-            conj_error = float(
-                model.conjugation_error(conj_key, current_params, n_samples=100)
+        rho_current, _ = model.split_coords(current_params)
+        rho_norm = float(jnp.linalg.norm(rho_current))
+        rho_norms_list.append(rho_norm)
+
+        # Print progress periodically
+        if step % LOG_INTERVAL == 0:
+            print(
+                f"  Step {step}: ELBO={elbo:.2f}, Std[f̃]={conj_std:.2f}, R²={conj_r2:.4f}, ||rho||={rho_norm:.4f}"
             )
-            conj_errors_list.append(conj_error)
-
-            rho_current, _ = model.split_coords(current_params)
-            rho_norm = float(jnp.linalg.norm(rho_current))
-            rho_norms_list.append(rho_norm)
-
-            if step % 200 == 0:
-                print(
-                    f"  Step {step}: ELBO={elbo:.2f}, Var[f̃]={conj_error:.2f}, ||rho||={rho_norm:.4f}"
-                )
 
     final_params = current_params
     print(f"Final ELBO: {elbos_list[-1]:.4f}")
@@ -373,16 +382,35 @@ def train_model(
     print(f"  NMI: {nmi:.4f}")
     print(f"  Reconstruction error: {recon_error:.4f}")
     print(f"  Clusters: {cluster_counts}")
+    print(f"  Final R²: {conj_r2s_list[-1]:.4f}")
+
+    # Generate samples from this model
+    key, sample_key = jax.random.split(key)
+    x_samples, _, _ = model.sample_from_model(sample_key, final_params, n=20)
+
+    # Compute cluster prototypes
+    cluster_prototypes: list[list[float]] = []
+    for k in range(N_CLUSTERS):
+        cluster_mask = assignments == k
+        if jnp.sum(cluster_mask) > 0:
+            prototype = jnp.mean(test_data[cluster_mask], axis=0)
+        else:
+            prototype = jnp.zeros(N_OBSERVABLE)
+        cluster_prototypes.append(prototype.tolist())
 
     results: ModelResults = {
         "training_elbos": elbos_list,
-        "conjugation_errors": conj_errors_list,
+        "conjugation_errors": conj_vars_list,
+        "conjugation_stds": conj_stds_list,
+        "conjugation_r2s": conj_r2s_list,
         "rho_norms": rho_norms_list,
         "cluster_purity": purity,
         "nmi": nmi,
         "reconstruction_error": recon_error,
         "cluster_counts": cluster_counts,
         "cluster_assignments": assignments.tolist(),
+        "generated_samples": x_samples.tolist(),
+        "cluster_prototypes": cluster_prototypes,
     }
 
     return final_params, results
@@ -437,45 +465,30 @@ def main():
         conj_reg_weight=CONJ_REG_WEIGHT,
     )
 
-    # Generate samples from the best model (by NMI)
+    # Get reconstructions from best model (by NMI)
     best_nmi = max(
         results_learnable["nmi"], results_fixed["nmi"], results_conj_reg["nmi"]
     )
     if results_conj_reg["nmi"] == best_nmi:
         best_params = final_params_conj_reg
-        best_results = results_conj_reg
         best_name = "conjugate-regularized"
     elif results_fixed["nmi"] == best_nmi:
         best_params = model.join_coords(
             jnp.zeros(model.rho_man.dim),
             model.generative_params(final_params_learnable),
         )
-        best_results = results_fixed
         best_name = "fixed rho=0"
     else:
         best_params = final_params_learnable
-        best_results = results_learnable
         best_name = "learnable rho"
 
-    print(f"\nGenerating samples from best model ({best_name})...")
-    key, sample_key = jax.random.split(key)
-    x_samples, _, _ = model.sample_from_model(sample_key, best_params, n=20)
+    print(f"\nBest model by NMI: {best_name}")
 
-    # Get reconstructions and prototypes
+    # Get reconstructions from best model
     def get_recon(x: Array) -> Array:
         return model.reconstruct(best_params, x)
 
     reconstructions = jax.vmap(get_recon)(test_data[:20])
-
-    assignments = jnp.array(best_results["cluster_assignments"])
-    cluster_prototypes: list[list[float]] = []
-    for k in range(N_CLUSTERS):
-        cluster_mask = assignments == k
-        if jnp.sum(cluster_mask) > 0:
-            prototype = jnp.mean(test_data[cluster_mask], axis=0)
-        else:
-            prototype = jnp.zeros(N_OBSERVABLE)
-        cluster_prototypes.append(prototype.tolist())
 
     # Save results
     results = BinomialBernoulliMNISTResults(
@@ -485,47 +498,55 @@ def main():
         true_labels=test_labels.tolist(),
         original_images=test_data[:20].tolist(),
         reconstructed_images=reconstructions.tolist(),
-        cluster_prototypes=cluster_prototypes,
-        generated_samples=x_samples.tolist(),
     )
     paths.save_analysis(results)
     print(f"\nResults saved to {paths.analysis_path}")
 
     # Summary comparison
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 80)
     print("SUMMARY COMPARISON")
-    print("=" * 70)
-    print(f"{'Metric':<22} {'Learnable':>12} {'Fixed rho=0':>12} {'Conj. Reg.':>12}")
-    print("-" * 70)
+    print("=" * 80)
+    print(f"{'Metric':<22} {'Learnable':>14} {'Fixed rho=0':>14} {'Conj. Reg.':>14}")
+    print("-" * 80)
 
     purity_l = 100 * results_learnable["cluster_purity"]
     purity_f = 100 * results_fixed["cluster_purity"]
     purity_c = 100 * results_conj_reg["cluster_purity"]
     print(
-        f"{'Cluster purity':<22} {purity_l:>11.1f}% {purity_f:>11.1f}% {purity_c:>11.1f}%"
+        f"{'Cluster purity':<22} {purity_l:>13.1f}% {purity_f:>13.1f}% {purity_c:>13.1f}%"
     )
 
     nmi_l = results_learnable["nmi"]
     nmi_f = results_fixed["nmi"]
     nmi_c = results_conj_reg["nmi"]
-    print(f"{'NMI':<22} {nmi_l:>12.4f} {nmi_f:>12.4f} {nmi_c:>12.4f}")
+    print(f"{'NMI':<22} {nmi_l:>14.4f} {nmi_f:>14.4f} {nmi_c:>14.4f}")
 
     recon_l = results_learnable["reconstruction_error"]
     recon_f = results_fixed["reconstruction_error"]
     recon_c = results_conj_reg["reconstruction_error"]
     print(
-        f"{'Reconstruction error':<22} {recon_l:>12.4f} {recon_f:>12.4f} {recon_c:>12.4f}"
+        f"{'Reconstruction error':<22} {recon_l:>14.4f} {recon_f:>14.4f} {recon_c:>14.4f}"
     )
 
-    conj_l = results_learnable["conjugation_errors"][-1]
-    conj_f = results_fixed["conjugation_errors"][-1]
-    conj_c = results_conj_reg["conjugation_errors"][-1]
-    print(f"{'Final Var[f̃]':<22} {conj_l:>12.2f} {conj_f:>12.2f} {conj_c:>12.2f}")
+    var_l = results_learnable["conjugation_errors"][-1]
+    var_f = results_fixed["conjugation_errors"][-1]
+    var_c = results_conj_reg["conjugation_errors"][-1]
+    print(f"{'Final Var[f̃]':<22} {var_l:>14.2f} {var_f:>14.2f} {var_c:>14.2f}")
+
+    std_l = results_learnable["conjugation_stds"][-1]
+    std_f = results_fixed["conjugation_stds"][-1]
+    std_c = results_conj_reg["conjugation_stds"][-1]
+    print(f"{'Final Std[f̃]':<22} {std_l:>14.2f} {std_f:>14.2f} {std_c:>14.2f}")
+
+    r2_l = results_learnable["conjugation_r2s"][-1]
+    r2_f = results_fixed["conjugation_r2s"][-1]
+    r2_c = results_conj_reg["conjugation_r2s"][-1]
+    print(f"{'Final R²':<22} {r2_l:>14.4f} {r2_f:>14.4f} {r2_c:>14.4f}")
 
     rho_l = results_learnable["rho_norms"][-1]
     rho_f = results_fixed["rho_norms"][-1]
     rho_c = results_conj_reg["rho_norms"][-1]
-    print(f"{'Final ||rho||':<22} {rho_l:>12.4f} {rho_f:>12.4f} {rho_c:>12.4f}")
+    print(f"{'Final ||rho||':<22} {rho_l:>14.4f} {rho_f:>14.4f} {rho_c:>14.4f}")
 
 
 if __name__ == "__main__":

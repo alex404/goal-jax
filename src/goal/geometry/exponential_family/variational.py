@@ -461,6 +461,54 @@ class DifferentiableVariationalConjugated[
 
         return jnp.var(f_vals)
 
+    def conjugation_metrics(
+        self, key: Array, params: Array, n_samples: int = 100
+    ) -> tuple[Array, Array, Array]:
+        """Compute conjugation quality metrics under the prior.
+
+        Returns variance, standard deviation, and R² measuring how well
+        the linear correction ρ·s(z) approximates ψ_X(η(z)).
+
+        R² = 1 - Var[f̃] / Var[ψ_X(η(z))]
+
+        where f̃(z) = ρ·s(z) - ψ_X(η(z)) is the residual.
+
+        - R² = 1: Perfect conjugation (ψ_X is exactly linear in s(z))
+        - R² = 0: Linear correction explains none of the variance
+        - R² < 0: Linear correction makes things worse
+
+        Args:
+            key: JAX random key
+            params: Full model parameters
+            n_samples: Number of samples for estimation
+
+        Returns:
+            Tuple of (variance, std, r_squared)
+        """
+        _, hrm_params = self.split_coords(params)
+        p_params = self.prior_params(params)
+        z_samples = self.pst_man.sample(key, p_params, n_samples)
+
+        # Compute f_tilde values
+        f_vals = jax.vmap(lambda z: self.reduced_learning_signal(params, z))(z_samples)
+
+        # Compute psi_X values (the target we're trying to approximate)
+        def psi_x_at_z(z: Array) -> Array:
+            lkl_params = self.hrm.likelihood_at(hrm_params, z)
+            return self.obs_man.log_partition_function(lkl_params)
+
+        psi_vals = jax.vmap(psi_x_at_z)(z_samples)
+
+        var_f = jnp.var(f_vals)
+        std_f = jnp.sqrt(var_f)
+        var_psi = jnp.var(psi_vals)
+
+        # R² = 1 - Var[residual] / Var[target]
+        # Avoid division by zero if psi_X is constant
+        r_squared = jnp.where(var_psi > 1e-10, 1.0 - var_f / var_psi, 1.0)
+
+        return var_f, std_f, r_squared
+
     # Sampling from generative model
 
     def sample_from_prior(self, key: Array, params: Array, n: int) -> Array:
@@ -948,3 +996,51 @@ class DifferentiableVariationalHierarchicalMixture[
         f_vals = jax.vmap(lambda z: self.reduced_learning_signal(params, z))(z_samples)
 
         return jnp.var(f_vals)
+
+    def conjugation_metrics(
+        self, key: Array, params: Array, n_samples: int = 100
+    ) -> tuple[Array, Array, Array]:
+        """Compute conjugation quality metrics under the prior.
+
+        Returns variance, standard deviation, and R² measuring how well
+        the linear correction ρ·s(z) approximates ψ_X(η(z)).
+
+        R² = 1 - Var[f̃] / Var[ψ_X(η(z))]
+
+        where f̃(z) = ρ·s(z) - ψ_X(η(z)) is the residual.
+
+        - R² = 1: Perfect conjugation (ψ_X is exactly linear in s(z))
+        - R² = 0: Linear correction explains none of the variance
+        - R² < 0: Linear correction makes things worse
+
+        Args:
+            key: JAX random key
+            params: Full model parameters
+            n_samples: Number of samples for estimation
+
+        Returns:
+            Tuple of (variance, std, r_squared)
+        """
+        _, hrm_params = self.split_coords(params)
+        p_params = self.prior_params(params)
+        z_samples = self.pst_man.sample(key, p_params, n_samples)
+
+        # Compute f_tilde values
+        f_vals = jax.vmap(lambda z: self.reduced_learning_signal(params, z))(z_samples)
+
+        # Compute psi_X values (the target we're trying to approximate)
+        def psi_x_at_z(z: Array) -> Array:
+            lkl_params = self.hrm.likelihood_at(hrm_params, z)
+            return self.obs_man.log_partition_function(lkl_params)
+
+        psi_vals = jax.vmap(psi_x_at_z)(z_samples)
+
+        var_f = jnp.var(f_vals)
+        std_f = jnp.sqrt(var_f)
+        var_psi = jnp.var(psi_vals)
+
+        # R² = 1 - Var[residual] / Var[target]
+        # Avoid division by zero if psi_X is constant
+        r_squared = jnp.where(var_psi > 1e-10, 1.0 - var_f / var_psi, 1.0)
+
+        return var_f, std_f, r_squared

@@ -298,3 +298,25 @@ class TestConjugationError:
 
         assert f_tilde.shape == ()  # Scalar
         assert jnp.isfinite(f_tilde)
+
+    def test_conjugation_metrics(
+        self, model: BinomialBernoulliMixture, initialized_params
+    ):
+        """Test that conjugation_metrics returns valid var, std, and R²."""
+        key = jax.random.PRNGKey(10)
+
+        var_f, std_f, r_squared = model.conjugation_metrics(
+            key, initialized_params, n_samples=50
+        )
+
+        # Variance should be non-negative and finite
+        assert jnp.isfinite(var_f)
+        assert var_f >= 0
+
+        # Std should be sqrt of variance
+        assert jnp.isfinite(std_f)
+        assert jnp.allclose(std_f, jnp.sqrt(var_f))
+
+        # R² should be in reasonable range (can be negative if fit is bad)
+        assert jnp.isfinite(r_squared)
+        assert r_squared <= 1.0  # Can't be greater than 1
