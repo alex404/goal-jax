@@ -58,6 +58,7 @@ extraPaths = ["src"]
 typeCheckingMode = "recommended"
 
 # External library typing issues - incomplete type stubs in JAX/optax/scipy
+reportMissingTypeStubs = "none"
 reportUnknownParameterType = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
@@ -73,6 +74,9 @@ reportUnusedCallResult = "none"
 
 # JAX lambda type inference limitations
 reportUnknownLambdaType = "none"
+
+# Test files use pytest fixtures where parameter types can be inferred
+reportMissingParameterType = "none"
 
 [tool.ruff]
 src = ["src"]

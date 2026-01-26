@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from sklearn.mixture import GaussianMixture  # pyright: ignore[reportMissingTypeStubs]
+from sklearn.mixture import GaussianMixture
 
 from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import AnalyticMixture, Normal

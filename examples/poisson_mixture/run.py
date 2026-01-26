@@ -4,11 +4,11 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import optax
 from jax import Array
 
-from goal.geometry import Optimizer, OptState, PositiveDefinite
+from goal.geometry import PositiveDefinite
 from goal.models import (
-    CoMPoissonMixture,
     FactorAnalysis,
     Normal,
     com_poisson_mixture,
@@ -95,20 +95,19 @@ def fit_poisson(key: Array, sample: Array) -> tuple[Array, list[float]]:
 def fit_com(key: Array, sample: Array) -> tuple[Array, list[float]]:
     """Fit COM-Poisson mixture via gradient descent."""
     params = com_mix.initialize_from_sample(key, sample)
-    optimizer: Optimizer[CoMPoissonMixture] = Optimizer.adamw(
-        man=com_mix, learning_rate=learning_rate
-    )
+    optimizer = optax.adamw(learning_rate=learning_rate)
     opt_state = optimizer.init(params)
 
     def loss_fn(p: Array) -> Array:
         return -com_mix.average_log_observable_density(p, sample)
 
     def step(
-        state: tuple[OptState, Array], _: Any
-    ) -> tuple[tuple[OptState, Array], Array]:
+        state: tuple[Any, Any], _: Any
+    ) -> tuple[tuple[Any, Any], Array]:
         opt_state, p = state
         loss, grads = jax.value_and_grad(loss_fn)(p)
-        opt_state, p = optimizer.update(opt_state, grads, p)
+        updates, opt_state = optimizer.update(grads, opt_state, p)
+        p = optax.apply_updates(p, updates)
         return (opt_state, p), -loss
 
     (_, final), lls = jax.lax.scan(step, (opt_state, params), None, length=n_sgd_steps)

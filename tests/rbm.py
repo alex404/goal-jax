@@ -282,10 +282,10 @@ class TestIntegration:
         self, model: RestrictedBoltzmannMachine, key: Array
     ) -> None:
         """Test a single training step with CD."""
-        from goal.geometry import Optimizer
+        import optax
 
         params = model.initialize(key)
-        optimizer = Optimizer.adamw(man=model, learning_rate=0.01)
+        optimizer = optax.adamw(learning_rate=0.01)
         opt_state = optimizer.init(params)
 
         # Generate some random data
@@ -297,8 +297,10 @@ class TestIntegration:
         cd_grad = model.mean_contrastive_divergence_gradient(subkey, params, data, k=1)
 
         # Update parameters
-        opt_state, new_params = optimizer.update(opt_state, cd_grad, params)
+        updates, opt_state = optimizer.update(cd_grad, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
 
-        # Check parameters changed
-        assert not jnp.allclose(params, new_params)
-        assert jnp.all(jnp.isfinite(new_params))
+        # Check parameters changed (cast to Array for type checker)
+        new_params_arr: Array = new_params  # pyright: ignore[reportAssignmentType]
+        assert not jnp.allclose(params, new_params_arr)
+        assert jnp.all(jnp.isfinite(new_params_arr))

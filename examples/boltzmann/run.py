@@ -5,9 +5,9 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import optax
 from jax import Array
 
-from goal.geometry import Optimizer, OptState
 from goal.models.base.gaussian.boltzmann import Boltzmann
 
 from ..shared import example_paths, initialize_jax
@@ -40,18 +40,19 @@ def fit_boltzmann(
     key = jax.random.PRNGKey(42)
     init_params = jax.random.normal(key, (model.dim,)) * 0.1
 
-    optimizer: Optimizer[Boltzmann] = Optimizer.adamw(model, learning_rate=learning_rate)
+    optimizer = optax.adamw(learning_rate=learning_rate)
     opt_state = optimizer.init(init_params)
 
     def loss_fn(params: Array) -> Array:
         return -model.average_log_density(params, training_data)
 
     def step(
-        state: tuple[OptState, Array], _: Any
-    ) -> tuple[tuple[OptState, Array], Array]:
+        state: tuple[Any, Any], _: Any
+    ) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
-        opt_state, params = optimizer.update(opt_state, grads, params)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        params = optax.apply_updates(params, updates)
         return (opt_state, params), loss
 
     (_, final_params), losses = jax.lax.scan(

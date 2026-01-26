@@ -73,7 +73,6 @@ from .manifold.matrix import (
     Square,
     Symmetric,
 )
-from .manifold.optimizer import Optimizer, OptState
 
 __all__ = [
     "AffineMap",
@@ -112,8 +111,6 @@ __all__ = [
     "MatrixRep",
     "Null",
     "ObservableEmbedding",
-    "OptState",
-    "Optimizer",
     "Pair",
     "PositiveDefinite",
     "PosteriorEmbedding",

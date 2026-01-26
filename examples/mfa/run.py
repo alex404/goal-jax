@@ -1,10 +1,12 @@
 """Mixture of Factor Analyzers (MFA) example."""
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
+import optax
 from jax import Array
 
-from goal.geometry import Optimizer, OptState
 from goal.models import FactorAnalysis, Normal
 from goal.models.graphical.mixture import CompleteMixtureOfConjugated
 
@@ -120,18 +122,17 @@ def fit_mfa(
 ) -> tuple[Array, Array, Array]:
     """Fit MFA via gradient descent."""
     init_params = mfa.initialize_from_sample(key, sample)
-    optimizer: Optimizer[CompleteMixtureOfConjugated[Normal, Normal]] = Optimizer.adamw(
-        man=mfa, learning_rate=learning_rate
-    )
+    optimizer = optax.adamw(learning_rate=learning_rate)
     opt_state = optimizer.init(init_params)
 
     def loss_fn(params: Array) -> Array:
         return -mfa.average_log_observable_density(params, sample)
 
     @jax.jit
-    def train_step(opt_state: OptState, params: Array) -> tuple[OptState, Array, Array]:
+    def train_step(opt_state: Any, params: Any) -> tuple[Any, Any, Array]:
         loss, grads = jax.value_and_grad(loss_fn)(params)
-        opt_state, params = optimizer.update(opt_state, grads, params)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        params = optax.apply_updates(params, updates)
         return opt_state, params, loss
 
     params = init_params

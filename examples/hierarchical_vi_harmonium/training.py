@@ -8,6 +8,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import optax
 from jax import Array
 
 from goal.models import BinomialVonMisesMixture
@@ -116,8 +117,8 @@ def make_train_step_fn(
 
 def make_train_epoch_fn(
     train_step_fn: Any,
-    opt_harm_update: Any,
-    opt_rho_update: Any,
+    opt_harm: optax.GradientTransformation,
+    opt_rho: optax.GradientTransformation,
     batch_size: int,
 ):
     """Create a JIT-compiled epoch training function.
@@ -126,8 +127,8 @@ def make_train_epoch_fn(
 
     Args:
         train_step_fn: JIT-compiled step function
-        opt_harm_update: Optimizer update for harmonium params
-        opt_rho_update: Optimizer update for rho params
+        opt_harm: Optax optimizer for harmonium params
+        opt_rho: Optax optimizer for rho params
         batch_size: Batch size
 
     Returns:
@@ -138,10 +139,10 @@ def make_train_epoch_fn(
         key: Array,
         harmonium_params: Array,
         rho_params: Array,
-        opt_harm_state: Array,
-        opt_rho_state: Array,
+        opt_harm_state: Any,
+        opt_rho_state: Any,
         data: Array,
-    ) -> tuple[Array, Array, Array, Array, Array, Array]:
+    ) -> tuple[Array, Array, Any, Any, Array, Array]:
         """Train one epoch using lax.scan over batches.
 
         Returns:
@@ -165,9 +166,9 @@ def make_train_epoch_fn(
         batch_keys = jax.random.split(batch_keys_key, n_batches)
 
         def scan_body(
-            carry: tuple[Array, Array, Array, Array, Array],
+            carry: tuple[Any, Any, Any, Any, Array],
             inputs: tuple[Array, Array],
-        ) -> tuple[tuple[Array, Array, Array, Array, Array], None]:
+        ) -> tuple[tuple[Any, Any, Any, Any, Array], None]:
             harm_params, rho_params, opt_h_state, opt_r_state, total_loss = carry
             batch_key, batch = inputs
 
@@ -177,12 +178,15 @@ def make_train_epoch_fn(
             )
 
             # Update parameters
-            new_opt_h_state, new_harm_params = opt_harm_update(
-                opt_h_state, harm_grad, harm_params
+            harm_updates, new_opt_h_state = opt_harm.update(
+                harm_grad, opt_h_state, harm_params
             )
-            new_opt_r_state, new_rho_params = opt_rho_update(
-                opt_r_state, rho_grad, rho_params
+            new_harm_params = optax.apply_updates(harm_params, harm_updates)
+
+            rho_updates, new_opt_r_state = opt_rho.update(
+                rho_grad, opt_r_state, rho_params
             )
+            new_rho_params = optax.apply_updates(rho_params, rho_updates)
 
             new_total_loss = total_loss + loss
 

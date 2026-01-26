@@ -20,9 +20,9 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 from jax import Array
 
-from goal.geometry import Optimizer
 from goal.models import (
     BinomialVonMisesVI,
     binomial_vonmises_vi,
@@ -51,7 +51,7 @@ N_OBSERVABLE = IMG_HEIGHT * IMG_WIDTH
 def load_mnist_sklearn() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
     """Load MNIST using scikit-learn's fetch_openml."""
     try:
-        from sklearn.datasets import (  # pyright: ignore[reportMissingTypeStubs]
+        from sklearn.datasets import (
             fetch_openml,
         )
 
@@ -110,7 +110,7 @@ def train_structured_vi(
     params = model.join_coords(rho, hrm_params)
 
     # Create optimizer
-    opt = Optimizer.adamw(man=model, learning_rate=LEARNING_RATE)
+    opt = optax.adamw(learning_rate=LEARNING_RATE)
     opt_state = opt.init(params)
 
     # Create JIT-compiled functions
@@ -140,7 +140,8 @@ def train_structured_vi(
             key, step_key = jax.random.split(key)
 
             _, grad = loss_and_grad_fn(step_key, params, batch)
-            opt_state, params = opt.update(opt_state, grad, params)
+            updates, opt_state = opt.update(grad, opt_state, params)
+            params = optax.apply_updates(params, updates)
 
         # Compute metrics on eval subset
         key, metrics_key = jax.random.split(key)
@@ -153,7 +154,7 @@ def train_structured_vi(
         kl_history.append(float(mean_kl))
         conj_error_history.append(float(mean_conj_err))
 
-        rho = model.conjugation_params(params)
+        rho = model.conjugation_params(params)  # pyright: ignore[reportArgumentType]
         rho_norm = float(jnp.linalg.norm(rho))
         rho_norm_history.append(rho_norm)
 
@@ -169,7 +170,7 @@ def train_structured_vi(
         )
 
     return (
-        params,
+        params,  # pyright: ignore[reportReturnType]
         elbo_history,
         recon_history,
         kl_history,

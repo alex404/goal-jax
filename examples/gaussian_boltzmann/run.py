@@ -4,9 +4,10 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import optax
 from jax import Array
 
-from goal.geometry import Optimizer, OptState, PositiveDefinite
+from goal.geometry import PositiveDefinite
 from goal.models import BoltzmannLGM
 
 from ..shared import example_paths, initialize_jax
@@ -42,18 +43,19 @@ def generate_data(key: Array) -> Array:
 def train_model(key: Array, model: BoltzmannLGM, data: Array) -> tuple[Array, Array]:
     """Train Boltzmann-Gaussian model."""
     params = model.initialize(key, location=0.0, shape=1.0)
-    optimizer = Optimizer.adamw(man=model, learning_rate=learning_rate)
+    optimizer = optax.adamw(learning_rate=learning_rate)
     opt_state = optimizer.init(params)
 
     def loss_fn(p: Array) -> Array:
         return -model.average_log_observable_density(p, data)
 
     def step(
-        state: tuple[OptState, Array], _: Any
-    ) -> tuple[tuple[OptState, Array], Array]:
+        state: tuple[Any, Any], _: Any
+    ) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
-        opt_state, params = optimizer.update(opt_state, grads, params)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        params = optax.apply_updates(params, updates)
         return (opt_state, params), -loss
 
     total_steps = n_epochs * n_steps_per_epoch

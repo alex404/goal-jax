@@ -25,9 +25,9 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 from jax import Array
 
-from goal.geometry import Optimizer
 from goal.models import binomial_vonmises_mixture
 
 from ..shared import example_paths, initialize_jax
@@ -66,7 +66,7 @@ N_OBSERVABLE = IMG_HEIGHT * IMG_WIDTH
 def load_mnist_sklearn() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
     """Load MNIST using scikit-learn's fetch_openml."""
     try:
-        from sklearn.datasets import (  # pyright: ignore[reportMissingTypeStubs]
+        from sklearn.datasets import (
             fetch_openml,
         )
 
@@ -169,18 +169,18 @@ def train_hierarchical_vi(
     )
 
     # Create optimizers
-    opt_harmonium = Optimizer.adamw(man=model, learning_rate=LEARNING_RATE_HARM)
+    opt_harmonium = optax.adamw(learning_rate=LEARNING_RATE_HARM)
     opt_harmonium_state = opt_harmonium.init(state.harmonium_params)
 
-    opt_rho = Optimizer.adamw(man=model.vonmises_man, learning_rate=LEARNING_RATE_RHO)
+    opt_rho = optax.adamw(learning_rate=LEARNING_RATE_RHO)
     opt_rho_state = opt_rho.init(state.rho_params)
 
     # Create JIT-compiled functions
     train_step_fn = make_train_step_fn(model, config)
     train_epoch_fn = make_train_epoch_fn(
         train_step_fn,
-        opt_harmonium.update,
-        opt_rho.update,
+        opt_harmonium,
+        opt_rho,
         BATCH_SIZE,
     )
     metrics_fn = make_elbo_metrics_fn(model, config)
