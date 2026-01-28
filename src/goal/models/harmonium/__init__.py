@@ -6,10 +6,17 @@ from .binomial_bernoulli_mixture import (
     MixtureBernoulliEmbedding,
     binomial_bernoulli_mixture,
 )
+from .poisson_bernoulli_mixture import (
+    PoissonBernoulliHarmonium,
+    PoissonBernoulliMixture,
+    poisson_bernoulli_mixture,
+)
 from .binomial_vonmises_mixture import (
     BinomialVonMisesMixture,
     MixtureObservableEmbedding,
+    VariationalBinomialVonMisesMixture,
     binomial_vonmises_mixture,
+    variational_binomial_vonmises_mixture,
 )
 from .lgm import (
     LGM,
@@ -42,6 +49,7 @@ __all__ = [
     "BinomialBernoulliHarmonium",
     "BinomialBernoulliMixture",
     "BinomialVonMisesMixture",
+    "VariationalBinomialVonMisesMixture",
     "BoltzmannEmbedding",
     "BoltzmannLGM",
     "CoMPoissonMixture",
@@ -55,13 +63,17 @@ __all__ = [
     "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",
     "NormalLGM",
+    "PoissonBernoulliHarmonium",
+    "PoissonBernoulliMixture",
     "PoissonMixture",
     "PrincipalComponentAnalysis",
     "RestrictedBoltzmannMachine",
     "VonMisesPopulationCode",
     "binomial_bernoulli_mixture",
     "binomial_vonmises_mixture",
+    "variational_binomial_vonmises_mixture",
     "com_poisson_mixture",
+    "poisson_bernoulli_mixture",
     "poisson_mixture",
     "rbm",
     "von_mises_population_code",

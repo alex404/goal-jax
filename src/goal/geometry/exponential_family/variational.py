@@ -504,8 +504,14 @@ class DifferentiableVariationalConjugated[
         var_psi = jnp.var(psi_vals)
 
         # R² = 1 - Var[residual] / Var[target]
-        # Avoid division by zero if psi_X is constant
-        r_squared = jnp.where(var_psi > 1e-10, 1.0 - var_f / var_psi, 1.0)
+        # Use threshold to avoid numerical instability
+        variance_threshold = 1e-6
+        raw_r2 = 1.0 - var_f / jnp.maximum(var_psi, variance_threshold)
+        r_squared = jnp.where(
+            var_psi > variance_threshold,
+            jnp.clip(raw_r2, -10.0, 1.0),
+            jnp.nan,
+        )
 
         return var_f, std_f, r_squared
 
@@ -643,7 +649,10 @@ class VariationalHierarchicalMixture[
         y_keys = jax.random.split(key_y, n_samples)
         y_samples = jax.vmap(sample_y_given_k)(y_keys, k_samples)
 
-        return y_samples, k_samples
+        # Stop gradients: REINFORCE estimator treats samples as fixed.
+        # Essential for non-reparameterizable distributions (e.g., Von Mises
+        # rejection sampling), and correct for discrete distributions too.
+        return jax.lax.stop_gradient(y_samples), jax.lax.stop_gradient(k_samples)
 
     def get_cluster_probs(self, mixture_params: Array) -> Array:
         """Extract cluster probabilities from mixture parameters.
@@ -667,7 +676,9 @@ class VariationalHierarchicalMixture[
         _, _, cat_params = self.mix_man.split_coords(mixture_params)
 
         # Compute log-partition for each component
-        log_partitions = jax.vmap(self.bas_lat_man.log_partition_function)(comp_params_2d)
+        log_partitions = jax.vmap(self.bas_lat_man.log_partition_function)(
+            comp_params_2d
+        )
 
         # Compute unnormalized log probabilities for each cluster k
         # log q(k) = cat_params[k-1] + ψ_Y(θ_Y[k]) for k > 0
@@ -714,9 +725,7 @@ class DifferentiableVariationalHierarchicalMixture[
     for non-reparameterizable sampling from the mixture posterior.
     """
 
-    def compute_log_joint(
-        self, params: Array, x: Array, y: Array, k: Array
-    ) -> Array:
+    def compute_log_joint(self, params: Array, x: Array, y: Array, k: Array) -> Array:
         """Compute log p(x, y, k) = log p(k) + log p(y|k) + log p(x|y).
 
         Args:
@@ -823,9 +832,9 @@ class DifferentiableVariationalHierarchicalMixture[
         y_samples, k_samples = self.sample_from_posterior(key, q_params, n_samples)
 
         # Compute log joint and log posterior for each sample
-        log_joints = jax.vmap(
-            lambda y, k: self.compute_log_joint(params, x, y, k)
-        )(y_samples, k_samples)
+        log_joints = jax.vmap(lambda y, k: self.compute_log_joint(params, x, y, k))(
+            y_samples, k_samples
+        )
 
         log_posteriors = jax.vmap(
             lambda y, k: self.compute_log_posterior(q_params, y, k)
@@ -877,9 +886,9 @@ class DifferentiableVariationalHierarchicalMixture[
         )(y_samples, k_samples)
 
         # log p(y,k) from joint minus log p(x|y)
-        log_joints = jax.vmap(
-            lambda y, k: self.compute_log_joint(params, x, y, k)
-        )(y_samples, k_samples)
+        log_joints = jax.vmap(lambda y, k: self.compute_log_joint(params, x, y, k))(
+            y_samples, k_samples
+        )
 
         log_priors = log_joints - jax.vmap(log_likelihood_at_y)(y_samples)
         kl = jnp.mean(log_posteriors - log_priors)
@@ -899,9 +908,9 @@ class DifferentiableVariationalHierarchicalMixture[
         batch_size = xs.shape[0]
         keys = jax.random.split(key, batch_size)
 
-        elbos = jax.vmap(
-            lambda k, x: self.elbo_at(k, params, x, n_samples, kl_weight)
-        )(keys, xs)
+        elbos = jax.vmap(lambda k, x: self.elbo_at(k, params, x, n_samples, kl_weight))(
+            keys, xs
+        )
 
         return jnp.mean(elbos)
 
@@ -1040,7 +1049,13 @@ class DifferentiableVariationalHierarchicalMixture[
         var_psi = jnp.var(psi_vals)
 
         # R² = 1 - Var[residual] / Var[target]
-        # Avoid division by zero if psi_X is constant
-        r_squared = jnp.where(var_psi > 1e-10, 1.0 - var_f / var_psi, 1.0)
+        # Use threshold to avoid numerical instability
+        variance_threshold = 1e-6
+        raw_r2 = 1.0 - var_f / jnp.maximum(var_psi, variance_threshold)
+        r_squared = jnp.where(
+            var_psi > variance_threshold,
+            jnp.clip(raw_r2, -10.0, 1.0),
+            jnp.nan,
+        )
 
         return var_f, std_f, r_squared

@@ -13,6 +13,7 @@ from jax import Array
 
 from ...geometry import (
     Differentiable,
+    DifferentiableVariationalHierarchicalMixture,
     EmbeddedMap,
     IdentityEmbedding,
     LinearEmbedding,
@@ -343,6 +344,117 @@ class BinomialVonMisesMixture(
             filters.append(magnitude.reshape(*img_shape))
 
         return jnp.stack(filters)
+
+
+@dataclass(frozen=True)
+class VariationalBinomialVonMisesMixture(
+    DifferentiableVariationalHierarchicalMixture[Binomials, VonMisesProduct]
+):
+    """Variational Binomial-VonMises Mixture for clustering.
+
+    Wraps BinomialVonMisesMixture with learnable rho parameters
+    for variational inference via ELBO optimization.
+    """
+
+    hrm: BinomialVonMisesMixture
+
+    @property
+    @override
+    def n_categories(self) -> int:
+        return self.hrm.n_clusters
+
+    @property
+    @override
+    def bas_lat_man(self) -> VonMisesProduct:
+        return self.hrm.vonmises_man
+
+    @property
+    def n_observable(self) -> int:
+        return self.hrm.n_observable
+
+    @property
+    def n_latent(self) -> int:
+        return self.hrm.n_latent
+
+    @property
+    def n_clusters(self) -> int:
+        return self.hrm.n_clusters
+
+    @property
+    def n_trials(self) -> int:
+        return self.hrm.n_trials
+
+    def observable_means(self, params: Array, z: Array) -> Array:
+        """Compute E[x_i | z] for all observable units."""
+        lkl_params = self.likelihood_at(params, z)
+        return self.obs_man.to_mean(lkl_params)
+
+    def reconstruct(self, params: Array, x: Array) -> Array:
+        """Reconstruct observable via mean-field approximation."""
+        post_params = self.approximate_posterior_at(params, x)
+        probs = self.get_cluster_probs(post_params)
+
+        components, _ = self.mix_man.split_natural_mixture(post_params)
+        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
+
+        comp_mean_stats = jax.vmap(self.bas_lat_man.to_mean)(comp_params_2d)
+        z_mean_stats = jnp.einsum("k,ki->i", probs, comp_mean_stats)
+
+        hrm_params = self.generative_params(params)
+        obs_bias_hrm, int_params, _ = self.hrm.split_coords(hrm_params)
+        int_matrix = int_params.reshape(self.n_observable, 2 * self.n_latent)
+        lkl_natural = obs_bias_hrm + int_matrix @ z_mean_stats
+
+        return self.obs_man.to_mean(lkl_natural)
+
+    def reconstruction_error(self, params: Array, xs: Array) -> Array:
+        """Compute mean squared reconstruction error over a batch."""
+        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
+        return jnp.mean((xs - recons) ** 2)
+
+    def normalized_reconstruction_error(self, params: Array, xs: Array) -> Array:
+        """Compute MSE on normalized [0, 1] data."""
+        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
+        xs_norm = xs / self.n_trials
+        recons_norm = recons / self.n_trials
+        return jnp.mean((xs_norm - recons_norm) ** 2)
+
+    def get_filters(self, params: Array, img_shape: tuple[int, int]) -> Array:
+        """Reshape weight matrix into filter images for visualization."""
+        hrm_params = self.generative_params(params)
+        _, int_params, _ = self.hrm.split_coords(hrm_params)
+        weights = int_params.reshape(self.n_observable, 2 * self.n_latent)
+
+        filters = []
+        for i in range(self.n_latent):
+            w_cos = weights[:, 2 * i]
+            w_sin = weights[:, 2 * i + 1]
+            magnitude = jnp.sqrt(w_cos**2 + w_sin**2)
+            filters.append(magnitude.reshape(*img_shape))
+
+        return jnp.stack(filters)
+
+    def get_cluster_assignments(self, params: Array, x: Array) -> Array:
+        """Get hard cluster assignment for observation x."""
+        q_params = self.approximate_posterior_at(params, x)
+        probs = self.get_cluster_probs(q_params)
+        return jnp.argmax(probs)
+
+
+def variational_binomial_vonmises_mixture(
+    n_observable: int,
+    n_latent: int,
+    n_clusters: int,
+    n_trials: int = 16,
+) -> VariationalBinomialVonMisesMixture:
+    """Create a Variational Binomial-VonMises Mixture model for clustering."""
+    hrm = BinomialVonMisesMixture(
+        n_observable=n_observable,
+        n_latent=n_latent,
+        n_clusters=n_clusters,
+        n_trials=n_trials,
+    )
+    return VariationalBinomialVonMisesMixture(hrm=hrm)
 
 
 def binomial_vonmises_mixture(

@@ -22,10 +22,17 @@ from .harmonium.binomial_bernoulli_mixture import (
     MixtureBernoulliEmbedding,
     binomial_bernoulli_mixture,
 )
+from .harmonium.poisson_bernoulli_mixture import (
+    PoissonBernoulliHarmonium,
+    PoissonBernoulliMixture,
+    poisson_bernoulli_mixture,
+)
 from .harmonium.binomial_vonmises_mixture import (
     BinomialVonMisesMixture,
     MixtureObservableEmbedding,
+    VariationalBinomialVonMisesMixture,
     binomial_vonmises_mixture,
+    variational_binomial_vonmises_mixture,
 )
 from .harmonium.lgm import (
     LGM,
@@ -87,6 +94,7 @@ __all__ = [
     "BinomialNormalHarmonium",
     "BinomialRBM",
     "BinomialVonMisesMixture",
+    "VariationalBinomialVonMisesMixture",
     "BinomialVonMisesRBM",
     "BinomialVonMisesVI",
     "Binomials",
@@ -113,9 +121,12 @@ __all__ = [
     "NormalCovarianceEmbedding",
     "NormalLGM",
     "Poisson",
+    "PoissonBernoulliHarmonium",
+    "PoissonBernoulliMixture",
     "PoissonMixture",
     "PoissonRBM",
     "Poissons",
+    "poisson_bernoulli_mixture",
     "PrincipalComponentAnalysis",
     "RestrictedBoltzmannMachine",
     "SymmetricHMoG",
@@ -129,6 +140,7 @@ __all__ = [
     "binomial_normal_harmonium",
     "binomial_rbm",
     "binomial_vonmises_mixture",
+    "variational_binomial_vonmises_mixture",
     "binomial_vonmises_rbm",
     "binomial_vonmises_vi",
     "com_poisson_mixture",

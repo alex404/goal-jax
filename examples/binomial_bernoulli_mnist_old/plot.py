@@ -171,9 +171,7 @@ def plot_rho_norm(
         label=LABELS["learnable"],
         alpha=0.7,
     )
-    ax.plot(
-        fixed["rho_norms"], color=COLORS["fixed"], label=LABELS["fixed"], alpha=0.7
-    )
+    ax.plot(fixed["rho_norms"], color=COLORS["fixed"], label=LABELS["fixed"], alpha=0.7)
     ax.plot(
         conj_reg["rho_norms"],
         color=COLORS["conj_reg"],
@@ -193,9 +191,9 @@ def plot_metrics_comparison(
     fixed: ModelResults,
     conj_reg: ModelResults,
 ) -> None:
-    """Plot bar chart comparing purity and NMI."""
+    """Plot bar chart comparing purity, NMI, and accuracy."""
     x = np.array([0, 1, 2])
-    width = 0.35
+    width = 0.25
 
     # Purity bars
     purity_vals = [
@@ -203,9 +201,7 @@ def plot_metrics_comparison(
         fixed["cluster_purity"] * 100,
         conj_reg["cluster_purity"] * 100,
     ]
-    bars1 = ax.bar(
-        x - width / 2, purity_vals, width, label="Purity (%)", color="steelblue"
-    )
+    bars1 = ax.bar(x - width, purity_vals, width, label="Purity (%)", color="steelblue")
 
     # NMI bars (scaled to percentage for visualization)
     nmi_vals = [
@@ -213,24 +209,53 @@ def plot_metrics_comparison(
         fixed["nmi"] * 100,
         conj_reg["nmi"] * 100,
     ]
-    bars2 = ax.bar(x + width / 2, nmi_vals, width, label="NMI (%)", color="coral")
+    bars2 = ax.bar(x, nmi_vals, width, label="NMI (%)", color="coral")
+
+    # Accuracy bars
+    acc_vals = [
+        learnable.get("cluster_accuracy", 0.0) * 100,
+        fixed.get("cluster_accuracy", 0.0) * 100,
+        conj_reg.get("cluster_accuracy", 0.0) * 100,
+    ]
+    bars3 = ax.bar(
+        x + width, acc_vals, width, label="Accuracy (%)", color="forestgreen"
+    )
 
     ax.set_xticks(x)
     ax.set_xticklabels(["Learnable", "Fixed rho=0", "Conj. Reg."], fontsize=9)
     ax.set_ylabel("Score (%)")
     ax.set_title("Clustering Metrics Comparison")
-    ax.set_ylim(0, 70)
+    ax.set_ylim(0, 80)
     ax.legend(fontsize=8)
 
     # Add value labels
     for bar, val in zip(bars1, purity_vals):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2, val + 1, f"{val:.1f}", ha="center", fontsize=7
-        )
+        if val > 0:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                val + 1,
+                f"{val:.1f}",
+                ha="center",
+                fontsize=6,
+            )
     for bar, val in zip(bars2, nmi_vals):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2, val + 1, f"{val:.1f}", ha="center", fontsize=7
-        )
+        if val > 0:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                val + 1,
+                f"{val:.1f}",
+                ha="center",
+                fontsize=6,
+            )
+    for bar, val in zip(bars3, acc_vals):
+        if val > 0:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                val + 1,
+                f"{val:.1f}",
+                ha="center",
+                fontsize=6,
+            )
 
     ax.axhline(y=10, color="gray", linestyle="--", alpha=0.5, label="Random baseline")
     ax.grid(True, alpha=0.3, axis="y")
@@ -268,59 +293,93 @@ def create_samples_and_prototypes_figure(
     learnable: ModelResults,
     fixed: ModelResults,
     conj_reg: ModelResults,
+    original_images: NDArray[np.float64],
+    reconstructed_images: NDArray[np.float64],
 ) -> Figure:
-    """Create a figure showing generated samples and prototypes for all three models."""
-    fig, axes = plt.subplots(3, 2, figsize=(10, 12))
+    """Create a figure showing originals, reconstructions, samples, and prototypes."""
+    fig, axes = plt.subplots(4, 2, figsize=(10, 16))
 
-    # Learnable
+    # Row 0: Original images and reconstructions
     plot_image_grid(
         axes[0, 0],
-        np.array(learnable["generated_samples"]),
-        "Generated Samples (Learnable rho)",
+        original_images,
+        "Original Images",
         n_rows=4,
         n_cols=5,
     )
     plot_image_grid(
         axes[0, 1],
-        np.array(learnable["cluster_prototypes"]),
-        "Cluster Prototypes (Learnable rho)",
-        n_rows=2,
-        n_cols=5,
-    )
-
-    # Fixed
-    plot_image_grid(
-        axes[1, 0],
-        np.array(fixed["generated_samples"]),
-        "Generated Samples (Fixed rho=0)",
+        reconstructed_images,
+        "Reconstructions (Best Model)",
         n_rows=4,
         n_cols=5,
     )
-    plot_image_grid(
-        axes[1, 1],
-        np.array(fixed["cluster_prototypes"]),
-        "Cluster Prototypes (Fixed rho=0)",
-        n_rows=2,
-        n_cols=5,
-    )
 
-    # Conj Reg
+    # Row 1: Learnable
+    if learnable["generated_samples"]:
+        plot_image_grid(
+            axes[1, 0],
+            np.array(learnable["generated_samples"]),
+            "Generated Samples (Learnable rho)",
+            n_rows=4,
+            n_cols=5,
+        )
+        plot_image_grid(
+            axes[1, 1],
+            np.array(learnable["cluster_prototypes"]),
+            "Cluster Prototypes (Learnable rho)",
+            n_rows=2,
+            n_cols=5,
+        )
+    else:
+        axes[1, 0].text(0.5, 0.5, "Not trained", ha="center", va="center")
+        axes[1, 0].set_title("Generated Samples (Learnable rho)")
+        axes[1, 0].axis("off")
+        axes[1, 1].text(0.5, 0.5, "Not trained", ha="center", va="center")
+        axes[1, 1].set_title("Cluster Prototypes (Learnable rho)")
+        axes[1, 1].axis("off")
+
+    # Row 2: Fixed
+    if fixed["generated_samples"]:
+        plot_image_grid(
+            axes[2, 0],
+            np.array(fixed["generated_samples"]),
+            "Generated Samples (Fixed rho=0)",
+            n_rows=4,
+            n_cols=5,
+        )
+        plot_image_grid(
+            axes[2, 1],
+            np.array(fixed["cluster_prototypes"]),
+            "Cluster Prototypes (Fixed rho=0)",
+            n_rows=2,
+            n_cols=5,
+        )
+    else:
+        axes[2, 0].text(0.5, 0.5, "Not trained", ha="center", va="center")
+        axes[2, 0].set_title("Generated Samples (Fixed rho=0)")
+        axes[2, 0].axis("off")
+        axes[2, 1].text(0.5, 0.5, "Not trained", ha="center", va="center")
+        axes[2, 1].set_title("Cluster Prototypes (Fixed rho=0)")
+        axes[2, 1].axis("off")
+
+    # Row 3: Conj Reg
     plot_image_grid(
-        axes[2, 0],
+        axes[3, 0],
         np.array(conj_reg["generated_samples"]),
         "Generated Samples (Conj. Regularized)",
         n_rows=4,
         n_cols=5,
     )
     plot_image_grid(
-        axes[2, 1],
+        axes[3, 1],
         np.array(conj_reg["cluster_prototypes"]),
         "Cluster Prototypes (Conj. Regularized)",
         n_rows=2,
         n_cols=5,
     )
 
-    fig.suptitle("Generated Samples and Cluster Prototypes (All Models)", fontsize=12)
+    fig.suptitle("Samples and Prototypes (All Models)", fontsize=12)
     plt.tight_layout()
     return fig
 
@@ -336,49 +395,38 @@ def main():
     fixed = results["fixed_rho"]
     conj_reg = results["conjugate_regularized"]
 
-    # Create main figure with training metrics (4x2 grid)
-    fig1 = plt.figure(figsize=(14, 16))
-    gs = fig1.add_gridspec(4, 2, height_ratios=[1, 1, 1, 1])
+    # Create main figure with training metrics (3x2 grid)
+    fig1 = plt.figure(figsize=(14, 12))
+    gs = fig1.add_gridspec(3, 2, height_ratios=[1, 1, 1])
 
     # Row 1: ELBO, Metrics comparison
     ax_elbo = fig1.add_subplot(gs[0, 0])
     ax_metrics = fig1.add_subplot(gs[0, 1])
 
-    # Row 2: Conjugation Variance, Conjugation Std
+    # Row 2: Conjugation Variance, Conjugation R²
     ax_var = fig1.add_subplot(gs[1, 0])
-    ax_std = fig1.add_subplot(gs[1, 1])
+    ax_r2 = fig1.add_subplot(gs[1, 1])
 
-    # Row 3: Conjugation R², Rho norm
-    ax_r2 = fig1.add_subplot(gs[2, 0])
-    ax_rho = fig1.add_subplot(gs[2, 1])
-
-    # Row 4: Reconstructions
-    ax_orig = fig1.add_subplot(gs[3, 0])
-    ax_recon = fig1.add_subplot(gs[3, 1])
+    # Row 3: Rho norm, Std[f̃]
+    ax_rho = fig1.add_subplot(gs[2, 0])
+    ax_std = fig1.add_subplot(gs[2, 1])
 
     # Plot training metrics
     plot_training_elbos(ax_elbo, learnable, fixed, conj_reg)
     plot_metrics_comparison(ax_metrics, learnable, fixed, conj_reg)
     plot_conjugation_variance(ax_var, learnable, fixed, conj_reg)
-    plot_conjugation_std(ax_std, learnable, fixed, conj_reg)
     plot_conjugation_r2(ax_r2, learnable, fixed, conj_reg)
     plot_rho_norm(ax_rho, learnable, fixed, conj_reg)
-
-    # Plot reconstructions
-    plot_image_grid(
-        ax_orig, np.array(results["original_images"]), "Original Images", n_rows=4, n_cols=5
-    )
-    plot_image_grid(
-        ax_recon,
-        np.array(results["reconstructed_images"]),
-        "Reconstructions (Best Model)",
-        n_rows=4,
-        n_cols=5,
-    )
+    plot_conjugation_std(ax_std, learnable, fixed, conj_reg)
 
     # Summary text
-    best_nmi = max(learnable["nmi"], fixed["nmi"], conj_reg["nmi"])
-    if conj_reg["nmi"] == best_nmi:
+    nmi_vals = [learnable["nmi"], fixed["nmi"], conj_reg["nmi"]]
+    best_nmi = max(nmi_vals)
+    if best_nmi == 0.0:
+        # Only conj_reg was trained
+        best_name = "Conj. Reg."
+        best_nmi = conj_reg["nmi"]
+    elif conj_reg["nmi"] == best_nmi:
         best_name = "Conj. Reg."
     elif fixed["nmi"] == best_nmi:
         best_name = "Fixed rho=0"
@@ -396,7 +444,13 @@ def main():
     print(f"Main plot saved to {paths.plot_path}")
 
     # Create second figure with samples and prototypes for all models
-    fig2 = create_samples_and_prototypes_figure(learnable, fixed, conj_reg)
+    fig2 = create_samples_and_prototypes_figure(
+        learnable,
+        fixed,
+        conj_reg,
+        np.array(results["original_images"]),
+        np.array(results["reconstructed_images"]),
+    )
     samples_path = paths.plot_path.with_stem(paths.plot_path.stem + "_samples")
     fig2.savefig(samples_path, bbox_inches="tight", dpi=150)
     print(f"Samples plot saved to {samples_path}")
