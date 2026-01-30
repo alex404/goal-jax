@@ -53,6 +53,12 @@ from .harmonium.poisson_mixture import (
     com_poisson_mixture,
     poisson_mixture,
 )
+from .harmonium.poisson_vonmises import (
+    PoissonVonMisesHarmonium,
+    VariationalPoissonVonMises,
+    poisson_vonmises_harmonium,
+    variational_poisson_vonmises,
+)
 from .harmonium.population_codes import (
     VonMisesPopulationCode,
     von_mises_population_code,
@@ -125,8 +131,11 @@ __all__ = [
     "PoissonBernoulliMixture",
     "PoissonMixture",
     "PoissonRBM",
+    "PoissonVonMisesHarmonium",
     "Poissons",
+    "VariationalPoissonVonMises",
     "poisson_bernoulli_mixture",
+    "poisson_vonmises_harmonium",
     "PrincipalComponentAnalysis",
     "RestrictedBoltzmannMachine",
     "SymmetricHMoG",
@@ -151,5 +160,6 @@ __all__ = [
     "poisson_rbm",
     "rbm",
     "symmetric_hmog",
+    "variational_poisson_vonmises",
     "von_mises_population_code",
 ]
