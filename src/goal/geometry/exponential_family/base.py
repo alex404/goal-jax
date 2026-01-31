@@ -269,6 +269,29 @@ class Differentiable(Generative, ABC):
         """
         return jnp.exp(self.log_density(params, x))
 
+    def relative_entropy(self, p_params: Array, q_params: Array) -> Array:
+        """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
+
+        Uses the Bregman divergence form:
+
+        $$
+        D(p \\| q) = \\psi(\\theta_q) - \\psi(\\theta_p) + \\eta_p \\cdot (\\theta_p - \\theta_q)
+        $$
+
+        where $\\eta_p = \\nabla\\psi(\\theta_p)$.
+
+        Args:
+            p_params: Natural parameters of p
+            q_params: Natural parameters of q
+
+        Returns:
+            KL divergence D(p || q) (scalar)
+        """
+        p_means = self.to_mean(p_params)
+        psi_p = self.log_partition_function(p_params)
+        psi_q = self.log_partition_function(q_params)
+        return psi_q - psi_p + jnp.dot(p_means, p_params - q_params)
+
     def average_log_density(
         self, params: Array, xs: Array, batch_size: int = 2048
     ) -> Array:
@@ -363,25 +386,3 @@ class Analytic(Differentiable, ABC):
             Natural parameters
         """
         return jax.value_and_grad(self.negative_entropy)(means)[1]
-
-    # TODO: This actually can be implemented for differentiable models using the bregmann divergence form, so we should refactor this into that class
-    def relative_entropy(self, p_means: Array, q_params: Array) -> Array:
-        """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
-
-        $D(p \\| q) = \\int p(x) \\log \\frac{p(x)}{q(x)} dx = \\theta \\cdot \\eta - \\psi(\\theta) - \\phi(\\eta)$, where
-
-        - $p(x;\\eta)$ has mean parameters $\\eta$, and
-        - $q(x;\\theta)$ has natural parameters $\\theta$.
-
-        Args:
-            p_means: Mean parameters of p
-            q_params: Natural parameters of q
-
-        Returns:
-            KL divergence D(p || q) (scalar)
-        """
-        return (
-            self.negative_entropy(p_means)
-            + self.log_partition_function(q_params)
-            - jnp.dot(q_params, p_means)
-        )

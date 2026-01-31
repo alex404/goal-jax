@@ -4,8 +4,6 @@ This module provides a variational inference model for a harmonium with
 Binomial observables and VonMises latents.
 """
 
-# TODO: Should probably get rid of this module.
-
 from dataclasses import dataclass
 
 import jax

@@ -158,8 +158,7 @@ def test_relative_entropy_with_self(analytic_model: Analytic):
 
     for i in range(n_trials):
         params = analytic_model.initialize(jax.random.fold_in(key, i))
-        means = analytic_model.to_mean(params)
-        re = analytic_model.relative_entropy(means, params)
+        re = analytic_model.relative_entropy(params, params)
         assert re >= -1e-6, f"Negative relative entropy: {re}"
         assert jnp.abs(re) < 1e-5, f"Self relative entropy not zero: {re}"
 

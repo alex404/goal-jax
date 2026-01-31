@@ -268,9 +268,6 @@ class DifferentiableVariationalConjugated[
     def elbo_divergence(self, params: Array, x: Array) -> Array:
         """Compute KL divergence D_KL(q(z|x) || p(z)).
 
-        For exponential families:
-            D_KL(q || p) = (theta_q - theta_p) . mu_q - psi(theta_q) + psi(theta_p)
-
         Args:
             params: Full model parameters
             x: Observation
@@ -280,13 +277,7 @@ class DifferentiableVariationalConjugated[
         """
         q_params = self.approximate_posterior_at(params, x)
         p_params = self.prior_params(params)
-
-        q_means = self.pst_man.to_mean(q_params)
-        psi_q = self.pst_man.log_partition_function(q_params)
-        psi_p = self.pst_man.log_partition_function(p_params)
-
-        param_diff = q_params - p_params
-        return jnp.dot(param_diff, q_means) - psi_q + psi_p
+        return self.pst_man.relative_entropy(q_params, p_params)
 
     # ELBO component: Expected log-likelihood (requires sampling)
 
