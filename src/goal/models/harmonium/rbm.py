@@ -23,7 +23,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ...geometry import Diagonal, EmbeddedMap, IdentityEmbedding, Rectangular
+from ...geometry import EmbeddedMap, IdentityEmbedding, Rectangular
 from ...geometry.exponential_family.harmonium import (
     DifferentiableHarmonium,
     GenerativeHarmonium,
@@ -31,7 +31,7 @@ from ...geometry.exponential_family.harmonium import (
 from ..base.binomial import Binomials
 from ..base.categorical import Bernoullis
 from ..base.gaussian.generalized import Euclidean
-from ..base.gaussian.normal import Normal
+from ..base.gaussian.normal import Normal, diagonal_normal
 from ..base.poisson import Poissons
 from ..base.von_mises import VonMisesProduct
 from .lgm import GeneralizedGaussianLocationEmbedding
@@ -1032,7 +1032,7 @@ class BinomialNormalHarmonium(DifferentiableHarmonium[Binomials, Normal]):
     @override
     def pst_man(self) -> Normal:
         """Latent layer manifold (diagonal Normal)."""
-        return Normal(self.n_latent, Diagonal())
+        return diagonal_normal(self.n_latent)
 
     @property
     @override

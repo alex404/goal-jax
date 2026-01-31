@@ -27,6 +27,7 @@ from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
     Normal,
+    full_normal,
 )
 
 ### Helper Functions ###
@@ -441,7 +442,7 @@ class NormalLGM(
     @override
     def pst_prr_emb(self) -> LinearEmbedding[Normal, Normal]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
-        prior_gau = Normal(self.lat_dim, PositiveDefinite())
+        prior_gau = full_normal(self.lat_dim)
         return NormalCovarianceEmbedding(self.pst_man, prior_gau)
 
     # Methods
@@ -511,7 +512,7 @@ class NormalLGM(
 
         obs_loc, obs_prs = new_man.obs_man.split_location_precision(emb_obs_params)
         lat_loc, lat_prs = new_man.prr_man.split_location_precision(emb_lat_params)
-        nor_man = Normal(self.data_dim, PositiveDefinite())
+        nor_man = full_normal(self.data_dim)
         nor_loc = jnp.concatenate([obs_loc, lat_loc])
         obs_prs_array = new_man.obs_man.cov_man.to_matrix(obs_prs)
         lat_prs_array = new_man.prr_man.cov_man.to_matrix(lat_prs)
@@ -626,7 +627,7 @@ class NormalAnalyticLGM(
     @override
     def lat_man(self) -> Normal:
         """The latent manifold is a full Normal distribution."""
-        return Normal(self.lat_dim, PositiveDefinite())
+        return full_normal(self.lat_dim)
 
     @override
     def to_natural_likelihood(

@@ -43,7 +43,7 @@ from ...geometry import (
     PositiveDefinite,
     SymmetricHierarchical,
 )
-from ..base.gaussian.normal import Normal
+from ..base.gaussian.normal import Normal, full_normal
 from ..harmonium.lgm import (
     NormalAnalyticLGM,
     NormalCovarianceEmbedding,
@@ -251,7 +251,7 @@ def differentiable_hmog(
     """
 
     pst_y_man = Normal(lat_dim, pst_rep)
-    prr_y_man = Normal(lat_dim, PositiveDefinite())
+    prr_y_man = full_normal(lat_dim)
     lwr_hrm = NormalLGM(obs_dim, obs_rep, lat_dim, pst_rep)
     mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
     pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
@@ -283,7 +283,7 @@ def symmetric_hmog(
     latent space, which can be slower than `DifferentiableHMoG`.
     """
 
-    mid_lat_man = Normal(lat_dim, PositiveDefinite())
+    mid_lat_man = full_normal(lat_dim)
     sub_lat_man = Normal(lat_dim, lat_rep)
     mix_sub = NormalCovarianceEmbedding(sub_lat_man, mid_lat_man)
     lwr_hrm = NormalAnalyticLGM(obs_dim, obs_rep, lat_dim)
@@ -310,7 +310,7 @@ def analytic_hmog(
     the latent space for complete analytical tractability.
     """
 
-    lat_man = Normal(lat_dim, PositiveDefinite())
+    lat_man = full_normal(lat_dim)
     lwr_hrm = NormalAnalyticLGM(obs_dim, obs_rep, lat_dim)
     upr_hrm = AnalyticMixture(lat_man, n_components)
 

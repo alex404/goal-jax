@@ -4,7 +4,15 @@ from .base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
 from .base.gaussian.generalized import Euclidean
 from .base.gaussian.normal import (
     Covariance,
+    DiagonalNormal,
+    FullNormal,
+    IsotropicNormal,
     Normal,
+    StandardNormal,
+    diagonal_normal,
+    full_normal,
+    isotropic_normal,
+    standard_normal,
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson, Poissons
 from .base.von_mises import VonMises, VonMisesProduct
@@ -21,11 +29,6 @@ from .harmonium.binomial_bernoulli_mixture import (
     BinomialBernoulliMixture,
     MixtureBernoulliEmbedding,
     binomial_bernoulli_mixture,
-)
-from .harmonium.poisson_bernoulli_mixture import (
-    PoissonBernoulliHarmonium,
-    PoissonBernoulliMixture,
-    poisson_bernoulli_mixture,
 )
 from .harmonium.binomial_vonmises_mixture import (
     BinomialVonMisesMixture,
@@ -46,6 +49,11 @@ from .harmonium.lgm import (
     PrincipalComponentAnalysis,
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
+from .harmonium.poisson_bernoulli_mixture import (
+    PoissonBernoulliHarmonium,
+    PoissonBernoulliMixture,
+    poisson_bernoulli_mixture,
+)
 from .harmonium.poisson_mixture import (
     CoMPoissonMixture,
     CoMPoissonPopulation,
@@ -100,7 +108,6 @@ __all__ = [
     "BinomialNormalHarmonium",
     "BinomialRBM",
     "BinomialVonMisesMixture",
-    "VariationalBinomialVonMisesMixture",
     "BinomialVonMisesRBM",
     "BinomialVonMisesVI",
     "Binomials",
@@ -115,10 +122,13 @@ __all__ = [
     "CompleteMixture",
     "Covariance",
     "DiagonalBoltzmann",
+    "DiagonalNormal",
     "DifferentiableBoltzmannLGM",
     "DifferentiableHMoG",
     "Euclidean",
     "FactorAnalysis",
+    "FullNormal",
+    "IsotropicNormal",
     "Mixture",
     "MixtureBernoulliEmbedding",
     "MixtureObservableEmbedding",
@@ -133,12 +143,12 @@ __all__ = [
     "PoissonRBM",
     "PoissonVonMisesHarmonium",
     "Poissons",
-    "VariationalPoissonVonMises",
-    "poisson_bernoulli_mixture",
-    "poisson_vonmises_harmonium",
     "PrincipalComponentAnalysis",
     "RestrictedBoltzmannMachine",
+    "StandardNormal",
     "SymmetricHMoG",
+    "VariationalBinomialVonMisesMixture",
+    "VariationalPoissonVonMises",
     "VonMises",
     "VonMisesPopulationCode",
     "VonMisesProduct",
@@ -149,17 +159,23 @@ __all__ = [
     "binomial_normal_harmonium",
     "binomial_rbm",
     "binomial_vonmises_mixture",
-    "variational_binomial_vonmises_mixture",
     "binomial_vonmises_rbm",
     "binomial_vonmises_vi",
     "com_poisson_mixture",
+    "diagonal_normal",
     "differentiable_hmog",
+    "full_normal",
+    "isotropic_normal",
     "make_binomial_vonmises_loss_fn",
     "make_binomial_vonmises_metrics_fn",
+    "poisson_bernoulli_mixture",
     "poisson_mixture",
     "poisson_rbm",
+    "poisson_vonmises_harmonium",
     "rbm",
+    "standard_normal",
     "symmetric_hmog",
+    "variational_binomial_vonmises_mixture",
     "variational_poisson_vonmises",
     "von_mises_population_code",
 ]

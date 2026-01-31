@@ -16,6 +16,7 @@ from ....geometry import (
     Analytic,
     Diagonal,
     ExponentialFamily,
+    Identity,
     LocationShape,
     PositiveDefinite,
     Scale,
@@ -26,7 +27,7 @@ from .generalized import Euclidean, GeneralizedGaussian
 # Component Classes
 
 
-class Covariance(SquareMap[Euclidean], ExponentialFamily):
+class Covariance[Rep: PositiveDefinite](SquareMap[Euclidean], ExponentialFamily):
     """Shape component of a Normal distribution.
 
     This represents the covariance structure of a Normal distribution through different matrix representations:
@@ -47,9 +48,9 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
 
     # Constructor
 
-    rep: PositiveDefinite
+    rep: Rep
 
-    def __init__(self, data_dim: int, rep: PositiveDefinite):
+    def __init__(self, data_dim: int, rep: Rep):
         super().__init__(rep, Euclidean(data_dim))
 
     # Overrides
@@ -123,11 +124,10 @@ class Covariance(SquareMap[Euclidean], ExponentialFamily):
         return self.map_diagonal(params, lambda x: x + epsilon)
 
 
-# TODO: I think I want to re-expose the rep as a type parameter for Normals. Then we can type synonym for StandardNormal, IsotropicNormal, DiagonalNormal, and FullNormal, which is helpful to track throughout the library.
 @dataclass(frozen=True)
-class Normal(
-    GeneralizedGaussian[Euclidean, Covariance],
-    LocationShape[Euclidean, Covariance],
+class Normal[Rep: PositiveDefinite](
+    GeneralizedGaussian[Euclidean, Covariance[Rep]],
+    LocationShape[Euclidean, Covariance[Rep]],
     Analytic,
 ):
     """(Multivariate) Normal distributions.
@@ -157,7 +157,7 @@ class Normal(
 
     _data_dim: int
 
-    rep: PositiveDefinite
+    rep: Rep
     """Covariance representation type."""
 
     # Overrides
@@ -337,7 +337,7 @@ class Normal(
         return Euclidean(self._data_dim)
 
     @property
-    def cov_man(self) -> Covariance:
+    def cov_man(self) -> Covariance[Rep]:
         """Covariance manifold."""
         return Covariance(self._data_dim, self.rep)
 
@@ -495,7 +495,9 @@ class Normal(
 
         return self.join_coords(location, theta2)
 
-    def embed_rep(self, trg_man: Normal, params: Array) -> Array:
+    def embed_rep[TargetRep: PositiveDefinite](
+        self, trg_man: Normal[TargetRep], params: Array
+    ) -> Array:
         """Embed natural parameters into a more complex representation.
 
         For example, a diagonal matrix can be embedded as a full matrix with zeros
@@ -514,7 +516,7 @@ class Normal(
         return trg_man.join_location_precision(loc, trg_prs)
 
     def project_rep[TargetRep: PositiveDefinite](
-        self, trg_man: Normal, means: Array
+        self, trg_man: Normal[TargetRep], means: Array
     ) -> Array:
         """Project mean parameters to a simpler representation.
 
@@ -635,7 +637,7 @@ class Normal(
 
     @property
     @override
-    def shp_man(self) -> Covariance:
+    def shp_man(self) -> Covariance[Rep]:
         """Shape component: covariance manifold."""
         return self.cov_man
 
@@ -647,6 +649,72 @@ class Normal(
 
     @property
     @override
-    def snd_man(self) -> Covariance:
+    def snd_man(self) -> Covariance[Rep]:
         """Second component: shape manifold (covariance structure)."""
         return self.cov_man
+
+
+# Type aliases for common Normal specializations
+
+type FullNormal = Normal[PositiveDefinite]
+"""Normal distribution with full covariance matrix."""
+
+type DiagonalNormal = Normal[Diagonal]
+"""Normal distribution with diagonal covariance (independent dimensions)."""
+
+type IsotropicNormal = Normal[Scale]
+"""Normal distribution with isotropic covariance (scalar multiple of identity)."""
+
+type StandardNormal = Normal[Identity]
+"""Normal distribution with identity covariance (unit variance, independent dimensions)."""
+
+
+# Factory functions for convenient construction
+
+
+def full_normal(data_dim: int) -> FullNormal:
+    """Create a Normal distribution with full covariance matrix.
+
+    Args:
+        data_dim: Dimension of the data.
+
+    Returns:
+        Normal distribution with PositiveDefinite covariance structure.
+    """
+    return Normal(data_dim, PositiveDefinite())
+
+
+def diagonal_normal(data_dim: int) -> DiagonalNormal:
+    """Create a Normal distribution with diagonal covariance.
+
+    Args:
+        data_dim: Dimension of the data.
+
+    Returns:
+        Normal distribution with Diagonal covariance structure.
+    """
+    return Normal(data_dim, Diagonal())
+
+
+def isotropic_normal(data_dim: int) -> IsotropicNormal:
+    """Create a Normal distribution with isotropic covariance.
+
+    Args:
+        data_dim: Dimension of the data.
+
+    Returns:
+        Normal distribution with Scale covariance structure.
+    """
+    return Normal(data_dim, Scale())
+
+
+def standard_normal(data_dim: int) -> StandardNormal:
+    """Create a Normal distribution with identity covariance.
+
+    Args:
+        data_dim: Dimension of the data.
+
+    Returns:
+        Normal distribution with Identity covariance structure.
+    """
+    return Normal(data_dim, Identity())
