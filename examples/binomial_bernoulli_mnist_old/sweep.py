@@ -199,25 +199,19 @@ def print_best_configs(valid_results: list[dict[str, Any]]) -> None:
     best_r2 = max(valid_results, key=lambda r: r.get("r2", float("-inf")))
     print(f"\nBest R squared: {best_r2.get('r2', 'N/A'):.4f}")
     print(
-        f"  Config: n_latent={best_r2['n_latent']}, "
-        f"conj_reg_weight={best_r2['conj_reg_weight']}, "
-        f"l2_int_weight={best_r2['l2_int_weight']}"
+        f"  Config: n_latent={best_r2['n_latent']}, conj_reg_weight={best_r2['conj_reg_weight']}, l2_int_weight={best_r2['l2_int_weight']}"
     )
 
     best_acc = max(valid_results, key=lambda r: r.get("accuracy", float("-inf")))
     print(f"\nBest Accuracy: {best_acc.get('accuracy', 'N/A'):.3f}")
     print(
-        f"  Config: n_latent={best_acc['n_latent']}, "
-        f"conj_reg_weight={best_acc['conj_reg_weight']}, "
-        f"l2_int_weight={best_acc['l2_int_weight']}"
+        f"  Config: n_latent={best_acc['n_latent']}, conj_reg_weight={best_acc['conj_reg_weight']}, l2_int_weight={best_acc['l2_int_weight']}"
     )
 
     best_nmi = max(valid_results, key=lambda r: r.get("nmi", float("-inf")))
     print(f"\nBest NMI: {best_nmi.get('nmi', 'N/A'):.4f}")
     print(
-        f"  Config: n_latent={best_nmi['n_latent']}, "
-        f"conj_reg_weight={best_nmi['conj_reg_weight']}, "
-        f"l2_int_weight={best_nmi['l2_int_weight']}"
+        f"  Config: n_latent={best_nmi['n_latent']}, conj_reg_weight={best_nmi['conj_reg_weight']}, l2_int_weight={best_nmi['l2_int_weight']}"
     )
 
 
@@ -233,10 +227,7 @@ def print_pareto_optimal(valid_results: list[dict[str, Any]]) -> None:
     if pareto:
         for r in sorted(pareto, key=lambda x: -x.get("r2", 0)):
             print(
-                f"  R2={r.get('r2', 0):.4f}, Acc={r.get('accuracy', 0):.3f}, "
-                f"NMI={r.get('nmi', 0):.4f} | "
-                f"n_latent={r['n_latent']}, conj_reg={r['conj_reg_weight']}, "
-                f"l2={r['l2_int_weight']}"
+                f"  R2={r.get('r2', 0):.4f}, Acc={r.get('accuracy', 0):.3f}, NMI={r.get('nmi', 0):.4f} | n_latent={r['n_latent']}, conj_reg={r['conj_reg_weight']}, l2={r['l2_int_weight']}"
             )
     else:
         print("  No configurations meet both criteria.")

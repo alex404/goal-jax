@@ -219,7 +219,7 @@ def train_model_analytical(
     n_conj_samples: int | None = None,
     conj_samples_mult: int = CONJ_SAMPLES_MULTIPLIER,
     use_cosine_lr: bool = False,
-    rho_update_interval: int = RHO_UPDATE_INTERVAL,
+    rho_update_interval: int = RHO_UPDATE_INTERVAL,  # pyright: ignore[reportUnusedParameter]
 ) -> tuple[Array, AnalyticalModelResults]:
     """Train model with analytically-computed rho.
 
@@ -244,12 +244,15 @@ def train_model_analytical(
         Tuple of (final_params, results_dict)
     """
     # Compute n_conj_samples from multiplier if not explicitly provided
+    actual_n_conj_samples: int
     if n_conj_samples is None:
-        n_conj_samples = conj_samples_mult * model.n_latent
+        actual_n_conj_samples = conj_samples_mult * model.n_latent
+    else:
+        actual_n_conj_samples = n_conj_samples
 
     print(f"\n{'=' * 60}")
     print(f"Training with ANALYTICAL rho (weight={conj_weight})")
-    print(f"  n_conj_samples = {n_conj_samples} ({n_conj_samples / model.n_latent:.1f}x n_latent)")
+    print(f"  n_conj_samples = {actual_n_conj_samples} ({actual_n_conj_samples / model.n_latent:.1f}x n_latent)")
     print(f"{'=' * 60}")
 
     # Initialize model and extract hrm_params only
@@ -298,7 +301,7 @@ def train_model_analytical(
 
         # Compute analytical rho* and both metrics
         var_f, rho_star, r_squared, std_f = analytical_rho_with_var_penalty(
-            conj_key, model, hrm_params, n_conj_samples
+            conj_key, model, hrm_params, actual_n_conj_samples
         )
 
         # Compute ELBO with analytical rho
@@ -391,14 +394,13 @@ def train_model_analytical(
 
         if step % LOG_INTERVAL == 0:
             print(
-                f"  Step {step}: ELBO={elbo:.2f}, R²={r_squared:.4f}, "
-                f"Std[f̃]={std_f:.4f}, ||rho*||={rho_norm:.4f}"
+                f"  Step {step}: ELBO={elbo:.2f}, R²={r_squared:.4f}, Std[f̃]={std_f:.4f}, ||rho*||={rho_norm:.4f}"
             )
 
     # Final rho computation for evaluation
     key, final_conj_key = jax.random.split(key)
     _, final_rho, _, _ = analytical_rho_with_var_penalty(
-        final_conj_key, model, current_hrm_params, n_conj_samples
+        final_conj_key, model, current_hrm_params, actual_n_conj_samples
     )
     final_params = model.join_coords(final_rho, current_hrm_params)
 

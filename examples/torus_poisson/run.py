@@ -34,6 +34,57 @@ from goal.models import (
 from ..shared import example_paths, initialize_jax
 from .types import GroundTruth, GTConjugationMetrics, ModeResults, TuningParams
 
+
+def von_mises_inverse_cdf(u: Array, kappa: float, mu: float = 0.0) -> Array:
+    """Compute inverse CDF of von Mises distribution via numerical root finding.
+
+    For von Mises with concentration kappa and mean mu:
+        p(θ) = exp(κ·cos(θ - μ)) / (2π·I₀(κ))
+
+    Args:
+        u: Quantiles in [0, 1], shape (n,)
+        kappa: Concentration parameter (0 = uniform)
+        mu: Mean direction
+
+    Returns:
+        Angles θ such that F(θ) = u, shape (n,)
+    """
+    import numpy as np
+    import scipy.optimize as opt
+    import scipy.special as sp
+
+    if kappa < 1e-6:
+        # Uniform distribution
+        return jnp.array(u * 2 * np.pi)
+
+    # Normalization constant
+    norm = 2 * np.pi * sp.i0(kappa)
+
+    def cdf(theta: float) -> float:
+        """Compute CDF via numerical integration."""
+        from scipy.integrate import quad
+
+        def integrand(t: float) -> float:
+            return np.exp(kappa * np.cos(t - mu))
+
+        result, _ = quad(integrand, 0, theta)
+        return result / norm
+
+    # Invert CDF for each quantile
+    u_np = np.asarray(u)
+    theta_out = np.zeros_like(u_np)
+
+    for i, ui in enumerate(u_np.flat):
+        # Find theta such that CDF(theta) = ui
+        def objective(theta: float) -> float:
+            return cdf(theta) - ui
+
+        # Use bracketed root finding
+        result = opt.brentq(objective, 0, 2 * np.pi)
+        theta_out.flat[i] = result
+
+    return jnp.array(theta_out)
+
 # Default hyperparameters
 DEFAULT_N_NEURONS = 64  # Square number for grid
 DEFAULT_N_LATENT = 2  # T^2 (2-torus)
@@ -50,6 +101,11 @@ DEFAULT_GAIN = 1.5
 DEFAULT_PRIOR_CONCENTRATION = 0.1
 DEFAULT_DISTORTION = 0.0  # Zero = perfect convolutional structure (conjugated)
 DEFAULT_COVERAGE = 1.0  # Fraction of torus covered (1.0=full, 0.5=half -> non-zero rho)
+# Density modulation: von Mises concentration of neuron preferred locations
+DEFAULT_DENSITY_KAPPA1 = 0.0  # 0 = uniform, >0 = concentrated around density_mu1
+DEFAULT_DENSITY_KAPPA2 = 0.0  # 0 = uniform, >0 = concentrated around density_mu2
+DEFAULT_DENSITY_MU1 = 0.0  # Center of concentration in theta1
+DEFAULT_DENSITY_MU2 = 0.0  # Center of concentration in theta2
 
 # Training mode parameters
 DEFAULT_CONJ_WEIGHT = 1.0  # Weight for var[RLS] penalty in regularized mode
@@ -150,6 +206,30 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_COVERAGE,
         help="Fraction of torus covered in theta1 (1.0=full/rho≈0, 0.5=half/rho≠0)",
     )
+    parser.add_argument(
+        "--density-kappa1",
+        type=float,
+        default=DEFAULT_DENSITY_KAPPA1,
+        help="Von Mises concentration for theta1 density (0=uniform, >0=concentrated)",
+    )
+    parser.add_argument(
+        "--density-kappa2",
+        type=float,
+        default=DEFAULT_DENSITY_KAPPA2,
+        help="Von Mises concentration for theta2 density (0=uniform, >0=concentrated)",
+    )
+    parser.add_argument(
+        "--density-mu1",
+        type=float,
+        default=DEFAULT_DENSITY_MU1,
+        help="Center of density concentration in theta1 (radians)",
+    )
+    parser.add_argument(
+        "--density-mu2",
+        type=float,
+        default=DEFAULT_DENSITY_MU2,
+        help="Center of density concentration in theta2 (radians)",
+    )
     # Training mode parameters
     parser.add_argument(
         "--conj-weight",
@@ -172,16 +252,25 @@ def create_ground_truth_model(
     key: Array,
     baseline_rate: float = DEFAULT_BASELINE_RATE,
     gain: float = DEFAULT_GAIN,
-    prior_concentration: float = DEFAULT_PRIOR_CONCENTRATION,
+    prior_concentration: float = DEFAULT_PRIOR_CONCENTRATION,  # pyright: ignore[reportUnusedParameter]
     distortion: float = DEFAULT_DISTORTION,
     coverage: float = DEFAULT_COVERAGE,
+    density_kappa1: float = DEFAULT_DENSITY_KAPPA1,
+    density_kappa2: float = DEFAULT_DENSITY_KAPPA2,
+    density_mu1: float = DEFAULT_DENSITY_MU1,
+    density_mu2: float = DEFAULT_DENSITY_MU2,
 ) -> tuple[PoissonVonMisesHarmonium, Array, TuningParams]:
     """Create ground truth population code on n-torus.
 
     For convolutional structure (uniform locations covering full torus, same gains):
     - rho is approximately 0 (exact symmetry)
 
-    To get non-zero rho:
+    To get non-zero rho with good conjugation (high R²):
+    - Set density_kappa1 > 0 to concentrate neurons around density_mu1 in theta1
+    - Set density_kappa2 > 0 to concentrate neurons around density_mu2 in theta2
+    - For best R² (near 1), use single-dimension modulation (kappa1 > 0, kappa2 = 0)
+
+    Alternative (but causes systematic bias):
     - Set coverage < 1.0 to cover only part of the torus (e.g., 0.5 = half)
     - Or set distortion > 0 to add noise to locations/gains
 
@@ -194,14 +283,17 @@ def create_ground_truth_model(
         prior_concentration: Prior von Mises concentration
         distortion: Distortion level (0=convolutional, >0=asymmetric)
         coverage: Fraction of torus covered in theta1 (1.0=full, 0.5=half)
-                  Values < 1.0 create non-zero rho with high R²
+        density_kappa1: Von Mises concentration for theta1 density (0=uniform)
+        density_kappa2: Von Mises concentration for theta2 density (0=uniform)
+        density_mu1: Center of density concentration in theta1
+        density_mu2: Center of density concentration in theta2
 
     Returns:
         Tuple of (model, params, tuning_params)
     """
     model = poisson_vonmises_harmonium(n_neurons, n_latent)
 
-    # For 2D torus: arrange neurons on a grid
+    # For 2D torus: arrange neurons on a grid (possibly non-uniform)
     if n_latent == 2:
         n_per_dim = int(jnp.sqrt(n_neurons))
         if n_per_dim * n_per_dim != n_neurons:
@@ -209,10 +301,21 @@ def create_ground_truth_model(
             n_per_dim = int(jnp.ceil(jnp.sqrt(n_neurons)))
 
         # Create grid of preferred (theta_1, theta_2) locations
-        # coverage < 1.0 means we only cover part of the torus in theta1
-        max_angle_1 = 2 * jnp.pi * coverage
-        angles_1d_1 = jnp.linspace(0, max_angle_1, n_per_dim, endpoint=False)
-        angles_1d_2 = jnp.linspace(0, 2 * jnp.pi, n_per_dim, endpoint=False)
+        # Use inverse CDF for von Mises density modulation
+        quantiles_1d = jnp.linspace(0, 1, n_per_dim, endpoint=False) + 0.5 / n_per_dim
+
+        # Apply von Mises modulation independently per dimension
+        if density_kappa1 > 0:
+            angles_1d_1 = von_mises_inverse_cdf(quantiles_1d, density_kappa1, density_mu1)
+        else:
+            max_angle_1 = 2 * jnp.pi * coverage
+            angles_1d_1 = jnp.linspace(0, max_angle_1, n_per_dim, endpoint=False)
+
+        if density_kappa2 > 0:
+            angles_1d_2 = von_mises_inverse_cdf(quantiles_1d, density_kappa2, density_mu2)
+        else:
+            angles_1d_2 = jnp.linspace(0, 2 * jnp.pi, n_per_dim, endpoint=False)
+
         grid_1, grid_2 = jnp.meshgrid(angles_1d_1, angles_1d_2)
         preferred_1 = grid_1.ravel()[:n_neurons]
         preferred_2 = grid_2.ravel()[:n_neurons]
@@ -460,7 +563,7 @@ def compute_ground_truth_conjugation(
     # Least squares: psi approx chi + rho*s_Z
     design = jnp.concatenate([jnp.ones((n_samples, 1)), s_z_samples], axis=1)
     coeffs = jnp.linalg.lstsq(design, psi_values, rcond=None)[0]
-    chi, optimal_rho = coeffs[0], coeffs[1:]
+    _, optimal_rho = coeffs[0], coeffs[1:]
 
     # Compute R² and var[RLS] with optimal rho
     predicted = design @ coeffs
@@ -538,7 +641,7 @@ def train_model(
     )
 
     rho, hrm_params = model.split_coords(params)
-    zero_rho = jnp.zeros_like(rho)
+    _ = jnp.zeros_like(rho)
 
     # Optimizer setup
     optimizer = optax.adam(learning_rate)
@@ -647,14 +750,14 @@ def train_model(
             (current_hrm_params, current_opt_state, train_key, _), metrics = train_step(
                 (current_hrm_params, current_opt_state, train_key, train_data), None
             )
-            elbo, _, _, conj_r2, rho_star = metrics
+            elbo, _, _, _, rho_star = metrics
             current_params = model.join_coords(rho_star, current_hrm_params)
             conj_var = 0.0
         else:
             (current_params, current_opt_state, train_key, _), metrics = train_step(
                 (current_params, current_opt_state, train_key, train_data), None
             )
-            elbo, conj_var, _, conj_r2 = metrics
+            elbo, conj_var, _, _ = metrics
 
         elbos.append(float(elbo))
         conjugation_errors.append(float(conj_var))
@@ -677,8 +780,7 @@ def train_model(
             var_rls_history.append(float(var_f))
 
             print(
-                f"  Step {step}: ELBO={elbo:.2f}, R^2={r2_val:.4f}, "
-                f"var[RLS]={var_f:.4f}, ||rho||={rho_norm:.2f}"
+                f"  Step {step}: ELBO={elbo:.2f}, R^2={r2_val:.4f}, var[RLS]={var_f:.4f}, ||rho||={rho_norm:.2f}"
             )
 
     # Final evaluation
@@ -742,9 +844,13 @@ def main():
     print(f"  coverage: {args.coverage}")
     print(f"  baseline_rate: {args.baseline_rate}")
     print(f"  gain: {args.gain}")
+    print(f"  density_kappa1: {args.density_kappa1}")
+    print(f"  density_kappa2: {args.density_kappa2}")
+    print(f"  density_mu1: {args.density_mu1}")
+    print(f"  density_mu2: {args.density_mu2}")
     print("=" * 60)
 
-    initialize_jax()
+    initialize_jax("gpu")
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(args.seed)
 
@@ -760,6 +866,10 @@ def main():
         prior_concentration=args.prior_concentration,
         distortion=args.distortion,
         coverage=args.coverage,
+        density_kappa1=args.density_kappa1,
+        density_kappa2=args.density_kappa2,
+        density_mu1=args.density_mu1,
+        density_mu2=args.density_mu2,
     )
 
     # Generate synthetic data from ground truth
@@ -863,6 +973,10 @@ def main():
             "prior_concentration": args.prior_concentration,
             "conj_weight": args.conj_weight,
             "analytical_samples_mult": args.analytical_samples_mult,
+            "density_kappa1": args.density_kappa1,
+            "density_kappa2": args.density_kappa2,
+            "density_mu1": args.density_mu1,
+            "density_mu2": args.density_mu2,
         },
     }
 

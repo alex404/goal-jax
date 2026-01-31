@@ -81,20 +81,16 @@ def diagnose_trained_model(mode: str = "free"):
 
     print("\n--- TRAINED PARAMETERS ---")
     print(
-        f"Rho: norm={float(jnp.linalg.norm(rho)):.4f}, "
-        f"min={float(rho.min()):.4f}, max={float(rho.max()):.4f}"
+        f"Rho: norm={float(jnp.linalg.norm(rho)):.4f}, min={float(rho.min()):.4f}, max={float(rho.max()):.4f}"
     )
     print(
-        f"Observable bias: min={float(obs_bias.min()):.4f}, "
-        f"max={float(obs_bias.max()):.4f}, mean={float(obs_bias.mean()):.4f}"
+        f"Observable bias: min={float(obs_bias.min()):.4f}, max={float(obs_bias.max()):.4f}, mean={float(obs_bias.mean()):.4f}"
     )
 
     lat_dim = model.bas_lat_man.dim
     int_matrix = int_params.reshape(model.n_observable, lat_dim)
     print(
-        f"Interaction matrix: shape={int_matrix.shape}, "
-        f"norm={float(jnp.linalg.norm(int_matrix)):.4f}, "
-        f"mean={float(int_matrix.mean()):.6f}, std={float(int_matrix.std()):.6f}"
+        f"Interaction matrix: shape={int_matrix.shape}, norm={float(jnp.linalg.norm(int_matrix)):.4f}, mean={float(int_matrix.mean()):.6f}, std={float(int_matrix.std()):.6f}"
     )
 
     # Sample from prior
@@ -107,14 +103,11 @@ def diagnose_trained_model(mode: str = "free"):
 
     if latent_type == "vonmises":
         print(
-            f"z samples: mean={float(y_samples.mean()):.4f}, "
-            f"std={float(y_samples.std()):.4f}, "
-            f"range=[{float(y_samples.min()):.4f}, {float(y_samples.max()):.4f}]"
+            f"z samples: mean={float(y_samples.mean()):.4f}, std={float(y_samples.std()):.4f}, range=[{float(y_samples.min()):.4f}, {float(y_samples.max()):.4f}]"
         )
     else:
         print(
-            f"y samples: mean={float(y_samples.mean()):.4f}, "
-            f"fraction 1s={float((y_samples > 0.5).mean()):.4f}"
+            f"y samples: mean={float(y_samples.mean()):.4f}, fraction 1s={float((y_samples > 0.5).mean()):.4f}"
         )
     print(f"k samples: distribution={[int((k_samples == k).sum()) for k in range(10)]}")
 
@@ -125,16 +118,14 @@ def diagnose_trained_model(mode: str = "free"):
     lkl_params_prior = jax.vmap(get_lkl_params)(y_samples)
     print("\nLikelihood natural params (prior samples):")
     print(
-        f"  min={float(lkl_params_prior.min()):.4f}, "
-        f"max={float(lkl_params_prior.max()):.4f}, mean={float(lkl_params_prior.mean()):.4f}"
+        f"  min={float(lkl_params_prior.min()):.4f}, max={float(lkl_params_prior.max()):.4f}, mean={float(lkl_params_prior.mean()):.4f}"
     )
 
     # Convert to means (expected pixel values)
     lkl_means_prior = jax.vmap(model.obs_man.to_mean)(lkl_params_prior)
     print("Expected pixel values (prior samples):")
     print(
-        f"  min={float(lkl_means_prior.min()):.4f}, "
-        f"max={float(lkl_means_prior.max()):.4f}, mean={float(lkl_means_prior.mean()):.4f}"
+        f"  min={float(lkl_means_prior.min()):.4f}, max={float(lkl_means_prior.max()):.4f}, mean={float(lkl_means_prior.mean()):.4f}"
     )
 
     # Now compare to posterior samples
@@ -162,18 +153,15 @@ def diagnose_trained_model(mode: str = "free"):
 
     if latent_type == "vonmises":
         print(
-            f"z samples: mean={float(all_y_post.mean()):.4f}, "
-            f"std={float(all_y_post.std()):.4f}"
+            f"z samples: mean={float(all_y_post.mean()):.4f}, std={float(all_y_post.std()):.4f}"
         )
     else:
         print(
-            f"y samples: mean={float(all_y_post.mean()):.4f}, "
-            f"fraction 1s={float((all_y_post > 0.5).mean()):.4f}"
+            f"y samples: mean={float(all_y_post.mean()):.4f}, fraction 1s={float((all_y_post > 0.5).mean()):.4f}"
         )
     print("Expected pixel values (posterior samples):")
     print(
-        f"  min={float(all_lkl_means_post.min()):.4f}, "
-        f"max={float(all_lkl_means_post.max()):.4f}, mean={float(all_lkl_means_post.mean()):.4f}"
+        f"  min={float(all_lkl_means_post.min()):.4f}, max={float(all_lkl_means_post.max()):.4f}, mean={float(all_lkl_means_post.mean()):.4f}"
     )
 
     # Key comparison
@@ -192,9 +180,7 @@ def diagnose_trained_model(mode: str = "free"):
     print("\n--- PRIOR MIXTURE COMPONENTS ---")
     mix_obs_bias, _mix_int_params, _cat_params = model.mix_man.split_coords(lat_params)
     print(
-        f"Mixture observable bias ({latent_type} prior): "
-        f"min={float(mix_obs_bias.min()):.4f}, max={float(mix_obs_bias.max()):.4f}, "
-        f"mean={float(mix_obs_bias.mean()):.4f}"
+        f"Mixture observable bias ({latent_type} prior): min={float(mix_obs_bias.min()):.4f}, max={float(mix_obs_bias.max()):.4f}, mean={float(mix_obs_bias.mean()):.4f}"
     )
 
     # Get component-wise parameters
@@ -255,24 +241,20 @@ def diagnose_trained_model(mode: str = "free"):
     # 1. Analyze interaction weight distribution per latent dimension
     # Each column of int_matrix corresponds to one latent neuron
     weight_norms_per_latent = jnp.linalg.norm(int_matrix, axis=0)  # (n_latent,)
-    weight_means_per_latent = jnp.abs(int_matrix).mean(axis=0)  # (n_latent,)
+    _ = jnp.abs(int_matrix).mean(axis=0)  # (n_latent,)
 
     print(f"\nInteraction weight norms per latent dim ({model.n_observable} obs -> {lat_dim} latent dims):")
-    print(f"  min={float(weight_norms_per_latent.min()):.4f}, "
-          f"max={float(weight_norms_per_latent.max()):.4f}, "
-          f"mean={float(weight_norms_per_latent.mean()):.4f}, "
-          f"std={float(weight_norms_per_latent.std()):.4f}")
+    print(f"  min={float(weight_norms_per_latent.min()):.4f}, max={float(weight_norms_per_latent.max()):.4f}, mean={float(weight_norms_per_latent.mean()):.4f}, std={float(weight_norms_per_latent.std()):.4f}")
 
     # Count "dead" latents (very small weight norm)
     dead_threshold = 0.1 * float(weight_norms_per_latent.mean())
     n_dead_latents = int(jnp.sum(weight_norms_per_latent < dead_threshold))
-    print(f"  'Dead' latent dims (norm < 10% of mean): {n_dead_latents}/{lat_dim} "
-          f"({100*n_dead_latents/lat_dim:.1f}%)")
+    print(f"  'Dead' latent dims (norm < 10% of mean): {n_dead_latents}/{lat_dim} ({100*n_dead_latents/lat_dim:.1f}%)")
 
     # 2. Analyze posterior activation variance across test data
     # Sample posteriors for many test images and look at activation patterns
     print("\nPosterior latent activation analysis (100 test images):")
-    key, post_analysis_key = jax.random.split(key)
+    key, _ = jax.random.split(key)
     n_analysis = 100
 
     all_y_activations = []
@@ -296,24 +278,20 @@ def diagnose_trained_model(mode: str = "free"):
     latent_variances = jnp.var(all_y_activations, axis=0)  # (n_latent,)
     latent_means = jnp.mean(all_y_activations, axis=0)  # (n_latent,)
 
-    print(f"  Latent activation means: min={float(latent_means.min()):.6f}, "
-          f"max={float(latent_means.max()):.6f}, mean={float(latent_means.mean()):.6f}")
-    print(f"  Latent activation variances: min={float(latent_variances.min()):.8f}, "
-          f"max={float(latent_variances.max()):.6f}, mean={float(latent_variances.mean()):.6f}")
+    print(f"  Latent activation means: min={float(latent_means.min()):.6f}, max={float(latent_means.max()):.6f}, mean={float(latent_means.mean()):.6f}")
+    print(f"  Latent activation variances: min={float(latent_variances.min()):.8f}, max={float(latent_variances.max()):.6f}, mean={float(latent_variances.mean()):.6f}")
 
     # Count latents with near-zero variance (not responding to input)
     var_threshold = 1e-6
     n_latent_dims = all_y_activations.shape[1]
     n_constant_latents = int(jnp.sum(latent_variances < var_threshold))
-    print(f"  Constant latent dims (var < {var_threshold}): {n_constant_latents}/{n_latent_dims} "
-          f"({100*n_constant_latents/n_latent_dims:.1f}%)")
+    print(f"  Constant latent dims (var < {var_threshold}): {n_constant_latents}/{n_latent_dims} ({100*n_constant_latents/n_latent_dims:.1f}%)")
 
     if latent_type != "vonmises":
         # Count latents with very low mean (almost never active) — Bernoulli only
         mean_threshold = 0.01
         n_inactive_latents = int(jnp.sum(latent_means < mean_threshold))
-        print(f"  Inactive latents (mean < {mean_threshold}): {n_inactive_latents}/{model.n_latent} "
-              f"({100*n_inactive_latents/model.n_latent:.1f}%)")
+        print(f"  Inactive latents (mean < {mean_threshold}): {n_inactive_latents}/{model.n_latent} ({100*n_inactive_latents/model.n_latent:.1f}%)")
 
     # 3. Effective dimensionality via participation ratio
     # PR = (sum of variances)^2 / sum of (variances^2)
@@ -348,15 +326,12 @@ def diagnose_trained_model(mode: str = "free"):
     # Summary
     print("\n--- LATENT COLLAPSE SUMMARY ---")
     if participation_ratio < n_latent_dims * 0.1:
-        print(f"SEVERE: Only {participation_ratio:.0f} effective latent dimensions "
-              f"({100*participation_ratio/n_latent_dims:.1f}% of {n_latent_dims})")
+        print(f"SEVERE: Only {participation_ratio:.0f} effective latent dimensions ({100*participation_ratio/n_latent_dims:.1f}% of {n_latent_dims})")
         print("This indicates significant latent code collapse.")
     elif participation_ratio < n_latent_dims * 0.3:
-        print(f"MODERATE: {participation_ratio:.0f} effective latent dimensions "
-              f"({100*participation_ratio/n_latent_dims:.1f}% of {n_latent_dims})")
+        print(f"MODERATE: {participation_ratio:.0f} effective latent dimensions ({100*participation_ratio/n_latent_dims:.1f}% of {n_latent_dims})")
     else:
-        print(f"OK: {participation_ratio:.0f} effective latent dimensions "
-              f"({100*participation_ratio/n_latent_dims:.1f}% of {n_latent_dims})")
+        print(f"OK: {participation_ratio:.0f} effective latent dimensions ({100*participation_ratio/n_latent_dims:.1f}% of {n_latent_dims})")
 
 
 def main():

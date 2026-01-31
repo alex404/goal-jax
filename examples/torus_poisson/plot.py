@@ -10,6 +10,8 @@ Usage:
     python -m examples.torus_poisson.plot
 """
 
+from typing import Any
+
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
@@ -124,7 +126,7 @@ def main():
 
     # GT conjugation info
     gt_conjugation = ground_truth.get("conjugation", {})
-    gt_r2 = gt_conjugation.get("r_squared", None)
+    _ = gt_conjugation.get("r_squared", None)
     gt_var_rls = gt_conjugation.get("var_rls", None)
 
     # Get list of modes
@@ -246,7 +248,7 @@ def main():
         mean_log_probs = evidence_results["mean_log_probs"]
         std_log_probs = evidence_results["std_log_probs"]
 
-        # Plot log probability vs number of observations
+        # Plot log probability of true z under posterior
         ax4.errorbar(n_obs_list, mean_log_probs,
                     yerr=std_log_probs,
                     marker='o', capsize=3, color=model_colors[0], linewidth=1.5,
@@ -284,15 +286,12 @@ def main():
     print(f"Plot saved to {paths.plot_path}")
 
 
-def compute_evidence_accumulation(results: dict) -> dict | None:
+def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | None:
     """Compute evidence accumulation showing posterior concentrates with more observations.
 
-    Uses the analytical model's learned parameters. For conjugate inference,
+    Uses the best model's learned parameters. For conjugate inference,
     combining n observations means:
         posterior_params = prior + W^T @ (x1 + ... + xn) - n * rho
-
-    The rho correction scales with n because each observation contributes a
-    ψ_X(z) term that rho approximates.
 
     Returns dict with n_observations, mean_log_probs, std_log_probs
     """
@@ -304,20 +303,24 @@ def compute_evidence_accumulation(results: dict) -> dict | None:
 
         config = results["config"]
         models = results["models"]
+        best_mode = results.get("best_model", "regularized")
 
         n_neurons = config["n_neurons"]
         n_latent = config["n_latent"]
 
-        # Use analytical model specifically
-        if "analytical" not in models:
-            print("Analytical model not found")
-            return None
+        # Use best model (or regularized if available, as it has clean rho)
+        if "regularized" in models:
+            mode_to_use = "regularized"
+        elif best_mode in models:
+            mode_to_use = best_mode
+        else:
+            mode_to_use = list(models.keys())[0]
 
         var_model = variational_poisson_vonmises(n_neurons, n_latent)
 
-        # Get analytical model's learned parameters
-        learned_weights = np.array(models["analytical"]["learned_weight_matrix"])
-        learned_baselines = np.array(models["analytical"]["learned_baselines"])
+        # Get learned parameters
+        learned_weights = np.array(models[mode_to_use]["learned_weight_matrix"])
+        learned_baselines = np.array(models[mode_to_use]["learned_baselines"])
 
         # Reconstruct harmonium params
         int_params = jnp.array(learned_weights.ravel())
@@ -325,27 +328,17 @@ def compute_evidence_accumulation(results: dict) -> dict | None:
         prior_params = jnp.zeros(2 * n_latent)
         hrm_params = var_model.hrm.join_coords(obs_bias, int_params, prior_params)
 
-        # Compute analytical rho
-        key = jax.random.PRNGKey(99999)
-        key, rho_key = jax.random.split(key)
+        # Get rho from ground truth conjugation if available, otherwise use 0
+        gt_conj = results.get("ground_truth", {}).get("conjugation", {})
+        gt_rho = gt_conj.get("optimal_rho", None)
+        if gt_rho is not None and np.linalg.norm(gt_rho) > 0.1:
+            rho = jnp.array(gt_rho)
+        else:
+            # For flat code, rho = 0
+            rho = jnp.zeros(2 * n_latent)
 
         _, _, prior_p = var_model.hrm.split_coords(hrm_params)
-        z_samples_rho = var_model.pst_man.sample(rho_key, prior_p, 1000)
-        s_z = jax.vmap(var_model.pst_man.sufficient_statistic)(z_samples_rho)
 
-        int_matrix = int_params.reshape(n_neurons, 2 * n_latent)
-
-        def compute_psi(z):
-            s = var_model.pst_man.sufficient_statistic(z)
-            lkl_nat = obs_bias + int_matrix @ s
-            return var_model.obs_man.log_partition_function(lkl_nat)
-
-        psi_vals = jax.vmap(compute_psi)(z_samples_rho)
-        design = jnp.concatenate([jnp.ones((1000, 1)), s_z], axis=1)
-        coeffs = jnp.linalg.lstsq(design, psi_vals, rcond=None)[0]
-        rho = coeffs[1:]
-
-        # Stable log I_0(κ) computation
         def log_bessel_i0(kappa: float) -> float:
             """Numerically stable log I_0(κ)."""
             if kappa < 500:
@@ -362,33 +355,22 @@ def compute_evidence_accumulation(results: dict) -> dict | None:
                 theta_sin = float(theta[2 * dim + 1])
                 kappa = np.sqrt(theta_cos**2 + theta_sin**2)
 
-                # θ · s(z) = κ * cos(z - μ)
+                # log p(z) = κ cos(z - μ) - log I₀(κ) - log(2π)
                 s_z_cos = float(jnp.cos(z[dim]))
                 s_z_sin = float(jnp.sin(z[dim]))
                 dot_product = theta_cos * s_z_cos + theta_sin * s_z_sin
 
-                total += dot_product - log_bessel_i0(kappa)
-            return total
-
-        def von_mises_max_log_prob(theta) -> float:
-            """Maximum log probability (at the mode) for VonMises with natural params theta."""
-            total = 0.0
-            for dim in range(n_latent):
-                theta_cos = float(theta[2 * dim])
-                theta_sin = float(theta[2 * dim + 1])
-                kappa = np.sqrt(theta_cos**2 + theta_sin**2)
-                # At mode, cos(z - μ) = 1, so dot product = κ
-                total += kappa - log_bessel_i0(kappa)
+                total += dot_product - log_bessel_i0(kappa) - np.log(2 * np.pi)
             return total
 
         # Evidence accumulation test
         key = jax.random.PRNGKey(12345)
         n_trials = 100
-        n_obs_list = [1, 2, 4, 8]
+        n_obs_list = [1, 2, 4, 8, 16]
 
         all_log_probs = {n: [] for n in n_obs_list}
 
-        for trial in range(n_trials):
+        for _ in range(n_trials):
             key, z_key, spike_key = jax.random.split(key, 3)
 
             # Sample true latent z from learned prior
@@ -404,19 +386,15 @@ def compute_evidence_accumulation(results: dict) -> dict | None:
                 observations.append(x)
 
             for n_obs in n_obs_list:
-                x_combined = sum(observations[:n_obs])
+                x_combined = jnp.sum(jnp.stack(observations[:n_obs]), axis=0)
 
                 # Conjugate posterior: prior + W^T @ sum(x) - n * rho
                 post_params_raw = var_model.hrm.posterior_at(hrm_params, x_combined)
                 post_params = post_params_raw - n_obs * rho
 
                 # Log probability of true z under posterior
-                # Normalize by max log prob to show how well centered the posterior is
                 log_prob = von_mises_log_prob(z_true, post_params)
-                log_prob_max = von_mises_max_log_prob(post_params)
-                # This gives log p(z*)/p(mode) which is ≤ 0, closer to 0 is better
-                normalized_log_prob = log_prob - log_prob_max
-                all_log_probs[n_obs].append(normalized_log_prob)
+                all_log_probs[n_obs].append(log_prob)
 
         mean_log_probs = np.array([np.mean(all_log_probs[n]) for n in n_obs_list])
         std_log_probs = np.array([np.std(all_log_probs[n]) / np.sqrt(n_trials) for n in n_obs_list])

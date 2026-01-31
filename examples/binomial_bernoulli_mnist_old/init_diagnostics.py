@@ -37,7 +37,7 @@ def compute_conjugation_metrics(
     model,
     hrm_params: Array,
     y_samples: Array,
-) -> dict:
+) -> dict[str, float]:
     """Compute conjugation metrics given samples.
 
     Returns dict with:
@@ -316,7 +316,7 @@ def run_varying_init_scale(n_latent: int = 64, seed: int = 42):
         params = model.initialize(key_init, shape=init_shape)
         _, hrm_params = model.split_coords(params)
 
-        obs_bias, int_params, _ = model.hrm.split_coords(hrm_params)
+        _, int_params, _ = model.hrm.split_coords(hrm_params)
         int_matrix = int_params.reshape(model.n_observable, model.n_latent)
 
         n_samples = 10 * n_latent
@@ -551,7 +551,7 @@ The curvature from the few θᵢ ≈ 0 terms is drowned out by the linear terms.
     pred_full = design_full @ coeffs_full
     res_full = psi_centered - pred_full
 
-    r2_full = float(1 - jnp.var(res_full) / jnp.var(psi_centered))
+    _ = float(1 - jnp.var(res_full) / jnp.var(psi_centered))
 
     print(f"  θ distribution: mean={float(jnp.mean(theta_centered)):.2f}, std={float(jnp.std(theta_centered)):.2f}")
     print(f"  {int(jnp.sum(jnp.abs(theta_centered) < 1)) / n_samples * 100:.0f}% of θ in curved region")

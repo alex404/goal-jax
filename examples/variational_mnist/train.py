@@ -593,9 +593,7 @@ def train_model(  # noqa: C901
             max_ent = float(jnp.log(model.n_clusters))
 
             print(
-                f"  Step {step}: ELBO={elbo:.2f}, NMI={nmi:.4f}, "
-                f"R^2={conj_r2:.4f}, ||rho||={rho_norm:.2f}, "
-                f"H_prior={prior_ent:.2f}/{max_ent:.2f}"
+                f"  Step {step}: ELBO={elbo:.2f}, NMI={nmi:.4f}, R^2={conj_r2:.4f}, ||rho||={rho_norm:.2f}, H_prior={prior_ent:.2f}/{max_ent:.2f}"
             )
 
     final_params = current_params
@@ -894,9 +892,7 @@ def train_model_em(  # noqa: C901
         max_ent = float(jnp.log(model.n_clusters))
 
         print(
-            f"  EM iter {em_iter}: ELBO={elbo:.2f}, NMI={nmi:.4f}, "
-            f"R²={final_r2:.4f}, ||rho||={rho_norms[-1]:.2f}, "
-            f"H_prior={prior_ent:.2f}/{max_ent:.2f}"
+            f"  EM iter {em_iter}: ELBO={elbo:.2f}, NMI={nmi:.4f}, R²={final_r2:.4f}, ||rho||={rho_norms[-1]:.2f}, H_prior={prior_ent:.2f}/{max_ent:.2f}"
         )
 
     # Final params
