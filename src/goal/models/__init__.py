@@ -87,12 +87,6 @@ from .harmonium.rbm import (
     poisson_rbm,
     rbm,
 )
-from .variational import (
-    BinomialVonMisesVI,
-    binomial_vonmises_vi,
-    make_binomial_vonmises_loss_fn,
-    make_binomial_vonmises_metrics_fn,
-)
 
 __all__ = [
     "LGM",
@@ -109,7 +103,6 @@ __all__ = [
     "BinomialRBM",
     "BinomialVonMisesMixture",
     "BinomialVonMisesRBM",
-    "BinomialVonMisesVI",
     "Binomials",
     "Boltzmann",
     "BoltzmannEmbedding",
@@ -160,14 +153,11 @@ __all__ = [
     "binomial_rbm",
     "binomial_vonmises_mixture",
     "binomial_vonmises_rbm",
-    "binomial_vonmises_vi",
     "com_poisson_mixture",
     "diagonal_normal",
     "differentiable_hmog",
     "full_normal",
     "isotropic_normal",
-    "make_binomial_vonmises_loss_fn",
-    "make_binomial_vonmises_metrics_fn",
     "poisson_bernoulli_mixture",
     "poisson_mixture",
     "poisson_rbm",
