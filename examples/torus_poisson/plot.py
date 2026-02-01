@@ -118,11 +118,7 @@ def main():
     # Extract data
     ground_truth = results["ground_truth"]
     models = results["models"]
-    config = results["config"]
     best_mode = results["best_model"]
-
-    n_neurons = config["n_neurons"]
-    coverage = config.get("coverage", 1.0)
 
     # GT conjugation info
     gt_conjugation = ground_truth.get("conjugation", {})
@@ -147,7 +143,7 @@ def main():
         ax1.plot(history["elbos"], color=model_colors[i], linewidth=1.2, label=mode)
     ax1.set_xlabel("Training Step")
     ax1.set_ylabel("ELBO")
-    ax1.set_title("A. Model Fit (ELBO)", fontweight='bold', loc='left')
+    ax1.set_title("Training (ELBO)")
     ax1.legend(loc='lower right')
     ax1.grid(True)
 
@@ -171,8 +167,8 @@ def main():
     ax2.axhline(y=0.0, color="gray", linestyle=":", alpha=0.5)
 
     ax2.set_xlabel("Training Step")
-    ax2.set_ylabel("Var[RLS]")
-    ax2.set_title("B. Conjugation Quality", fontweight='bold', loc='left')
+    ax2.set_ylabel("Var[Conj. Err.]")
+    ax2.set_title("Conjugation Error")
     ax2.legend(loc='upper right')
     ax2.grid(True)
 
@@ -198,11 +194,6 @@ def main():
     matched_theta1 = aligned1[matching]
     matched_theta2 = aligned2[matching]
 
-    # Compute errors for annotation
-    err1 = circular_distance(gt_theta1, matched_theta1)
-    err2 = circular_distance(gt_theta2, matched_theta2)
-    mean_err = np.mean(err1 + err2) / 2
-
     # Plot GT locations
     ax3.scatter(gt_theta1, gt_theta2, c=colors["ground_truth"], s=50, alpha=0.8,
                 marker='o', label='Ground Truth', edgecolors='white', linewidths=0.5)
@@ -211,28 +202,17 @@ def main():
     ax3.scatter(matched_theta1, matched_theta2, c=model_colors[0], s=50, alpha=0.8,
                 marker='^', label=f'Learned ({best_mode})', edgecolors='white', linewidths=0.5)
 
-    # Draw lines connecting GT to learned for each neuron
-    for i in range(len(gt_theta1)):
-        ax3.plot([gt_theta1[i], matched_theta1[i]], [gt_theta2[i], matched_theta2[i]],
-                 'k-', alpha=0.2, linewidth=0.5)
-
     ax3.set_xlabel("θ₁")
     ax3.set_ylabel("θ₂")
     ax3.set_xlim(0, 2 * np.pi)
     ax3.set_ylim(0, 2 * np.pi)
     ax3.set_aspect("equal")
-    ax3.set_title("C. Preferred Locations on T²", fontweight='bold', loc='left')
+    ax3.set_title("Preferred Locations")
     ax3.legend(loc='upper right')
-    ax3.grid(True)
     ax3.set_xticks(pi_ticks)
     ax3.set_xticklabels(pi_labels)
     ax3.set_yticks(pi_ticks)
     ax3.set_yticklabels(pi_labels)
-
-    # Error annotation
-    ax3.text(0.05, 0.05, f"Mean error: {np.degrees(mean_err):.1f}°/dim",
-             transform=ax3.transAxes, fontsize=9, verticalalignment="bottom",
-             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
     # =========================================================================
     # Panel D (BR): Evidence Accumulation via Conjugate Inference
@@ -255,32 +235,15 @@ def main():
 
         ax4.set_xlabel("Number of Observations")
         ax4.set_ylabel("Log p(z* | x)")
-        ax4.set_title("D. Evidence Accumulation", fontweight='bold', loc='left')
+        ax4.set_title("Evidence Accumulation")
         ax4.grid(True)
         ax4.set_xticks(n_obs_list)
-
-        # Annotation showing improvement
-        improvement = mean_log_probs[-1] - mean_log_probs[0]
-        ax4.text(0.05, 0.95, f"Δ = +{improvement:.1f} nats",
-                transform=ax4.transAxes, fontsize=9, va='top',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     else:
         ax4.text(0.5, 0.5, "Evidence accumulation\ndata not available",
                 ha='center', va='center', transform=ax4.transAxes, fontsize=10)
-        ax4.set_title("D. Evidence Accumulation", fontweight='bold', loc='left')
+        ax4.set_title("Evidence Accumulation")
 
     plt.tight_layout()
-
-    # Summary annotation
-    best_elbo = models[best_mode]["final_elbo"]
-    best_var_rls = models[best_mode].get("final_var_rls", 0.0)
-    summary = f"Best: {best_mode} | ELBO: {best_elbo:.0f} | Var[RLS]: {best_var_rls:.1f}"
-    if gt_var_rls is not None:
-        summary += f" | GT: {gt_var_rls:.1f}"
-    summary += f" | n={n_neurons} | cov={coverage}"
-
-    fig.text(0.5, 0.01, summary, ha='center', fontsize=8, family='monospace')
-
     paths.save_plot(fig)
     print(f"Plot saved to {paths.plot_path}")
 

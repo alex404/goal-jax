@@ -24,7 +24,7 @@ def main():
     x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
     sample = np.array(g["sample"])
 
-    axes[0].hist(sample, bins=20, density=True, alpha=0.3, label="Sample")
+    axes[0].hist(sample, bins=10, density=True, alpha=0.3, label="Sample")
     axes[0].plot(x, g["true_densities"], color=colors["ground_truth"], label="True")
     axes[0].plot(x, g["estimated_densities"], color=colors["fitted"], ls="--", label="MLE")
     axes[0].plot(x, stats.norm.pdf(x, mu, sigma), color=colors["tertiary"], ls=":", label="Scipy")
@@ -35,16 +35,15 @@ def main():
 
     # Categorical
     c = results["categorical"]
-    probs = np.array(c["probs"])
     sample = np.array(c["sample"])
-    categories = np.arange(len(probs))
-    width = 0.25
+    n_categories = len(c["true_probs"])
+    categories = np.arange(n_categories)
+    width = 0.35
 
-    sample_freqs = np.bincount(sample, minlength=len(probs)) / len(sample)
+    sample_freqs = np.bincount(sample, minlength=n_categories) / len(sample)
     axes[1].bar(categories, sample_freqs, width=1.0, alpha=0.2, label="Sample")
-    axes[1].bar(categories - width, c["true_probs"], width, color=model_colors[0], alpha=0.6, label="True")
-    axes[1].bar(categories, c["estimated_probs"], width, color=model_colors[1], alpha=0.6, label="MLE")
-    axes[1].bar(categories + width, probs, width, color=model_colors[2], alpha=0.6, label="Target")
+    axes[1].bar(categories - width/2, c["true_probs"], width, color=model_colors[0], alpha=0.6, label="True")
+    axes[1].bar(categories + width/2, c["estimated_probs"], width, color=model_colors[1], alpha=0.6, label="MLE")
     axes[1].set_title("Categorical")
     axes[1].set_xlabel("Category")
     axes[1].set_ylabel("Probability")

@@ -33,10 +33,12 @@ jobs:
           python -m examples.bivariate_normal.plot
           python -m examples.boltzmann.run
           python -m examples.boltzmann.plot
-          python -m examples.dimensionality_reduction.run
-          python -m examples.dimensionality_reduction.plot
           python -m examples.boltzmann_lgm.run
           python -m examples.boltzmann_lgm.plot
+          python -m examples.boltzmann_lgm_cd.run
+          python -m examples.boltzmann_lgm_cd.plot
+          python -m examples.dimensionality_reduction.run
+          python -m examples.dimensionality_reduction.plot
           python -m examples.hmog.run
           python -m examples.hmog.plot
           python -m examples.mfa.run
@@ -45,6 +47,10 @@ jobs:
           python -m examples.mixture_of_gaussians.plot
           python -m examples.poisson_mixture.run
           python -m examples.poisson_mixture.plot
+          python -m examples.population_codes.run
+          python -m examples.population_codes.plot
+          python -m examples.torus_poisson.run
+          python -m examples.torus_poisson.plot
           python -m examples.univariate_analytic.run
           python -m examples.univariate_analytic.plot
           python -m examples.univariate_differentiable.run

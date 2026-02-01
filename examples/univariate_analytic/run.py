@@ -71,7 +71,7 @@ def main():
 
     key = jax.random.PRNGKey(0)
     keys = jax.random.split(key, 3)
-    n_samples = 20
+    n_samples = 40
 
     # Normal
     normal = Normal(1, PositiveDefinite())

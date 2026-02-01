@@ -11,11 +11,8 @@ Supports three training modes:
 
 Usage:
     python -m examples.torus_poisson.run
-    python -m examples.torus_poisson.run --mode free --n-steps 5000
-    python -m examples.torus_poisson.run --mode analytical --distortion 0.3
 """
 
-import argparse
 import json
 from typing import Any
 
@@ -31,7 +28,7 @@ from goal.models import (
     variational_poisson_vonmises,
 )
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import GroundTruth, GTConjugationMetrics, ModeResults, TuningParams
 
 
@@ -85,30 +82,31 @@ def von_mises_inverse_cdf(u: Array, kappa: float, mu: float = 0.0) -> Array:
 
     return jnp.array(theta_out)
 
+
 # Default hyperparameters
-DEFAULT_N_NEURONS = 64  # Square number for grid
-DEFAULT_N_LATENT = 2  # T^2 (2-torus)
-DEFAULT_N_SAMPLES = 10000  # Large sample for stable training
-DEFAULT_N_STEPS = 5000
-DEFAULT_BATCH_SIZE = 256
-DEFAULT_LEARNING_RATE = 5e-4  # Lower LR for stability
-DEFAULT_N_MC_SAMPLES = 10
-DEFAULT_SEED = 42
+N_NEURONS = 64  # Square number for grid
+N_LATENT = 2  # T^2 (2-torus)
+N_SAMPLES = 10000  # Large sample for stable training
+N_STEPS = 5000
+BATCH_SIZE = 256
+LEARNING_RATE = 5e-4  # Lower LR for stability
+N_MC_SAMPLES = 10
+SEED = 42
 
 # Ground truth parameters
-DEFAULT_BASELINE_RATE = 2.0
-DEFAULT_GAIN = 1.5
-DEFAULT_PRIOR_CONCENTRATION = 0.1
-DEFAULT_DISTORTION = 0.0  # Zero = perfect convolutional structure (conjugated)
-DEFAULT_COVERAGE = 1.0  # Fraction of torus covered (1.0=full, 0.5=half -> non-zero rho)
+BASELINE_RATE = 2.0
+GAIN = 1.5
+PRIOR_CONCENTRATION = 0.1
+DISTORTION = 0.0  # Zero = perfect convolutional structure (conjugated)
+COVERAGE = 1.0  # Fraction of torus covered (1.0=full, 0.5=half -> non-zero rho)
 # Density modulation: von Mises concentration of neuron preferred locations
-DEFAULT_DENSITY_KAPPA1 = 0.0  # 0 = uniform, >0 = concentrated around density_mu1
-DEFAULT_DENSITY_KAPPA2 = 0.0  # 0 = uniform, >0 = concentrated around density_mu2
-DEFAULT_DENSITY_MU1 = 0.0  # Center of concentration in theta1
-DEFAULT_DENSITY_MU2 = 0.0  # Center of concentration in theta2
+DENSITY_KAPPA1 = 0.0  # 0 = uniform, >0 = concentrated around density_mu1
+DENSITY_KAPPA2 = 0.0  # 0 = uniform, >0 = concentrated around density_mu2
+DENSITY_MU1 = 0.0  # Center of concentration in theta1
+DENSITY_MU2 = 0.0  # Center of concentration in theta2
 
 # Training mode parameters
-DEFAULT_CONJ_WEIGHT = 1.0  # Weight for var[RLS] penalty in regularized mode
+CONJ_WEIGHT = 1.0  # Weight for var[RLS] penalty in regularized mode
 ANALYTICAL_RHO_SAMPLES_MULTIPLIER = 50  # More samples for stable analytical rho
 
 # Logging
@@ -116,149 +114,19 @@ LOG_INTERVAL = 200
 N_CONJ_SAMPLES = 10000  # Large sample for stable var[RLS] evaluation
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Train Poisson-VonMises variational harmonium"
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["all", "free", "regularized", "analytical"],
-        default="all",
-        help="Training mode: 'all' trains all modes, or train a specific one",
-    )
-    parser.add_argument(
-        "--n-neurons",
-        type=int,
-        default=DEFAULT_N_NEURONS,
-        help="Number of observable (Poisson) neurons",
-    )
-    parser.add_argument(
-        "--n-latent",
-        type=int,
-        default=DEFAULT_N_LATENT,
-        help="Number of latent (VonMises) dimensions",
-    )
-    parser.add_argument(
-        "--n-samples",
-        type=int,
-        default=DEFAULT_N_SAMPLES,
-        help="Number of training samples to generate",
-    )
-    parser.add_argument(
-        "--n-steps",
-        type=int,
-        default=DEFAULT_N_STEPS,
-        help="Number of training steps",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=DEFAULT_BATCH_SIZE,
-        help="Training batch size",
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=DEFAULT_LEARNING_RATE,
-        help="Learning rate",
-    )
-    parser.add_argument(
-        "--n-mc-samples",
-        type=int,
-        default=DEFAULT_N_MC_SAMPLES,
-        help="Number of MC samples for ELBO estimation",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=DEFAULT_SEED,
-        help="Random seed",
-    )
-    # Ground truth parameters
-    parser.add_argument(
-        "--baseline-rate",
-        type=float,
-        default=DEFAULT_BASELINE_RATE,
-        help="Baseline firing rate for ground truth",
-    )
-    parser.add_argument(
-        "--gain",
-        type=float,
-        default=DEFAULT_GAIN,
-        help="Tuning curve gain for ground truth",
-    )
-    parser.add_argument(
-        "--prior-concentration",
-        type=float,
-        default=DEFAULT_PRIOR_CONCENTRATION,
-        help="Prior von Mises concentration (low = nearly uniform)",
-    )
-    parser.add_argument(
-        "--distortion",
-        type=float,
-        default=DEFAULT_DISTORTION,
-        help="Distortion level for breaking symmetry (0=convolutional, >0=asymmetric)",
-    )
-    parser.add_argument(
-        "--coverage",
-        type=float,
-        default=DEFAULT_COVERAGE,
-        help="Fraction of torus covered in theta1 (1.0=full/rho≈0, 0.5=half/rho≠0)",
-    )
-    parser.add_argument(
-        "--density-kappa1",
-        type=float,
-        default=DEFAULT_DENSITY_KAPPA1,
-        help="Von Mises concentration for theta1 density (0=uniform, >0=concentrated)",
-    )
-    parser.add_argument(
-        "--density-kappa2",
-        type=float,
-        default=DEFAULT_DENSITY_KAPPA2,
-        help="Von Mises concentration for theta2 density (0=uniform, >0=concentrated)",
-    )
-    parser.add_argument(
-        "--density-mu1",
-        type=float,
-        default=DEFAULT_DENSITY_MU1,
-        help="Center of density concentration in theta1 (radians)",
-    )
-    parser.add_argument(
-        "--density-mu2",
-        type=float,
-        default=DEFAULT_DENSITY_MU2,
-        help="Center of density concentration in theta2 (radians)",
-    )
-    # Training mode parameters
-    parser.add_argument(
-        "--conj-weight",
-        type=float,
-        default=DEFAULT_CONJ_WEIGHT,
-        help="Weight for conjugation variance penalty (regularized mode)",
-    )
-    parser.add_argument(
-        "--analytical-samples-mult",
-        type=int,
-        default=ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
-        help="Multiplier for analytical rho samples (mult * lat_dim)",
-    )
-    return parser.parse_args()
-
-
 def create_ground_truth_model(
     n_neurons: int,
     n_latent: int,
     key: Array,
-    baseline_rate: float = DEFAULT_BASELINE_RATE,
-    gain: float = DEFAULT_GAIN,
-    prior_concentration: float = DEFAULT_PRIOR_CONCENTRATION,  # pyright: ignore[reportUnusedParameter]
-    distortion: float = DEFAULT_DISTORTION,
-    coverage: float = DEFAULT_COVERAGE,
-    density_kappa1: float = DEFAULT_DENSITY_KAPPA1,
-    density_kappa2: float = DEFAULT_DENSITY_KAPPA2,
-    density_mu1: float = DEFAULT_DENSITY_MU1,
-    density_mu2: float = DEFAULT_DENSITY_MU2,
+    baseline_rate: float = BASELINE_RATE,
+    gain: float = GAIN,
+    prior_concentration: float = PRIOR_CONCENTRATION,  # pyright: ignore[reportUnusedParameter]
+    distortion: float = DISTORTION,
+    coverage: float = COVERAGE,
+    density_kappa1: float = DENSITY_KAPPA1,
+    density_kappa2: float = DENSITY_KAPPA2,
+    density_mu1: float = DENSITY_MU1,
+    density_mu2: float = DENSITY_MU2,
 ) -> tuple[PoissonVonMisesHarmonium, Array, TuningParams]:
     """Create ground truth population code on n-torus.
 
@@ -598,7 +466,7 @@ def train_model(
     batch_size: int,
     learning_rate: float,
     n_mc_samples: int,
-    conj_weight: float = DEFAULT_CONJ_WEIGHT,
+    conj_weight: float = CONJ_WEIGHT,
     analytical_samples_mult: int = ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
 ) -> tuple[Array, ModeResults]:
     """Train a model with specified mode.
@@ -830,46 +698,40 @@ def train_model(
 
 def main():
     """Main entry point."""
-    args = parse_args()
+    jax_cli()
+    paths = example_paths(__file__)
 
     print("=" * 60)
     print("POISSON-VONMISES VARIATIONAL HARMONIUM")
     print("=" * 60)
-    print(f"  Mode: {args.mode}")
-    print(f"  n_neurons: {args.n_neurons}")
-    print(f"  n_latent: {args.n_latent}")
-    print(f"  n_samples: {args.n_samples}")
-    print(f"  n_steps: {args.n_steps}")
-    print(f"  distortion: {args.distortion}")
-    print(f"  coverage: {args.coverage}")
-    print(f"  baseline_rate: {args.baseline_rate}")
-    print(f"  gain: {args.gain}")
-    print(f"  density_kappa1: {args.density_kappa1}")
-    print(f"  density_kappa2: {args.density_kappa2}")
-    print(f"  density_mu1: {args.density_mu1}")
-    print(f"  density_mu2: {args.density_mu2}")
+    print(f"  n_neurons: {N_NEURONS}")
+    print(f"  n_latent: {N_LATENT}")
+    print(f"  n_samples: {N_SAMPLES}")
+    print(f"  n_steps: {N_STEPS}")
+    print(f"  distortion: {DISTORTION}")
+    print(f"  coverage: {COVERAGE}")
+    print(f"  baseline_rate: {BASELINE_RATE}")
+    print(f"  gain: {GAIN}")
     print("=" * 60)
 
-    initialize_jax("gpu")
-    paths = example_paths(__file__)
-    key = jax.random.PRNGKey(args.seed)
+    key = jax.random.PRNGKey(SEED)
 
     # Create ground truth model
     print("\nCreating ground truth model...")
     key, gt_key = jax.random.split(key)
     gt_model, gt_params, gt_tuning = create_ground_truth_model(
-        n_neurons=args.n_neurons,
-        n_latent=args.n_latent,
+        n_neurons=N_NEURONS,
+        n_latent=N_LATENT,
         key=gt_key,
-        baseline_rate=args.baseline_rate,
-        gain=args.gain,
-        prior_concentration=args.prior_concentration,
-        distortion=args.distortion,
-        coverage=args.coverage,
-        density_kappa1=args.density_kappa1,
-        density_kappa2=args.density_kappa2,
-        density_mu1=args.density_mu1,
-        density_mu2=args.density_mu2,
+        baseline_rate=BASELINE_RATE,
+        gain=GAIN,
+        prior_concentration=PRIOR_CONCENTRATION,
+        distortion=DISTORTION,
+        coverage=COVERAGE,
+        density_kappa1=DENSITY_KAPPA1,
+        density_kappa2=DENSITY_KAPPA2,
+        density_mu1=DENSITY_MU1,
+        density_mu2=DENSITY_MU2,
     )
 
     # Generate synthetic data from ground truth
@@ -878,11 +740,11 @@ def main():
 
     # Sample latent angles from prior
     _, _, gt_prior_params = gt_model.split_coords(gt_params)
-    z_samples = gt_model.pst_man.sample(sample_key, gt_prior_params, args.n_samples)
+    z_samples = gt_model.pst_man.sample(sample_key, gt_prior_params, N_SAMPLES)
 
     # Sample spike counts given latent angles
     key, spike_key = jax.random.split(key)
-    spike_keys = jax.random.split(spike_key, args.n_samples)
+    spike_keys = jax.random.split(spike_key, N_SAMPLES)
 
     def sample_spikes(subkey: Array, z: Array) -> Array:
         rates = gt_model.observable_rates(gt_params, z)
@@ -918,14 +780,14 @@ def main():
     }
 
     # Create variational model for training
-    model = variational_poisson_vonmises(args.n_neurons, args.n_latent)
+    model = variational_poisson_vonmises(N_NEURONS, N_LATENT)
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
     print(f"  Rho params: {model.rho_man.dim}")
     print(f"  Harmonium params: {model.hrm.dim}")
 
-    # Determine which modes to train
-    modes = ["free", "regularized", "analytical"] if args.mode == "all" else [args.mode]
+    # Train all modes
+    modes = ["free", "regularized", "analytical"]
 
     # Train models
     all_results: dict[str, ModeResults] = {}
@@ -938,12 +800,12 @@ def main():
             model=model,
             train_data=spike_counts,
             mode=mode,
-            n_steps=args.n_steps,
-            batch_size=args.batch_size,
-            learning_rate=args.learning_rate,
-            n_mc_samples=args.n_mc_samples,
-            conj_weight=args.conj_weight,
-            analytical_samples_mult=args.analytical_samples_mult,
+            n_steps=N_STEPS,
+            batch_size=BATCH_SIZE,
+            learning_rate=LEARNING_RATE,
+            n_mc_samples=N_MC_SAMPLES,
+            conj_weight=CONJ_WEIGHT,
+            analytical_samples_mult=ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
         )
         all_results[mode] = results
         all_params[mode] = params
@@ -958,25 +820,25 @@ def main():
         "ground_truth": ground_truth,
         "best_model": best_mode,
         "config": {
-            "n_neurons": args.n_neurons,
-            "n_latent": args.n_latent,
-            "n_samples": args.n_samples,
-            "n_steps": args.n_steps,
-            "batch_size": args.batch_size,
-            "learning_rate": args.learning_rate,
-            "n_mc_samples": args.n_mc_samples,
-            "seed": args.seed,
-            "distortion": args.distortion,
-            "coverage": args.coverage,
-            "baseline_rate": args.baseline_rate,
-            "gain": args.gain,
-            "prior_concentration": args.prior_concentration,
-            "conj_weight": args.conj_weight,
-            "analytical_samples_mult": args.analytical_samples_mult,
-            "density_kappa1": args.density_kappa1,
-            "density_kappa2": args.density_kappa2,
-            "density_mu1": args.density_mu1,
-            "density_mu2": args.density_mu2,
+            "n_neurons": N_NEURONS,
+            "n_latent": N_LATENT,
+            "n_samples": N_SAMPLES,
+            "n_steps": N_STEPS,
+            "batch_size": BATCH_SIZE,
+            "learning_rate": LEARNING_RATE,
+            "n_mc_samples": N_MC_SAMPLES,
+            "seed": SEED,
+            "distortion": DISTORTION,
+            "coverage": COVERAGE,
+            "baseline_rate": BASELINE_RATE,
+            "gain": GAIN,
+            "prior_concentration": PRIOR_CONCENTRATION,
+            "conj_weight": CONJ_WEIGHT,
+            "analytical_samples_mult": ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
+            "density_kappa1": DENSITY_KAPPA1,
+            "density_kappa2": DENSITY_KAPPA2,
+            "density_mu1": DENSITY_MU1,
+            "density_mu2": DENSITY_MU2,
         },
     }
 
@@ -990,45 +852,31 @@ def main():
     print("SUMMARY COMPARISON")
     print("=" * 80)
 
-    if len(modes) > 1:
-        header = f"{'Metric':<25}"
+    header = f"{'Metric':<25}"
+    for mode in modes:
+        header += f" {mode:>14}"
+    print(header)
+    print("-" * 80)
+
+    metrics = [
+        ("Final ELBO", "final_elbo", lambda x: f"{x:>14.2f}"),
+        ("Final R^2", "final_r_squared", lambda x: f"{x:>14.4f}"),
+        ("Final var[RLS]", "final_var_rls", lambda x: f"{x:>14.4f}"),
+        ("Final ||rho||", "final_rho_norm", lambda x: f"{x:>14.4f}"),
+        ("Reconstruction error", "final_reconstruction_error", lambda x: f"{x:>14.4f}"),
+    ]
+
+    for name, key_name, fmt in metrics:
+        row = f"{name:<25}"
         for mode in modes:
-            header += f" {mode:>14}"
-        print(header)
-        print("-" * 80)
+            val = all_results[mode][key_name]  # type: ignore
+            row += fmt(val)
+        print(row)
 
-        metrics = [
-            ("Final ELBO", "final_elbo", lambda x: f"{x:>14.2f}"),
-            ("Final R^2", "final_r_squared", lambda x: f"{x:>14.4f}"),
-            ("Final var[RLS]", "final_var_rls", lambda x: f"{x:>14.4f}"),
-            ("Final ||rho||", "final_rho_norm", lambda x: f"{x:>14.4f}"),
-            ("Reconstruction error", "final_reconstruction_error", lambda x: f"{x:>14.4f}"),
-        ]
-
-        for name, key_name, fmt in metrics:
-            row = f"{name:<25}"
-            for mode in modes:
-                val = all_results[mode][key_name]  # type: ignore
-                row += fmt(val)
-            print(row)
-
-        # Print GT reference values
-        print("-" * 80)
-        print(f"{'GT R^2 (optimal rho)':<25} {gt_conjugation['r_squared']:>14.4f}")
-        print(f"{'GT var[RLS] (optimal rho)':<25} {gt_conjugation['var_rls']:>14.4f}")
-    else:
-        mode = modes[0]
-        r = all_results[mode]
-        print(f"{'Metric':<25} {'Value':>14}")
-        print("-" * 40)
-        print(f"{'Final ELBO':<25} {r['final_elbo']:>14.2f}")
-        print(f"{'Final R^2':<25} {r['final_r_squared']:>14.4f}")
-        print(f"{'Final var[RLS]':<25} {r['final_var_rls']:>14.4f}")
-        print(f"{'Final ||rho||':<25} {r['final_rho_norm']:>14.4f}")
-        print(f"{'Reconstruction error':<25} {r['final_reconstruction_error']:>14.4f}")
-        print("-" * 40)
-        print(f"{'GT R^2 (optimal rho)':<25} {gt_conjugation['r_squared']:>14.4f}")
-        print(f"{'GT var[RLS] (optimal rho)':<25} {gt_conjugation['var_rls']:>14.4f}")
+    # Print GT reference values
+    print("-" * 80)
+    print(f"{'GT R^2 (optimal rho)':<25} {gt_conjugation['r_squared']:>14.4f}")
+    print(f"{'GT var[RLS] (optimal rho)':<25} {gt_conjugation['var_rls']:>14.4f}")
 
 
 if __name__ == "__main__":
