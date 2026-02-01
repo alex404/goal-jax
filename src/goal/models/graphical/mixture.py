@@ -41,6 +41,7 @@ from ...geometry import (
     ObservableEmbedding,
     PosteriorEmbedding,
     Rectangular,
+    SymmetricConjugated,
 )
 from ..base.categorical import Categorical
 from ..harmonium.mixture import CompleteMixture
@@ -597,6 +598,7 @@ class CompleteMixtureOfSymmetric[
     Latent: Analytic,
 ](
     CompleteMixtureOfConjugated[Observable, Latent, Latent],
+    SymmetricConjugated[Observable, CompleteMixture[Latent]],
 ):
     """Mixture of symmetric conjugated harmoniums.
 
@@ -606,17 +608,18 @@ class CompleteMixtureOfSymmetric[
 
     Provides convenient access to `lat_man` (the shared latent manifold).
 
-    The base harmonium should be both DifferentiableConjugated and SymmetricConjugated.
-    In practice, this means AnalyticConjugated or similar models.
+    The base harmonium must be AnalyticConjugated, which combines
+    SymmetricConjugated and DifferentiableConjugated with analytic tractability.
     """
 
     n_categories: int
     """Number of mixture components."""
 
     bas_hrm: AnalyticConjugated[Observable, Latent]
-    """Base symmetric conjugated harmonium (lower level)."""
+    """Base analytic conjugated harmonium (lower level)."""
 
     @property
+    @override
     def lat_man(self) -> CompleteMixture[Latent]:
         """The shared latent manifold (posterior == prior)."""
-        return self.pst_man
+        return CompleteMixture(self.bas_hrm.lat_man, self.n_categories)
