@@ -21,4 +21,4 @@ jobs:
           pip install -e ".[test]"
       - name: Run tests
         run: |
-          python -m pytest tests/matrix.py tests/boltzmann.py tests/univariate.py tests/normal.py tests/linear_gaussian_model.py tests/boltzmann_lgm.py tests/mixture_of_conjugated.py -v
+          python -m pytest tests/ -v
