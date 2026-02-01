@@ -1,17 +1,16 @@
-"""Restricted Boltzmann Machine (RBM) implementations.
+"""Binomial and Bernoulli observable harmonium implementations.
 
-This module provides:
+This module provides harmoniums with Binomial or Bernoulli observable units:
 - RestrictedBoltzmannMachine: Binary-binary RBM (Bernoulli observable, Bernoulli latent)
-- BinomialRBM: Binomial-binary RBM (Binomial observable, Bernoulli latent)
-- PoissonRBM: Poisson-binary RBM (Poisson observable, Bernoulli latent)
-- BernoulliVonMisesRBM: Bernoulli-VonMises RBM
-- BinomialVonMisesRBM: Binomial-VonMises RBM
+- BinomialBernoulliHarmonium: Binomial-Bernoulli harmonium
+- BernoulliVonMisesHarmonium: Bernoulli-VonMises harmonium
+- BinomialVonMisesHarmonium: Binomial-VonMises harmonium
 - BinomialGaussianHarmonium: Binomial-Gaussian harmonium
 - BinomialNormalHarmonium: Binomial-Normal harmonium
 
-RBMs are bipartite undirected graphical models that learn to represent
-probability distributions. They are trained using contrastive divergence,
-which is provided by the GenerativeHarmonium base class.
+These are bipartite undirected graphical models (X ↔ Z bilayer structure).
+They are trained using contrastive divergence, which is provided by the
+GenerativeHarmonium base class.
 """
 
 from __future__ import annotations
@@ -32,7 +31,6 @@ from ..base.binomial import Binomials
 from ..base.categorical import Bernoullis
 from ..base.gaussian.generalized import Euclidean
 from ..base.gaussian.normal import Normal, diagonal_normal
-from ..base.poisson import Poissons
 from ..base.von_mises import VonMisesProduct
 from .lgm import GeneralizedGaussianLocationEmbedding
 
@@ -215,8 +213,8 @@ def rbm(n_observable: int, n_latent: int) -> RestrictedBoltzmannMachine:
 
 
 @dataclass(frozen=True)
-class BinomialRBM(DifferentiableHarmonium[Binomials, Bernoullis]):
-    """RBM with Binomial observable units and Bernoulli latent units.
+class BinomialBernoulliHarmonium(DifferentiableHarmonium[Binomials, Bernoullis]):
+    """Harmonium with Binomial observable units and Bernoulli latent units.
 
     For modeling count data (e.g., grayscale images as pixel counts).
     Each observable unit is Binomial(n_trials, p_i) where n_trials is fixed.
@@ -366,10 +364,12 @@ class BinomialRBM(DifferentiableHarmonium[Binomials, Bernoullis]):
         return get_rectangular_filters(self, params, img_shape)
 
 
-def binomial_rbm(n_observable: int, n_latent: int, n_trials: int = 255) -> BinomialRBM:
-    """Create a Binomial-Bernoulli Restricted Boltzmann Machine.
+def binomial_bernoulli_harmonium(
+    n_observable: int, n_latent: int, n_trials: int = 255
+) -> BinomialBernoulliHarmonium:
+    """Create a Binomial-Bernoulli Harmonium.
 
-    Factory function for convenient construction of Binomial RBMs.
+    Factory function for convenient construction.
 
     Args:
         n_observable: Number of observable units
@@ -377,165 +377,16 @@ def binomial_rbm(n_observable: int, n_latent: int, n_trials: int = 255) -> Binom
         n_trials: Number of trials for each observable (e.g., 255 for grayscale)
 
     Returns:
-        BinomialRBM instance
+        BinomialBernoulliHarmonium instance
     """
-    return BinomialRBM(n_observable=n_observable, n_latent=n_latent, n_trials=n_trials)
+    return BinomialBernoulliHarmonium(
+        n_observable=n_observable, n_latent=n_latent, n_trials=n_trials
+    )
 
 
 @dataclass(frozen=True)
-class PoissonRBM(DifferentiableHarmonium[Poissons, Bernoullis]):
-    """RBM with Poisson observable units and Bernoulli latent units.
-
-    For modeling count data (e.g., grayscale images as pixel counts).
-    Each observable unit is Poisson(rate_i) where rate_i = exp(b_i + W_i^T z).
-
-    The joint distribution is:
-
-    $$p(x, z) \\propto \\prod_i (rate_i^{x_i} / x_i!) \\exp(x^T W z + b^T x + c^T z)$$
-
-    where:
-    - x_i in {0,1,2,...} are observable counts (unbounded)
-    - z in {0,1}^n_latent are latent units
-    - W is the weight matrix (n_observable x n_latent)
-    - b are observable biases (log rates when z=0)
-    - c are latent biases
-
-    Key difference from Binomial RBM:
-    - Observable units are unbounded (no n_trials parameter)
-    - For visualization (e.g., images), outputs should be clipped to valid range
-
-    As a harmonium:
-    - obs_man: Poissons(n_observable) - observable layer
-    - pst_man: Bernoullis(n_latent) - latent layer
-    - int_man: Rectangular weight matrix W
-
-    The conditionals are:
-    - p(x_i | z) = Poisson(exp(b_i + W_i^T z))
-    - p(z_j = 1 | x) = sigmoid(c_j + sum_i W_ij x_i)
-
-    Attributes:
-        n_observable: Number of observable units
-        n_latent: Number of latent units
-    """
-
-    n_observable: int
-    """Number of observable units."""
-
-    n_latent: int
-    """Number of latent units."""
-
-    # Properties
-
-    @property
-    @override
-    def obs_man(self) -> Poissons:
-        """Observable layer manifold (Poisson units)."""
-        return Poissons(self.n_observable)
-
-    @property
-    @override
-    def pst_man(self) -> Bernoullis:
-        """Latent layer manifold (Bernoulli units)."""
-        return Bernoullis(self.n_latent)
-
-    @property
-    @override
-    def int_man(self) -> EmbeddedMap[Bernoullis, Poissons]:
-        """Interaction matrix with identity embeddings (full connectivity).
-
-        The interaction matrix W has shape (n_observable, n_latent) and connects
-        all observable units to all latent units.
-        """
-        return EmbeddedMap(
-            Rectangular(),
-            IdentityEmbedding(self.pst_man),
-            IdentityEmbedding(self.obs_man),
-        )
-
-    # Convenience methods
-
-    def observable_rates(self, params: Array, z: Array) -> Array:
-        """Compute E[x_i | z] = exp(b_i + W_i^T z) for all observable units.
-
-        Args:
-            params: RBM parameters
-            z: Latent unit activations (shape: n_latent)
-
-        Returns:
-            Poisson rates for each observable unit (shape: n_observable)
-        """
-        lkl_params = self.likelihood_at(params, z)
-        # For Poisson, mean = exp(natural parameter) = rate
-        return self.obs_man.to_mean(lkl_params)
-
-    def latent_probabilities(self, params: Array, x: Array) -> Array:
-        """Compute P(z_j = 1 | x) for all latent units.
-
-        Args:
-            params: RBM parameters
-            x: Observable unit counts (shape: n_observable)
-
-        Returns:
-            Probabilities for each latent unit (shape: n_latent)
-        """
-        post_params = self.posterior_at(params, x)
-        return self.pst_man.to_mean(post_params)
-
-    def normalized_reconstruction_error(
-        self, params: Array, xs: Array, scale: float = 255.0
-    ) -> Array:
-        """Compute mean squared reconstruction error on normalized data.
-
-        Normalizes both input and reconstruction to [0, 1] before computing MSE.
-        Useful when comparing to other RBM types on image data.
-
-        Args:
-            params: RBM parameters
-            xs: Batch of observable counts (shape: n_samples, n_observable)
-            scale: Scale factor for normalization (default 255 for grayscale)
-
-        Returns:
-            Mean squared error on normalized values (scalar)
-        """
-        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
-        xs_norm = xs / scale
-        recons_norm = recons / scale
-        return jnp.mean((xs_norm - recons_norm) ** 2)
-
-    def get_filters(self, params: Array, img_shape: tuple[int, int]) -> Array:
-        """Reshape weight matrix into filter images for visualization.
-
-        Each column of the weight matrix (corresponding to one latent unit)
-        is reshaped into an image.
-
-        Args:
-            params: RBM parameters
-            img_shape: Shape of each observable image (height, width)
-
-        Returns:
-            Array of shape (n_latent, height, width)
-        """
-        return get_rectangular_filters(self, params, img_shape)
-
-
-def poisson_rbm(n_observable: int, n_latent: int) -> PoissonRBM:
-    """Create a Poisson-Bernoulli Restricted Boltzmann Machine.
-
-    Factory function for convenient construction of Poisson RBMs.
-
-    Args:
-        n_observable: Number of observable units
-        n_latent: Number of latent units
-
-    Returns:
-        PoissonRBM instance
-    """
-    return PoissonRBM(n_observable=n_observable, n_latent=n_latent)
-
-
-@dataclass(frozen=True)
-class BernoulliVonMisesRBM(DifferentiableHarmonium[Bernoullis, VonMisesProduct]):
-    """RBM with Bernoulli observable units and Von Mises latent units.
+class BernoulliVonMisesHarmonium(DifferentiableHarmonium[Bernoullis, VonMisesProduct]):
+    """Harmonium with Bernoulli observable units and Von Mises latent units.
 
     For modeling binary data with circular/angular latent representations.
     Each observable unit is Bernoulli(sigmoid(b_i + W_i^T s(z))).
@@ -632,24 +483,26 @@ class BernoulliVonMisesRBM(DifferentiableHarmonium[Bernoullis, VonMisesProduct])
         return get_vonmises_filters(self, params, img_shape)
 
 
-def bernoulli_vonmises_rbm(n_observable: int, n_latent: int) -> BernoulliVonMisesRBM:
-    """Create a Bernoulli-VonMises Restricted Boltzmann Machine.
+def bernoulli_vonmises_harmonium(
+    n_observable: int, n_latent: int
+) -> BernoulliVonMisesHarmonium:
+    """Create a Bernoulli-VonMises Harmonium.
 
-    Factory function for convenient construction of Bernoulli-VonMises RBMs.
+    Factory function for convenient construction.
 
     Args:
         n_observable: Number of observable (binary) units
         n_latent: Number of latent (circular) units
 
     Returns:
-        BernoulliVonMisesRBM instance
+        BernoulliVonMisesHarmonium instance
     """
-    return BernoulliVonMisesRBM(n_observable=n_observable, n_latent=n_latent)
+    return BernoulliVonMisesHarmonium(n_observable=n_observable, n_latent=n_latent)
 
 
 @dataclass(frozen=True)
-class BinomialVonMisesRBM(DifferentiableHarmonium[Binomials, VonMisesProduct]):
-    """RBM with Binomial observable units and Von Mises latent units.
+class BinomialVonMisesHarmonium(DifferentiableHarmonium[Binomials, VonMisesProduct]):
+    """Harmonium with Binomial observable units and Von Mises latent units.
 
     For modeling count data with circular/angular latent representations.
     Each observable unit is Binomial(n_trials, p_i) where p_i depends on z.
@@ -779,12 +632,12 @@ class BinomialVonMisesRBM(DifferentiableHarmonium[Binomials, VonMisesProduct]):
         return get_vonmises_filters(self, params, img_shape)
 
 
-def binomial_vonmises_rbm(
+def binomial_vonmises_harmonium(
     n_observable: int, n_latent: int, n_trials: int = 16
-) -> BinomialVonMisesRBM:
-    """Create a Binomial-VonMises Restricted Boltzmann Machine.
+) -> BinomialVonMisesHarmonium:
+    """Create a Binomial-VonMises Harmonium.
 
-    Factory function for convenient construction of Binomial-VonMises RBMs.
+    Factory function for convenient construction.
 
     Args:
         n_observable: Number of observable (count) units
@@ -792,9 +645,9 @@ def binomial_vonmises_rbm(
         n_trials: Number of trials for each Binomial (e.g., 16 for downsampled grayscale)
 
     Returns:
-        BinomialVonMisesRBM instance
+        BinomialVonMisesHarmonium instance
     """
-    return BinomialVonMisesRBM(
+    return BinomialVonMisesHarmonium(
         n_observable=n_observable, n_latent=n_latent, n_trials=n_trials
     )
 

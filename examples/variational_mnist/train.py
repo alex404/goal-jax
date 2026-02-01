@@ -622,7 +622,7 @@ def train_model(  # noqa: C901
 
     # Compute reconstruction error with appropriate normalization
     if observable_type == "poisson":
-        from goal.models.harmonium.poisson_bernoulli_mixture import (
+        from goal.models.graphical.hierarchical import (
             PoissonBernoulliMixture,
         )
 
@@ -926,7 +926,7 @@ def train_model_em(  # noqa: C901
 
     # Compute reconstruction error
     if observable_type == "poisson":
-        from goal.models.harmonium.poisson_bernoulli_mixture import (
+        from goal.models.graphical.hierarchical import (
             PoissonBernoulliMixture,
         )
 

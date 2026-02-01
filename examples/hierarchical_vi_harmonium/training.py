@@ -11,14 +11,14 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from goal.models import BinomialVonMisesMixture
+from goal.models import BinomialMixtureVonMisesHarmonium
 
 from .core import HierarchicalVIConfig, HierarchicalVIState, make_elbo_loss_and_grad_fn
 
 
 def initialize_hierarchical_vi(
     key: Array,
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     data: Array,
     shape: float = 0.01,
     zero_interaction: bool = True,
@@ -98,7 +98,7 @@ def initialize_hierarchical_vi(
 
 
 def make_train_step_fn(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     config: HierarchicalVIConfig,
 ):
     """Create a JIT-compiled training step function.

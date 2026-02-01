@@ -16,6 +16,20 @@ from .base.gaussian.normal import (
 )
 from .base.poisson import CoMPoisson, CoMShape, Poisson, Poissons
 from .base.von_mises import VonMises, VonMisesProduct
+from .graphical.hierarchical import (
+    BinomialBernoulliMixture,
+    BinomialMixtureBernoulliHarmonium,
+    BinomialMixtureVonMisesHarmonium,
+    MixtureBernoulliEmbedding,
+    MixtureObservableEmbedding,
+    PoissonBernoulliMixture,
+    PoissonMixtureBernoulliHarmonium,
+    VariationalBinomialVonMisesMixture,
+    binomial_bernoulli_mixture,
+    binomial_vonmises_mixture,
+    poisson_bernoulli_mixture,
+    variational_binomial_vonmises_mixture,
+)
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -24,18 +38,19 @@ from .graphical.hmog import (
     differentiable_hmog,
     symmetric_hmog,
 )
-from .harmonium.binomial_bernoulli_mixture import (
+from .harmonium.binomial import (
+    BernoulliVonMisesHarmonium,
     BinomialBernoulliHarmonium,
-    BinomialBernoulliMixture,
-    MixtureBernoulliEmbedding,
-    binomial_bernoulli_mixture,
-)
-from .harmonium.binomial_vonmises_mixture import (
-    BinomialVonMisesMixture,
-    MixtureObservableEmbedding,
-    VariationalBinomialVonMisesMixture,
-    binomial_vonmises_mixture,
-    variational_binomial_vonmises_mixture,
+    BinomialGaussianHarmonium,
+    BinomialNormalHarmonium,
+    BinomialVonMisesHarmonium,
+    RestrictedBoltzmannMachine,
+    bernoulli_vonmises_harmonium,
+    binomial_bernoulli_harmonium,
+    binomial_gaussian_harmonium,
+    binomial_normal_harmonium,
+    binomial_vonmises_harmonium,
+    rbm,
 )
 from .harmonium.lgm import (
     LGM,
@@ -49,43 +64,20 @@ from .harmonium.lgm import (
     PrincipalComponentAnalysis,
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
-from .harmonium.poisson_bernoulli_mixture import (
-    PoissonBernoulliHarmonium,
-    PoissonBernoulliMixture,
-    poisson_bernoulli_mixture,
-)
-from .harmonium.poisson_mixture import (
+from .harmonium.poisson import (
     CoMPoissonMixture,
     CoMPoissonPopulation,
+    PoissonBernoulliHarmonium,
     PoissonMixture,
-    com_poisson_mixture,
-    poisson_mixture,
-)
-from .harmonium.poisson_vonmises import (
     PoissonVonMisesHarmonium,
     VariationalPoissonVonMises,
+    VonMisesPopulationCode,
+    com_poisson_mixture,
+    poisson_bernoulli_harmonium,
+    poisson_mixture,
     poisson_vonmises_harmonium,
     variational_poisson_vonmises,
-)
-from .harmonium.population_codes import (
-    VonMisesPopulationCode,
     von_mises_population_code,
-)
-from .harmonium.rbm import (
-    BernoulliVonMisesRBM,
-    BinomialGaussianHarmonium,
-    BinomialNormalHarmonium,
-    BinomialRBM,
-    BinomialVonMisesRBM,
-    PoissonRBM,
-    RestrictedBoltzmannMachine,
-    bernoulli_vonmises_rbm,
-    binomial_gaussian_harmonium,
-    binomial_normal_harmonium,
-    binomial_rbm,
-    binomial_vonmises_rbm,
-    poisson_rbm,
-    rbm,
 )
 
 __all__ = [
@@ -93,16 +85,16 @@ __all__ = [
     "AnalyticHMoG",
     "AnalyticMixture",
     "Bernoulli",
-    "BernoulliVonMisesRBM",
+    "BernoulliVonMisesHarmonium",
     "Bernoullis",
     "Binomial",
     "BinomialBernoulliHarmonium",
     "BinomialBernoulliMixture",
     "BinomialGaussianHarmonium",
+    "BinomialMixtureBernoulliHarmonium",
+    "BinomialMixtureVonMisesHarmonium",
     "BinomialNormalHarmonium",
-    "BinomialRBM",
-    "BinomialVonMisesMixture",
-    "BinomialVonMisesRBM",
+    "BinomialVonMisesHarmonium",
     "Binomials",
     "Boltzmann",
     "BoltzmannEmbedding",
@@ -133,7 +125,7 @@ __all__ = [
     "PoissonBernoulliHarmonium",
     "PoissonBernoulliMixture",
     "PoissonMixture",
-    "PoissonRBM",
+    "PoissonMixtureBernoulliHarmonium",
     "PoissonVonMisesHarmonium",
     "Poissons",
     "PrincipalComponentAnalysis",
@@ -146,21 +138,21 @@ __all__ = [
     "VonMisesPopulationCode",
     "VonMisesProduct",
     "analytic_hmog",
-    "bernoulli_vonmises_rbm",
+    "bernoulli_vonmises_harmonium",
+    "binomial_bernoulli_harmonium",
     "binomial_bernoulli_mixture",
     "binomial_gaussian_harmonium",
     "binomial_normal_harmonium",
-    "binomial_rbm",
+    "binomial_vonmises_harmonium",
     "binomial_vonmises_mixture",
-    "binomial_vonmises_rbm",
     "com_poisson_mixture",
     "diagonal_normal",
     "differentiable_hmog",
     "full_normal",
     "isotropic_normal",
+    "poisson_bernoulli_harmonium",
     "poisson_bernoulli_mixture",
     "poisson_mixture",
-    "poisson_rbm",
     "poisson_vonmises_harmonium",
     "rbm",
     "standard_normal",

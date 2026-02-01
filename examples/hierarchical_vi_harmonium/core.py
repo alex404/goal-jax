@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.models import BinomialVonMisesMixture
+from goal.models import BinomialMixtureVonMisesHarmonium
 
 
 class HierarchicalVIState(NamedTuple):
@@ -50,7 +50,7 @@ class HierarchicalVIConfig:
 
 
 def approximate_posterior_at(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     harmonium_params: Array,
     rho_params: Array,
     x: Array,
@@ -85,7 +85,7 @@ def approximate_posterior_at(
 
 def sample_from_mixture(
     key: Array,
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     mixture_params: Array,
     n_samples: int,
 ) -> tuple[Array, Array]:
@@ -131,7 +131,7 @@ def sample_from_mixture(
 
 
 def compute_log_joint(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     harmonium_params: Array,
     x: Array,
     z: Array,
@@ -183,7 +183,7 @@ def compute_log_joint(
 
 
 def compute_log_posterior(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     posterior_params: Array,
     z: Array,
     k: Array,
@@ -220,7 +220,7 @@ def compute_log_posterior(
 
 
 def make_elbo_loss_and_grad_fn(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     config: HierarchicalVIConfig,
 ):
     """Create a JIT-compiled function that returns loss and gradients.
@@ -339,7 +339,7 @@ def make_elbo_loss_and_grad_fn(
 
 def compute_elbo_components(
     key: Array,
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     harmonium_params: Array,
     rho_params: Array,
     x: Array,
@@ -408,7 +408,7 @@ def compute_elbo_components(
 
 
 def make_elbo_metrics_fn(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     config: HierarchicalVIConfig,
 ):
     """Create a JIT-compiled function to compute ELBO metrics over a batch."""
@@ -431,7 +431,7 @@ def make_elbo_metrics_fn(
 
 
 def get_cluster_assignments(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     harmonium_params: Array,
     rho_params: Array,
     x: Array,
@@ -455,7 +455,7 @@ def get_cluster_assignments(
 
 
 def get_cluster_probs_at(
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     harmonium_params: Array,
     rho_params: Array,
     x: Array,
@@ -477,7 +477,7 @@ def get_cluster_probs_at(
 
 def sample_from_model(
     key: Array,
-    model: BinomialVonMisesMixture,
+    model: BinomialMixtureVonMisesHarmonium,
     harmonium_params: Array,
     n: int,
 ) -> tuple[Array, Array, Array]:

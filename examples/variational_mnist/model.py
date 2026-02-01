@@ -13,18 +13,16 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.models import (
+    BinomialBernoulliMixture,
+    PoissonBernoulliMixture,
+    VariationalBinomialVonMisesMixture,
     binomial_bernoulli_mixture,
     poisson_bernoulli_mixture,
     variational_binomial_vonmises_mixture,
 )
-from goal.models.harmonium.binomial_bernoulli_mixture import BinomialBernoulliMixture
-from goal.models.harmonium.binomial_vonmises_mixture import (
-    VariationalBinomialVonMisesMixture,
-)
-from goal.models.harmonium.poisson_bernoulli_mixture import PoissonBernoulliMixture
 
 # Type alias for model union
-MixtureModel = (
+type MixtureModel = (
     BinomialBernoulliMixture
     | PoissonBernoulliMixture
     | VariationalBinomialVonMisesMixture
