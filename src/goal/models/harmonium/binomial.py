@@ -30,7 +30,7 @@ from ...geometry.exponential_family.harmonium import (
 from ..base.binomial import Binomials
 from ..base.categorical import Bernoullis
 from ..base.gaussian.generalized import Euclidean
-from ..base.gaussian.normal import Normal, diagonal_normal
+from ..base.gaussian.normal import DiagonalNormal, diagonal_normal
 from ..base.von_mises import VonMisesProduct
 from .lgm import GeneralizedGaussianLocationEmbedding
 
@@ -821,7 +821,7 @@ def binomial_gaussian_harmonium(
 
 
 @dataclass(frozen=True)
-class BinomialNormalHarmonium(DifferentiableHarmonium[Binomials, Normal]):
+class BinomialNormalHarmonium(DifferentiableHarmonium[Binomials, DiagonalNormal]):
     """Harmonium with Binomial observable units and diagonal Normal latent units.
 
     This model uses diagonal Gaussians (independent latent dimensions with learned
@@ -883,13 +883,13 @@ class BinomialNormalHarmonium(DifferentiableHarmonium[Binomials, Normal]):
 
     @property
     @override
-    def pst_man(self) -> Normal:
+    def pst_man(self) -> DiagonalNormal:
         """Latent layer manifold (diagonal Normal)."""
         return diagonal_normal(self.n_latent)
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[Normal, Binomials]:
+    def int_man(self) -> EmbeddedMap[DiagonalNormal, Binomials]:
         """Interaction matrix that only affects latent means.
 
         Uses GeneralizedGaussianLocationEmbedding on the latent side so that

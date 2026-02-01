@@ -12,14 +12,18 @@ from ..shared import create_grid, example_paths, get_normal_bounds, jax_cli
 from .types import BivariateResults
 
 
-def compute_densities(model: Normal, params: Array, xs: Array, ys: Array) -> Array:
+def compute_densities[Rep: PositiveDefinite](
+    model: Normal[Rep], params: Array, xs: Array, ys: Array
+) -> Array:
     """Compute densities on a grid."""
     points = jnp.stack([xs.ravel(), ys.ravel()], axis=1)
     zs = jax.vmap(model.density, in_axes=(None, 0))(params, points)
     return zs.reshape(xs.shape)
 
 
-def fit_and_evaluate(model: Normal, sample: Array, xs: Array, ys: Array) -> Array:
+def fit_and_evaluate[Rep: PositiveDefinite](
+    model: Normal[Rep], sample: Array, xs: Array, ys: Array
+) -> Array:
     """Fit model to sample and evaluate densities on grid."""
     means = model.average_sufficient_statistic(sample)
     natural_params = model.to_natural(means)

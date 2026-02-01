@@ -40,7 +40,9 @@ def generate_data(key: Array) -> Array:
     return jnp.concatenate(circles, axis=0)
 
 
-def train_model(key: Array, model: BoltzmannLGM, data: Array) -> tuple[Array, Array]:
+def train_model(
+    key: Array, model: BoltzmannLGM[PositiveDefinite], data: Array
+) -> tuple[Array, Array]:
     """Train Boltzmann-Gaussian model."""
     params = model.initialize(key, location=0.0, shape=1.0)
     optimizer = optax.adamw(learning_rate=learning_rate)
@@ -66,7 +68,7 @@ def train_model(key: Array, model: BoltzmannLGM, data: Array) -> tuple[Array, Ar
     return final_params, epoch_lls
 
 
-def compute_boltzmann_moments(model: BoltzmannLGM, params: Array) -> Array:
+def compute_boltzmann_moments(model: BoltzmannLGM[PositiveDefinite], params: Array) -> Array:
     """Compute E[zz^T] for Boltzmann prior."""
     states = model.lat_man.states
 
@@ -81,7 +83,10 @@ def compute_boltzmann_moments(model: BoltzmannLGM, params: Array) -> Array:
 
 
 def compute_ellipse(
-    model: BoltzmannLGM, lkl_params: Array, latent_state: Array, n_points: int = 1000
+    model: BoltzmannLGM[PositiveDefinite],
+    lkl_params: Array,
+    latent_state: Array,
+    n_points: int = 1000,
 ) -> Array:
     """Compute confidence ellipse for p(x|z)."""
     cond_params = model.lkl_fun_man(lkl_params, latent_state)

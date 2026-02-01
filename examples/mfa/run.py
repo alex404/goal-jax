@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from goal.models import FactorAnalysis, Normal
+from goal.models import DiagonalNormal, FactorAnalysis, FullNormal
 from goal.models.graphical.mixture import CompleteMixtureOfConjugated
 
 from ..shared import example_paths, jax_cli
@@ -84,7 +84,7 @@ def compute_marginal_2d(
 
 
 def compute_mfa_marginal_2d(
-    mfa: CompleteMixtureOfConjugated[Normal, Normal],
+    mfa: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal],
     params: Array,
     x_range: Array,
     dims: tuple[int, int],
@@ -115,7 +115,7 @@ def compute_mfa_marginal_2d(
 
 def fit_mfa(
     key: Array,
-    mfa: CompleteMixtureOfConjugated[Normal, Normal],
+    mfa: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal],
     sample: Array,
     n_steps: int,
     learning_rate: float = 1e-3,

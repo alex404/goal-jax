@@ -26,6 +26,7 @@ from ..base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
+    FullNormal,
     Normal,
     full_normal,
 )
@@ -124,15 +125,17 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
 
 
 @dataclass(frozen=True)
-class NormalCovarianceEmbedding(LinearEmbedding[Normal, Normal]):
+class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefinite](
+    LinearEmbedding[Normal[SubRep], Normal[AmbRep]]
+):
     """Embedding of a normal distribution with a simpler covariance structure into a more complex one."""
 
     # Fields
 
-    _sub_man: Normal
+    _sub_man: Normal[SubRep]
     """The sub-manifold with the simpler covariance structure."""
 
-    _amb_man: Normal
+    _amb_man: Normal[AmbRep]
     """The super-manifold with the more complex covariance structure."""
 
     def __post_init__(self):
@@ -143,12 +146,12 @@ class NormalCovarianceEmbedding(LinearEmbedding[Normal, Normal]):
 
     @property
     @override
-    def amb_man(self) -> Normal:
+    def amb_man(self) -> Normal[AmbRep]:
         return self._amb_man
 
     @property
     @override
-    def sub_man(self) -> Normal:
+    def sub_man(self) -> Normal[SubRep]:
         return self._sub_man
 
     @override
@@ -297,10 +300,11 @@ class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, Boltzmann]):
 
 @dataclass(frozen=True)
 class LGM[
+    ObsRep: PositiveDefinite,
     PostGaussian: GeneralizedGaussian[Any, Any],
     PriorGaussian: GeneralizedGaussian[Any, Any],
 ](
-    DifferentiableConjugated[Normal, PostGaussian, PriorGaussian],
+    DifferentiableConjugated[Normal[ObsRep], PostGaussian, PriorGaussian],
     ABC,
 ):
     """A linear Gaussian model (LGM) implemented as a harmonium with Gaussian latent variables.
@@ -337,7 +341,7 @@ class LGM[
     obs_dim: int
     """Dimension of the observable variables."""
 
-    obs_rep: PositiveDefinite
+    obs_rep: ObsRep
     """Covariance structure of the observable variables."""
 
     ### Methods ###
@@ -346,12 +350,12 @@ class LGM[
 
     @property
     @override
-    def obs_man(self) -> Normal:
+    def obs_man(self) -> Normal[ObsRep]:
         """Override to construct directly from fields, avoiding circular dependency."""
         return Normal(self.obs_dim, self.obs_rep)
 
     @property
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal]:
+    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
         return GeneralizedGaussianLocationEmbedding(self.obs_man)
 
     @property
@@ -361,7 +365,7 @@ class LGM[
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[PostGaussian, Normal]:
+    def int_man(self) -> EmbeddedMap[PostGaussian, Normal[ObsRep]]:
         return EmbeddedMap(
             Rectangular(),
             self.int_pst_emb,
@@ -416,8 +420,8 @@ class LGM[
 
 
 @dataclass(frozen=True)
-class NormalLGM(
-    LGM[Normal, Normal],
+class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
+    LGM[ObsRep, Normal[PstRep], FullNormal],
 ):
     """Differentiable Linear Gaussian Model with Normal latent variables.
 
@@ -428,19 +432,19 @@ class NormalLGM(
     lat_dim: int
     """Dimension of the latent variables."""
 
-    pst_rep: PositiveDefinite
+    pst_rep: PstRep
 
     # Overrides
 
     @property
     @override
-    def pst_man(self) -> Normal:
+    def pst_man(self) -> Normal[PstRep]:
         """Override to construct directly from fields, avoiding circular dependency."""
         return Normal(self.lat_dim, self.pst_rep)
 
     @property
     @override
-    def pst_prr_emb(self) -> LinearEmbedding[Normal, Normal]:
+    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PstRep, PositiveDefinite]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         prior_gau = full_normal(self.lat_dim)
         return NormalCovarianceEmbedding(self.pst_man, prior_gau)
@@ -450,7 +454,7 @@ class NormalLGM(
     def observable_distribution(
         self,
         params: Array,
-    ) -> tuple[Normal, Array]:  # (Normal, Natural[Normal])
+    ) -> tuple[FullNormal, Array]:  # (Normal, Natural[Normal])
         """Returns the marginal normal distribution over observable variables.
 
         Parameters
@@ -500,7 +504,7 @@ class NormalLGM(
             Natural parameters for the joint Normal distribution.
         """
         lat_dim = self.prr_man.data_dim
-        new_man: NormalLGM = NormalLGM(
+        new_man: NormalLGM[PositiveDefinite, PositiveDefinite] = NormalLGM(
             obs_dim=self.obs_man.data_dim,
             obs_rep=PositiveDefinite(),
             lat_dim=lat_dim,
@@ -526,9 +530,9 @@ class NormalLGM(
 
 
 @dataclass(frozen=True)
-class BoltzmannLGM(
-    SymmetricConjugated[Normal, Boltzmann],
-    LGM[Boltzmann, Boltzmann],
+class BoltzmannLGM[ObsRep: PositiveDefinite](
+    SymmetricConjugated[Normal[ObsRep], Boltzmann],
+    LGM[ObsRep, Boltzmann, Boltzmann],
 ):
     """Differentiable Linear Gaussian Model with Boltzmann latent variables.
 
@@ -571,8 +575,8 @@ class BoltzmannLGM(
 
 
 @dataclass(frozen=True)
-class DifferentiableBoltzmannLGM(
-    LGM[DiagonalBoltzmann, Boltzmann],
+class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
+    LGM[ObsRep, DiagonalBoltzmann, Boltzmann],
 ):
     """Differentiable Linear Gaussian Model with mean-field Boltzmann latent variables.
 
@@ -609,13 +613,13 @@ class DifferentiableBoltzmannLGM(
 
 
 @dataclass(frozen=True)
-class NormalAnalyticLGM(
-    AnalyticConjugated[Normal, Normal],
-    NormalLGM,
+class NormalAnalyticLGM[ObsRep: PositiveDefinite](
+    AnalyticConjugated[Normal[ObsRep], FullNormal],
+    NormalLGM[ObsRep, PositiveDefinite],
 ):
     """Analytic Linear Gaussian Model that extends the differentiable LGM with full analytical tractability, adding conversions between mean and natural coordinates, and a closed-form implementation of EM."""
 
-    def __init__(self, obs_dim: int, obs_rep: PositiveDefinite, lat_dim: int):
+    def __init__(self, obs_dim: int, obs_rep: ObsRep, lat_dim: int):
         super().__init__(
             obs_dim=obs_dim,
             obs_rep=obs_rep,
@@ -625,9 +629,16 @@ class NormalAnalyticLGM(
 
     @property
     @override
-    def lat_man(self) -> Normal:
+    def lat_man(self) -> FullNormal:
         """The latent manifold is a full Normal distribution."""
         return full_normal(self.lat_dim)
+
+    @property
+    @override
+    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PositiveDefinite, PositiveDefinite]:
+        """Embedding of posterior Normal into prior Normal via covariance structure."""
+        prior_gau = full_normal(self.lat_dim)
+        return NormalCovarianceEmbedding(self.pst_man, prior_gau)
 
     @override
     def to_natural_likelihood(
@@ -699,7 +710,7 @@ class NormalAnalyticLGM(
 
 
 @dataclass(frozen=True)
-class FactorAnalysis(NormalAnalyticLGM):
+class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
     """A factor analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
@@ -774,7 +785,7 @@ class FactorAnalysis(NormalAnalyticLGM):
 
 
 @dataclass(frozen=True)
-class PrincipalComponentAnalysis(NormalAnalyticLGM):
+class PrincipalComponentAnalysis(NormalAnalyticLGM[Scale]):
     """A principal component analysis model with Gaussian latent variables."""
 
     def __init__(self, obs_dim: int, lat_dim: int):
@@ -855,7 +866,7 @@ def _change_of_basis(
     g_rep: PositiveDefinite,
     g_params: Array,  # Parameters in dual coordinates
 ) -> tuple[
-    Covariance,
+    Covariance[Any],
     Array,  # Parameters in original coordinate system
 ]:
     """Linear change of basis transformation.

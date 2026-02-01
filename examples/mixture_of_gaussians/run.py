@@ -9,13 +9,13 @@ from jax import Array
 from sklearn.mixture import GaussianMixture
 
 from goal.geometry import Diagonal, PositiveDefinite, Scale
-from goal.models import AnalyticMixture, Normal
+from goal.models import AnalyticMixture, FullNormal, Normal
 
 from ..shared import create_grid, example_paths, jax_cli
 from .types import MixtureResults
 
 
-def create_ground_truth(mix_man: AnalyticMixture[Normal]) -> Array:
+def create_ground_truth(mix_man: AnalyticMixture[FullNormal]) -> Array:
     """Create ground truth mixture parameters."""
     means = [
         jnp.array([1.0, 1.0]),
@@ -39,7 +39,7 @@ def create_ground_truth(mix_man: AnalyticMixture[Normal]) -> Array:
     return mix_man.to_natural(mean_mix)
 
 
-def to_sklearn(mix_man: AnalyticMixture[Normal], params: Array) -> GaussianMixture:
+def to_sklearn(mix_man: AnalyticMixture[FullNormal], params: Array) -> GaussianMixture:
     """Convert GOAL mixture to sklearn GaussianMixture."""
     means = mix_man.to_mean(params)
     components, weights = mix_man.split_mean_mixture(means)
@@ -69,8 +69,8 @@ def to_sklearn(mix_man: AnalyticMixture[Normal], params: Array) -> GaussianMixtu
     return gmm
 
 
-def fit_mixture(
-    key: Array, mix_man: AnalyticMixture[Normal], sample: Array, n_steps: int
+def fit_mixture[Rep: PositiveDefinite](
+    key: Array, mix_man: AnalyticMixture[Normal[Rep]], sample: Array, n_steps: int
 ) -> tuple[Array, Array, Array]:
     """Fit mixture via EM, return (lls, init_params, final_params)."""
     init_params = mix_man.initialize(key)
@@ -118,7 +118,9 @@ def main():
     dia_lls, dia_init, dia_final = fit_mixture(keys[1], dia_mix, sample, 50)
     iso_lls, iso_init, iso_final = fit_mixture(keys[2], iso_mix, sample, 50)
 
-    def grid_density(model: AnalyticMixture[Normal], params: Array) -> Array:
+    def grid_density[Rep: PositiveDefinite](
+        model: AnalyticMixture[Normal[Rep]], params: Array
+    ) -> Array:
         return jax.vmap(model.observable_density, in_axes=(None, 0))(
             params, grid_points
         ).reshape(xs.shape)

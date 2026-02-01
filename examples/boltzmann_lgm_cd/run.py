@@ -67,7 +67,7 @@ def generate_data(key: Array) -> Array:
 
 
 def train_exact(
-    model: DifferentiableBoltzmannLGM, data: Array, init_params: Array
+    model: DifferentiableBoltzmannLGM[PositiveDefinite], data: Array, init_params: Array
 ) -> tuple[Array, Array]:
     """Train with exact log-likelihood gradients, tracking NLL."""
     params = init_params
@@ -96,7 +96,7 @@ def train_exact(
 
 def train_cd(
     key: Array,
-    model: DifferentiableBoltzmannLGM,
+    model: DifferentiableBoltzmannLGM[PositiveDefinite],
     data: Array,
     init_params: Array,
     cd_steps: int = 1,
@@ -135,7 +135,7 @@ def train_cd(
 
 
 def compute_density_grid(
-    model: DifferentiableBoltzmannLGM, params: Array
+    model: DifferentiableBoltzmannLGM[PositiveDefinite], params: Array
 ) -> tuple[Array, Array, Array]:
     """Compute density on a grid."""
     x_range = jnp.linspace(*plot_range, plot_res)

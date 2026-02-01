@@ -5,14 +5,14 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import PositiveDefinite
-from goal.models import Categorical, Normal, Poisson
+from goal.models import Categorical, FullNormal, Normal, Poisson
 
 from ..shared import example_paths, jax_cli
 from .types import CategoricalResults, NormalResults, PoissonResults, UnivariateResults
 
 
 def fit_normal(
-    key: Array, model: Normal, mu: Array, sigma: Array, xs: Array, n_samples: int
+    key: Array, model: FullNormal, mu: Array, sigma: Array, xs: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
     """Fit Normal and return sample, true densities, estimated densities."""
     means = model.join_mean_covariance(mu, sigma)

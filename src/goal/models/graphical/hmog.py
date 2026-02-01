@@ -43,7 +43,7 @@ from ...geometry import (
     PositiveDefinite,
     SymmetricHierarchical,
 )
-from ..base.gaussian.normal import Normal, full_normal
+from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from ..harmonium.lgm import (
     NormalAnalyticLGM,
     NormalCovarianceEmbedding,
@@ -55,8 +55,12 @@ from ..harmonium.mixture import AnalyticMixture, Mixture
 
 
 @dataclass(frozen=True)
-class DifferentiableHMoG(
-    DifferentiableHierarchical[NormalLGM, AnalyticMixture[Normal], Mixture[Normal]]
+class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
+    DifferentiableHierarchical[
+        NormalLGM[ObsRep, PstRep],
+        AnalyticMixture[Normal[PstRep]],
+        Mixture[FullNormal],
+    ]
 ):
     """Differentiable Hierarchical Mixture of Gaussians.
 
@@ -129,7 +133,9 @@ class DifferentiableHMoG(
 
 
 @dataclass(frozen=True)
-class SymmetricHMoG(SymmetricHierarchical[NormalAnalyticLGM, Mixture[Normal]]):
+class SymmetricHMoG[ObsRep: PositiveDefinite](
+    SymmetricHierarchical[NormalAnalyticLGM[ObsRep], Mixture[FullNormal]]
+):
     """Symmetric Hierarchical Mixture of Gaussians.
 
     This model supports gradient-based optimization with additional functionality
@@ -181,7 +187,9 @@ class SymmetricHMoG(SymmetricHierarchical[NormalAnalyticLGM, Mixture[Normal]]):
 
 
 @dataclass(frozen=True)
-class AnalyticHMoG(AnalyticHierarchical[NormalAnalyticLGM, AnalyticMixture[Normal]]):
+class AnalyticHMoG[ObsRep: PositiveDefinite](
+    AnalyticHierarchical[NormalAnalyticLGM[ObsRep], AnalyticMixture[FullNormal]]
+):
     """Analytic Hierarchical Mixture of Gaussians.
 
     This model enables:
@@ -233,13 +241,13 @@ class AnalyticHMoG(AnalyticHierarchical[NormalAnalyticLGM, AnalyticMixture[Norma
 ## Factory Functions ##
 
 
-def differentiable_hmog(
+def differentiable_hmog[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
     obs_dim: int,
-    obs_rep: PositiveDefinite,
+    obs_rep: ObsRep,
     lat_dim: int,
-    pst_rep: PositiveDefinite,
+    pst_rep: PstRep,
     n_components: int,
-) -> DifferentiableHMoG:
+) -> DifferentiableHMoG[ObsRep, PstRep]:
     """Create a differentiable hierarchical mixture of Gaussians model.
 
     This function constructs a hierarchical model combining:
@@ -266,13 +274,13 @@ def differentiable_hmog(
     )
 
 
-def symmetric_hmog(
+def symmetric_hmog[ObsRep: PositiveDefinite](
     obs_dim: int,
-    obs_rep: PositiveDefinite,
+    obs_rep: ObsRep,
     lat_dim: int,
     lat_rep: PositiveDefinite,
     n_components: int,
-) -> SymmetricHMoG:
+) -> SymmetricHMoG[ObsRep]:
     """Create a symmetric hierarchical mixture of Gaussians model.
 
     Supports optimization via log-likelihood gradient descent with additional functionality
@@ -297,12 +305,12 @@ def symmetric_hmog(
     )
 
 
-def analytic_hmog(
+def analytic_hmog[ObsRep: PositiveDefinite](
     obs_dim: int,
-    obs_rep: PositiveDefinite,
+    obs_rep: ObsRep,
     lat_dim: int,
     n_components: int,
-) -> AnalyticHMoG:
+) -> AnalyticHMoG[ObsRep]:
     """Create an analytic hierarchical mixture of Gaussians model.
 
     Enables closed-form expectation-maximization for learning and bidirectional parameter

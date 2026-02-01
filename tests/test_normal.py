@@ -11,7 +11,7 @@ from jax import Array
 from jax.scipy import stats
 
 from goal.geometry import Diagonal, PositiveDefinite, Scale
-from goal.models import Normal
+from goal.models import FullNormal, Normal
 
 jax.config.update("jax_platform_name", "cpu")
 
@@ -32,7 +32,7 @@ def key() -> Array:
 
 
 @pytest.fixture
-def ground_truth() -> tuple[Normal, Array]:
+def ground_truth() -> tuple[FullNormal, Array]:
     """Ground truth normal model and mean parameters."""
     model = Normal(SAMPLE_MEAN.shape[0], PositiveDefinite())
     cov_params = model.cov_man.from_matrix(SAMPLE_COV)
@@ -41,7 +41,7 @@ def ground_truth() -> tuple[Normal, Array]:
 
 
 @pytest.fixture
-def samples(ground_truth: tuple[Normal, Array]) -> Array:
+def samples(ground_truth: tuple[FullNormal, Array]) -> Array:
     """Sample data from ground truth distribution."""
     model, means = ground_truth
     key = jax.random.PRNGKey(0)
@@ -115,7 +115,7 @@ class TestNormalPrecision:
     """Test precision matrix properties."""
 
     def test_precision_is_covariance_inverse(
-        self, ground_truth: tuple[Normal, Array]
+        self, ground_truth: tuple[FullNormal, Array]
     ) -> None:
         """Test precision matrix is the inverse of covariance."""
         model, means = ground_truth
@@ -137,7 +137,7 @@ class TestNormalPrecision:
 class TestNormalWhitening:
     """Test whitening transformation."""
 
-    def test_whiten_self(self, ground_truth: tuple[Normal, Array]) -> None:
+    def test_whiten_self(self, ground_truth: tuple[FullNormal, Array]) -> None:
         """Test whitening relative to itself gives standard normal."""
         model, means = ground_truth
         gt_mean, _ = model.split_mean_covariance(means)
@@ -150,7 +150,7 @@ class TestNormalWhitening:
             model.cov_man.to_matrix(w_cov), jnp.eye(model.data_dim), rtol=RTOL, atol=ATOL
         )
 
-    def test_whiten_different(self, ground_truth: tuple[Normal, Array]) -> None:
+    def test_whiten_different(self, ground_truth: tuple[FullNormal, Array]) -> None:
         """Test whitening a different distribution."""
         model, means = ground_truth
         gt_mean, gt_cov = model.split_mean_covariance(means)

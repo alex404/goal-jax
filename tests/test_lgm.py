@@ -9,8 +9,10 @@ import pytest
 from jax import Array
 from jax.scipy import stats
 
+from typing import Any
+
 from goal.geometry import Diagonal, PositiveDefinite, Scale
-from goal.models import BoltzmannLGM, FactorAnalysis, Normal, NormalAnalyticLGM
+from goal.models import BoltzmannLGM, FactorAnalysis, FullNormal, Normal, NormalAnalyticLGM
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -35,7 +37,7 @@ def key() -> Array:
 
 
 @pytest.fixture
-def joint_normal() -> tuple[Normal, Array]:
+def joint_normal() -> tuple[FullNormal, Array]:
     """Ground truth joint normal model and mean parameters."""
     joint_dim = OBS_MEAN.shape[0] + LAT_MEAN.shape[0]
     model = Normal(joint_dim, PositiveDefinite())
@@ -47,7 +49,7 @@ def joint_normal() -> tuple[Normal, Array]:
 
 
 @pytest.fixture
-def samples(joint_normal: tuple[Normal, Array]) -> Array:
+def samples(joint_normal: tuple[FullNormal, Array]) -> Array:
     """Sample data from ground truth distribution."""
     model, means = joint_normal
     key = jax.random.PRNGKey(0)
@@ -94,12 +96,12 @@ class TestNormalAnalyticLGMBasics:
     @pytest.fixture(params=[Scale(), Diagonal(), PositiveDefinite()])
     def model(
         self, request: pytest.FixtureRequest
-    ) -> NormalAnalyticLGM:
+    ) -> NormalAnalyticLGM[Any]:
         """Create LGM with various representations."""
         obs_dim, lat_dim = OBS_MEAN.shape[0], LAT_MEAN.shape[0]
         return NormalAnalyticLGM(obs_dim, request.param, lat_dim)
 
-    def test_dimensions(self, model: NormalAnalyticLGM) -> None:
+    def test_dimensions(self, model: NormalAnalyticLGM[Any]) -> None:
         """Test dimensions are correct."""
         assert model.obs_man.data_dim == OBS_MEAN.shape[0]
         assert model.lat_man.data_dim == LAT_MEAN.shape[0]
@@ -113,7 +115,7 @@ class TestNormalAnalyticLGMFitting:
         self,
         rep: Scale | Diagonal | PositiveDefinite,
         samples: Array,
-        joint_normal: tuple[Normal, Array],
+        joint_normal: tuple[FullNormal, Array],
     ) -> None:
         """Test LGM log-density matches equivalent Normal distribution."""
         obs_dim, lat_dim = OBS_MEAN.shape[0], LAT_MEAN.shape[0]
@@ -238,17 +240,17 @@ class TestBoltzmannLGMBasics:
     """Test BoltzmannLGM basic properties."""
 
     @pytest.fixture(params=[(2, 3), (2, 4)])
-    def model(self, request: pytest.FixtureRequest) -> BoltzmannLGM:
+    def model(self, request: pytest.FixtureRequest) -> BoltzmannLGM[PositiveDefinite]:
         """Create BoltzmannLGM model."""
         obs_dim, lat_dim = request.param
         return BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
 
     @pytest.fixture
-    def params(self, model: BoltzmannLGM, key: Array) -> Array:
+    def params(self, model: BoltzmannLGM[PositiveDefinite], key: Array) -> Array:
         """Generate random model parameters."""
         return model.initialize(key, location=0.0, shape=0.5)
 
-    def test_dimensions(self, model: BoltzmannLGM) -> None:
+    def test_dimensions(self, model: BoltzmannLGM[PositiveDefinite]) -> None:
         """Test dimensions are correct."""
         assert model.obs_man.data_dim == model.obs_dim
         assert model.lat_man.data_dim == model.lat_dim
@@ -258,17 +260,17 @@ class TestBoltzmannLGMConjugation:
     """Test BoltzmannLGM conjugation equation."""
 
     @pytest.fixture(params=[(2, 3), (2, 4)])
-    def model(self, request: pytest.FixtureRequest) -> BoltzmannLGM:
+    def model(self, request: pytest.FixtureRequest) -> BoltzmannLGM[PositiveDefinite]:
         """Create BoltzmannLGM model."""
         obs_dim, lat_dim = request.param
         return BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
 
     @pytest.fixture
-    def params(self, model: BoltzmannLGM, key: Array) -> Array:
+    def params(self, model: BoltzmannLGM[PositiveDefinite], key: Array) -> Array:
         """Generate random model parameters."""
         return model.initialize(key, location=0.0, shape=0.5)
 
-    def test_conjugation_equation(self, model: BoltzmannLGM, params: Array) -> None:
+    def test_conjugation_equation(self, model: BoltzmannLGM[PositiveDefinite], params: Array) -> None:
         """Test: ψ(θ_X + θ_{XZ}·s_Z(z)) = ρ·s_Z(z) + ψ_X(θ_X)."""
         obs_params, int_params, _ = model.split_coords(params)
         lkl_params = model.lkl_fun_man.join_coords(obs_params, int_params)
@@ -290,7 +292,7 @@ class TestBoltzmannLGMConjugation:
             assert jnp.abs(lhs - rhs) < ATOL
 
     def test_conjugation_parameters_shape(
-        self, model: BoltzmannLGM, params: Array
+        self, model: BoltzmannLGM[PositiveDefinite], params: Array
     ) -> None:
         """Test conjugation parameters have correct dimension."""
         obs_params, int_params, _ = model.split_coords(params)
@@ -304,18 +306,18 @@ class TestBoltzmannLGMDensity:
     """Test BoltzmannLGM density computation."""
 
     @pytest.fixture(params=[(2, 3)])
-    def model(self, request: pytest.FixtureRequest) -> BoltzmannLGM:
+    def model(self, request: pytest.FixtureRequest) -> BoltzmannLGM[PositiveDefinite]:
         """Create BoltzmannLGM model."""
         obs_dim, lat_dim = request.param
         return BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
 
     @pytest.fixture
-    def params(self, model: BoltzmannLGM, key: Array) -> Array:
+    def params(self, model: BoltzmannLGM[PositiveDefinite], key: Array) -> Array:
         """Generate random model parameters."""
         return model.initialize(key, location=0.0, shape=0.5)
 
     def test_observable_density_marginalization(
-        self, model: BoltzmannLGM, params: Array, key: Array
+        self, model: BoltzmannLGM[PositiveDefinite], params: Array, key: Array
     ) -> None:
         """Test p(x) = Σ_z p(x|z)p(z)."""
         obs = jax.random.normal(key, (model.obs_dim,))
@@ -336,7 +338,7 @@ class TestBoltzmannLGMDensity:
         assert jnp.allclose(density_model, density_marginal, rtol=RTOL, atol=ATOL)
 
     def test_posterior_normalization(
-        self, model: BoltzmannLGM, params: Array, key: Array
+        self, model: BoltzmannLGM[PositiveDefinite], params: Array, key: Array
     ) -> None:
         """Test that p(z|x) sums to 1."""
         obs = jax.random.normal(key, (model.obs_dim,))
@@ -352,7 +354,7 @@ class TestBoltzmannLGMDensity:
         assert jnp.allclose(total, 1.0, rtol=RTOL, atol=ATOL)
 
     def test_log_density_formula(
-        self, model: BoltzmannLGM, params: Array, key: Array
+        self, model: BoltzmannLGM[PositiveDefinite], params: Array, key: Array
     ) -> None:
         """Test log p(x) = θ·s(x) + ψ(post) - ψ(prior) - ψ_X(θ_X) + log μ(x)."""
         obs = jax.random.normal(key, (model.obs_dim,))
