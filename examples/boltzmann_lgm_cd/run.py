@@ -3,10 +3,6 @@
 Uses small latent dimension where exact computation is tractable,
 trains the same model with both exact gradients and CD gradients,
 then compares NLL trajectories and learned densities.
-
-Note: CD with asymmetric harmoniums (DifferentiableBoltzmannLGM) shows
-gradient bias in the latent parameters, which can lead to mode collapse.
-This is a known limitation of CD with mean-field posteriors.
 """
 
 from typing import Any
@@ -81,9 +77,7 @@ def train_exact(
     def loss_fn(p: Array) -> Array:
         return -model.average_log_observable_density(p, data)
 
-    def step(
-        state: tuple[Any, Any], _: Any
-    ) -> tuple[tuple[Any, Any], Array]:
+    def step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)

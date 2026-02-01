@@ -29,6 +29,22 @@ colors = {
 # Sequential colors for multiple models/components
 model_colors = ["#348ABD", "#E24A33", "#988ED5", "#8EBA42", "#FBC15E", "#777777"]
 
+# Colors for metric comparison charts
+metric_colors = {
+    "purity": "#4682B4",  # steelblue
+    "nmi": "#FF7F50",  # coral
+    "accuracy": "#228B22",  # forestgreen
+}
+
+# Standard figure sizes for consistent layouts
+FIGURE_SIZES = {
+    "small": (6, 4),  # Single panel
+    "medium": (10, 8),  # 2x2 grid
+    "large": (12, 7.5),  # 2x3 grid
+    "wide": (14, 6),  # Wide format
+    "tall": (10, 12),  # Tall format
+}
+
 
 @dataclass(frozen=True)
 class ExamplePaths:
@@ -163,4 +179,52 @@ def plot_training_history(
     ax.set_xlabel("Step")
     ax.set_ylabel(ylabel)
     ax.legend()
-    ax.grid(True, alpha=0.3)
+    ax.grid(True)
+
+
+def get_pi_ticks() -> tuple[list[float], list[str]]:
+    """Get standard pi tick locations and labels for circular plots."""
+    ticks = [0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi]
+    labels = ["0", "π/2", "π", "3π/2", "2π"]
+    return ticks, labels
+
+
+def plot_image_grid(
+    ax: Axes,
+    images: NDArray[np.float64],
+    title: str,
+    img_size: int = 28,
+    n_rows: int = 2,
+    n_cols: int = 5,
+    gap: int = 2,
+    vmax: float = 16.0,
+) -> None:
+    """Plot a grid of images (e.g., MNIST digits).
+
+    Args:
+        ax: Matplotlib axes to plot on.
+        images: Array of images with shape (n_images, img_size*img_size).
+        title: Title for the plot.
+        img_size: Size of each image (assumes square images).
+        n_rows: Number of rows in the grid.
+        n_cols: Number of columns in the grid.
+        gap: Gap between images in pixels.
+        vmax: Maximum value for colormap scaling.
+    """
+    n_images = min(n_rows * n_cols, images.shape[0])
+
+    grid_h = n_rows * img_size + (n_rows - 1) * gap
+    grid_w = n_cols * img_size + (n_cols - 1) * gap
+    grid = np.full((grid_h, grid_w), np.nan)
+
+    for i in range(n_images):
+        row = i // n_cols
+        col = i % n_cols
+        y_start = row * (img_size + gap)
+        x_start = col * (img_size + gap)
+        img = images[i].reshape(img_size, img_size)
+        grid[y_start : y_start + img_size, x_start : x_start + img_size] = img
+
+    ax.imshow(grid, cmap="gray", vmin=0, vmax=vmax)
+    ax.set_title(title, fontsize=10)
+    ax.axis("off")

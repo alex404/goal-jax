@@ -8,11 +8,13 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from ..shared import apply_style, example_paths, model_colors
-
-# MNIST image dimensions
-IMG_SIZE = 28
-N_TRIALS = 16
+from ..shared import (
+    apply_style,
+    example_paths,
+    metric_colors,
+    model_colors,
+    plot_image_grid,
+)
 
 # Colors for the three modes
 COLORS = {
@@ -41,8 +43,8 @@ def plot_training_elbos(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_xlabel("Training Step")
     ax.set_ylabel("ELBO")
     ax.set_title("Training ELBO")
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.grid(True)
 
 
 def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
@@ -58,8 +60,8 @@ def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_xlabel("Training Step")
     ax.set_ylabel("Var[f_tilde]")
     ax.set_title("Conjugation Error (Variance)")
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.grid(True)
     ax.set_yscale("log")
 
 
@@ -76,8 +78,8 @@ def plot_conjugation_std(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_xlabel("Training Step")
     ax.set_ylabel("Std[f_tilde]")
     ax.set_title("Conjugation Error (Std)")
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.grid(True)
 
 
 def plot_conjugation_r2(ax: Axes, models: dict[str, Any]) -> None:
@@ -93,8 +95,8 @@ def plot_conjugation_r2(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_xlabel("Training Step")
     ax.set_ylabel("R^2")
     ax.set_title("Conjugation R^2 (higher = better linear fit)")
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.grid(True)
     ax.set_ylim(-0.1, 1.1)
     ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5)
     ax.axhline(y=1, color="gray", linestyle="--", alpha=0.5)
@@ -113,8 +115,8 @@ def plot_rho_norm(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_xlabel("Training Step")
     ax.set_ylabel("||rho||")
     ax.set_title("Rho Norm Over Time")
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.grid(True)
 
 
 def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
@@ -125,24 +127,30 @@ def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
 
     # Purity bars
     purity_vals = [models[m]["cluster_purity"] * 100 for m in modes]
-    bars1 = ax.bar(x - width, purity_vals, width, label="Purity (%)", color="steelblue")
+    bars1 = ax.bar(
+        x - width, purity_vals, width, label="Purity (%)", color=metric_colors["purity"]
+    )
 
     # NMI bars
     nmi_vals = [models[m]["nmi"] * 100 for m in modes]
-    bars2 = ax.bar(x, nmi_vals, width, label="NMI (%)", color="coral")
+    bars2 = ax.bar(x, nmi_vals, width, label="NMI (%)", color=metric_colors["nmi"])
 
     # Accuracy bars
     acc_vals = [models[m]["cluster_accuracy"] * 100 for m in modes]
     bars3 = ax.bar(
-        x + width, acc_vals, width, label="Accuracy (%)", color="forestgreen"
+        x + width,
+        acc_vals,
+        width,
+        label="Accuracy (%)",
+        color=metric_colors["accuracy"],
     )
 
     ax.set_xticks(x)
-    ax.set_xticklabels([LABELS.get(m, m) for m in modes], fontsize=9)
+    ax.set_xticklabels([LABELS.get(m, m) for m in modes])
     ax.set_ylabel("Score (%)")
     ax.set_title("Clustering Metrics Comparison")
     ax.set_ylim(0, 80)
-    ax.legend(fontsize=8)
+    ax.legend()
 
     # Add value labels
     for bars, vals in [(bars1, purity_vals), (bars2, nmi_vals), (bars3, acc_vals)]:
@@ -157,35 +165,7 @@ def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
                 )
 
     ax.axhline(y=10, color="gray", linestyle="--", alpha=0.5, label="Random baseline")
-    ax.grid(True, alpha=0.3, axis="y")
-
-
-def plot_image_grid(
-    ax: Axes,
-    images: NDArray[np.float64],
-    title: str,
-    n_rows: int = 2,
-    n_cols: int = 5,
-) -> None:
-    """Plot a grid of images."""
-    n_images = min(n_rows * n_cols, images.shape[0])
-    gap = 2
-
-    grid_h = n_rows * IMG_SIZE + (n_rows - 1) * gap
-    grid_w = n_cols * IMG_SIZE + (n_cols - 1) * gap
-    grid = np.full((grid_h, grid_w), np.nan)
-
-    for i in range(n_images):
-        row = i // n_cols
-        col = i % n_cols
-        y_start = row * (IMG_SIZE + gap)
-        x_start = col * (IMG_SIZE + gap)
-        img = images[i].reshape(IMG_SIZE, IMG_SIZE)
-        grid[y_start : y_start + IMG_SIZE, x_start : x_start + IMG_SIZE] = img
-
-    ax.imshow(grid, cmap="gray", vmin=0, vmax=N_TRIALS)
-    ax.set_title(title, fontsize=10)
-    ax.axis("off")
+    ax.grid(True, axis="y")
 
 
 def create_samples_and_prototypes_figure(

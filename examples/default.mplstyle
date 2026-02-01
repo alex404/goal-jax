@@ -33,7 +33,7 @@ ytick.labelsize: 10
 
 #### * LEGEND *
 legend.fancybox : True
-legend.fontsize: 10
+legend.fontsize: 9
 
 #### * FIGURE *
 figure.dpi: 200    # figure dots per inch
@@ -55,5 +55,5 @@ savefig.bbox: tight
 #### * GRID *
 grid.linestyle: --
 grid.linewidth: 0.5
-grid.alpha: 0.7
+grid.alpha: 0.3
 

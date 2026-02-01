@@ -54,7 +54,7 @@ def main():
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("ELBO")
     ax1.set_title("Evidence Lower Bound")
-    ax1.grid(True, alpha=0.3)
+    ax1.grid(True)
 
     # ELBO components
     ax2 = fig.add_subplot(gs[0, 1])
@@ -75,7 +75,7 @@ def main():
     ax2.set_ylabel("Value")
     ax2.set_title("ELBO = Reconstruction - KL")
     ax2.legend()
-    ax2.grid(True, alpha=0.3)
+    ax2.grid(True)
 
     # === Row 2: KL and Cluster Distribution ===
 
@@ -85,7 +85,7 @@ def main():
     ax3.set_xlabel("Epoch")
     ax3.set_ylabel("KL Divergence")
     ax3.set_title("KL(q(z,k|x) || p(z,k))")
-    ax3.grid(True, alpha=0.3)
+    ax3.grid(True)
 
     # Cluster distribution bar chart
     ax4 = fig.add_subplot(gs[1, 1])
@@ -95,7 +95,7 @@ def main():
     ax4.set_ylabel("Count")
     ax4.set_title(f"Cluster Distribution (Purity: {purity:.3f})")
     ax4.set_xticks(cluster_indices)
-    ax4.grid(True, alpha=0.3, axis="y")
+    ax4.grid(True, axis="y")
 
     # === Row 3: Confusion Matrix and Cluster Prototypes ===
 

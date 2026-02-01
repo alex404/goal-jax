@@ -5,7 +5,13 @@ from typing import cast
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..shared import apply_style, colors, example_paths, model_colors, plot_density_contours
+from ..shared import (
+    apply_style,
+    colors,
+    example_paths,
+    model_colors,
+    plot_density_contours,
+)
 from .types import HMoGResults
 
 
@@ -49,14 +55,20 @@ def main():
     ax_lat_final = fig.add_subplot(gs[1, 3])
 
     # Ground truth
-    plot_density_contours(ax_gt, x1_mesh, x2_mesh, [true_obs], ["True"], sample, [colors["ground_truth"]])
+    plot_density_contours(
+        ax_gt, x1_mesh, x2_mesh, [true_obs], ["True"], sample, [colors["ground_truth"]]
+    )
     ax_gt.set_title("Ground Truth")
 
     # Initial fits
-    plot_density_contours(ax_iso_init, x1_mesh, x2_mesh, [true_obs, iso_init], ["True", "Initial"], sample)
+    plot_density_contours(
+        ax_iso_init, x1_mesh, x2_mesh, [true_obs, iso_init], ["True", "Initial"], sample
+    )
     ax_iso_init.set_title("Isotropic Initial")
 
-    plot_density_contours(ax_dia_init, x1_mesh, x2_mesh, [true_obs, dia_init], ["True", "Initial"], sample)
+    plot_density_contours(
+        ax_dia_init, x1_mesh, x2_mesh, [true_obs, dia_init], ["True", "Initial"], sample
+    )
     ax_dia_init.set_title("Diagonal Initial")
 
     # Training history
@@ -66,13 +78,17 @@ def main():
     ax_ll.set_ylabel("Log Likelihood")
     ax_ll.set_title("Training History")
     ax_ll.legend()
-    ax_ll.grid(True, alpha=0.3)
+    ax_ll.grid(True)
 
     # Final fits
-    plot_density_contours(ax_iso_final, x1_mesh, x2_mesh, [true_obs, iso_final], ["True", "Final"], sample)
+    plot_density_contours(
+        ax_iso_final, x1_mesh, x2_mesh, [true_obs, iso_final], ["True", "Final"], sample
+    )
     ax_iso_final.set_title("Isotropic Final")
 
-    plot_density_contours(ax_dia_final, x1_mesh, x2_mesh, [true_obs, dia_final], ["True", "Final"], sample)
+    plot_density_contours(
+        ax_dia_final, x1_mesh, x2_mesh, [true_obs, dia_final], ["True", "Final"], sample
+    )
     ax_dia_final.set_title("Diagonal Final")
 
     # Latent densities

@@ -17,7 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 
-from ..shared import apply_style, colors, example_paths, model_colors
+from ..shared import apply_style, colors, example_paths, get_pi_ticks, model_colors
 
 
 def circular_distance(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -133,8 +133,7 @@ def main():
     modes = list(models.keys())
 
     # Pi tick setup
-    pi_ticks = [0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi]
-    pi_labels = ["0", "π/2", "π", "3π/2", "2π"]
+    pi_ticks, pi_labels = get_pi_ticks()
 
     # Create 2x2 figure
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
@@ -149,8 +148,8 @@ def main():
     ax1.set_xlabel("Training Step")
     ax1.set_ylabel("ELBO")
     ax1.set_title("A. Model Fit (ELBO)", fontweight='bold', loc='left')
-    ax1.legend(loc='lower right', fontsize=8)
-    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='lower right')
+    ax1.grid(True)
 
     # =========================================================================
     # Panel B (TR): Conjugation Quality (var[RLS])
@@ -174,8 +173,8 @@ def main():
     ax2.set_xlabel("Training Step")
     ax2.set_ylabel("Var[RLS]")
     ax2.set_title("B. Conjugation Quality", fontweight='bold', loc='left')
-    ax2.legend(loc='upper right', fontsize=8)
-    ax2.grid(True, alpha=0.3)
+    ax2.legend(loc='upper right')
+    ax2.grid(True)
 
     # =========================================================================
     # Panel C (BL): Tuning Curve Locations on 2D Manifold
@@ -223,8 +222,8 @@ def main():
     ax3.set_ylim(0, 2 * np.pi)
     ax3.set_aspect("equal")
     ax3.set_title("C. Preferred Locations on T²", fontweight='bold', loc='left')
-    ax3.legend(loc='upper right', fontsize=8)
-    ax3.grid(True, alpha=0.3)
+    ax3.legend(loc='upper right')
+    ax3.grid(True)
     ax3.set_xticks(pi_ticks)
     ax3.set_xticklabels(pi_labels)
     ax3.set_yticks(pi_ticks)
@@ -257,7 +256,7 @@ def main():
         ax4.set_xlabel("Number of Observations")
         ax4.set_ylabel("Log p(z* | x)")
         ax4.set_title("D. Evidence Accumulation", fontweight='bold', loc='left')
-        ax4.grid(True, alpha=0.3)
+        ax4.grid(True)
         ax4.set_xticks(n_obs_list)
 
         # Annotation showing improvement

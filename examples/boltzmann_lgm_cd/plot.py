@@ -26,7 +26,7 @@ def main():
     ax.set_ylabel("Negative Log-Likelihood")
     ax.set_title("Training Comparison")
     ax.legend()
-    ax.grid(True, alpha=0.3)
+    ax.grid(True)
 
     # Initial density
     ax = axes[0, 1]

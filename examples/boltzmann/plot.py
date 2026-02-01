@@ -31,14 +31,14 @@ def main():
     axes[0, 0].set_xticks(x)
     axes[0, 0].set_xticklabels(results["state_labels"], rotation=45, ha="right")
     axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 0].grid(True)
 
     # Training loss
     axes[0, 1].plot(results["training_losses"], color=colors["initial"])
     axes[0, 1].set_xlabel("Step")
     axes[0, 1].set_ylabel("Cross-Entropy Loss")
     axes[0, 1].set_title("Training History")
-    axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].grid(True)
 
     # Convergence by samples
     sample_sizes = results["sampling_sizes"]
@@ -57,7 +57,7 @@ def main():
     axes[1, 0].set_ylabel("L2 Error")
     axes[1, 0].set_title("Convergence vs Samples")
     axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].grid(True)
 
     # Convergence by computation
     n_burnin = 50
@@ -70,7 +70,7 @@ def main():
     axes[1, 1].set_ylabel("L2 Error")
     axes[1, 1].set_title("Convergence vs Computation")
     axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].grid(True)
 
     plt.tight_layout()
     paths.save_plot(fig)

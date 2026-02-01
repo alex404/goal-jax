@@ -1,16 +1,26 @@
-# common.py
-"""Common definitions for LGM model examples."""
+"""Type definitions for dimensionality reduction example."""
 
 from typing import TypedDict
 
 
-class LGMResults(TypedDict):
-    """Complete results for LGM analysis."""
+class TrajectoryResults(TypedDict):
+    """Results from latent trajectory recovery experiment."""
 
-    sample: list[list[float]]  # List of [x,y] points
-    plot_bounds: tuple[float, float, float, float]  # Bounds for plotting
-    training_lls: dict[str, list[float]]  # Log likelihoods during training
-    grid_points: dict[str, list[list[float]]]  # Points where densities are evaluated
-    ground_truth_densities: list[float]  # Ground truth densities
-    initial_densities: dict[str, list[float]]  # Model densities in data space
-    learned_densities: dict[str, list[float]]  # Model densities in data space
+    # Ground truth
+    true_latents: list[list[float]]  # (n_points, 2) - true latent positions
+    observations: list[list[float]]  # (n_points, obs_dim) - noisy observations
+
+    # Model results
+    training_lls: list[float]  # Log-likelihoods during EM
+    recovered_latents: list[list[float]]  # (n_points, 2) - inferred latent positions
+    aligned_latents: list[list[float]]  # (n_points, 2) - Procrustes-aligned to true
+
+    # Reconstruction
+    reconstructions: list[list[float]]  # (n_points, obs_dim) - reconstructed observations
+    reconstruction_errors: list[float]  # Per-point reconstruction error
+
+    # Configuration
+    obs_dim: int
+    latent_dim: int
+    n_points: int
+    noise_std: float

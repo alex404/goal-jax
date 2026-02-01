@@ -46,7 +46,7 @@ def main():
         ax.set_xlabel(f"X{dim1+1}")
         ax.set_ylabel(f"X{dim2+1}")
         ax.set_title(title)
-        ax.grid(True, alpha=0.3)
+        ax.grid(True)
 
     # Training history
     lls = np.array(results["log_likelihoods"])
@@ -56,7 +56,7 @@ def main():
     ax_ll.set_ylabel("Log Likelihood")
     ax_ll.set_title("Training History")
     ax_ll.legend()
-    ax_ll.grid(True, alpha=0.3)
+    ax_ll.grid(True)
 
     # Final marginals with ground truth overlay
     for ax, dim1, dim2, gt_key, final_key, title in [
@@ -70,7 +70,7 @@ def main():
         ax.set_xlabel(f"X{dim1+1}")
         ax.set_ylabel(f"X{dim2+1}")
         ax.set_title(title)
-        ax.grid(True, alpha=0.3)
+        ax.grid(True)
 
     # Component assignments
     final_assign = np.array(results["final_assignments"])
@@ -81,7 +81,7 @@ def main():
     ax_assign.set_title(f"Predicted Components (Accuracy: {accuracy:.1%})")
     ax_assign.set_xlabel("X1")
     ax_assign.set_ylabel("X2")
-    ax_assign.grid(True, alpha=0.3)
+    ax_assign.grid(True)
     plt.colorbar(sc, ax=ax_assign, label="Component", ticks=[0, 1])
 
     fig.suptitle("Mixture of Factor Analyzers (3D obs, 2D latent, 2 components)", fontsize=16, fontweight="bold")
