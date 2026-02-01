@@ -19,10 +19,10 @@ source .venv/bin/activate
 ### Testing
 - Run all tests: `python -m pytest tests/`
 - Run specific test files:
-  - `python -m pytest tests/linear_gaussian_model.py`
-  - `python -m pytest tests/normal.py`
-  - `python -m pytest tests/univariate.py`
-  - `python -m pytest tests/matrix.py`
+  - `python -m pytest tests/test_lgm.py`
+  - `python -m pytest tests/test_normal.py`
+  - `python -m pytest tests/test_graphical_mixture.py`
+  - `python -m pytest tests/test_matrix.py`
 
 ### Code Quality
 - Run linter: `ruff check src/`
@@ -39,7 +39,7 @@ source .venv/bin/activate
 Examples are located in the `examples/` directory and organized by topic:
 - Run example: `python -m examples.bivariate_normal.run`
 - Generate plots: `python -m examples.bivariate_normal.plot`
-- Available examples: bivariate_normal, dimensionality_reduction, hmog, mixture_of_gaussians, univariate_analytic, univariate_differentiable, poisson_mixture
+- Available examples: bivariate_normal, boltzmann, boltzmann_lgm, boltzmann_lgm_cd, dimensionality_reduction, hmog, mfa, mixture_of_gaussians, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
 
 ### Documentation
 - Build documentation: `sphinx-build docs/source docs/build` or `cd docs/ && make html`
@@ -78,20 +78,35 @@ The library is organized into three main modules under `src/goal/`:
 ### Key Design Patterns
 1. **Analytic vs Differentiable**: Models can provide exact computations or gradient-based approximations
 2. **Harmoniums**: Conjugate relationship modeling between latent and observed variables
+   - `SymmetricConjugated`: Posterior and prior use the same manifold (`pst_man == prr_man`)
+   - `DifferentiableConjugated[Obs, Pst, Prr]`: Supports asymmetric cases where posterior embeds into prior (`pst_man ⊂ prr_man` via `pst_prr_emb`)
 3. **Combinators**: Composable building blocks for complex models (Product, Pair, Replicated)
-4. **Embeddings**: Flexible transformations between manifolds
+4. **Embeddings**: Flexible transformations between manifolds (e.g., `NormalCovarianceEmbedding` embeds `DiagonalNormal` into `FullNormal`)
+
+### Key Model Classes
+- **Normal distributions**: `Normal[Rep]` parameterized by covariance representation
+- **Linear Gaussian Models**: `NormalLGM[ObsRep, PstRep]`, `FactorAnalysis`, `PrincipalComponentAnalysis`
+- **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
+- **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
 
 ## Typing Strategy
 
-This codebase uses Python 3.13+ modern generic syntax with a pragmatic approach to type safety:
+This codebase uses Python 3.12+ modern generic syntax with a pragmatic approach to type safety:
 
 ### Philosophy
 - **Pragmatic over purist**: Accept type system limitations rather than fight them when the code is functionally correct
 
+### Type Aliases
+The codebase defines convenient type aliases for common parameterized types:
+- `FullNormal = Normal[PositiveDefinite]` - Full covariance normal
+- `DiagonalNormal = Normal[Diagonal]` - Diagonal covariance normal
+- `IsotropicNormal = Normal[Scale]` - Isotropic (scalar variance) normal
+- `StandardNormal = Normal[Identity]` - Standard normal (identity covariance)
+
 ### Suppression Strategy
 ```toml
-**Global configuration**: Backend/external library type issues handled via pyproject.toml:
-[tool.pyright]
+# Backend/external library type issues handled via pyproject.toml:
+[tool.basedpyright]
 reportUnknownParameterType = "none"         # JAX integration challenges
 reportUnknownMemberType = "none"           # External library type inference
 reportUnknownArgumentType = "none"         # Complex generic type inference
@@ -104,7 +119,8 @@ reportUnknownVariableType = "none"  # JAX, scipy, etc. have incomplete types
 - **Complex generics**: Some inference limitations remain in deep hierarchical models (expected with current Python typing)
 
 ## Testing Notes
-- Test files correspond to major components: matrix representations, normal distributions, univariate models, linear Gaussian models
+- Test files correspond to major components: matrix representations, normal distributions, LGMs, harmoniums, graphical models
+- Tests use pytest fixtures with parametrization for testing across different model configurations
 
 ## Dependencies
 - **JAX**: Core computation backend for automatic differentiation
