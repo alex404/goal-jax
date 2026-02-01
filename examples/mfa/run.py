@@ -7,8 +7,10 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from goal.models import DiagonalNormal, FactorAnalysis, FullNormal
+from goal.geometry import Diagonal, Differentiable
+from goal.models import DiagonalNormal, FactorAnalysis
 from goal.models.graphical.mixture import CompleteMixtureOfConjugated
+from goal.models.harmonium.lgm import NormalLGM
 
 from ..shared import example_paths, jax_cli
 from .types import MFAResults
@@ -83,8 +85,8 @@ def compute_marginal_2d(
     return jax.vmap(point_density)(grid_2d).reshape(len(x_range), len(x_range))
 
 
-def compute_mfa_marginal_2d(
-    mfa: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal],
+def compute_mfa_marginal_2d[Pst: Differentiable, Prr: Differentiable](
+    mfa: CompleteMixtureOfConjugated[DiagonalNormal, Pst, Prr],
     params: Array,
     x_range: Array,
     dims: tuple[int, int],
@@ -113,12 +115,13 @@ def compute_mfa_marginal_2d(
     return jax.vmap(point_marginal)(grid_2d).reshape(len(x_range), len(x_range))
 
 
-def fit_mfa(
+def fit_mfa[Pst: Differentiable, Prr: Differentiable](
     key: Array,
-    mfa: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal],
+    mfa: CompleteMixtureOfConjugated[DiagonalNormal, Pst, Prr],
     sample: Array,
     n_steps: int,
     learning_rate: float = 1e-3,
+    name: str = "Model",
 ) -> tuple[Array, Array, Array]:
     """Fit MFA via gradient descent."""
     init_params = mfa.initialize_from_sample(key, sample)
@@ -142,10 +145,10 @@ def fit_mfa(
         ll = -float(loss)
         lls.append(ll)
         if jnp.isnan(loss):
-            print(f"NaN at step {step_i}")
+            print(f"{name}: NaN at step {step_i}")
             break
         if step_i % 500 == 0:
-            print(f"Step {step_i}: LL = {ll:.4f}")
+            print(f"{name} step {step_i}: LL = {ll:.4f}")
 
     return jnp.array(lls), init_params, params
 
@@ -154,16 +157,25 @@ def main():
     jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(0)
-    key_data, key_train = jax.random.split(key)
+    key_data, key_fa, key_diag = jax.random.split(key, 3)
 
     # Data
     samples, gt_assignments, mixing = create_ground_truth(key_data, 1000)
 
-    # Model
-    mfa = CompleteMixtureOfConjugated(
+    # Model 1: Factor Analysis base (full latent covariance)
+    mfa_fa = CompleteMixtureOfConjugated(
         n_categories=3, bas_hrm=FactorAnalysis(obs_dim=3, lat_dim=2)
     )
-    lls, init_params, final_params = fit_mfa(key_train, mfa, samples, 5000)
+    print("Training FA model...")
+    fa_lls, fa_init, fa_final = fit_mfa(key_fa, mfa_fa, samples, 5000, name="FA")
+
+    # Model 2: NormalLGM with diagonal latent covariance (asymmetric pst/prr)
+    diag_lgm = NormalLGM(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, pst_rep=Diagonal())
+    mfa_diag = CompleteMixtureOfConjugated(n_categories=3, bas_hrm=diag_lgm)
+    print("\nTraining Diag model...")
+    diag_lls, diag_init, diag_final = fit_mfa(
+        key_diag, mfa_diag, samples, 5000, name="Diag"
+    )
 
     # Ground truth marginals (analytic)
     x_range = jnp.linspace(-5.0, 5.0, 50)
@@ -186,44 +198,94 @@ def main():
         (loadings_3, means_3, diags_3),
     ]
 
+    # Compute all marginals
+    def compute_all_marginals(mfa: Any, params: Array) -> tuple[Array, Array, Array]:
+        return (
+            compute_mfa_marginal_2d(mfa, params, x_range, (0, 1), 2),
+            compute_mfa_marginal_2d(mfa, params, x_range, (0, 2), 1),
+            compute_mfa_marginal_2d(mfa, params, x_range, (1, 2), 0),
+        )
+
+    # Ground truth
     gt_x1x2 = compute_marginal_2d(gt_components, mixing, x_range, (0, 1))
     gt_x1x3 = compute_marginal_2d(gt_components, mixing, x_range, (0, 2))
     gt_x2x3 = compute_marginal_2d(gt_components, mixing, x_range, (1, 2))
 
-    # Fitted marginals (numerical)
-    init_x1x2 = compute_mfa_marginal_2d(mfa, init_params, x_range, (0, 1), 2)
-    init_x1x3 = compute_mfa_marginal_2d(mfa, init_params, x_range, (0, 2), 1)
-    init_x2x3 = compute_mfa_marginal_2d(mfa, init_params, x_range, (1, 2), 0)
+    # FA model marginals
+    fa_init_x1x2, fa_init_x1x3, fa_init_x2x3 = compute_all_marginals(mfa_fa, fa_init)
+    fa_final_x1x2, fa_final_x1x3, fa_final_x2x3 = compute_all_marginals(
+        mfa_fa, fa_final
+    )
 
-    final_x1x2 = compute_mfa_marginal_2d(mfa, final_params, x_range, (0, 1), 2)
-    final_x1x3 = compute_mfa_marginal_2d(mfa, final_params, x_range, (0, 2), 1)
-    final_x2x3 = compute_mfa_marginal_2d(mfa, final_params, x_range, (1, 2), 0)
+    # Diag model marginals
+    diag_init_x1x2, diag_init_x1x3, diag_init_x2x3 = compute_all_marginals(
+        mfa_diag, diag_init
+    )
+    diag_final_x1x2, diag_final_x1x3, diag_final_x2x3 = compute_all_marginals(
+        mfa_diag, diag_final
+    )
+
+    # Ground truth log-likelihood (construct GT model and evaluate)
+    fa = FactorAnalysis(obs_dim=3, lat_dim=2)
+    fa1_params = fa.from_loadings(loadings_1, means_1, diags_1)
+    fa2_params = fa.from_loadings(loadings_2, means_2, diags_2)
+    fa3_params = fa.from_loadings(loadings_3, means_3, diags_3)
+
+    # Build ground truth mixture model
+    gt_mfa = CompleteMixtureOfConjugated(n_categories=3, bas_hrm=fa)
+    gt_comp_params = jnp.concatenate([fa1_params, fa2_params, fa3_params])
+    gt_cat_params = gt_mfa.pst_man.lat_man.to_natural(
+        gt_mfa.pst_man.lat_man.from_probs(mixing)
+    )
+    gt_params = gt_mfa.mix_man.join_natural_mixture(gt_comp_params, gt_cat_params)
+    gt_params = gt_mfa.from_mixture_params(gt_params)
+    gt_ll = float(gt_mfa.average_log_observable_density(gt_params, samples))
+    print(f"\nGround truth LL: {gt_ll:.4f}")
 
     # Assignments
     gt_assign = jnp.eye(3)[gt_assignments]
-    final_assign = jax.vmap(mfa.posterior_soft_assignments, in_axes=(None, 0))(
-        final_params, samples
+    fa_assign = jax.vmap(mfa_fa.posterior_soft_assignments, in_axes=(None, 0))(
+        fa_final, samples
+    )
+    diag_assign = jax.vmap(mfa_diag.posterior_soft_assignments, in_axes=(None, 0))(
+        diag_final, samples
     )
 
     results = MFAResults(
         observations=samples.tolist(),
         ground_truth_components=gt_assignments.tolist(),
         plot_range=x_range.tolist(),
-        log_likelihoods=lls.tolist(),
-        ground_truth_ll=float(
-            mfa.average_log_observable_density(final_params, samples)
-        ),
-        ground_truth_density_x1x2=gt_x1x2.tolist(),
-        ground_truth_density_x1x3=gt_x1x3.tolist(),
-        ground_truth_density_x2x3=gt_x2x3.tolist(),
-        initial_density_x1x2=init_x1x2.tolist(),
-        initial_density_x1x3=init_x1x3.tolist(),
-        initial_density_x2x3=init_x2x3.tolist(),
-        final_density_x1x2=final_x1x2.tolist(),
-        final_density_x1x3=final_x1x3.tolist(),
-        final_density_x2x3=final_x2x3.tolist(),
+        log_likelihoods={
+            "FA": fa_lls.tolist(),
+            "Diag": diag_lls.tolist(),
+        },
+        ground_truth_ll=gt_ll,
+        density_x1x2={
+            "Ground Truth": gt_x1x2.tolist(),
+            "FA Initial": fa_init_x1x2.tolist(),
+            "FA Final": fa_final_x1x2.tolist(),
+            "Diag Initial": diag_init_x1x2.tolist(),
+            "Diag Final": diag_final_x1x2.tolist(),
+        },
+        density_x1x3={
+            "Ground Truth": gt_x1x3.tolist(),
+            "FA Initial": fa_init_x1x3.tolist(),
+            "FA Final": fa_final_x1x3.tolist(),
+            "Diag Initial": diag_init_x1x3.tolist(),
+            "Diag Final": diag_final_x1x3.tolist(),
+        },
+        density_x2x3={
+            "Ground Truth": gt_x2x3.tolist(),
+            "FA Initial": fa_init_x2x3.tolist(),
+            "FA Final": fa_final_x2x3.tolist(),
+            "Diag Initial": diag_init_x2x3.tolist(),
+            "Diag Final": diag_final_x2x3.tolist(),
+        },
         ground_truth_assignments=gt_assign.tolist(),
-        final_assignments=final_assign.tolist(),
+        final_assignments={
+            "FA": fa_assign.tolist(),
+            "Diag": diag_assign.tolist(),
+        },
     )
     paths.save_analysis(results)
 
