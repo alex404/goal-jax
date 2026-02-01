@@ -11,7 +11,7 @@ import jax.numpy as jnp
 
 from goal.models import VonMisesPopulationCode
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import PopulationCodeResults
 
 # Model configuration
@@ -79,7 +79,7 @@ def circular_error(estimate: jax.Array, true_val: jax.Array) -> jax.Array:
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(42)
 
@@ -104,7 +104,9 @@ def main():
     # Compute errors
     errors = circular_error(post_means, stimuli)
     mean_error = float(jnp.mean(errors))
-    print(f"Mean circular error: {mean_error:.4f} radians ({jnp.degrees(mean_error):.2f} degrees)")
+    print(
+        f"Mean circular error: {mean_error:.4f} radians ({jnp.degrees(mean_error):.2f} degrees)"
+    )
 
     # Save results
     results: PopulationCodeResults = {

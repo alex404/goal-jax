@@ -11,7 +11,7 @@ from sklearn.mixture import GaussianMixture
 from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import AnalyticMixture, Normal
 
-from ..shared import create_grid, example_paths, initialize_jax
+from ..shared import create_grid, example_paths, jax_cli
 from .types import MixtureResults
 
 
@@ -87,7 +87,7 @@ fit_mixture = jax.jit(fit_mixture, static_argnames=["mix_man", "n_steps"])
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(0)
 

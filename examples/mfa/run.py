@@ -10,7 +10,7 @@ from jax import Array
 from goal.models import FactorAnalysis, Normal
 from goal.models.graphical.mixture import CompleteMixtureOfConjugated
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import MFAResults
 
 
@@ -151,7 +151,7 @@ def fit_mfa(
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(0)
     key_data, key_train = jax.random.split(key)

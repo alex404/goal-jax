@@ -9,7 +9,7 @@ from jax import Array
 from goal.geometry import Diagonal, Scale
 from goal.models import AnalyticHMoG, analytic_hmog
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import HMoGResults
 
 # Model configuration
@@ -34,7 +34,9 @@ def create_ground_truth() -> tuple[AnalyticHMoG, Array]:
         mix_natural = um.to_natural(mix_mean)
 
     with hmog.obs_man as om:
-        obs_mean = om.join_mean_covariance(jnp.array([0.0, 0.0]), jnp.array([width, height]))
+        obs_mean = om.join_mean_covariance(
+            jnp.array([0.0, 0.0]), jnp.array([width, height])
+        )
         obs_natural = om.to_natural(obs_mean)
         int_mat0 = jnp.array([1.0, 0.0])
         obs_prs = om.split_location_precision(obs_natural)[1]
@@ -62,7 +64,7 @@ fit_hmog = jax.jit(fit_hmog, static_argnames=["hmog", "n_steps"])
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(0)
     key_sample, key_train = jax.random.split(key)
@@ -86,11 +88,15 @@ def main():
     lat_y = jnp.linspace(-6, 6, 100)
 
     def obs_density(model: AnalyticHMoG, params: Array) -> Array:
-        return jax.vmap(model.observable_density, in_axes=(None, 0))(params, grid_points).reshape(100, 100)
+        return jax.vmap(model.observable_density, in_axes=(None, 0))(
+            params, grid_points
+        ).reshape(100, 100)
 
     def mix_density(model: AnalyticHMoG, params: Array) -> Array:
         mix_params = model.split_conjugated(params)[1]
-        return jax.vmap(model.pst_man.observable_density, in_axes=(None, 0))(mix_params, lat_y[:, None])
+        return jax.vmap(model.pst_man.observable_density, in_axes=(None, 0))(
+            mix_params, lat_y[:, None]
+        )
 
     results = HMoGResults(
         plot_range_x1=x.tolist(),

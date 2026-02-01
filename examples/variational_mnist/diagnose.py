@@ -13,14 +13,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths
 from .model import MixtureModel, create_model
 from .train import DEFAULT_N_TRIALS, load_mnist
 
 
 def diagnose_trained_model(mode: str = "free"):
     """Diagnose a trained model by loading its parameters."""
-    initialize_jax("gpu")
+    jax.config.update("jax_platform_name", "gpu")
     paths = example_paths(__file__)
 
     # Load results and config
@@ -336,7 +336,7 @@ def diagnose_trained_model(mode: str = "free"):
 
 def main():
     """Run diagnosis for all trained modes."""
-    initialize_jax("gpu")
+    jax.config.update("jax_platform_name", "gpu")
     paths = example_paths(__file__)
 
     # Load parameters

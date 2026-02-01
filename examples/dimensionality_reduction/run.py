@@ -19,7 +19,7 @@ from jax import Array
 
 from goal.models import FactorAnalysis
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import TrajectoryResults
 
 # Configuration
@@ -162,7 +162,7 @@ def reconstruct_observations(
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(42)
 

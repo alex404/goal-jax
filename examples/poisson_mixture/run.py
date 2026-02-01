@@ -15,7 +15,7 @@ from goal.models import (
     poisson_mixture,
 )
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import CovarianceStatistics, PoissonAnalysisResults
 
 # Model configuration
@@ -36,11 +36,13 @@ nor_man = Normal(n_neurons, PositiveDefinite())
 
 def create_ground_truth_fa() -> Array:
     """Create ground truth factor analysis model."""
-    loadings = jnp.array([
-        [0.9, -0.1, 0.1, 0.4, -0.8, -0.5, -0.2, 0.3, 0.2, -0.6],
-        [0.1, 0.8, -0.1, -0.4, 0.3, 0.2, 0.5, -0.4, 0.2, 0.7],
-        [0.1, 0.1, 0.7, -0.2, 0.8, 0.3, -0.3, 0.3, -0.6, 0.4],
-    ]).T
+    loadings = jnp.array(
+        [
+            [0.9, -0.1, 0.1, 0.4, -0.8, -0.5, -0.2, 0.3, 0.2, -0.6],
+            [0.1, 0.8, -0.1, -0.4, 0.3, 0.2, 0.5, -0.4, 0.2, 0.7],
+            [0.1, 0.1, 0.7, -0.2, 0.8, 0.3, -0.3, 0.3, -0.6, 0.4],
+        ]
+    ).T
     means = jnp.array([5 - (k / 3) for k in range(n_neurons)])
     diags = jnp.array([0.1, 0.1, 0.1, 0.5, 0.5, 0.3, 0.3, 0.3, 0.3, 0.3])
     return fa_man.from_loadings(loadings, means, diags)
@@ -101,9 +103,7 @@ def fit_com(key: Array, sample: Array) -> tuple[Array, list[float]]:
     def loss_fn(p: Array) -> Array:
         return -com_mix.average_log_observable_density(p, sample)
 
-    def step(
-        state: tuple[Any, Any], _: Any
-    ) -> tuple[tuple[Any, Any], Array]:
+    def step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
         opt_state, p = state
         loss, grads = jax.value_and_grad(loss_fn)(p)
         updates, opt_state = optimizer.update(grads, opt_state, p)
@@ -115,7 +115,7 @@ def fit_com(key: Array, sample: Array) -> tuple[Array, list[float]]:
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
 
     key = jax.random.PRNGKey(42)

@@ -10,7 +10,7 @@ from jax import Array
 from goal.geometry import PositiveDefinite
 from goal.models import BoltzmannLGM
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import GaussianBoltzmannResults
 
 # Model configuration
@@ -49,9 +49,7 @@ def train_model(key: Array, model: BoltzmannLGM, data: Array) -> tuple[Array, Ar
     def loss_fn(p: Array) -> Array:
         return -model.average_log_observable_density(p, data)
 
-    def step(
-        state: tuple[Any, Any], _: Any
-    ) -> tuple[tuple[Any, Any], Array]:
+    def step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)
@@ -99,7 +97,7 @@ def compute_ellipse(
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(42)
     key_data, key_train = jax.random.split(key)

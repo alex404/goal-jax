@@ -29,7 +29,7 @@ import optax
 from jax import Array
 from sklearn.datasets import fetch_openml
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths
 from .model import (
     ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
     N_OBSERVABLE,
@@ -1026,7 +1026,7 @@ def main():
         print(f"  Analytical samples mult: {args.analytical_samples_mult}")
     print("=" * 60)
 
-    initialize_jax("gpu")
+    jax.config.update("jax_platform_name", "gpu")
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(42)
 

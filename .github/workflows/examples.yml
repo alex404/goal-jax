@@ -35,8 +35,8 @@ jobs:
           python -m examples.boltzmann.plot
           python -m examples.dimensionality_reduction.run
           python -m examples.dimensionality_reduction.plot
-          python -m examples.gaussian_boltzmann.run
-          python -m examples.gaussian_boltzmann.plot
+          python -m examples.boltzmann_lgm.run
+          python -m examples.boltzmann_lgm.plot
           python -m examples.hmog.run
           python -m examples.hmog.plot
           python -m examples.mfa.run

@@ -15,7 +15,7 @@ from jax import Array
 from goal.geometry import PositiveDefinite
 from goal.models import DifferentiableBoltzmannLGM
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import BoltzmannCDResults
 
 # Model configuration - small scale for exact comparison
@@ -151,7 +151,7 @@ def compute_density_grid(
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(42)
     key_data, key_init, _, key_cd = jax.random.split(key, 4)

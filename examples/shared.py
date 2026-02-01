@@ -1,5 +1,6 @@
 """Shared utilities for GOAL examples."""
 
+import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,10 +90,19 @@ def example_paths(module_path: str | Path) -> ExamplePaths:
     )
 
 
-def initialize_jax(device: str = "cpu", disable_jit: bool = False) -> None:
-    """Initialize JAX configuration."""
-    jax.config.update("jax_platform_name", device)
-    if disable_jit:
+def jax_cli() -> None:
+    """Initialize JAX from CLI arguments.
+
+    Parses --gpu and --no-jit flags.
+    Default is CPU for CI/laptop compatibility. Use --gpu for acceleration.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--gpu", action="store_true", help="Use GPU instead of CPU")
+    parser.add_argument("--no-jit", action="store_true", help="Disable JIT compilation")
+    args, _ = parser.parse_known_args()
+
+    jax.config.update("jax_platform_name", "gpu" if args.gpu else "cpu")
+    if args.no_jit:
         jax.config.update("jax_disable_jit", True)
 
 

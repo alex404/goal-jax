@@ -10,25 +10,27 @@ from jax import Array
 
 from goal.models.base.gaussian.boltzmann import Boltzmann
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import BoltzmannPatternResults
 
 
 def create_ground_truth_model() -> tuple[Boltzmann, Array]:
     """Create ground truth Boltzmann machine with structured correlations."""
     model = Boltzmann(n_neurons=4)
-    params = jnp.array([
-        0.5,   # bias for unit 0
-        1.2,   # interaction (0,1)
-        -0.2,  # bias for unit 1
-        0.8,   # interaction (0,2)
-        0.6,   # interaction (1,2)
-        0.3,   # bias for unit 2
-        -0.5,  # interaction (0,3)
-        -0.3,  # interaction (1,3)
-        0.4,   # interaction (2,3)
-        -0.1,  # bias for unit 3
-    ])
+    params = jnp.array(
+        [
+            0.5,  # bias for unit 0
+            1.2,  # interaction (0,1)
+            -0.2,  # bias for unit 1
+            0.8,  # interaction (0,2)
+            0.6,  # interaction (1,2)
+            0.3,  # bias for unit 2
+            -0.5,  # interaction (0,3)
+            -0.3,  # interaction (1,3)
+            0.4,  # interaction (2,3)
+            -0.1,  # bias for unit 3
+        ]
+    )
     return model, params
 
 
@@ -46,9 +48,7 @@ def fit_boltzmann(
     def loss_fn(params: Array) -> Array:
         return -model.average_log_density(params, training_data)
 
-    def step(
-        state: tuple[Any, Any], _: Any
-    ) -> tuple[tuple[Any, Any], Array]:
+    def step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)
@@ -88,7 +88,9 @@ def test_sampling_convergence(
         sample_errors = []
         for n_thin in thin_levels:
             key, subkey = jax.random.split(key)
-            samples = model.sample(subkey, params, n=n_samples, n_burnin=50, n_thin=n_thin)
+            samples = model.sample(
+                subkey, params, n=n_samples, n_burnin=50, n_thin=n_thin
+            )
 
             empirical_probs = jnp.zeros(16)
             for k, state in enumerate(all_states):
@@ -105,7 +107,7 @@ def test_sampling_convergence(
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(42)
 

@@ -9,7 +9,7 @@ from jax import Array
 
 from goal.models import CoMPoisson, VonMises
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import CoMPoissonResults, DifferentiableUnivariateResults, VonMisesResults
 
 
@@ -33,9 +33,7 @@ def fit_von_mises(
     def loss_fn(params: Array) -> Array:
         return -model.average_log_density(params, sample)
 
-    def step(
-        state: tuple[Any, Any], _: Any
-    ) -> tuple[tuple[Any, Any], Array]:
+    def step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)
@@ -48,7 +46,9 @@ def fit_von_mises(
 
     eval_points = jnp.linspace(-jnp.pi, jnp.pi, 200)
     true_density = jax.vmap(model.density, in_axes=(None, 0))(true_params, eval_points)
-    fitted_density = jax.vmap(model.density, in_axes=(None, 0))(final_params, eval_points)
+    fitted_density = jax.vmap(model.density, in_axes=(None, 0))(
+        final_params, eval_points
+    )
 
     return VonMisesResults(
         samples=sample.ravel().tolist(),
@@ -81,9 +81,7 @@ def fit_com_poisson(
     def loss_fn(params: Array) -> Array:
         return -model.average_log_density(params, sample)
 
-    def step(
-        state: tuple[Any, Any], _: Any
-    ) -> tuple[tuple[Any, Any], Array]:
+    def step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)
@@ -109,7 +107,7 @@ def fit_com_poisson(
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
 
     key = jax.random.PRNGKey(0)

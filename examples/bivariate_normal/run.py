@@ -8,7 +8,7 @@ from jax.scipy.stats import multivariate_normal
 from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import Normal
 
-from ..shared import create_grid, example_paths, get_normal_bounds, initialize_jax
+from ..shared import create_grid, example_paths, get_normal_bounds, jax_cli
 from .types import BivariateResults
 
 
@@ -27,7 +27,7 @@ def fit_and_evaluate(model: Normal, sample: Array, xs: Array, ys: Array) -> Arra
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
     key = jax.random.PRNGKey(0)
 

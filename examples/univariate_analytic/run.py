@@ -7,7 +7,7 @@ from jax import Array
 from goal.geometry import PositiveDefinite
 from goal.models import Categorical, Normal, Poisson
 
-from ..shared import example_paths, initialize_jax
+from ..shared import example_paths, jax_cli
 from .types import CategoricalResults, NormalResults, PoissonResults, UnivariateResults
 
 
@@ -66,7 +66,7 @@ def fit_poisson(
 
 
 def main():
-    initialize_jax()
+    jax_cli()
     paths = example_paths(__file__)
 
     key = jax.random.PRNGKey(0)
