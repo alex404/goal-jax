@@ -10,7 +10,10 @@ from jax import Array
 
 from goal.geometry import Diagonal
 from goal.models import DiagonalNormal, FactorAnalysis, FullNormal
-from goal.models.graphical.mixture import CompleteMixtureOfConjugated
+from goal.models.graphical.mixture import (
+    CompleteMixtureOfConjugated,
+    CompleteMixtureOfSymmetric,
+)
 from goal.models.harmonium.lgm import NormalLGM
 
 jax.config.update("jax_platform_name", "cpu")
@@ -28,29 +31,29 @@ def key() -> Array:
 
 
 class TestCompleteMixtureBasics:
-    """Test basic CompleteMixtureOfConjugated properties."""
+    """Test basic CompleteMixtureOfSymmetric properties."""
 
     @pytest.fixture(params=[(3, 2, 2), (4, 2, 3)])
     def model(
         self, request: pytest.FixtureRequest
-    ) -> CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal]:
-        """Create CompleteMixtureOfConjugated with FactorAnalysis base."""
+    ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
+        """Create CompleteMixtureOfSymmetric with FactorAnalysis base."""
         obs_dim, lat_dim, n_cat = request.param
         base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
-        return CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal](
+        return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )
 
     @pytest.fixture
     def params(
-        self, model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal], key: Array
+        self, model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], key: Array
     ) -> Array:
         """Generate random model parameters."""
         return model.initialize(key, location=0.0, shape=1.0)
 
     def test_dimension_consistency(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test all manifold dimensions are consistent."""
@@ -63,7 +66,7 @@ class TestCompleteMixtureBasics:
 
     def test_interaction_blocks_sum(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test interaction blocks sum to total."""
@@ -72,11 +75,21 @@ class TestCompleteMixtureBasics:
         assert xy.shape[0] + xyk.shape[0] + xk.shape[0] == model.int_man.dim
 
     def test_domain_codomain_consistency(
-        self, model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal]
+        self, model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]
     ) -> None:
         """Test domain/codomain consistency."""
         assert model.int_man.dom_man.dim == model.pst_man.dim
         assert model.int_man.cod_man.dim == model.obs_man.dim
+
+    def test_lat_man_property(
+        self, model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]
+    ) -> None:
+        """Test lat_man property equals pst_man for symmetric case."""
+        # lat_man and pst_man return equivalent CompleteMixture objects
+        assert model.lat_man.dim == model.pst_man.dim
+        assert model.lat_man.n_categories == model.pst_man.n_categories
+        # Also verify prr_man matches (since symmetric)
+        assert model.lat_man.dim == model.prr_man.dim
 
 
 class TestCompleteMixtureConjugation:
@@ -85,24 +98,24 @@ class TestCompleteMixtureConjugation:
     @pytest.fixture(params=[(3, 2, 2)])
     def model(
         self, request: pytest.FixtureRequest
-    ) -> CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal]:
-        """Create CompleteMixtureOfConjugated."""
+    ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
+        """Create CompleteMixtureOfSymmetric."""
         obs_dim, lat_dim, n_cat = request.param
         base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
-        return CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal](
+        return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )
 
     @pytest.fixture
     def params(
-        self, model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal], key: Array
+        self, model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], key: Array
     ) -> Array:
         """Generate random model parameters."""
         return model.initialize(key, location=0.0, shape=1.0)
 
     def test_conjugation_parameters_shape(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test conjugation parameters have correct shape."""
@@ -111,7 +124,9 @@ class TestCompleteMixtureConjugation:
         rho = model.conjugation_parameters(lkl_params)
 
         # Conjugation parameters are in prr_man (prior) space
+        # For symmetric case, prr_man == pst_man == lat_man
         assert rho.shape[0] == model.prr_man.dim
+        assert rho.shape[0] == model.lat_man.dim
 
 
 class TestCompleteMixturePosterior:
@@ -120,24 +135,24 @@ class TestCompleteMixturePosterior:
     @pytest.fixture(params=[(3, 2, 2), (4, 2, 3)])
     def model(
         self, request: pytest.FixtureRequest
-    ) -> CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal]:
-        """Create CompleteMixtureOfConjugated."""
+    ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
+        """Create CompleteMixtureOfSymmetric."""
         obs_dim, lat_dim, n_cat = request.param
         base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
-        return CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal](
+        return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )
 
     @pytest.fixture
     def params(
-        self, model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal], key: Array
+        self, model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], key: Array
     ) -> Array:
         """Generate random model parameters."""
         return model.initialize(key, location=0.0, shape=1.0)
 
     def test_posterior_dimension(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test posterior has correct dimension."""
@@ -147,7 +162,7 @@ class TestCompleteMixturePosterior:
 
     def test_soft_assignments_sum_to_one(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test soft assignments sum to 1."""
@@ -159,7 +174,7 @@ class TestCompleteMixturePosterior:
 
     def test_hard_assignment_valid(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test hard assignment is valid index."""
@@ -173,15 +188,15 @@ class TestCompleteMixtureInteraction:
     """Test interaction block operations."""
 
     @pytest.fixture
-    def model(self) -> CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal]:
-        """Create CompleteMixtureOfConjugated."""
+    def model(self) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
+        """Create CompleteMixtureOfSymmetric."""
         base_fa = FactorAnalysis(obs_dim=3, lat_dim=2)
-        return CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal](
+        return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=2, bas_hrm=base_fa
         )
 
     def test_interaction_blocks_callable(
-        self, model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal]
+        self, model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]
     ) -> None:
         """Test each interaction block is callable."""
         xy_params = model.xy_man.zeros()
@@ -204,24 +219,24 @@ class TestCompleteMixtureRepresentation:
     @pytest.fixture(params=[(3, 2, 2), (4, 2, 3)])
     def model(
         self, request: pytest.FixtureRequest
-    ) -> CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal]:
-        """Create CompleteMixtureOfConjugated."""
+    ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
+        """Create CompleteMixtureOfSymmetric."""
         obs_dim, lat_dim, n_cat = request.param
         base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
-        return CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal](
+        return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )
 
     @pytest.fixture
     def params(
-        self, model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal], key: Array
+        self, model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], key: Array
     ) -> Array:
         """Generate random model parameters."""
         return model.initialize(key, location=0.0, shape=1.0)
 
     def test_mixture_round_trip(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test conversion to/from CompleteMixture is invertible."""
@@ -231,7 +246,7 @@ class TestCompleteMixtureRepresentation:
 
     def test_mixture_dimension(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
     ) -> None:
         """Test mix_man has correct dimension."""
@@ -240,7 +255,7 @@ class TestCompleteMixtureRepresentation:
 
     def test_mixture_likelihood(
         self,
-        model: CompleteMixtureOfConjugated[DiagonalNormal, FullNormal, FullNormal],
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
         params: Array,
         key: Array,
     ) -> None:

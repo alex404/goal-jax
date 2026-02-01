@@ -9,7 +9,10 @@ from jax import Array
 
 from goal.geometry import Diagonal, Differentiable
 from goal.models import DiagonalNormal, FactorAnalysis
-from goal.models.graphical.mixture import CompleteMixtureOfConjugated
+from goal.models.graphical.mixture import (
+    CompleteMixtureOfConjugated,
+    CompleteMixtureOfSymmetric,
+)
 from goal.models.harmonium.lgm import NormalLGM
 
 from ..shared import example_paths, jax_cli
@@ -162,8 +165,8 @@ def main():
     # Data
     samples, gt_assignments, mixing = create_ground_truth(key_data, 1000)
 
-    # Model 1: Factor Analysis base (full latent covariance)
-    mfa_fa = CompleteMixtureOfConjugated(
+    # Model 1: Factor Analysis base (full latent covariance, symmetric)
+    mfa_fa = CompleteMixtureOfSymmetric(
         n_categories=3, bas_hrm=FactorAnalysis(obs_dim=3, lat_dim=2)
     )
     print("Training FA model...")
@@ -231,8 +234,8 @@ def main():
     fa2_params = fa.from_loadings(loadings_2, means_2, diags_2)
     fa3_params = fa.from_loadings(loadings_3, means_3, diags_3)
 
-    # Build ground truth mixture model
-    gt_mfa = CompleteMixtureOfConjugated(n_categories=3, bas_hrm=fa)
+    # Build ground truth mixture model (symmetric since FA is symmetric)
+    gt_mfa = CompleteMixtureOfSymmetric(n_categories=3, bas_hrm=fa)
     gt_comp_params = jnp.concatenate([fa1_params, fa2_params, fa3_params])
     gt_cat_params = gt_mfa.pst_man.lat_man.to_natural(
         gt_mfa.pst_man.lat_man.from_probs(mixing)

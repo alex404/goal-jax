@@ -26,6 +26,8 @@ from jax import Array
 
 from ...geometry import (
     AmbientMap,
+    Analytic,
+    AnalyticConjugated,
     BlockMap,
     Conjugated,
     Differentiable,
@@ -587,3 +589,34 @@ class CompleteMixtureOfConjugated[
         """
         soft_assignments = self.posterior_soft_assignments(params, x)
         return jnp.argmax(soft_assignments)
+
+
+@dataclass(frozen=True)
+class CompleteMixtureOfSymmetric[
+    Observable: Differentiable,
+    Latent: Analytic,
+](
+    CompleteMixtureOfConjugated[Observable, Latent, Latent],
+):
+    """Mixture of symmetric conjugated harmoniums.
+
+    A specialized version of CompleteMixtureOfConjugated for harmoniums where
+    the posterior and prior latent manifolds are identical (pst_man == prr_man).
+    This is the common case for models like Factor Analysis.
+
+    Provides convenient access to `lat_man` (the shared latent manifold).
+
+    The base harmonium should be both DifferentiableConjugated and SymmetricConjugated.
+    In practice, this means AnalyticConjugated or similar models.
+    """
+
+    n_categories: int
+    """Number of mixture components."""
+
+    bas_hrm: AnalyticConjugated[Observable, Latent]
+    """Base symmetric conjugated harmonium (lower level)."""
+
+    @property
+    def lat_man(self) -> CompleteMixture[Latent]:
+        """The shared latent manifold (posterior == prior)."""
+        return self.pst_man
