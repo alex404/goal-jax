@@ -14,6 +14,7 @@ from ...geometry import (
     Diagonal,
     DifferentiableConjugated,
     EmbeddedMap,
+    Identity,
     IdentityEmbedding,
     LinearEmbedding,
     MatrixRep,
@@ -858,7 +859,6 @@ def _dual_composition(
     return h_rep.matmat(h_shape, h_params, rep_gf, shape_gf, params_gf)
 
 
-# TODO: Could probably try and reduce the number of to/from_matrix calls here and throughout the module
 def _change_of_basis(
     f_size: tuple[int, int],
     f_rep: MatrixRep,
@@ -871,7 +871,8 @@ def _change_of_basis(
 ]:
     """Linear change of basis transformation.
 
-    Computes f.T @ g @ f where g is in dual coordinates.
+    Computes f.T @ g @ f where g is in dual coordinates. The result is always
+    symmetric (positive semi-definite if g is positive definite).
     """
     sizes = (f_size[1], f_size[0], f_size[0], f_size[1])
     f_trans_params = f_rep.transpose(f_size, f_params)
@@ -884,8 +885,9 @@ def _change_of_basis(
         f_rep,
         f_params,
     )
-    # If fgf_rep is diagonal or stricter, leave it, otherwise positivedefinite
-    if isinstance(fgf_rep, (Diagonal, Scale, IdentityEmbedding)):
+    # If fgf_rep is diagonal or stricter, preserve it; otherwise use PositiveDefinite
+    # since the result of f.T @ g @ f is always symmetric
+    if isinstance(fgf_rep, (Diagonal, Scale, Identity)):
         cov_man = Covariance(fgf_sizes[0], fgf_rep)
     else:
         cov_man = Covariance(fgf_sizes[0], PositiveDefinite())
