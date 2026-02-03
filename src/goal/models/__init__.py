@@ -1,4 +1,23 @@
 from .base.binomial import Binomial, Binomials
+from .dynamical import (
+    CategoricalEmission,
+    CategoricalTransition,
+    HiddenMarkovModel,
+    KalmanFilter,
+    NormalEmission,
+    NormalTransition,
+    conjugated_filtering,
+    conjugated_smoothing,
+    conjugated_smoothing0,
+    create_hmm,
+    create_kalman_filter,
+    latent_process_expectation_maximization,
+    latent_process_expectation_step,
+    latent_process_expectation_step_batch,
+    latent_process_log_density,
+    latent_process_log_observable_density,
+    sample_latent_process,
+)
 from .base.categorical import Bernoulli, Bernoullis, Categorical
 from .base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
 from .base.gaussian.generalized import Euclidean
@@ -87,6 +106,26 @@ __all__ = [
     "Bernoulli",
     "BernoulliVonMisesHarmonium",
     "Bernoullis",
+    # Dynamical models - Kalman Filter
+    "KalmanFilter",
+    "NormalEmission",
+    "NormalTransition",
+    "create_kalman_filter",
+    # Dynamical models - Hidden Markov Model
+    "CategoricalEmission",
+    "CategoricalTransition",
+    "HiddenMarkovModel",
+    "create_hmm",
+    # Dynamical models - Generic algorithms
+    "conjugated_filtering",
+    "conjugated_smoothing",
+    "conjugated_smoothing0",
+    "latent_process_expectation_maximization",
+    "latent_process_expectation_step",
+    "latent_process_expectation_step_batch",
+    "latent_process_log_density",
+    "latent_process_log_observable_density",
+    "sample_latent_process",
     "Binomial",
     "BinomialBernoulliHarmonium",
     "BinomialBernoulliMixture",
