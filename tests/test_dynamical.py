@@ -60,7 +60,7 @@ class TestKalmanFilterStructure:
         emsn = model.emsn_hrm
         assert isinstance(emsn, NormalEmission)
         assert emsn.obs_dim == 2
-        assert emsn._lat_dim == 3
+        assert emsn.lat_dim == 3
 
     def test_transition_structure(self, model: KalmanFilter) -> None:
         """Test transition harmonium structure."""
@@ -344,7 +344,7 @@ class TestHMMStructure:
         emsn = model.emsn_hrm
         assert isinstance(emsn, CategoricalEmission)
         assert emsn.n_obs == 2
-        assert emsn._n_states == 3
+        assert emsn.n_states == 3
 
     def test_transition_structure(self, model: HiddenMarkovModel) -> None:
         """Test transition harmonium structure."""
@@ -423,7 +423,7 @@ class TestCategoricalEmission:
         lkl_params = model.lkl_fun_man.join_coords(obs_params, int_params)
         rho = model.conjugation_parameters(lkl_params)
 
-        for z_val in range(model._n_states):
+        for z_val in range(model.n_states):
             z = jnp.array([z_val])
             s_z = model.lat_man.sufficient_statistic(z)
 
@@ -470,7 +470,7 @@ class TestHMMSampling:
         assert jnp.all(observations >= 0)
         assert jnp.all(observations < model.n_obs)
         assert jnp.all(latents >= 0)
-        assert jnp.all(latents < model._n_states)
+        assert jnp.all(latents < model.n_states)
 
 
 class TestHMMFiltering:
@@ -639,7 +639,7 @@ def brute_force_filtering(
         - log_likelihood: Scalar log p(x_{1:T})
     """
     n_steps = len(observations)
-    n_states = model._n_states
+    n_states = model.n_states
     obs_flat = observations.flatten().astype(int)
 
     # Enumerate all possible latent sequences of length n_steps + 1
@@ -707,7 +707,7 @@ def brute_force_smoothing(
         smoothed_probs: Shape (T, n_states) - p(z_t | x_{1:T})
     """
     n_steps = len(observations)
-    n_states = model._n_states
+    n_states = model.n_states
     obs_flat = observations.flatten().astype(int)
 
     # Enumerate all possible latent sequences

@@ -134,8 +134,7 @@ def main():
 
     # Add overall title with metrics
     fig.suptitle(
-        f"Kalman Filter Example (obs_dim={results['obs_dim']}, lat_dim={lat_dim}, "
-        f"n_sequences={results['n_sequences']})",
+        f"Kalman Filter Example (obs_dim={results['obs_dim']}, lat_dim={lat_dim}, n_sequences={results['n_sequences']})",
         fontsize=12,
         y=1.02,
     )

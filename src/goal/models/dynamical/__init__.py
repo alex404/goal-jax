@@ -185,6 +185,11 @@ class NormalEmission(AnalyticConjugated[FullNormal, FullNormal]):
     """Dimension of latent state."""
 
     @property
+    def lat_dim(self) -> int:
+        """Dimension of latent state."""
+        return self._lat_dim
+
+    @property
     @override
     def lat_man(self) -> FullNormal:
         return full_normal(self._lat_dim)
@@ -494,6 +499,11 @@ class CategoricalEmission(AnalyticConjugated[Categorical, Categorical]):
     """Number of latent states."""
 
     @property
+    def n_states(self) -> int:
+        """Number of latent states."""
+        return self._n_states
+
+    @property
     @override
     def lat_man(self) -> Categorical:
         return Categorical(self._n_states)
@@ -603,6 +613,11 @@ class HiddenMarkovModel(LatentProcess[Categorical, Categorical]):
 
     _n_states: int
     """Number of latent states."""
+
+    @property
+    def n_states(self) -> int:
+        """Number of latent states."""
+        return self._n_states
 
     @property
     @override
