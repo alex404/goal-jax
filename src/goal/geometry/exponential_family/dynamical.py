@@ -442,7 +442,7 @@ def conjugated_smoothing0(
         return filtered, (filtered, predicted_prior, prior)
 
     # Forward pass - save filtered, predicted, and prior for each step
-    _, (filtered_seq, predicted_seq, prior_seq) = jax.lax.scan(
+    _, (filtered_seq, predicted_seq, _) = jax.lax.scan(
         forward_step, prior_params, observations
     )
 
