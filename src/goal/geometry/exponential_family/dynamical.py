@@ -401,14 +401,10 @@ def conjugated_smoothing0(
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations: Array,
-) -> tuple[Array, Array]:
-    """Low-level smoothing returning joint distributions.
+) -> tuple[Array, Array, Array]:
+    """Low-level smoothing returning smoothed z_0, smoothed sequence, and joints.
 
-    Performs forward-backward smoothing following the Haskell implementation.
-
-    The algorithm works by:
-    1. Forward pass: compute filtered states and transposed likelihoods
-    2. Backward pass: use transposed likelihoods to propagate smoothed estimates
+    Performs forward-backward smoothing.
 
     Args:
         process: The latent process model
@@ -416,27 +412,24 @@ def conjugated_smoothing0(
         observations: Shape (T, obs_dim)
 
     Returns:
-        Tuple of (smoothed, joints):
-        - smoothed: Shape (T, lat_dim) - p(z_t | x_{1:T})
-        - joints: Shape (T-1, joint_dim) - p(z_t, z_{t+1} | x_{1:T})
+        Tuple of (smoothed_z0, smoothed, joints):
+        - smoothed_z0: Shape (lat_dim,) - p(z_0 | x_{1:T})
+        - smoothed: Shape (T, lat_dim) - p(z_t | x_{1:T}) for t = 1, ..., T
+        - joints: Shape (T, joint_dim) - mean params of p(z_{t-1}, z_t | x_{1:T}) for t = 1, ..., T
     """
     prior_params, emsn_params, trns_params = process.split_coords(params)
     trns_hrm = process.trns_hrm
     emsn_hrm = process.emsn_hrm
+    lat_man = process.lat_man
 
     # Get likelihood params
     trns_lkl_params, _ = trns_hrm.split_conjugated(trns_params)
     emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
 
-    def forward_step(prior: Array, obs: Array) -> tuple[Array, tuple[Array, Array]]:
-        """Forward step: filter and compute transposed likelihood for backward pass.
-
-        Uses the same convention as conjugated_forward_step:
-        - 'prior' is p(z_{t-1} | x_{1:t-1}), the previous filtered state
-        - We first predict p(z_t | x_{1:t-1}), then update to get p(z_t | x_{1:t})
-
-        The carry is the filtered state, matching conjugated_filtering.
-        """
+    def forward_step(
+        prior: Array, obs: Array
+    ) -> tuple[Array, tuple[Array, Array, Array]]:
+        """Forward step: filter and return (filtered, predicted_prior, prior_input)."""
         # Prediction step: p(z_t | x_{1:t-1}) via transition
         predicted = trns_hrm.join_conjugated(trns_lkl_params, prior)
         transposed_pred = transpose_harmonium(trns_hrm, predicted)
@@ -446,62 +439,139 @@ def conjugated_smoothing0(
         emsn_with_pred = emsn_hrm.join_conjugated(emsn_lkl_params, predicted_prior)
         filtered = emsn_hrm.posterior_at(emsn_with_pred, obs)
 
-        # Compute transposed likelihood for backward pass
+        return filtered, (filtered, predicted_prior, prior)
+
+    # Forward pass - save filtered, predicted, and prior for each step
+    _, (filtered_seq, predicted_seq, prior_seq) = jax.lax.scan(
+        forward_step, prior_params, observations
+    )
+
+    def backward_step(smoothed_next: Array, filtered: Array) -> tuple[Array, Array]:
+        """Backward step: compute smoothed estimate from filtered and future smoothed."""
+        # Transposed likelihood for backward message
         joint_hrm_params = trns_hrm.join_conjugated(trns_lkl_params, filtered)
         transposed = transpose_harmonium(trns_hrm, joint_hrm_params)
         trns_t_lkl, _ = trns_hrm.split_conjugated(transposed)
 
-        # Carry is the filtered state (matching conjugated_filtering)
-        return filtered, (filtered, trns_t_lkl)
+        # Backward message: join transposed likelihood with smoothed next
+        backward_joint = trns_hrm.join_conjugated(trns_t_lkl, smoothed_next)
+        backward_hrm = transpose_harmonium(trns_hrm, backward_joint)
+        _, smoothed_curr = trns_hrm.split_conjugated(backward_hrm)
 
-    # Forward pass
-    _, (filtered_seq, trns_t_lkls) = jax.lax.scan(
-        forward_step, prior_params, observations
-    )
-
-    def backward_step(
-        smoothed_next: Array, forward_data: tuple[Array, Array]
-    ) -> tuple[Array, tuple[Array, Array]]:
-        """Backward step: compute smoothed estimate using transposed likelihood.
-
-        Following Haskell:
-            hrm = transposeHarmonium $ joinConjugatedHarmonium trns' smth
-            bwd = snd $ splitConjugatedHarmonium hrm
-        """
-        _, trns_t_lkl = forward_data
-
-        # Join transposed likelihood with smoothed next state
-        joint_hrm_params = trns_hrm.join_conjugated(trns_t_lkl, smoothed_next)
-
-        # Transpose back
-        hrm = transpose_harmonium(trns_hrm, joint_hrm_params)
-
-        # Split to get smoothed current state
-        _, smoothed_curr = trns_hrm.split_conjugated(hrm)
-
-        # Joint distribution for EM (join original transition with smoothed current)
-        joint_params = trns_hrm.join_conjugated(trns_lkl_params, smoothed_curr)
-
-        return smoothed_curr, (smoothed_curr, joint_params)
+        return smoothed_curr, smoothed_curr
 
     # Initialize with last filtered (smoothed[T] = filtered[T])
     last_filtered = filtered_seq[-1]
 
-    # Prepare forward data for backward pass (exclude last time step)
-    forward_data = (filtered_seq[:-1], trns_t_lkls[:-1])
-
-    # Run backward scan
-    _, (smoothed_rest, joints) = jax.lax.scan(
+    # Run backward scan over all but the last time step
+    _, smoothed_rest = jax.lax.scan(
         backward_step,
         last_filtered,
-        forward_data,
+        filtered_seq[:-1],
         reverse=True,
     )
 
-    # Concatenate smoothed sequence
-    smoothed = jnp.concatenate([smoothed_rest, last_filtered[None, :]], axis=0)
+    # Concatenate: smoothed_rest has T-1 elements, add last_filtered
+    smoothed_seq = jnp.concatenate([smoothed_rest, last_filtered[None, :]], axis=0)
 
-    return smoothed, joints
+    # Compute smoothed z_0 by one more backward step
+    joint_hrm_0 = trns_hrm.join_conjugated(trns_lkl_params, prior_params)
+    transposed_0 = transpose_harmonium(trns_hrm, joint_hrm_0)
+    trns_t_lkl_0, _ = trns_hrm.split_conjugated(transposed_0)
+
+    backward_joint_0 = trns_hrm.join_conjugated(trns_t_lkl_0, smoothed_seq[0])
+    backward_hrm_0 = transpose_harmonium(trns_hrm, backward_joint_0)
+    _, smoothed_z0 = trns_hrm.split_conjugated(backward_hrm_0)
+
+    # Compute two-slice joint mean parameters p(z_{t-1}, z_t | x_{1:T})
+    #
+    # The formula for the two-slice joint (ξ) is:
+    # ξ(z_{t-1}, z_t) ∝ filtered[t-1](z_{t-1}) * A(z_{t-1}, z_t) * correction(z_t)
+    #
+    # where:
+    # - filtered[t-1] = p(z_{t-1} | x_{1:t-1})
+    # - A(z_{t-1}, z_t) = p(z_t | z_{t-1}) from the transition model
+    # - correction(z_t) = smoothed[t](z_t) / predicted[t](z_t)
+    #
+    # The mean parameters of the joint are:
+    # - obs_mean = E[s(z_{t-1})] = smoothed z_{t-1} mean params
+    # - lat_mean = E[s(z_t)] = smoothed z_t mean params
+    # - int_mean = E[s(z_{t-1}) ⊗ s(z_t)] = cross term computed from ξ
+
+    # All smoothed z's including z_0
+    all_smoothed = jnp.concatenate([smoothed_z0[None, :], smoothed_seq], axis=0)
+
+    # All priors: prior_params (for z_0), then filtered[0] to filtered[T-2]
+    all_priors = jnp.concatenate([prior_params[None, :], filtered_seq[:-1]], axis=0)
+
+    def compute_joint_means(data: tuple[Array, Array, Array, Array]) -> Array:
+        """Compute two-slice joint mean params using the xi formula.
+
+        The cross term E[s(z_{t-1}) ⊗ s(z_t)] is computed by:
+        1. Building the joint natural params properly
+        2. Using posterior_statistics to compute expectations
+
+        For the two-slice joint, we need to compute the cross term by
+        constructing a harmonium that represents:
+        p(z_{t-1}, z_t | x_{1:T}) ∝ prior(z_{t-1}) * trans(z_t|z_{t-1}) * corr(z_t)
+        """
+        prior_nat, smoothed_nat, predicted_nat, smoothed_prev_nat = data
+
+        # Mean parameters for marginals (from smoothed distributions)
+        obs_mean = lat_man.to_mean(smoothed_prev_nat)  # smoothed z_{t-1}
+        lat_mean = lat_man.to_mean(smoothed_nat)  # smoothed z_t
+
+        # Compute the cross term E[s(z_{t-1}) ⊗ s(z_t)] using the ξ formula.
+        #
+        # The two-slice posterior ξ satisfies:
+        # ξ(z_{t-1}, z_t) ∝ α(z_{t-1}) * A(z_{t-1}, z_t) * β(z_t)
+        #
+        # where:
+        # - α(z_{t-1}) = filtered[t-1] = p(z_{t-1} | x_{1:t-1})
+        # - A(z_{t-1}, z_t) = p(z_t | z_{t-1})
+        # - β(z_t) ∝ p(x_t:T | z_t) = smoothed[t] / predicted[t] (up to normalization)
+        #
+        # We compute this by constructing a joint harmonium with:
+        # - obs params = prior_nat (encodes α)
+        # - int params = transition interaction (encodes A structure)
+        # - lat params = transition base + backward correction (encodes A * β)
+
+        # The transition likelihood params encode p(z_t | z_{t-1})
+        # Split into obs_bias (base rate for z_t) and interaction
+        obs_bias, int_params = trns_hrm.lkl_fun_man.split_coords(trns_lkl_params)
+
+        # The backward contribution in natural params gives the log-ratio of β
+        backward_nat = smoothed_nat - predicted_nat
+
+        # Build the joint natural params
+        # The harmonium structure is:
+        # log p(z_{t-1}, z_t) = θ_obs · s(z_{t-1}) + θ_int · s(z_{t-1}) ⊗ s(z_t)
+        #                     + θ_lat · s(z_t) - ψ
+        #
+        # For the two-slice joint:
+        # - θ_obs = prior_nat (the filtered prior on z_{t-1})
+        # - θ_int = transition interaction
+        # - θ_lat = obs_bias + backward_nat (base rate + backward correction)
+
+        joint_nat = trns_hrm.join_coords(prior_nat, int_params, obs_bias + backward_nat)
+
+        # Compute mean params of this joint
+        joint_mean = trns_hrm.to_mean(joint_nat)
+
+        # Extract the cross term
+        _, int_mean, _ = trns_hrm.split_coords(joint_mean)
+
+        # Return with smoothed marginals for obs/lat (which are correct)
+        return trns_hrm.join_coords(obs_mean, int_mean, lat_mean)
+
+    # Smoothed z_{t-1} for each transition: smoothed_z0, smoothed[0], ..., smoothed[T-2]
+    smoothed_prev_seq = all_smoothed[:-1]
+
+    joints = jax.vmap(compute_joint_means)(
+        (all_priors, smoothed_seq, predicted_seq, smoothed_prev_seq)
+    )
+
+    return smoothed_z0, smoothed_seq, joints
 
 
 def conjugated_smoothing(
@@ -511,7 +581,7 @@ def conjugated_smoothing(
 ) -> Array:
     """Forward-backward smoothing (RTS smoother).
 
-    Returns smoothed marginal distributions only.
+    Returns smoothed marginal distributions for z_1 through z_T only.
 
     Args:
         process: The latent process model
@@ -521,7 +591,7 @@ def conjugated_smoothing(
     Returns:
         Smoothed distributions in natural coords, shape (T, lat_dim)
     """
-    smoothed, _ = conjugated_smoothing0(process, params, observations)
+    _, smoothed, _ = conjugated_smoothing0(process, params, observations)
     return smoothed
 
 
@@ -626,13 +696,14 @@ def latent_process_expectation_step(
         Mean parameters for (prior, emission, transition)
     """
     # Get smoothed distributions and joint distributions
-    smoothed, joints = conjugated_smoothing0(process, params, observations)
+    smoothed_z0, smoothed, joints = conjugated_smoothing0(process, params, observations)
     lat_man = process.lat_man
 
-    # E-step for prior: E[s(z_0)]
-    prior_means = lat_man.to_mean(smoothed[0])
+    # E-step for prior: E[s(z_0) | x_{1:T}]
+    # Use the properly computed smoothed z_0
+    prior_means = lat_man.to_mean(smoothed_z0)
 
-    # E-step for emission: E[s(x_t, z_t)] averaged over t
+    # E-step for emission: E[s(x_t, z_t) | x_{1:T}] averaged over t
     # For each t, we need E[s_obs(x_t), s_lat(z_t), s_obs(x_t) ⊗ s_lat(z_t)]
     _, emsn_params, _ = process.split_coords(params)
 
@@ -644,12 +715,9 @@ def latent_process_expectation_step(
     emsn_stats = jax.vmap(emission_stats)(observations, smoothed)
     emsn_means = jnp.mean(emsn_stats, axis=0)
 
-    # E-step for transition: E[s(z_{t-1}, z_t)] averaged over t
-    # Use the joint distributions from smoothing
-    trns_means = jnp.mean(
-        jax.vmap(process.trns_hrm.to_mean)(joints),
-        axis=0,
-    )
+    # E-step for transition: E[s(z_{t-1}, z_t) | x_{1:T}] averaged over t
+    # joints are already in mean params from conjugated_smoothing0
+    trns_means = jnp.mean(joints, axis=0)
 
     return prior_means, emsn_means, trns_means
 
