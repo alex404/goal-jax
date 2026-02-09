@@ -31,7 +31,7 @@ from ...geometry.exponential_family.harmonium import (
     SymmetricConjugated,
 )
 from ...geometry.exponential_family.variational import (
-    VariationalConjugated,
+    VariationalConjugatedSG,
 )
 from ..base.poisson import CoMPoisson, CoMShape, Poisson, Poissons
 from ..base.von_mises import VonMises, VonMisesProduct
@@ -87,12 +87,12 @@ def poisson_vonmises_harmonium(
 
 @dataclass(frozen=True)
 class VariationalPoissonVonMises(
-    VariationalConjugated[Poissons, VonMisesProduct, VonMisesProduct]
+    VariationalConjugatedSG[Poissons, VonMisesProduct, VonMisesProduct]
 ):
     """Variational conjugated model with Poisson observables and VonMises latents.
 
-    This wraps a PoissonVonMisesHarmonium with learnable conjugation
-    parameters for variational inference via ELBO optimization.
+    Uses score-function gradient correction since VonMises sampling
+    (rejection sampling) is not reparameterizable.
 
     Attributes:
         hrm: The underlying PoissonVonMisesHarmonium
@@ -120,30 +120,6 @@ class VariationalPoissonVonMises(
         """Extract interaction matrix as 2D array (n_neurons, 2*n_latent)."""
         _, hrm_params = self.split_coords(params)
         return self.hrm.get_weight_matrix(hrm_params)
-
-    @override
-    def elbo_reconstruction_term(
-        self, key: Array, params: Array, x: Array, n_samples: int
-    ) -> Array:
-        """Compute E_q[log p(x|z)] via Monte Carlo sampling.
-
-        Uses stop_gradient on samples since VonMises sampling (rejection sampling)
-        is not reparameterizable.
-        """
-        s_x = self.obs_man.sufficient_statistic(x)
-        q_params = self.approximate_posterior_at(params, x)
-
-        z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
-
-        def log_likelihood_at_z(z: Array) -> Array:
-            lkl_params = self.likelihood_at(params, z)
-            return (
-                jnp.dot(s_x, lkl_params)
-                - self.obs_man.log_partition_function(lkl_params)
-                + self.obs_man.log_base_measure(x)
-            )
-
-        return jnp.mean(jax.vmap(log_likelihood_at_z)(z_samples))
 
     def reconstruct(self, params: Array, x: Array) -> Array:
         """Reconstruct observable via mean-field approximation."""

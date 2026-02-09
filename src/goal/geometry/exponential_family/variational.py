@@ -229,13 +229,13 @@ class VariationalConjugated[
         Decomposes as:
         $$\\mathbb{E}_q[\\log p(x|z)] =
           \\underbrace{s_X(x) \\cdot (\\theta_X + \\Theta_{XZ} \\cdot \\mathbb{E}_q[s_Z(z)])}_{\\text{analytic}}
-          - \\underbrace{\\mathbb{E}_q[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))]}_{\\text{MC with stop\\_gradient}}
+          - \\underbrace{\\mathbb{E}_q[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))]}_{\\text{MC}}
           + \\log h_X(x)$$
 
         The analytic term provides gradients w.r.t. posterior parameters through
-        ``to_mean()``. The ``stop_gradient`` on MC samples ensures clean gradient
-        flow for non-reparameterizable posteriors (Bernoulli=discrete,
-        VonMises=rejection, CompleteMixture=discrete Categorical).
+        ``to_mean()``. The MC term allows pathwise (reparameterization) gradients
+        to flow through samples. For non-reparameterizable posteriors, use
+        ``VariationalConjugatedSG`` which adds a REINFORCE correction.
 
         Args:
             key: JAX random key
@@ -257,8 +257,8 @@ class VariationalConjugated[
         )
         analytic_term = jnp.dot(s_x, lkl_at_mean)
 
-        # MC term: E_q[psi_X(.)] with stopped-gradient samples
-        z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
+        # MC term: E_q[psi_X(.)] — no stop_gradient, pathwise gradients flow
+        z_samples = self.pst_man.sample(key, q_params, n_samples)
 
         def psi_at_z(z: Array) -> Array:
             lkl_params = self.hrm.likelihood_at(hrm_params, z)
@@ -350,6 +350,48 @@ class VariationalConjugated[
         )
 
         return jnp.mean(elbos)
+
+    # Conjugation parameter regression (Article Algorithm 2)
+
+    def regress_conjugation_parameters(
+        self, key: Array, params: Array, n_samples: int
+    ) -> tuple[Array, Array, Array]:
+        """Fit conjugation parameters by least-squares regression.
+
+        Solves: $\\rho^* = \\arg\\min_\\rho \\sum_k (\\chi + \\rho \\cdot s_\\rho(z_k) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$
+
+        Args:
+            key: JAX random key
+            params: Full model parameters
+            n_samples: Number of samples from prior for regression
+
+        Returns:
+            Tuple of (rho_star, r_squared, chi) where chi is the intercept
+        """
+        _, hrm_params = self.split_coords(params)
+        p_params = self.prior_params(params)
+        z_samples = self.pst_man.sample(key, p_params, n_samples)
+
+        def design_and_target(z: Array) -> tuple[Array, Array]:
+            s_z = self.pst_man.sufficient_statistic(z)
+            s_rho = self.rho_emb.project(s_z)
+            lkl_params = self.hrm.likelihood_at(hrm_params, z)
+            psi_x = self.obs_man.log_partition_function(lkl_params)
+            return s_rho, psi_x
+
+        s_rho_all, psi_all = jax.vmap(design_and_target)(z_samples)
+
+        design = jnp.concatenate([jnp.ones((n_samples, 1)), s_rho_all], axis=1)
+        coeffs = jnp.linalg.lstsq(design, psi_all, rcond=None)[0]
+        chi = coeffs[0]
+        rho_star = coeffs[1:]
+
+        residuals = psi_all - design @ coeffs
+        ss_res = jnp.sum(residuals**2)
+        ss_tot = jnp.sum((psi_all - jnp.mean(psi_all)) ** 2)
+        r_squared = 1.0 - ss_res / jnp.maximum(ss_tot, 1e-8)
+
+        return rho_star, r_squared, chi
 
     # Conjugation error (measures departure from exact conjugation)
 
@@ -558,3 +600,74 @@ class VariationalConjugated[
         rho = jnp.zeros(self.rho_man.dim)
         hrm_params = self.hrm.initialize_from_sample(key, sample, location, shape)
         return self.join_coords(rho, hrm_params)
+
+
+@dataclass(frozen=True)
+class VariationalConjugatedSG[
+    Observable: Differentiable,
+    Posterior: Differentiable,
+    Conjugation: ExponentialFamily,
+](
+    VariationalConjugated[Observable, Posterior, Conjugation],
+    ABC,
+):
+    """Variational conjugated with score-function gradient correction.
+
+    For non-reparameterizable posteriors (e.g., VonMises with rejection sampling).
+    Uses stop_gradient on samples plus a REINFORCE surrogate with psi_X values
+    and sample-mean baseline to provide unbiased gradients.
+    """
+
+    @override
+    def elbo_reconstruction_term(
+        self, key: Array, params: Array, x: Array, n_samples: int
+    ) -> Array:
+        """Compute $\\mathbb{E}_q[\\log p(x|z)]$ with score-function gradient correction.
+
+        Uses stop_gradient on MC samples and adds a REINFORCE surrogate term
+        to recover unbiased gradients for non-reparameterizable posteriors.
+
+        The correction uses $\\psi_X$ values with sample-mean baseline:
+        $$\\text{correction} = -\\frac{1}{K}\\sum_k \\mathrm{sg}(\\psi_X(z_k) - \\bar{\\psi}_X) \\cdot \\log q(z_k|x)$$
+
+        Args:
+            key: JAX random key
+            params: Full model parameters
+            x: Observation
+            n_samples: Number of MC samples
+
+        Returns:
+            Expected log-likelihood with REINFORCE correction (scalar)
+        """
+        s_x = self.obs_man.sufficient_statistic(x)
+        _, hrm_params = self.split_coords(params)
+        q_params = self.approximate_posterior_at(params, x)
+
+        # Analytic term: s_X(x) . (theta_X + Theta_XZ . E_q[s_Z(z)])
+        mean_q = self.pst_man.to_mean(q_params)
+        lkl_at_mean = self.hrm.lkl_fun_man(
+            self.hrm.likelihood_function(hrm_params), mean_q
+        )
+        analytic_term = jnp.dot(s_x, lkl_at_mean)
+
+        # MC term with stop_gradient on samples
+        z_samples = jax.lax.stop_gradient(
+            self.pst_man.sample(key, q_params, n_samples)
+        )
+
+        def psi_at_z(z: Array) -> Array:
+            lkl_params = self.hrm.likelihood_at(hrm_params, z)
+            return self.obs_man.log_partition_function(lkl_params)
+
+        psi_vals = jax.vmap(psi_at_z)(z_samples)
+        mc_term = jnp.mean(psi_vals)
+
+        # REINFORCE correction for score-function gradient of E_q[psi_X]
+        psi_stopped = jax.lax.stop_gradient(psi_vals)
+        baseline = jnp.mean(psi_stopped)
+        centered = psi_stopped - baseline
+
+        log_q = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(z_samples)
+        reinforce = -jnp.mean(centered * log_q)
+
+        return analytic_term - mc_term + self.obs_man.log_base_measure(x) + reinforce
