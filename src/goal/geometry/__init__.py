@@ -42,7 +42,6 @@ from .exponential_family.harmonium import (
     AnalyticConjugated,
     Conjugated,
     DifferentiableConjugated,
-    DifferentiableHarmonium,
     Harmonium,
     SymmetricConjugated,
 )
@@ -99,7 +98,6 @@ __all__ = [
     "Diagonal",
     "Differentiable",
     "DifferentiableConjugated",
-    "DifferentiableHarmonium",
     "DifferentiableHierarchical",
     "DifferentiableProduct",
     "EmbeddedMap",

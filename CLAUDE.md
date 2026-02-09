@@ -25,8 +25,6 @@ source .venv/bin/activate
   - `python -m pytest tests/test_matrix.py`
 
 ### Code Quality
-- Run linter: `ruff check src/`
-- Run formatter: `ruff format src/`
 - Type checking: `basedpyright` (configured via pyproject.toml, available via uv)
 
 ### Installation and Dependencies

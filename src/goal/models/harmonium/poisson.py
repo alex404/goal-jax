@@ -27,7 +27,7 @@ from ...geometry import (
     TupleEmbedding,
 )
 from ...geometry.exponential_family.harmonium import (
-    DifferentiableHarmonium,
+    Harmonium,
     SymmetricConjugated,
 )
 from ...geometry.exponential_family.variational import (
@@ -41,7 +41,7 @@ from .mixture import AnalyticMixture, Mixture
 
 
 @dataclass(frozen=True)
-class PoissonVonMisesHarmonium(DifferentiableHarmonium[Poissons, VonMisesProduct]):
+class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
     """Harmonium with Poisson observables and VonMises latents."""
 
     _int_man: EmbeddedMap[VonMisesProduct, Poissons]
