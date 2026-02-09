@@ -18,16 +18,14 @@ from .dynamical import (
     transpose_harmonium,
 )
 from .variational import (
-    DifferentiableVariationalConjugated,
-    DifferentiableVariationalHierarchicalMixture,
-    SimpleVariationalConjugated,
     VariationalConjugated,
-    VariationalHierarchicalMixture,
 )
 
 __all__ = [
     # Dynamical models
     "LatentProcess",
+    # Variational
+    "VariationalConjugated",
     "conjugated_filtering",
     "conjugated_smoothing",
     "conjugated_smoothing0",
@@ -42,10 +40,4 @@ __all__ = [
     "split_conjugated_harmonium",
     "split_latent_process",
     "transpose_harmonium",
-    # Variational
-    "DifferentiableVariationalConjugated",
-    "DifferentiableVariationalHierarchicalMixture",
-    "SimpleVariationalConjugated",
-    "VariationalConjugated",
-    "VariationalHierarchicalMixture",
 ]

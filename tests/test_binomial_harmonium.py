@@ -3,6 +3,8 @@
 Tests RestrictedBoltzmannMachine, BinomialBernoulliHarmonium, and BinomialVonMisesHarmonium.
 """
 
+# pyright: reportAttributeAccessIssue=false
+
 import jax
 import jax.numpy as jnp
 import pytest

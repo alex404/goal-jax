@@ -39,6 +39,9 @@ ENV/
 *.swp
 *.swo
 
+# Claude Code
+.claude/
+
 # Test outputs
 *.png
 *.json

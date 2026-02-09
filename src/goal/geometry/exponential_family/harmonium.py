@@ -17,17 +17,16 @@ from ..manifold.util import batched_mean
 from .base import (
     Analytic,
     Differentiable,
-    ExponentialFamily,
     Generative,
 )
 
 
 @dataclass(frozen=True)
 class Harmonium[
-    Observable: ExponentialFamily,
-    Posterior: ExponentialFamily,
+    Observable: Generative,
+    Posterior: Generative,
 ](
-    ExponentialFamily,
+    Generative,
     Triple[Observable, LinearMap[Posterior, Observable], Posterior],
     ABC,
 ):
@@ -231,27 +230,7 @@ class Harmonium[
         int_params = noise
         return self.join_coords(obs_params, int_params, lat_params)
 
-
-class GenerativeHarmonium[
-    Observable: Generative,
-    Posterior: Generative,
-](
-    Harmonium[Observable, Posterior],
-    Generative,
-    ABC,
-):
-    """A harmonium supporting Gibbs sampling without conjugation structure.
-
-    This class provides sampling and contrastive divergence methods for
-    harmoniums where both observable and posterior distributions are Generative.
-    No conjugation structure is required, making this suitable for models like
-    Restricted Boltzmann Machines.
-
-    The key insight is that Gibbs sampling and contrastive divergence only require:
-    - `likelihood_at(params, z)` to get observable params given latent
-    - `posterior_at(params, x)` to get latent params given observable
-    - Both `obs_man` and `pst_man` to be Generative (have sample/gibbs_step)
-    """
+    # Generative methods (Gibbs sampling and contrastive divergence)
 
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
@@ -409,12 +388,12 @@ class DifferentiableHarmonium[
     Observable: Differentiable,
     Posterior: Differentiable,
 ](
-    GenerativeHarmonium[Observable, Posterior],
+    Harmonium[Observable, Posterior],
     ABC,
 ):
-    """A GenerativeHarmonium with Differentiable component families.
+    """A Harmonium with Differentiable component families.
 
-    Extends GenerativeHarmonium with methods that require computing mean parameters
+    Extends Harmonium with methods that require computing mean parameters
     and log-partition functions, which need Differentiable (not just Generative)
     component families.
 
@@ -497,11 +476,10 @@ class DifferentiableHarmonium[
 
 class Conjugated[
     Observable: Differentiable,
-    Posterior: ExponentialFamily,
+    Posterior: Generative,
     Prior: Generative,
 ](
     Harmonium[Observable, Posterior],
-    Generative,
     ABC,
 ):
     """In general, the prior $p(x)$ of a harmonium model is not exponential family distribution. A conjugated harmonium, on the other hand, is one for which the prior $p(z)$ is in the same exponential family as the posterior $p(x \\mid z)$. It follows that a conjugated harmonium has so called "conjugation parameters" that complement the latent parameters, and facilitate a variety of computations and algorithms for harmoniums."""
@@ -636,14 +614,12 @@ class DifferentiableConjugated[
     Prior: Differentiable,
 ](
     Conjugated[Observable, Posterior, Prior],
-    GenerativeHarmonium[Observable, Posterior],
     Differentiable,
     ABC,
 ):
     """A conjugated harmonium with an analytical log-partition function.
 
-    Inherits Gibbs sampling and contrastive divergence from GenerativeHarmonium.
-    Provides additional methods using conjugation structure for efficient
+    Provides methods using conjugation structure for efficient
     density computation.
     """
 

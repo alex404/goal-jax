@@ -12,24 +12,6 @@ from .exponential_family.combinators import (
     Product,
     StatisticalMoments,
 )
-from .exponential_family.graphical import (
-    AnalyticHierarchical,
-    DifferentiableHierarchical,
-    InteractionEmbedding,
-    LatentHarmoniumEmbedding,
-    ObservableEmbedding,
-    PosteriorEmbedding,
-    SymmetricHierarchical,
-)
-from .exponential_family.harmonium import (
-    AnalyticConjugated,
-    Conjugated,
-    DifferentiableConjugated,
-    DifferentiableHarmonium,
-    GenerativeHarmonium,
-    Harmonium,
-    SymmetricConjugated,
-)
 from .exponential_family.dynamical import (
     LatentProcess,
     conjugated_filtering,
@@ -47,12 +29,25 @@ from .exponential_family.dynamical import (
     split_latent_process,
     transpose_harmonium,
 )
+from .exponential_family.graphical import (
+    AnalyticHierarchical,
+    DifferentiableHierarchical,
+    InteractionEmbedding,
+    LatentHarmoniumEmbedding,
+    ObservableEmbedding,
+    PosteriorEmbedding,
+    SymmetricHierarchical,
+)
+from .exponential_family.harmonium import (
+    AnalyticConjugated,
+    Conjugated,
+    DifferentiableConjugated,
+    DifferentiableHarmonium,
+    Harmonium,
+    SymmetricConjugated,
+)
 from .exponential_family.variational import (
-    DifferentiableVariationalConjugated,
-    DifferentiableVariationalHierarchicalMixture,
-    SimpleVariationalConjugated,
     VariationalConjugated,
-    VariationalHierarchicalMixture,
 )
 from .manifold.base import (
     Manifold,
@@ -107,13 +102,10 @@ __all__ = [
     "DifferentiableHarmonium",
     "DifferentiableHierarchical",
     "DifferentiableProduct",
-    "DifferentiableVariationalConjugated",
-    "DifferentiableVariationalHierarchicalMixture",
     "EmbeddedMap",
     "Embedding",
     "ExponentialFamily",
     "Generative",
-    "GenerativeHarmonium",
     "GenerativeProduct",
     "Harmonium",
     "Identity",
@@ -136,7 +128,6 @@ __all__ = [
     "Rectangular",
     "Replicated",
     "Scale",
-    "SimpleVariationalConjugated",
     "Square",
     "SquareMap",
     "StatisticalMoments",
@@ -147,7 +138,6 @@ __all__ = [
     "TrivialEmbedding",
     "TupleEmbedding",
     "VariationalConjugated",
-    "VariationalHierarchicalMixture",
     "conjugated_filtering",
     "conjugated_smoothing",
     "conjugated_smoothing0",

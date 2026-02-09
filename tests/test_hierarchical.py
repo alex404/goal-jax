@@ -3,6 +3,8 @@
 Tests BinomialBernoulliMixture and related hierarchical variational models.
 """
 
+# pyright: reportAttributeAccessIssue=false
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -84,11 +86,11 @@ class TestInitialization:
         assert params.shape == (expected_dim,)
         assert jnp.all(jnp.isfinite(params))
 
-    def test_conjugation_params_zero(
+    def test_conjugation_parameters_zero(
         self, model: BinomialBernoulliMixture, params: Array
     ) -> None:
         """Test rho parameters are initialized to zero."""
-        rho = model.conjugation_params(params)
+        rho = model.conjugation_parameters(params)
         assert jnp.allclose(rho, 0.0)
 
 
@@ -121,18 +123,18 @@ class TestPosteriorComputation:
 class TestSampling:
     """Tests for sampling from the model."""
 
-    def test_sample_from_posterior(
+    def test_sample_from_mixture(
         self, model: BinomialBernoulliMixture, params: Array, key: Array
     ) -> None:
-        """Test posterior sampling produces correct shapes."""
+        """Test mixture sampling produces correct shapes."""
         x = jnp.ones(N_OBSERVABLE) * N_TRIALS / 2
         q_params = model.approximate_posterior_at(params, x)
 
         n_samples = 10
-        y_samples, k_samples = model.sample_from_posterior(key, q_params, n_samples)
+        z_samples = model.mix_man.sample(key, q_params, n_samples)
 
-        assert y_samples.shape == (n_samples, N_LATENT)
-        assert k_samples.shape == (n_samples,)
+        # z_samples has shape (n_samples, base_lat_dim + 1)
+        assert z_samples.shape == (n_samples, N_LATENT + 1)
 
     def test_sample_valid_clusters(
         self, model: BinomialBernoulliMixture, params: Array, key: Array
@@ -141,21 +143,22 @@ class TestSampling:
         x = jnp.ones(N_OBSERVABLE) * N_TRIALS / 2
         q_params = model.approximate_posterior_at(params, x)
 
-        _, k_samples = model.sample_from_posterior(key, q_params, 50)
+        z_samples = model.mix_man.sample(key, q_params, 50)
+        k_samples = z_samples[:, N_LATENT].astype(jnp.int32)
 
         assert jnp.all(k_samples >= 0)
         assert jnp.all(k_samples < N_CLUSTERS)
 
-    def test_sample_from_model(
+    def test_sample(
         self, model: BinomialBernoulliMixture, params: Array, key: Array
     ) -> None:
         """Test generative sampling produces correct shapes."""
         n_samples = 10
-        x_samples, y_samples, k_samples = model.sample_from_model(key, params, n_samples)
+        xz_samples = model.sample(key, params, n_samples)
 
-        assert x_samples.shape == (n_samples, N_OBSERVABLE)
-        assert y_samples.shape == (n_samples, N_LATENT)
-        assert k_samples.shape == (n_samples,)
+        # xz_samples has shape (n_samples, obs_dim + pst_data_dim)
+        expected_dim = N_OBSERVABLE + N_LATENT + 1  # obs + base_lat + categorical
+        assert xz_samples.shape == (n_samples, expected_dim)
 
 
 class TestELBO:

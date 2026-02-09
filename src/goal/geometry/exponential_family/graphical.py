@@ -20,7 +20,7 @@ from jax import Array
 
 from ..manifold.embedding import LinearEmbedding, TupleEmbedding
 from ..manifold.linear import LinearMap
-from .base import ExponentialFamily
+from .base import Generative
 from .harmonium import (
     AnalyticConjugated,
     DifferentiableConjugated,
@@ -33,8 +33,8 @@ from .harmonium import (
 
 @dataclass(frozen=True)
 class ObservableEmbedding[
-    Observable: ExponentialFamily,
-    Posterior: ExponentialFamily,
+    Observable: Generative,
+    Posterior: Generative,
 ](TupleEmbedding[Observable, Harmonium[Observable, Posterior]]):
     """Embedding of the observable manifold of a harmonium into the harmonium itself.
 
@@ -70,8 +70,8 @@ class ObservableEmbedding[
 
 @dataclass(frozen=True)
 class InteractionEmbedding[
-    Observable: ExponentialFamily,
-    Posterior: ExponentialFamily,
+    Observable: Generative,
+    Posterior: Generative,
 ](TupleEmbedding[LinearMap[Posterior, Observable], Harmonium[Observable, Posterior]]):
     """Embedding of the observable manifold of a harmonium into the harmonium itself.
 
@@ -107,8 +107,8 @@ class InteractionEmbedding[
 
 @dataclass(frozen=True)
 class PosteriorEmbedding[
-    Observable: ExponentialFamily,
-    Posterior: ExponentialFamily,
+    Observable: Generative,
+    Posterior: Generative,
 ](TupleEmbedding[Posterior, Harmonium[Observable, Posterior]]):
     """Embedding of the posterior manifold of a harmonium into the harmonium itself.
 

@@ -221,9 +221,9 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
             # Reshape to matrix: (amb_obs_dim, n_categories-1)
             int_matrix = self.amb_man.int_man.to_matrix(int_means)
             # Apply projection to each column
-            proj_int_matrix = jax.vmap(self.component_emb.project, in_axes=1, out_axes=1)(
-                int_matrix
-            )
+            proj_int_matrix = jax.vmap(
+                self.component_emb.project, in_axes=1, out_axes=1
+            )(int_matrix)
             # Flatten back using sub int_man's convention
             proj_int = proj_int_matrix.ravel()
         else:

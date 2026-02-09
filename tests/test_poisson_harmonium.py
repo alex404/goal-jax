@@ -9,10 +9,10 @@ import pytest
 from jax import Array
 
 from goal.models import (
-    PoissonBernoulliHarmonium,
+    PoissonBernoulliHarmonium,  # pyright: ignore[reportAttributeAccessIssue]
     PoissonVonMisesHarmonium,
     VonMisesPopulationCode,
-    poisson_bernoulli_harmonium,
+    poisson_bernoulli_harmonium,  # pyright: ignore[reportAttributeAccessIssue]
     poisson_vonmises_harmonium,
     von_mises_population_code,
 )

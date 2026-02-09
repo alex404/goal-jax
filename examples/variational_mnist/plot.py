@@ -16,17 +16,15 @@ from ..shared import (
     plot_image_grid,
 )
 
-# Colors for the three modes
+# Colors for training modes
 COLORS = {
-    "free": model_colors[0],  # Blue
-    "fixed": model_colors[1],  # Red
-    "regularized": model_colors[2],  # Purple
+    "gradient": model_colors[0],  # Blue
+    "analytical": model_colors[1],  # Red
 }
 
 LABELS = {
-    "free": "Learnable rho",
-    "fixed": "Fixed rho=0",
-    "regularized": "Regularized",
+    "gradient": "Gradient Descent",
+    "analytical": "Analytical",
 }
 
 
