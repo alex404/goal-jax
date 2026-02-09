@@ -1,6 +1,6 @@
 """Tests for Poisson-based Harmoniums.
 
-Tests PoissonVonMisesHarmonium, VonMisesPopulationCode, and PoissonBernoulliHarmonium.
+Tests PoissonVonMisesHarmonium and VonMisesPopulationCode.
 """
 
 import jax
@@ -9,10 +9,8 @@ import pytest
 from jax import Array
 
 from goal.models import (
-    PoissonBernoulliHarmonium,  # pyright: ignore[reportAttributeAccessIssue]
     PoissonVonMisesHarmonium,
     VonMisesPopulationCode,
-    poisson_bernoulli_harmonium,  # pyright: ignore[reportAttributeAccessIssue]
     poisson_vonmises_harmonium,
     von_mises_population_code,
 )
@@ -323,40 +321,3 @@ class TestPoissonVonMisesHarmoniumBasics:
         assert jnp.all(jnp.isfinite(params))
 
 
-class TestPoissonBernoulliHarmoniumBasics:
-    """Test PoissonBernoulliHarmonium basics."""
-
-    @pytest.fixture(params=[(8, 4), (16, 8)])
-    def model(self, request: pytest.FixtureRequest) -> PoissonBernoulliHarmonium:
-        """Create PoissonBernoulliHarmonium."""
-        n_obs, n_lat = request.param
-        return poisson_bernoulli_harmonium(n_obs, n_lat)
-
-    def test_factory_function(self) -> None:
-        """Test factory function creates correct model."""
-        model = poisson_bernoulli_harmonium(16, 8)
-        assert model.n_observable == 16
-        assert model.n_latent == 8
-
-    def test_dimensions(self, model: PoissonBernoulliHarmonium) -> None:
-        """Test dimensions are correct."""
-        assert model.obs_man.data_dim == model.n_observable
-        assert model.pst_man.data_dim == model.n_latent
-
-    def test_initialize(
-        self, model: PoissonBernoulliHarmonium, key: Array
-    ) -> None:
-        """Test initialization produces valid parameters."""
-        params = model.initialize(key)
-        assert jnp.all(jnp.isfinite(params))
-
-    def test_posterior_at(
-        self, model: PoissonBernoulliHarmonium, key: Array
-    ) -> None:
-        """Test posterior computation produces valid parameters."""
-        params = model.initialize(key)
-        x = jax.random.poisson(key, 3.0 * jnp.ones(model.n_observable))
-
-        posterior = model.posterior_at(params, x)
-        assert posterior.shape == (model.pst_man.dim,)
-        assert jnp.all(jnp.isfinite(posterior))
