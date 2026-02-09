@@ -87,7 +87,7 @@ def von_mises_inverse_cdf(u: Array, kappa: float, mu: float = 0.0) -> Array:
 N_NEURONS = 64  # Square number for grid
 N_LATENT = 2  # T^2 (2-torus)
 N_SAMPLES = 10000  # Large sample for stable training
-N_STEPS = 5000
+N_STEPS = 7500
 BATCH_SIZE = 256
 LEARNING_RATE = 5e-4  # Lower LR for stability
 N_MC_SAMPLES = 10
@@ -107,7 +107,7 @@ DENSITY_MU2 = 0.0  # Center of concentration in theta2
 
 # Training mode parameters
 CONJ_WEIGHT = 1.0  # Weight for var[RLS] penalty in regularized mode
-ANALYTICAL_RHO_SAMPLES_MULTIPLIER = 50  # More samples for stable analytical rho
+ANALYTICAL_RHO_SAMPLES_MULTIPLIER = 500  # Enough samples for stable lstsq regression
 
 # Logging
 LOG_INTERVAL = 200
@@ -128,51 +128,17 @@ def create_ground_truth_model(
     density_mu1: float = DENSITY_MU1,
     density_mu2: float = DENSITY_MU2,
 ) -> tuple[PoissonVonMisesHarmonium, Array, TuningParams]:
-    """Create ground truth population code on n-torus.
-
-    For convolutional structure (uniform locations covering full torus, same gains):
-    - rho is approximately 0 (exact symmetry)
-
-    To get non-zero rho with good conjugation (high R²):
-    - Set density_kappa1 > 0 to concentrate neurons around density_mu1 in theta1
-    - Set density_kappa2 > 0 to concentrate neurons around density_mu2 in theta2
-    - For best R² (near 1), use single-dimension modulation (kappa1 > 0, kappa2 = 0)
-
-    Alternative (but causes systematic bias):
-    - Set coverage < 1.0 to cover only part of the torus (e.g., 0.5 = half)
-    - Or set distortion > 0 to add noise to locations/gains
-
-    Args:
-        n_neurons: Number of observable neurons
-        n_latent: Number of latent dimensions (torus dimension)
-        key: JAX random key
-        baseline_rate: Baseline firing rate
-        gain: Tuning curve gain
-        prior_concentration: Prior von Mises concentration
-        distortion: Distortion level (0=convolutional, >0=asymmetric)
-        coverage: Fraction of torus covered in theta1 (1.0=full, 0.5=half)
-        density_kappa1: Von Mises concentration for theta1 density (0=uniform)
-        density_kappa2: Von Mises concentration for theta2 density (0=uniform)
-        density_mu1: Center of density concentration in theta1
-        density_mu2: Center of density concentration in theta2
-
-    Returns:
-        Tuple of (model, params, tuning_params)
-    """
+    """Create ground truth population code on n-torus."""
     model = poisson_vonmises_harmonium(n_neurons, n_latent)
 
     # For 2D torus: arrange neurons on a grid (possibly non-uniform)
     if n_latent == 2:
         n_per_dim = int(jnp.sqrt(n_neurons))
         if n_per_dim * n_per_dim != n_neurons:
-            # Not a perfect square, use ceil and take first n_neurons
             n_per_dim = int(jnp.ceil(jnp.sqrt(n_neurons)))
 
-        # Create grid of preferred (theta_1, theta_2) locations
-        # Use inverse CDF for von Mises density modulation
         quantiles_1d = jnp.linspace(0, 1, n_per_dim, endpoint=False) + 0.5 / n_per_dim
 
-        # Apply von Mises modulation independently per dimension
         if density_kappa1 > 0:
             angles_1d_1 = von_mises_inverse_cdf(quantiles_1d, density_kappa1, density_mu1)
         else:
@@ -188,10 +154,9 @@ def create_ground_truth_model(
         preferred_1 = grid_1.ravel()[:n_neurons]
         preferred_2 = grid_2.ravel()[:n_neurons]
     else:
-        # For higher-dimensional torus, use random locations
         key, loc_key = jax.random.split(key)
         locations = jax.random.uniform(loc_key, (n_neurons, n_latent)) * 2 * jnp.pi
-        locations = locations.at[:, 0].set(locations[:, 0] * coverage)  # Apply coverage
+        locations = locations.at[:, 0].set(locations[:, 0] * coverage)
         preferred_1 = locations[:, 0]
         preferred_2 = locations[:, 1] if n_latent > 1 else jnp.zeros(n_neurons)
 
@@ -219,19 +184,12 @@ def create_ground_truth_model(
             gains * jnp.sin(preferred_2),
         ],
         axis=1,
-    )  # (n_neurons, 4)
+    )
 
-    # Baselines (log of baseline firing rate)
     baselines = jnp.ones(n_neurons) * jnp.log(baseline_rate)
-
-    # Prior (low concentration = nearly uniform on torus)
-    # VonMises params: [kappa*cos(mu), kappa*sin(mu)] for each dimension
-    prior_params = jnp.zeros(2 * n_latent)  # Zero natural params = uniform-ish
-
-    # Join into harmonium params
+    prior_params = jnp.zeros(2 * n_latent)
     params = model.join_coords(baselines, int_matrix.ravel(), prior_params)
 
-    # Store tuning parameters for visualization
     tuning: TuningParams = {
         "preferred_theta1": preferred_1.tolist(),
         "preferred_theta2": preferred_2.tolist(),
@@ -245,36 +203,19 @@ def create_ground_truth_model(
 def extract_tuning_params(
     model: VariationalPoissonVonMises, params: Array
 ) -> TuningParams:
-    """Extract tuning curve parameters from learned model.
-
-    For each neuron, the weight row W[i, :] = [w1, w2, w3, w4] represents:
-    - Dimension 1: gain_1 * [cos(pref_1), sin(pref_1)]
-    - Dimension 2: gain_2 * [cos(pref_2), sin(pref_2)]
-
-    We extract:
-    - Preferred angles: arctan2(sin_coeff, cos_coeff)
-    - Gains: sqrt(cos_coeff^2 + sin_coeff^2)
-    """
+    """Extract tuning curve parameters from learned model."""
     _, hrm_params = model.split_coords(params)
     obs_bias, int_params, _ = model.hrm.split_coords(hrm_params)
     int_matrix = int_params.reshape(model.n_neurons, 2 * model.n_latent)
 
-    # Extract preferred angles and gains for each torus dimension
-    # W[i, :] = [g1*cos(p1), g1*sin(p1), g2*cos(p2), g2*sin(p2)]
     cos_1, sin_1 = int_matrix[:, 0], int_matrix[:, 1]
     cos_2, sin_2 = int_matrix[:, 2], int_matrix[:, 3]
 
-    preferred_1 = jnp.arctan2(sin_1, cos_1)
-    preferred_2 = jnp.arctan2(sin_2, cos_2)
+    preferred_1 = jnp.mod(jnp.arctan2(sin_1, cos_1), 2 * jnp.pi)
+    preferred_2 = jnp.mod(jnp.arctan2(sin_2, cos_2), 2 * jnp.pi)
 
-    # Wrap to [0, 2*pi)
-    preferred_1 = jnp.mod(preferred_1, 2 * jnp.pi)
-    preferred_2 = jnp.mod(preferred_2, 2 * jnp.pi)
-
-    # Compute gains as norm of (cos, sin) pairs
     gain_1 = jnp.sqrt(cos_1**2 + sin_1**2)
     gain_2 = jnp.sqrt(cos_2**2 + sin_2**2)
-    # Use average gain for simplicity
     gains = (gain_1 + gain_2) / 2
 
     return {
@@ -285,175 +226,39 @@ def extract_tuning_params(
     }
 
 
-def compute_analytical_rho(
-    model: VariationalPoissonVonMises,
-    hrm_params: Array,
-    key: Array,
-    n_samples: int,
-) -> tuple[Array, Array, Array]:
-    """Compute optimal rho via least squares regression.
-
-    Solves: rho* = argmin sum((chi + rho*s(z) - psi_X(z))^2)
-
-    Args:
-        model: Variational model
-        hrm_params: Harmonium parameters (without rho)
-        key: JAX random key
-        n_samples: Number of samples for regression
-
-    Returns:
-        Tuple of (rho_star, r_squared, chi)
-    """
-    lat_dim = model.pst_man.dim  # 2*n_latent
-
-    # Sample from prior - use stop_gradient since VonMises sampling
-    # uses rejection sampling which cannot be differentiated through
-    _, _, prior_params = model.hrm.split_coords(hrm_params)
-    z_samples = jax.lax.stop_gradient(
-        model.pst_man.sample(key, prior_params, n_samples)
-    )
-
-    # Get sufficient statistics: shape (n_samples, lat_dim)
-    s_z_samples = jax.vmap(model.pst_man.sufficient_statistic)(z_samples)
-
-    # Compute psi_X at each sample
-    obs_bias, int_params, _ = model.hrm.split_coords(hrm_params)
-    int_matrix = int_params.reshape(model.n_neurons, lat_dim)
-
-    def compute_psi(z: Array) -> Array:
-        s_z = model.pst_man.sufficient_statistic(z)
-        lkl_nat = obs_bias + int_matrix @ s_z
-        return model.obs_man.log_partition_function(lkl_nat)
-
-    psi_values = jax.vmap(compute_psi)(z_samples)
-
-    # Least squares: psi approx chi + rho*s_Z
-    design = jnp.concatenate([jnp.ones((n_samples, 1)), s_z_samples], axis=1)
-    coeffs = jnp.linalg.lstsq(design, psi_values, rcond=None)[0]
-    chi, rho_star = coeffs[0], coeffs[1:]
-
-    # R^2 for diagnostics
-    predicted = design @ coeffs
-    ss_res = jnp.sum((psi_values - predicted) ** 2)
-    ss_tot = jnp.sum((psi_values - jnp.mean(psi_values)) ** 2)
-    r_squared = 1.0 - ss_res / jnp.maximum(ss_tot, 1e-6)
-
-    return rho_star, jnp.clip(r_squared, -10.0, 1.0), chi
-
-
-def compute_conjugation_metrics_jit(
-    model: VariationalPoissonVonMises, params: Array, key: Array, n_samples: int
-) -> tuple[Array, Array, Array]:
-    """JIT-compatible conjugation metrics computation.
-
-    Uses stop_gradient on samples since VonMises uses rejection sampling
-    which cannot be differentiated through.
-
-    Returns:
-        Tuple of (variance, std, r_squared)
-    """
-    rho, hrm_params = model.split_coords(params)
-
-    # Sample from current prior - use stop_gradient since VonMises sampling
-    # uses rejection sampling which cannot be differentiated through
-    _, _, prior_params = model.hrm.split_coords(hrm_params)
-    z_samples = jax.lax.stop_gradient(
-        model.pst_man.sample(key, prior_params, n_samples)
-    )
-
-    def reduced_learning_signal(z: Array) -> Array:
-        s_z = model.pst_man.sufficient_statistic(z)
-        term1 = jnp.dot(rho, s_z)
-        lkl_params = model.likelihood_at(params, z)
-        term2 = model.obs_man.log_partition_function(lkl_params)
-        return term1 - term2
-
-    def psi_x_at_z(z: Array) -> Array:
-        lkl_params = model.likelihood_at(params, z)
-        return model.obs_man.log_partition_function(lkl_params)
-
-    f_vals = jax.vmap(reduced_learning_signal)(z_samples)
-    psi_vals = jax.vmap(psi_x_at_z)(z_samples)
-
-    var_f = jnp.var(f_vals)
-    std_f = jnp.sqrt(var_f)
-    var_psi = jnp.var(psi_vals)
-
-    variance_threshold = 1e-6
-    raw_r2 = 1.0 - var_f / jnp.maximum(var_psi, variance_threshold)
-    r_squared = jnp.where(
-        var_psi > variance_threshold, jnp.clip(raw_r2, -10.0, 1.0), jnp.nan
-    )
-
-    return var_f, std_f, r_squared
-
-
-def compute_ground_truth_conjugation(
+def compute_gt_conjugation(
     gt_model: PoissonVonMisesHarmonium,
     gt_params: Array,
     key: Array,
     n_samples: int = 10000,
 ) -> GTConjugationMetrics:
-    """Compute conjugation metrics for the ground truth model.
+    """Compute conjugation metrics for the ground truth model using library methods."""
+    # Wrap GT harmonium in variational model to use library methods
+    var_model = VariationalPoissonVonMises(hrm=gt_model)
+    zero_rho = jnp.zeros(var_model.rho_man.dim)
+    var_params = var_model.join_coords(zero_rho, gt_params)
 
-    This computes the optimal rho via least squares and then evaluates
-    R² and Var[RLS] with that optimal rho.
+    # Compute optimal rho via regression
+    key, reg_key = jax.random.split(key)
+    rho_star, r_squared, _ = var_model.regress_conjugation_parameters(
+        reg_key, var_params, n_samples
+    )
 
-    Args:
-        gt_model: Ground truth harmonium model
-        gt_params: Ground truth parameters
-        key: JAX random key
-        n_samples: Number of samples for Monte Carlo estimation
+    # Var[psi_X] = Var[RLS] when rho=0 (since RLS = 0·s - psi = -psi)
+    key, m0_key = jax.random.split(key)
+    var_psi, _, _ = var_model.conjugation_metrics(m0_key, var_params, n_samples)
 
-    Returns:
-        GTConjugationMetrics with optimal rho and associated metrics
-    """
-    lat_dim = gt_model.pst_man.dim  # 2*n_latent
-
-    # Sample from prior
-    _, _, prior_params = gt_model.split_coords(gt_params)
-    z_samples = gt_model.pst_man.sample(key, prior_params, n_samples)
-
-    # Get sufficient statistics: shape (n_samples, lat_dim)
-    s_z_samples = jax.vmap(gt_model.pst_man.sufficient_statistic)(z_samples)
-
-    # Compute psi_X at each sample
-    obs_bias, int_params, _ = gt_model.split_coords(gt_params)
-    int_matrix = int_params.reshape(gt_model.n_neurons, lat_dim)
-
-    def compute_psi(z: Array) -> Array:
-        s_z = gt_model.pst_man.sufficient_statistic(z)
-        lkl_nat = obs_bias + int_matrix @ s_z
-        return gt_model.obs_man.log_partition_function(lkl_nat)
-
-    psi_values = jax.vmap(compute_psi)(z_samples)
-
-    # Least squares: psi approx chi + rho*s_Z
-    design = jnp.concatenate([jnp.ones((n_samples, 1)), s_z_samples], axis=1)
-    coeffs = jnp.linalg.lstsq(design, psi_values, rcond=None)[0]
-    _, optimal_rho = coeffs[0], coeffs[1:]
-
-    # Compute R² and var[RLS] with optimal rho
-    predicted = design @ coeffs
-    residuals = psi_values - predicted  # This is the reduced learning signal (shifted)
-
-    var_rls = float(jnp.var(residuals))
-    var_psi = float(jnp.var(psi_values))
-
-    # R² = 1 - Var[RLS] / Var[psi]
-    if var_psi > 1e-6:
-        r_squared = 1.0 - var_rls / var_psi
-    else:
-        r_squared = float("nan")
-
-    optimal_rho_norm = float(jnp.linalg.norm(optimal_rho))
+    # Var[RLS] with optimal rho
+    optimal_params = var_model.join_coords(rho_star, gt_params)
+    key, m1_key = jax.random.split(key)
+    var_rls, _, _ = var_model.conjugation_metrics(m1_key, optimal_params, n_samples)
 
     return {
-        "optimal_rho": optimal_rho.tolist(),
-        "optimal_rho_norm": optimal_rho_norm,
+        "optimal_rho": rho_star.tolist(),
+        "optimal_rho_norm": float(jnp.linalg.norm(rho_star)),
         "r_squared": float(r_squared),
-        "var_rls": var_rls,
-        "var_psi": var_psi,
+        "var_rls": float(var_rls),
+        "var_psi": float(var_psi),
     }
 
 
@@ -466,26 +271,11 @@ def train_model(
     batch_size: int,
     learning_rate: float,
     n_mc_samples: int,
+    init_params: Array,
     conj_weight: float = CONJ_WEIGHT,
     analytical_samples_mult: int = ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
 ) -> tuple[Array, ModeResults]:
-    """Train a model with specified mode.
-
-    Args:
-        key: Random key
-        model: The VariationalPoissonVonMises model
-        train_data: Training spike counts
-        mode: Training mode ('free', 'regularized', or 'analytical')
-        n_steps: Number of training steps
-        batch_size: Batch size
-        learning_rate: Learning rate
-        n_mc_samples: Number of MC samples for ELBO
-        conj_weight: Weight for conjugation penalty (regularized mode)
-        analytical_samples_mult: Multiplier for analytical rho samples
-
-    Returns:
-        Tuple of (final_params, mode_results)
-    """
+    """Train a model with specified mode."""
     use_analytical_rho = mode == "analytical"
     use_conj_penalty = mode == "regularized"
 
@@ -502,107 +292,135 @@ def train_model(
     print(f"Training with {mode_str}")
     print(f"{'=' * 60}")
 
-    # Initialize model
-    key, init_key = jax.random.split(key)
-    params = model.initialize_from_sample(
-        init_key, train_data, location=0.0, shape=0.1
-    )
-
-    rho, hrm_params = model.split_coords(params)
-    _ = jnp.zeros_like(rho)
+    params = init_params
+    _, hrm_params = model.split_coords(params)
+    zero_rho = jnp.zeros(model.rho_man.dim)
 
     # Optimizer setup
-    optimizer = optax.adam(learning_rate)
     if use_analytical_rho:
+        # Gradient clipping stabilizes the implicit gradient through lstsq,
+        # which can amplify noise early in training.
+        optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(learning_rate))
         opt_state = optimizer.init(hrm_params)
     else:
+        optimizer = optax.adam(learning_rate)
         opt_state = optimizer.init(params)
 
-    # Loss function for learnable rho (free or regularized)
-    def loss_fn_full(
+    # --- Loss functions ---
+
+    def loss_fn_free(
         params: Array, key: Array, batch: Array
-    ) -> tuple[Array, tuple[Array, Array, Array, Array]]:
-        key, elbo_key, conj_key = jax.random.split(key, 3)
+    ) -> tuple[Array, Array]:
+        elbo = model.mean_elbo(key, params, batch, n_mc_samples)
+        return -elbo, elbo
+
+    def loss_fn_regularized(
+        params: Array, key: Array, batch: Array
+    ) -> tuple[Array, tuple[Array, Array]]:
+        elbo_key, conj_key = jax.random.split(key)
         elbo = model.mean_elbo(elbo_key, params, batch, n_mc_samples)
 
-        conj_var, conj_std, conj_r2 = compute_conjugation_metrics_jit(
-            model, params, conj_key, N_CONJ_SAMPLES
+        # Conjugation penalty with stop_gradient on samples (VonMises is
+        # non-reparameterizable, so we can't differentiate through sampling)
+        p_params = model.prior_params(params)
+        z_sg = jax.lax.stop_gradient(
+            model.pst_man.sample(conj_key, p_params, N_CONJ_SAMPLES)
         )
+        f_vals = jax.vmap(lambda z: model.reduced_learning_signal(params, z))(z_sg)
+        conj_var = jnp.var(f_vals)
 
-        if use_conj_penalty:
-            conj_loss = conj_weight * conj_var
-        else:
-            conj_loss = 0.0
+        loss = -elbo + conj_weight * conj_var
+        return loss, (elbo, conj_var)
 
-        loss = -elbo + conj_loss
-        return loss, (elbo, conj_var, conj_std, conj_r2)
-
-    # Loss function for analytical rho
     def loss_fn_analytical(
         hrm_params: Array, key: Array, batch: Array
-    ) -> tuple[Array, tuple[Array, Array, Array, Array, Array]]:
-        key, rho_key, elbo_key = jax.random.split(key, 3)
+    ) -> tuple[Array, tuple[Array, Array]]:
+        rho_key, elbo_key, conj_key = jax.random.split(key, 3)
 
-        # Compute analytical rho via lstsq
-        rho_star, r_squared, _ = compute_analytical_rho(
-            model, hrm_params, rho_key, n_samples=n_analytical_samples
+        # Compute analytical rho via library regression
+        dummy_params = model.join_coords(zero_rho, hrm_params)
+        rho_star, _, _ = model.regress_conjugation_parameters(
+            rho_key, dummy_params, n_analytical_samples
         )
 
-        # Build full params with analytical rho and compute ELBO
+        # Let implicit gradient flow through lstsq for proper rho coupling
         params_with_rho = model.join_coords(rho_star, hrm_params)
         elbo = model.mean_elbo(elbo_key, params_with_rho, batch, n_mc_samples)
 
-        loss = -elbo
-        return loss, (elbo, r_squared, r_squared, r_squared, rho_star)
+        # Conjugation penalty: explicitly discourage nonlinear ψ_X
+        p_params = model.prior_params(params_with_rho)
+        z_sg = jax.lax.stop_gradient(
+            model.pst_man.sample(conj_key, p_params, N_CONJ_SAMPLES)
+        )
+        f_vals = jax.vmap(lambda z: model.reduced_learning_signal(params_with_rho, z))(
+            z_sg
+        )
+        conj_var = jnp.var(f_vals)
 
-    # Training step functions
-    if use_analytical_rho:
+        loss = -elbo + conj_weight * conj_var
+        return loss, (elbo, rho_star)
 
-        @jax.jit
-        def train_step(
-            carry: Any, _: None
-        ) -> tuple[Any, tuple[Array, Array, Array, Array, Array]]:
-            hrm_params, opt_state, step_key, data = carry
-            step_key, next_key, batch_key = jax.random.split(step_key, 3)
+    # --- Training step functions (define all, use the right one in the loop) ---
 
-            batch_idx = jax.random.choice(batch_key, n_samples, shape=(batch_size,))
-            batch = data[batch_idx]
+    @jax.jit
+    def train_step_analytical(
+        carry: Any, _: None
+    ) -> tuple[Any, tuple[Array, Array]]:
+        hrm_params, opt_state, step_key, data = carry
+        step_key, next_key, batch_key = jax.random.split(step_key, 3)
+        batch = data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
 
-            (_, metrics), grads = jax.value_and_grad(loss_fn_analytical, has_aux=True)(
-                hrm_params, next_key, batch
-            )
+        (_, (elbo, rho_star)), grads = jax.value_and_grad(
+            loss_fn_analytical, has_aux=True
+        )(hrm_params, next_key, batch)
 
-            updates, new_opt_state = optimizer.update(grads, opt_state, hrm_params)
-            new_hrm_params = optax.apply_updates(hrm_params, updates)
+        updates, new_opt_state = optimizer.update(grads, opt_state, hrm_params)
+        new_hrm_params = optax.apply_updates(hrm_params, updates)
 
-            return (new_hrm_params, new_opt_state, step_key, data), metrics
+        return (new_hrm_params, new_opt_state, step_key, data), (
+            elbo,
+            rho_star,
+        )
 
-    else:
+    @jax.jit
+    def train_step_regularized(
+        carry: Any, _: None
+    ) -> tuple[Any, tuple[Array, Array]]:
+        params, opt_state, step_key, data = carry
+        step_key, next_key, batch_key = jax.random.split(step_key, 3)
+        batch = data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
 
-        @jax.jit
-        def train_step(
-            carry: Any, _: None
-        ) -> tuple[Any, tuple[Array, Array, Array, Array]]:
-            params, opt_state, step_key, data = carry
-            step_key, next_key, batch_key = jax.random.split(step_key, 3)
+        (_, (elbo, conj_var)), grads = jax.value_and_grad(
+            loss_fn_regularized, has_aux=True
+        )(params, next_key, batch)
 
-            batch_idx = jax.random.choice(batch_key, n_samples, shape=(batch_size,))
-            batch = data[batch_idx]
+        updates, new_opt_state = optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
 
-            (_, metrics), grads = jax.value_and_grad(loss_fn_full, has_aux=True)(
-                params, next_key, batch
-            )
+        return (new_params, new_opt_state, step_key, data), (elbo, conj_var)
 
-            updates, new_opt_state = optimizer.update(grads, opt_state, params)
-            new_params = optax.apply_updates(params, updates)
+    @jax.jit
+    def train_step_free(
+        carry: Any, _: None
+    ) -> tuple[Any, Array]:
+        params, opt_state, step_key, data = carry
+        step_key, next_key, batch_key = jax.random.split(step_key, 3)
+        batch = data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
 
-            return (new_params, new_opt_state, step_key, data), metrics
+        (_, elbo), grads = jax.value_and_grad(loss_fn_free, has_aux=True)(
+            params, next_key, batch
+        )
 
-    # Training loop
+        updates, new_opt_state = optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
+
+        return (new_params, new_opt_state, step_key, data), elbo
+
+    # --- Training loop ---
     elbos: list[float] = []
     reconstruction_errors: list[float] = []
     r_squared: list[float] = []
-    var_rls_history: list[float] = []  # Variance of reduced learning signal
+    var_rls_history: list[float] = []
     rho_norms: list[float] = []
     conjugation_errors: list[float] = []
 
@@ -615,17 +433,32 @@ def train_model(
 
     for step in range(n_steps):
         if use_analytical_rho:
-            (current_hrm_params, current_opt_state, train_key, _), metrics = train_step(
-                (current_hrm_params, current_opt_state, train_key, train_data), None
+            (current_hrm_params, current_opt_state, train_key, _), (
+                elbo,
+                rho_star,
+            ) = train_step_analytical(
+                (
+                    current_hrm_params,
+                    current_opt_state,
+                    train_key,
+                    train_data,
+                ),
+                None,
             )
-            elbo, _, _, _, rho_star = metrics
             current_params = model.join_coords(rho_star, current_hrm_params)
             conj_var = 0.0
-        else:
-            (current_params, current_opt_state, train_key, _), metrics = train_step(
+        elif use_conj_penalty:
+            (current_params, current_opt_state, train_key, _), (
+                elbo,
+                conj_var,
+            ) = train_step_regularized(
                 (current_params, current_opt_state, train_key, train_data), None
             )
-            elbo, conj_var, _, _ = metrics
+        else:
+            (current_params, current_opt_state, train_key, _), elbo = train_step_free(
+                (current_params, current_opt_state, train_key, train_data), None
+            )
+            conj_var = 0.0
 
         elbos.append(float(elbo))
         conjugation_errors.append(float(conj_var))
@@ -635,14 +468,15 @@ def train_model(
         rho_norms.append(rho_norm)
 
         if step % LOG_INTERVAL == 0:
-            # Compute reconstruction error and conjugation metrics
-            recon_error = float(model.reconstruction_error(current_params, train_data[:500]))
+            recon_error = float(
+                model.reconstruction_error(current_params, train_data[:500])
+            )
             reconstruction_errors.append(recon_error)
 
-            # Compute var[RLS] explicitly
+            # Use library conjugation_metrics for monitoring
             key, conj_key = jax.random.split(key)
-            var_f, _, r2_val = compute_conjugation_metrics_jit(
-                model, current_params, conj_key, N_CONJ_SAMPLES
+            var_f, _, r2_val = model.conjugation_metrics(
+                conj_key, current_params, N_CONJ_SAMPLES
             )
             r_squared.append(float(r2_val))
             var_rls_history.append(float(var_f))
@@ -653,11 +487,22 @@ def train_model(
 
     # Final evaluation
     print("\nFinal evaluation...")
+
+    # For analytical mode, recompute rho with many samples for stable evaluation
+    if use_analytical_rho:
+        key, rho_eval_key = jax.random.split(key)
+        zero_rho = jnp.zeros(model.rho_man.dim)
+        eval_params = model.join_coords(zero_rho, current_hrm_params)
+        rho_final, _, _ = model.regress_conjugation_parameters(
+            rho_eval_key, eval_params, N_CONJ_SAMPLES * 2
+        )
+        current_params = model.join_coords(rho_final, current_hrm_params)
+
     key, eval_key = jax.random.split(key)
 
     final_recon_error = float(model.reconstruction_error(current_params, train_data))
-    final_var_rls, _, final_r2 = compute_conjugation_metrics_jit(
-        model, current_params, eval_key, N_CONJ_SAMPLES
+    final_var_rls, _, final_r2 = model.conjugation_metrics(
+        eval_key, current_params, N_CONJ_SAMPLES
     )
     final_rho, _ = model.split_coords(current_params)
     final_rho_norm = float(jnp.linalg.norm(final_rho))
@@ -737,12 +582,9 @@ def main():
     # Generate synthetic data from ground truth
     print("Generating synthetic data from ground truth model...")
     key, sample_key = jax.random.split(key)
-
-    # Sample latent angles from prior
     _, _, gt_prior_params = gt_model.split_coords(gt_params)
     z_samples = gt_model.pst_man.sample(sample_key, gt_prior_params, N_SAMPLES)
 
-    # Sample spike counts given latent angles
     key, spike_key = jax.random.split(key)
     spike_keys = jax.random.split(spike_key, N_SAMPLES)
 
@@ -756,20 +598,20 @@ def main():
     print(f"  Mean spike count: {jnp.mean(spike_counts):.2f}")
     print(f"  Max spike count: {jnp.max(spike_counts):.0f}")
 
-    # Extract ground truth info
-    gt_weights = gt_model.get_weight_matrix(gt_params)
-    gt_baselines, _, gt_prior = gt_model.split_coords(gt_params)
-
-    # Compute ground truth conjugation metrics
+    # Compute ground truth conjugation metrics using library methods
     print("\nComputing ground truth conjugation metrics...")
     key, gt_conj_key = jax.random.split(key)
-    gt_conjugation = compute_ground_truth_conjugation(
+    gt_conjugation = compute_gt_conjugation(
         gt_model, gt_params, gt_conj_key, n_samples=N_CONJ_SAMPLES * 2
     )
     print(f"  GT R^2 (with optimal rho): {gt_conjugation['r_squared']:.4f}")
     print(f"  GT var[RLS]: {gt_conjugation['var_rls']:.4f}")
     print(f"  GT var[psi_X]: {gt_conjugation['var_psi']:.4f}")
     print(f"  GT ||rho_optimal||: {gt_conjugation['optimal_rho_norm']:.4f}")
+
+    # Extract ground truth info
+    gt_weights = gt_model.get_weight_matrix(gt_params)
+    gt_baselines, _, gt_prior = gt_model.split_coords(gt_params)
 
     ground_truth: GroundTruth = {
         "weight_matrix": gt_weights.tolist(),
@@ -788,13 +630,17 @@ def main():
 
     # Train all modes
     modes = ["free", "regularized", "analytical"]
-
-    # Train models
     all_results: dict[str, ModeResults] = {}
     all_params: dict[str, Array] = {}
 
-    for mode in modes:
-        key, train_key = jax.random.split(key)
+    # Pre-compute shared initialization so all modes start from the same point
+    key, init_key = jax.random.split(key)
+    shared_init_params = model.initialize_from_sample(
+        init_key, spike_counts, location=0.0, shape=0.1
+    )
+
+    for mode_idx, mode in enumerate(modes):
+        train_key = jax.random.PRNGKey(SEED + mode_idx + 1)
         params, results = train_model(
             key=train_key,
             model=model,
@@ -804,6 +650,7 @@ def main():
             batch_size=BATCH_SIZE,
             learning_rate=LEARNING_RATE,
             n_mc_samples=N_MC_SAMPLES,
+            init_params=shared_init_params,
             conj_weight=CONJ_WEIGHT,
             analytical_samples_mult=ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
         )

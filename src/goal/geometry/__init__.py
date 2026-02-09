@@ -47,7 +47,6 @@ from .exponential_family.harmonium import (
 )
 from .exponential_family.variational import (
     VariationalConjugated,
-    VariationalConjugatedSG,
 )
 from .manifold.base import (
     Manifold,
@@ -137,7 +136,6 @@ __all__ = [
     "TrivialEmbedding",
     "TupleEmbedding",
     "VariationalConjugated",
-    "VariationalConjugatedSG",
     "conjugated_filtering",
     "conjugated_smoothing",
     "conjugated_smoothing0",

@@ -19,7 +19,6 @@ from .dynamical import (
 )
 from .variational import (
     VariationalConjugated,
-    VariationalConjugatedSG,
 )
 
 __all__ = [
@@ -27,7 +26,6 @@ __all__ = [
     "LatentProcess",
     # Variational
     "VariationalConjugated",
-    "VariationalConjugatedSG",
     "conjugated_filtering",
     "conjugated_smoothing",
     "conjugated_smoothing0",

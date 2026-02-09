@@ -31,7 +31,7 @@ from ...geometry.exponential_family.harmonium import (
     SymmetricConjugated,
 )
 from ...geometry.exponential_family.variational import (
-    VariationalConjugatedSG,
+    VariationalConjugated,
 )
 from ..base.poisson import CoMPoisson, CoMShape, Poisson, Poissons
 from ..base.von_mises import VonMises, VonMisesProduct
@@ -87,7 +87,7 @@ def poisson_vonmises_harmonium(
 
 @dataclass(frozen=True)
 class VariationalPoissonVonMises(
-    VariationalConjugatedSG[Poissons, VonMisesProduct, VonMisesProduct]
+    VariationalConjugated[Poissons, VonMisesProduct, VonMisesProduct]
 ):
     """Variational conjugated model with Poisson observables and VonMises latents.
 
