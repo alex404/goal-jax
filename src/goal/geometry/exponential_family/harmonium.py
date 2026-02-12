@@ -161,8 +161,8 @@ class Harmonium[
     @override
     def log_base_measure(self, x: Array) -> Array:
         """Compute log base measure for joint observation."""
-        obs_x = x[..., self.obs_man.data_dim :]
-        lat_x = x[self.obs_man.data_dim :]
+        obs_x = x[..., : self.obs_man.data_dim]
+        lat_x = x[..., self.obs_man.data_dim :]
 
         return self.obs_man.log_base_measure(obs_x) + self.pst_man.log_base_measure(
             lat_x

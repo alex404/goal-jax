@@ -35,6 +35,9 @@ from .dynamical import (
     latent_process_log_observable_density,
     sample_latent_process,
 )
+from .graphical.mixture import (
+    CompleteMixtureOfHarmonium,
+)
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -93,6 +96,7 @@ __all__ = [
     "CoMPoissonPopulation",
     "CoMShape",
     "CompleteMixture",
+    "CompleteMixtureOfHarmonium",
     "Covariance",
     "DiagonalBoltzmann",
     "DiagonalNormal",

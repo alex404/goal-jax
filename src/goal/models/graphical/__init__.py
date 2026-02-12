@@ -10,6 +10,7 @@ from .hmog import (
 )
 from .mixture import (
     CompleteMixtureOfConjugated,
+    CompleteMixtureOfHarmonium,
     RowEmbedding,
 )
 from .variational import (
@@ -19,6 +20,7 @@ from .variational import (
 __all__ = [
     "AnalyticHMoG",
     "CompleteMixtureOfConjugated",
+    "CompleteMixtureOfHarmonium",
     "DifferentiableHMoG",
     "RowEmbedding",
     "SymmetricHMoG",

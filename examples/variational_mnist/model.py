@@ -1,46 +1,43 @@
 """Model utilities for variational MNIST.
 
 This module provides:
-- Model creation with good defaults
+- ConcreteHarmonium: concrete harmonium for arbitrary observable/latent pairs
+- VariationalFullMixture: fully connected X↔Y↔K via CompleteMixtureOfHarmonium
+- Model creation with good defaults (hierarchical or full interaction)
+- Reconstruction and error utilities
 - Conjugation quality metrics (R², Std[residual], ||rho||)
 - IWAE bound for amortization gap estimation
 """
 
 # pyright: reportAttributeAccessIssue=false
+# pyright: reportArgumentType=false
 
-from typing import Literal
+from dataclasses import dataclass
+from typing import Any, Literal, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
+from goal.geometry import (
+    Differentiable,
+    EmbeddedMap,
+    Harmonium,
+    IdentityEmbedding,
+    ObservableEmbedding,
+    Rectangular,
+)
+from goal.geometry.exponential_family.variational import VariationalConjugated
+from goal.geometry.manifold.embedding import LinearEmbedding
+from goal.geometry.manifold.linear import LinearMap
 from goal.models import (
-    BinomialBernoulliMixture,
-    CompleteBinomialBernoulliMixture,
-    CompletePoissonBernoulliMixture,
-    CompleteVariationalBinomialVonMisesMixture,
-    PoissonBernoulliMixture,
-    VariationalBinomialVonMisesMixture,
-    binomial_bernoulli_mixture,
-    complete_binomial_bernoulli_mixture,
-    complete_poisson_bernoulli_mixture,
-    complete_variational_binomial_vonmises_mixture,
-    poisson_bernoulli_mixture,
-    variational_binomial_vonmises_mixture,
+    Bernoullis,
+    Binomials,
+    CompleteMixture,
+    CompleteMixtureOfHarmonium,
+    Poissons,
+    VariationalHierarchicalMixture,
 )
-
-# Type alias for mixture models
-type MixtureModel = (
-    BinomialBernoulliMixture
-    | PoissonBernoulliMixture
-    | VariationalBinomialVonMisesMixture
-    | CompleteBinomialBernoulliMixture
-    | CompletePoissonBernoulliMixture
-    | CompleteVariationalBinomialVonMisesMixture
-)
-
-# Default multiplier for n_samples = multiplier * bas_lat_man.dim
-ANALYTICAL_RHO_SAMPLES_MULTIPLIER = 5
 
 # MNIST dimensions
 IMG_SIZE = 28
@@ -51,69 +48,192 @@ DEFAULT_N_LATENT = 1024
 DEFAULT_N_CLUSTERS = 10
 DEFAULT_N_TRIALS = 16
 
+# Default multiplier for n_samples = multiplier * bas_lat_man.dim
+ANALYTICAL_RHO_SAMPLES_MULTIPLIER = 5
+
+
+### Concrete harmonium ###
+
+
+@dataclass(frozen=True)
+class ConcreteHarmonium[
+    Observable: Differentiable, Latent: Differentiable
+](Harmonium[Observable, Latent]):
+    """Concrete harmonium coupling an observable to a latent manifold.
+
+    A thin wrapper that stores the interaction map directly.
+    """
+
+    _int_man: EmbeddedMap[Latent, Observable]
+
+    @property
+    @override
+    def int_man(self) -> LinearMap[Latent, Observable]:
+        return self._int_man
+
+
+### Variational full mixture ###
+
+
+@dataclass(frozen=True)
+class VariationalFullMixture[
+    Observable: Differentiable, BaseLatent: Differentiable
+](
+    VariationalConjugated[
+        Observable, CompleteMixture[BaseLatent], BaseLatent
+    ],
+):
+    """Fully connected X↔Y↔K via CompleteMixtureOfHarmonium.
+
+    Rho corrects only the BaseLatent (observable) component of the
+    CompleteMixture posterior via ObservableEmbedding.  Cluster-specific
+    structure is forced through the three-block interaction (xy, xyk, xk).
+    """
+
+    hrm: CompleteMixtureOfHarmonium[Observable, BaseLatent]
+
+    @property
+    @override
+    def rho_emb(self) -> LinearEmbedding[BaseLatent, CompleteMixture[BaseLatent]]:
+        return ObservableEmbedding(self.hrm.pst_man)  # pyright: ignore[reportReturnType]
+
+    @property
+    def mix_man(self) -> CompleteMixture[BaseLatent]:
+        """Complete mixture over base latent."""
+        return self.hrm.pst_man  # type: ignore[return-value]
+
+    @property
+    def n_categories(self) -> int:
+        return self.mix_man.n_categories
+
+    @property
+    def bas_lat_man(self) -> BaseLatent:
+        return self.mix_man.obs_man  # type: ignore[return-value]
+
+    def get_cluster_probs(self, mixture_params: Array) -> Array:
+        """Extract cluster probabilities from mixture parameters."""
+        components, _ = self.mix_man.split_natural_mixture(mixture_params)
+        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
+        _, _, cat_params = self.mix_man.split_coords(mixture_params)
+        log_partitions = jax.vmap(self.bas_lat_man.log_partition_function)(comp_params_2d)
+        n_clusters = self.n_categories
+        log_probs = jnp.zeros(n_clusters)
+        log_probs = log_probs.at[0].set(log_partitions[0])
+        for k in range(1, n_clusters):
+            log_probs = log_probs.at[k].set(cat_params[k - 1] + log_partitions[k])
+        log_probs = log_probs - jax.scipy.special.logsumexp(log_probs)
+        return jnp.exp(log_probs)
+
+    def prior_entropy(self, params: Array) -> Array:
+        """Compute entropy of the prior's marginal cluster distribution."""
+        _, hrm_params = self.split_coords(params)
+        _, _, prior_mixture_params = self.hrm.split_coords(hrm_params)
+        probs = self.get_cluster_probs(prior_mixture_params)
+        probs_safe = jnp.clip(probs, 1e-10, 1.0)
+        return -jnp.sum(probs_safe * jnp.log(probs_safe))
+
+
+### Type aliases and factory functions ###
+
+type BinomialBernoulliHierarchical = VariationalHierarchicalMixture[Binomials, Bernoullis]
+type PoissonBernoulliHierarchical = VariationalHierarchicalMixture[Poissons, Bernoullis]
+type BinomialBernoulliFull = VariationalFullMixture[Binomials, Bernoullis]
+type PoissonBernoulliFull = VariationalFullMixture[Poissons, Bernoullis]
+type MixtureModel = (
+    BinomialBernoulliHierarchical
+    | PoissonBernoulliHierarchical
+    | BinomialBernoulliFull
+    | PoissonBernoulliFull
+)
+
+
+def _hierarchical_harmonium(
+    obs_man: Differentiable,
+    base_lat_man: Differentiable,
+    n_categories: int,
+) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
+    """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
+    mix_man = CompleteMixture(base_lat_man, n_categories)
+    int_man = EmbeddedMap(
+        Rectangular(),
+        ObservableEmbedding(mix_man),
+        IdentityEmbedding(obs_man),
+    )
+    return ConcreteHarmonium(int_man)
+
+
+def _full_base_harmonium(
+    obs_man: Differentiable,
+    base_lat_man: Differentiable,
+) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
+    """Create a ConcreteHarmonium[Obs, Lat] for fully connected mode."""
+    int_man = EmbeddedMap(
+        Rectangular(),
+        IdentityEmbedding(base_lat_man),
+        IdentityEmbedding(obs_man),
+    )
+    return ConcreteHarmonium(int_man)
+
 
 def create_model(
     n_latent: int = DEFAULT_N_LATENT,
     n_clusters: int = DEFAULT_N_CLUSTERS,
     observable_type: Literal["binomial", "poisson"] = "binomial",
-    latent_type: Literal["bernoulli", "vonmises"] = "bernoulli",
     n_trials: int = DEFAULT_N_TRIALS,
-    complete: bool = False,
+    interaction: Literal["hierarchical", "full"] = "full",
 ) -> MixtureModel:
-    """Create a mixture model with the specified observable and latent types.
+    """Create a mixture model with the specified observable type and interaction mode.
 
     Args:
         n_latent: Number of latent units (default: 1024)
         n_clusters: Number of mixture components (default: 10)
         observable_type: Type of observable distribution ("binomial" or "poisson")
-        latent_type: Type of latent distribution ("bernoulli" or "vonmises")
         n_trials: Binomial discretization level (default: 16, only used for binomial)
-        complete: If True, use complete model variant with full mixture rho correction.
-            Standard models have rho_dim = n_latent (or 2*n_latent for VonMises).
-            Complete models have rho_dim = n_latent * n_clusters + (n_clusters-1).
+        interaction: Interaction mode:
+            - "hierarchical": X↔(Y,K) with interaction restricted to Y component
+            - "full": X↔Y↔K with three-block interaction (xy, xyk, xk)
 
     Returns:
         MixtureModel instance
     """
+    base_lat_man = Bernoullis(n_latent)
+    obs_man: Any
     if observable_type == "poisson":
-        if complete:
-            return complete_poisson_bernoulli_mixture(
-                n_observable=N_OBSERVABLE,
-                n_latent=n_latent,
-                n_clusters=n_clusters,
-            )
-        return poisson_bernoulli_mixture(
-            n_observable=N_OBSERVABLE,
-            n_latent=n_latent,
-            n_clusters=n_clusters,
-        )
-    if latent_type == "vonmises":
-        if complete:
-            return complete_variational_binomial_vonmises_mixture(
-                n_observable=N_OBSERVABLE,
-                n_latent=n_latent,
-                n_clusters=n_clusters,
-                n_trials=n_trials,
-            )
-        return variational_binomial_vonmises_mixture(
-            n_observable=N_OBSERVABLE,
-            n_latent=n_latent,
-            n_clusters=n_clusters,
-            n_trials=n_trials,
-        )
-    if complete:
-        return complete_binomial_bernoulli_mixture(
-            n_observable=N_OBSERVABLE,
-            n_latent=n_latent,
-            n_clusters=n_clusters,
-            n_trials=n_trials,
-        )
-    return binomial_bernoulli_mixture(
-        n_observable=N_OBSERVABLE,
-        n_latent=n_latent,
-        n_clusters=n_clusters,
-        n_trials=n_trials,
-    )
+        obs_man = Poissons(N_OBSERVABLE)
+    else:
+        obs_man = Binomials(N_OBSERVABLE, n_trials)
+
+    if interaction == "full":
+        bas_hrm = _full_base_harmonium(obs_man, base_lat_man)
+        hrm = CompleteMixtureOfHarmonium(n_categories=n_clusters, bas_hrm=bas_hrm)
+        return VariationalFullMixture(hrm=hrm)
+    else:
+        hrm = _hierarchical_harmonium(obs_man, base_lat_man, n_clusters)
+        return VariationalHierarchicalMixture(hrm=hrm)
+
+
+### Standalone utility functions ###
+
+
+def reconstruct(model: MixtureModel, params: Array, x: Array) -> Array:
+    """Reconstruct an observation via posterior mean."""
+    q_params = model.approximate_posterior_at(params, x)
+    z_mean_stats = model.pst_man.to_mean(q_params)
+    _, hrm_params = model.split_coords(params)
+    lkl_fun = model.hrm.likelihood_function(hrm_params)
+    lkl_natural = model.hrm.lkl_fun_man(lkl_fun, z_mean_stats)
+    return model.obs_man.to_mean(lkl_natural)
+
+
+def normalized_reconstruction_error(
+    model: MixtureModel, params: Array, xs: Array, scale: float = 1.0
+) -> Array:
+    """Compute normalized MSE between inputs and their reconstructions."""
+    recons = jax.vmap(lambda x: reconstruct(model, params, x))(xs)
+    return jnp.mean(((xs - recons) / scale) ** 2)
+
+
+### Conjugation and evaluation utilities ###
 
 
 def compute_conjugation_metrics(
@@ -124,20 +244,8 @@ def compute_conjugation_metrics(
 ) -> tuple[Array, Array, Array, Array]:
     """Compute conjugation quality metrics.
 
-    This measures how well the linear correction rho*s(z) approximates psi_X(eta(z)).
-
-    Args:
-        model: The BinomialBernoulliMixture model
-        params: Full model parameters (including rho)
-        key: JAX random key
-        n_samples: Number of samples for estimation
-
     Returns:
-        Tuple of (var_f, std_f, r_squared, rho_norm) where:
-        - var_f: Variance of residual f_tilde
-        - std_f: Standard deviation of residual f_tilde
-        - r_squared: R^2 = 1 - Var[f_tilde]/Var[psi_X]
-        - rho_norm: L2 norm of rho parameters
+        Tuple of (var_f, std_f, r_squared, rho_norm)
     """
     var_f, std_f, r_squared = model.conjugation_metrics(key, params, n_samples)
     rho = model.conjugation_parameters(params)
@@ -157,15 +265,8 @@ def iwae_bound(
     IWAE is a tighter bound than ELBO:
         log p(x) >= IWAE(K) >= ELBO
 
-    As K increases, IWAE(K) approaches log p(x).
-
-    IWAE = E[log(1/K * sum_k w_k)] where w_k = p(x,z_k)/q(z_k|x)
-
-    For numerical stability, we use:
-        IWAE = logsumexp(log w_k) - log(K)
-
     Args:
-        model: The BinomialBernoulliMixture model
+        model: The mixture model
         key: JAX random key
         params: Full model parameters
         x: Single observation
@@ -174,21 +275,15 @@ def iwae_bound(
     Returns:
         IWAE bound value (scalar)
     """
-    # Get approximate posterior
     q_params = model.approximate_posterior_at(params, x)
+    z_samples = model.pst_man.sample(key, q_params, n_importance_samples)
 
-    # Sample K z vectors from posterior mixture
-    z_samples = model.mix_man.sample(key, q_params, n_importance_samples)
-
-    # Compute log importance weights: log w = log p(x,z) - log q(z|x)
     log_joints = jax.vmap(lambda z: model.log_density(params, x, z))(z_samples)
-    log_posteriors = jax.vmap(lambda z: model.mix_man.log_density(q_params, z))(
+    log_posteriors = jax.vmap(lambda z: model.pst_man.log_density(q_params, z))(
         z_samples
     )
 
     log_weights = log_joints - log_posteriors
-
-    # IWAE = logsumexp(log_weights) - log(K)
     return jax.scipy.special.logsumexp(log_weights) - jnp.log(n_importance_samples)
 
 
@@ -202,28 +297,12 @@ def estimate_amortization_gap(
 ) -> tuple[Array, Array, Array]:
     """Estimate the amortization gap: log p(x) - ELBO.
 
-    The amortization gap measures what we lose from the approximate posterior.
-    We estimate it as IWAE(K) - ELBO, which is a lower bound on the true gap.
-
-    Args:
-        model: The BinomialBernoulliMixture model
-        key: JAX random key
-        params: Full model parameters
-        x: Single observation
-        n_elbo_samples: Number of MC samples for ELBO
-        n_iwae_samples: Number of importance samples for IWAE
-
     Returns:
-        Tuple of (gap_estimate, elbo, iwae) where:
-        - gap_estimate: IWAE - ELBO (should be >= 0)
-        - elbo: ELBO value
-        - iwae: IWAE bound value
+        Tuple of (gap_estimate, elbo, iwae)
     """
     key1, key2 = jax.random.split(key)
-
     elbo = model.elbo_at(key1, params, x, n_elbo_samples)
     iwae = iwae_bound(model, key2, params, x, n_iwae_samples)
-
     gap_estimate = iwae - elbo
     return gap_estimate, elbo, iwae
 
@@ -235,25 +314,12 @@ def batch_iwae(
     xs: Array,
     n_importance_samples: int = 1000,
 ) -> Array:
-    """Compute mean IWAE bound over a batch.
-
-    Args:
-        model: The BinomialBernoulliMixture model
-        key: JAX random key
-        params: Full model parameters
-        xs: Batch of observations
-        n_importance_samples: Number of importance samples
-
-    Returns:
-        Mean IWAE over batch
-    """
+    """Compute mean IWAE bound over a batch."""
     batch_size = xs.shape[0]
     keys = jax.random.split(key, batch_size)
-
     iwaes = jax.vmap(
         lambda k, x: iwae_bound(model, k, params, x, n_importance_samples)
     )(keys, xs)
-
     return jnp.mean(iwaes)
 
 
@@ -267,14 +333,6 @@ def batch_amortization_gap(
 ) -> tuple[Array, Array, Array]:
     """Estimate mean amortization gap over a batch.
 
-    Args:
-        model: The BinomialBernoulliMixture model
-        key: JAX random key
-        params: Full model parameters
-        xs: Batch of observations
-        n_elbo_samples: Number of MC samples for ELBO
-        n_iwae_samples: Number of importance samples for IWAE
-
     Returns:
         Tuple of (mean_gap, mean_elbo, mean_iwae)
     """
@@ -287,73 +345,4 @@ def batch_amortization_gap(
         )
 
     gaps, elbos, iwaes = jax.vmap(compute_single)(keys, xs)
-
     return jnp.mean(gaps), jnp.mean(elbos), jnp.mean(iwaes)
-
-
-def compute_analytical_rho(
-    model: MixtureModel,
-    hrm_params: Array,
-    key: Array,
-    n_samples: int | None = None,
-) -> tuple[Array, Array, Array]:
-    """Compute optimal rho via least squares regression.
-
-    Solves: ρ* = argmin Σ(χ + ρ·s_Y(y) - ψ_X(θ_X + Θ_XY·s_Y(y)))²
-
-    IMPORTANT: n_samples must be >> lat_dim for well-conditioned lstsq.
-    Default: 5 * bas_lat_man.dim
-
-    Works for any base latent (Bernoulli, VonMises, etc.) via bas_lat_man.
-
-    Args:
-        model: The mixture model (BinomialBernoulliMixture, etc.)
-        hrm_params: Harmonium parameters (without rho)
-        key: JAX random key
-        n_samples: Number of samples for regression (default: 5 * lat_dim)
-
-    Returns:
-        Tuple of (rho_star, r_squared, chi) where:
-        - rho_star: Optimal rho parameters
-        - r_squared: R² goodness of fit (clipped to [-10, 1])
-        - chi: Intercept term
-    """
-    lat_dim = model.bas_lat_man.dim
-
-    # Default: 5x latent dimension for overdetermined system
-    if n_samples is None:
-        n_samples = ANALYTICAL_RHO_SAMPLES_MULTIPLIER * lat_dim
-
-    # Sample from prior mixture and extract base latent (y) components
-    _, _, prior_mixture_params = model.hrm.split_coords(hrm_params)
-    z_samples = model.mix_man.sample(key, prior_mixture_params, n_samples)
-    # Extract y components (first bas_lat_man.dim dimensions)
-    y_samples = z_samples[:, :lat_dim]
-
-    # Get sufficient statistics: shape (n_samples, lat_dim)
-    s_y_samples = jax.vmap(model.bas_lat_man.sufficient_statistic)(y_samples)
-
-    # Compute ψ_X at each sample
-    obs_bias, int_params, _ = model.hrm.split_coords(hrm_params)
-    int_matrix = int_params.reshape(model.n_observable, lat_dim)
-
-    def compute_psi(y: Array) -> Array:
-        s_y = model.bas_lat_man.sufficient_statistic(y)
-        lkl_nat = obs_bias + int_matrix @ s_y
-        return model.obs_man.log_partition_function(lkl_nat)
-
-    psi_values = jax.vmap(compute_psi)(y_samples)
-
-    # Least squares: ψ ≈ χ + ρ·s_Y
-    # Design matrix: (n_samples, lat_dim + 1)
-    design = jnp.concatenate([jnp.ones((n_samples, 1)), s_y_samples], axis=1)
-    coeffs = jnp.linalg.lstsq(design, psi_values, rcond=None)[0]
-    chi, rho_star = coeffs[0], coeffs[1:]
-
-    # R² for diagnostics
-    predicted = design @ coeffs
-    ss_res = jnp.sum((psi_values - predicted) ** 2)
-    ss_tot = jnp.sum((psi_values - jnp.mean(psi_values)) ** 2)
-    r_squared = 1.0 - ss_res / jnp.maximum(ss_tot, 1e-6)
-
-    return rho_star, jnp.clip(r_squared, -10.0, 1.0), chi

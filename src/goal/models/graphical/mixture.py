@@ -33,6 +33,7 @@ from ...geometry import (
     Differentiable,
     DifferentiableConjugated,
     EmbeddedMap,
+    Harmonium,
     IdentityEmbedding,
     InteractionEmbedding,
     LinearComposedEmbedding,
@@ -251,6 +252,251 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         return p_coords + self.embed(q_coords)
 
 
+### Mixture of Harmoniums ###
+
+
+@dataclass(frozen=True)
+class CompleteMixtureOfHarmonium[
+    Observable: Differentiable,
+    Posterior: Differentiable,
+](
+    Harmonium[Observable, CompleteMixture[Posterior]],
+):
+    """Harmonium with three-block interaction structure X↔Y↔K.
+
+    Given a base harmonium over (Observable, Posterior), this constructs a harmonium
+    where the latent space is CompleteMixture[Posterior] = (Y, K), with a three-block
+    interaction:
+
+    - xy: Base harmonium interaction (shared across components)
+    - xyk: Component-specific interaction offsets
+    - xk: Observable bias adjustments per component
+
+    This class does NOT require conjugation — it provides the pure harmonium
+    structure that can be wrapped in either:
+    - DifferentiableConjugated (via CompleteMixtureOfConjugated) for closed-form conjugation
+    - VariationalConjugated for learned conjugation parameters
+
+    **Fields**:
+        - bas_hrm: Base harmonium (lower level)
+        - n_categories: Number of mixture components
+    """
+
+    n_categories: int
+    """Number of mixture components."""
+
+    bas_hrm: Harmonium[Observable, Posterior]
+    """Base harmonium (lower level)."""
+
+    @property
+    def bas_pst_man(self) -> CompleteMixture[Posterior]:
+        """Complete mixture over base posterior (avoids circular dependency with pst_man)."""
+        return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
+
+    @property
+    def xy_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
+        """Base harmonium interaction embedded into mixture structure."""
+        emb = ObservableEmbedding(self.bas_pst_man)
+        return self.bas_hrm.int_man.prepend_embedding(emb)  # pyright: ignore[reportReturnType]
+
+    @property
+    def xyk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
+        """Component-specific interactions embedded into mixture structure."""
+
+        def tensorize_emb[SubLatent: Differentiable](
+            emb: LinearEmbedding[SubLatent, Posterior],
+        ) -> LinearEmbedding[
+            LinearMap[Categorical, SubLatent], CompleteMixture[Posterior]
+        ]:
+            tns_emb = RowEmbedding(
+                Categorical(self.n_categories),
+                emb,
+            )
+            int_emb = InteractionEmbedding(self.bas_pst_man)
+            return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
+                tns_emb,
+                int_emb,
+            )
+
+        return self.bas_hrm.int_man.map_domain_embedding(tensorize_emb)  # pyright: ignore[reportArgumentType]
+
+    @property
+    def xk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
+        """Observable bias adjustments per component."""
+        return EmbeddedMap(
+            Rectangular(),
+            PosteriorEmbedding(self.bas_pst_man),
+            IdentityEmbedding(self.bas_hrm.obs_man),
+        )  # pyright: ignore[reportReturnType]
+
+    @property
+    @override
+    def int_man(self) -> BlockMap[CompleteMixture[Posterior], Observable]:
+        """Interaction matrix with three blocks: mxy, mxyz, mxz.
+
+        Following the theory:
+        - mxy: Base harmonium interaction $(\\theta_{XY})$
+        - mxyk: Component-specific interactions $(\\theta^0_{XYZ})$
+        - mxk: Observable bias adjustments per component $(\\theta_{XZ})$
+        """
+        return BlockMap([self.xy_man, self.xyk_man, self.xk_man])
+
+    def posterior_categorical(self, params: Array, x: Array) -> Array:
+        """Compute posterior categorical distribution p(Z|x) in natural coordinates.
+
+        Returns the natural parameters of the categorical distribution over
+        mixture components given an observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components-1,) with categorical natural parameters
+        """
+        # Compute posterior harmonium parameters (in pst_man space)
+        posterior = self.posterior_at(params, x)
+
+        return self.bas_pst_man.prior(posterior)
+
+    def posterior_soft_assignments(self, params: Array, x: Array) -> Array:
+        """Compute posterior assignment probabilities p(Z|x).
+
+        Returns the posterior probability distribution over mixture components,
+        often called "responsibilities" in EM literature.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Array of shape (n_components,) giving p(z_k|x) for each component k
+        """
+        cat_natural = self.posterior_categorical(params, x)
+        cat_mean = self.bas_pst_man.lat_man.to_mean(cat_natural)
+        return self.bas_pst_man.lat_man.to_probs(cat_mean)
+
+    def posterior_hard_assignment(self, params: Array, x: Array) -> Array:
+        """Compute hard assignment to most probable mixture component.
+
+        Returns the index of the mixture component with the highest posterior
+        probability given the observation.
+
+        Args:
+            params: Model parameters (natural coordinates)
+            x: Observable data point
+
+        Returns:
+            Integer Array giving index of most probable component
+        """
+        soft_assignments = self.posterior_soft_assignments(params, x)
+        return jnp.argmax(soft_assignments)
+
+    @property
+    def mix_man(
+        self,
+    ) -> CompleteMixture[Harmonium[Observable, Posterior]]:  # pyright: ignore[reportInvalidTypeArguments]
+        """Mixture manifold over component harmoniums.
+
+        This provides an alternative representation of the mixture model where each
+        component is a full harmonium, rather than the shared-base-plus-offsets
+        representation used by CompleteMixtureOfHarmonium.
+        """
+        return CompleteMixture(self.bas_hrm, self.n_categories)  # pyright: ignore[reportArgumentType]
+
+    def to_mixture_params(self, params: Array) -> Array:
+        """Convert three-block parameters to Mixture[Harmonium] parameters.
+
+        This converts from the shared-base-plus-offsets representation to the
+        redundant representation where each component harmonium has independent
+        parameters.
+
+        Args:
+            params: Parameters in CompleteMixtureOfHarmonium representation
+
+        Returns:
+            Parameters in Mixture[Harmonium] representation (mix_man)
+        """
+        # Step 1: Split parameters
+        x_params, int_params, yk_harm_params = self.split_coords(params)
+
+        # Step 2: Extract interaction blocks
+        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_params)
+
+        # Step 3: Extract latent components (using bas_pst_man)
+        y_params, yk_int_params, k_params = self.bas_pst_man.split_coords(
+            yk_harm_params
+        )
+
+        # Step 4: Build base harmonium (component 0)
+        base_hrm_params = self.bas_hrm.join_coords(x_params, xy_params, y_params)
+
+        # Step 5: Build interaction matrix for mix_man
+        # All offset blocks have (n_categories-1) columns when viewed as matrices
+        n_cols = self.n_categories - 1
+
+        xk_matrix = xk_params.reshape(-1, n_cols)
+        xyk_matrix = xyk_params.reshape(-1, n_cols)
+        yk_matrix = yk_int_params.reshape(-1, n_cols)
+
+        # Stack to form (hrm_dim, n_cat-1) matrix
+        hrm_int_matrix = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix])
+
+        # Flatten to get mix_man interaction params
+        mix_int_params = hrm_int_matrix.ravel()
+
+        # Step 6: Join into mix_man parameters
+        return self.mix_man.join_coords(base_hrm_params, mix_int_params, k_params)
+
+    def from_mixture_params(self, mix_params: Array) -> Array:
+        """Convert Mixture[Harmonium] parameters to three-block parameters.
+
+        This converts from the redundant representation (independent component
+        harmoniums) to the shared-base-plus-offsets representation.
+
+        Args:
+            mix_params: Parameters in Mixture[Harmonium] representation (mix_man)
+
+        Returns:
+            Parameters in CompleteMixtureOfHarmonium representation
+        """
+        # Step 1: Split mix_man parameters
+        base_hrm_params, mix_int_params, k_params = self.mix_man.split_coords(
+            mix_params
+        )
+
+        # Step 2: Extract base harmonium components
+        x_params, xy_params, y_params = self.bas_hrm.split_coords(base_hrm_params)
+
+        # Step 3: Split mix_man interaction matrix into blocks
+        n_cols = self.n_categories - 1
+        hrm_int_matrix = mix_int_params.reshape(-1, n_cols)
+
+        # Split along rows according to harmonium structure
+        obs_dim = self.bas_hrm.obs_man.dim
+        int_dim = self.bas_hrm.int_man.dim
+
+        xk_matrix = hrm_int_matrix[:obs_dim, :]
+        xyk_matrix = hrm_int_matrix[obs_dim : obs_dim + int_dim, :]
+        yk_matrix = hrm_int_matrix[obs_dim + int_dim :, :]
+
+        # Flatten back to parameter vectors
+        xk_params = xk_matrix.ravel()
+        xyk_params = xyk_matrix.ravel()
+        yk_int_params = yk_matrix.ravel()
+
+        # Step 4: Join interaction blocks
+        int_params = jnp.concatenate([xy_params, xyk_params, xk_params])
+
+        # Step 5: Join latent components (using bas_pst_man)
+        yk_harm_params = self.bas_pst_man.join_coords(
+            y_params, yk_int_params, k_params
+        )
+
+        # Step 6: Join into CompleteMixtureOfHarmonium parameters
+        return self.join_coords(x_params, int_params, yk_harm_params)
+
+
 ### Mixture of Conjugated Harmoniums ###
 
 
@@ -260,6 +506,7 @@ class CompleteMixtureOfConjugated[
     PstLatent: Differentiable,
     PrrLatent: Differentiable,
 ](
+    CompleteMixtureOfHarmonium[Observable, PstLatent],
     DifferentiableConjugated[
         Observable,
         CompleteMixture[PstLatent],
@@ -273,25 +520,8 @@ class CompleteMixtureOfConjugated[
 ):
     """Mixture of conjugated harmoniums.
 
-    This class implements the theory of mixing arbitrary conjugated harmoniums,
-    where a base harmonium $\\mathcal{H}^G_{XY}$ (observable X, latent Y) is
-    composed with a categorical mixture indicator Z to produce a conjugated harmonium with:
-
-    - Observable: X (unchanged from base)
-    - Posterior Latent: (Y, Z) represented as CompleteMixture[PstLatent]
-    - Prior Latent: (Y, Z) represented as CompleteMixture[PrrLatent]
-    - Interaction: Three-block structure $(\\theta_{XY}, \\theta^0_{XYZ}, \\theta_{XZ})$
-
-    **Posterior vs Prior Structure**: The base harmonium may have a restricted posterior
-    (PstLatent) that embeds into a fuller prior (PrrLatent) via `bas_hrm.pst_prr_emb`.
-    This class lifts that embedding to work on the complete mixture structure.
-
-    **Mathematical structure**: The sufficient statistics decompose as:
-
-    $$s_{XYZ} = s_X \\oplus S_{X(YZ)} \\oplus s_{YZ}$$
-
-    where $S_{X(YZ)}$ has three blocks encoding base interaction, component-specific
-    interactions, and observable bias adjustments.
+    Extends CompleteMixtureOfHarmonium with conjugation structure, requiring a
+    DifferentiableConjugated base harmonium with closed-form conjugation_parameters.
 
     **Conjugation parameters**: Computed using the formula:
 
@@ -302,10 +532,6 @@ class CompleteMixtureOfConjugated[
     **Fields**:
         - bas_hrm: Base conjugated harmonium (lower level)
         - n_categories: Number of mixture components
-
-    **Structure**:
-        - Lower harmonium: Base conjugated harmonium with embeddings from hrm
-        - Upper harmonium: CompleteMixture with lifted embeddings
     """
 
     n_categories: int
@@ -316,77 +542,11 @@ class CompleteMixtureOfConjugated[
 
     @property
     @override
-    def pst_man(self) -> CompleteMixture[PstLatent]:
-        """Posterior latent manifold: complete mixture over base posterior."""
-        return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
-
-    @property
-    @override
     def pst_prr_emb(
         self,
     ) -> CompleteMixtureEmbedding[PstLatent, PrrLatent]:
         """Embedding of posterior mixture into prior mixture."""
         return CompleteMixtureEmbedding(self.n_categories, self.bas_hrm.pst_prr_emb)
-
-    @property
-    def mix_man(
-        self,
-    ) -> CompleteMixture[DifferentiableConjugated[Observable, PstLatent, PrrLatent]]:
-        """Mixture manifold over component harmoniums.
-
-        This provides an alternative representation of the mixture model where each
-        component is a full harmonium, rather than the shared-base-plus-offsets
-        representation used by MixtureOfConjugated.
-        """
-        return CompleteMixture(self.bas_hrm, self.n_categories)
-
-    @property
-    def xy_man(self) -> LinearMap[CompleteMixture[PstLatent], Observable]:
-        """Base harmonium interaction embedded into mixture structure."""
-        emb = ObservableEmbedding(self.pst_man)
-        return self.bas_hrm.int_man.prepend_embedding(emb)  # pyright: ignore[reportReturnType]
-
-    @property
-    def xyk_man(self) -> LinearMap[CompleteMixture[PstLatent], Observable]:
-        """Component-specific interactions embedded into mixture structure."""
-
-        def tensorize_emb[SubLatent: Differentiable](
-            emb: LinearEmbedding[SubLatent, PstLatent],
-        ) -> LinearEmbedding[
-            LinearMap[Categorical, SubLatent], CompleteMixture[PstLatent]
-        ]:
-            tns_emb = RowEmbedding(
-                Categorical(self.n_categories),
-                emb,
-            )
-            int_emb = InteractionEmbedding(self.pst_man)
-            return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
-                tns_emb,
-                int_emb,
-            )
-
-        return self.bas_hrm.int_man.map_domain_embedding(tensorize_emb)  # pyright: ignore[reportArgumentType]
-
-    @property
-    def xk_man(self) -> LinearMap[CompleteMixture[PstLatent], Observable]:
-        """Observable bias adjustments per component."""
-        return EmbeddedMap(
-            Rectangular(),
-            PosteriorEmbedding(self.pst_man),
-            IdentityEmbedding(self.bas_hrm.obs_man),
-        )  # pyright: ignore[reportReturnType]
-
-    @property
-    @override
-    def int_man(self) -> BlockMap[CompleteMixture[PstLatent], Observable]:
-        """Interaction matrix with three blocks: mxy, mxyz, mxz.
-
-        Following the theory:
-        - mxy: Base harmonium interaction $(\\theta_{XY})$
-        - mxyk: Component-specific interactions $(\\theta^0_{XYZ})$
-        - mxk: Observable bias adjustments per component $(\\theta_{XZ})$
-        """
-        return BlockMap([self.xy_man, self.xyk_man, self.xk_man])
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
@@ -451,146 +611,6 @@ class CompleteMixtureOfConjugated[
         # rho_yz has shape (n_categories-1, prr_lat_dim), need to transpose to (prr_lat_dim, n_categories-1)
         # before flattening to match prr_man's expected interaction layout
         return self.prr_man.join_coords(rho_y, rho_yz.T.ravel(), rho_z)
-
-    def to_mixture_params(self, params: Array) -> Array:
-        """Convert MixtureOfConjugated parameters to Mixture[Harmonium] parameters.
-
-        This converts from the shared-base-plus-offsets representation to the
-        redundant representation where each component harmonium has independent
-        parameters.
-
-        Args:
-            params: Parameters in MixtureOfConjugated representation
-
-        Returns:
-            Parameters in Mixture[Harmonium] representation (mix_man)
-        """
-        # Step 1: Split MixtureOfConjugated parameters
-        x_params, int_params, yk_harm_params = self.split_coords(params)
-
-        # Step 2: Extract interaction blocks
-        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_params)
-
-        # Step 3: Extract latent components (using pst_man)
-        y_params, yk_int_params, k_params = self.pst_man.split_coords(yk_harm_params)
-
-        # Step 4: Build base harmonium (component 0)
-        base_hrm_params = self.bas_hrm.join_coords(x_params, xy_params, y_params)
-
-        # Step 5: Build interaction matrix for mix_man
-        # All offset blocks have (n_categories-1) columns when viewed as matrices
-        n_cols = self.n_categories - 1
-
-        xk_matrix = xk_params.reshape(-1, n_cols)
-        xyk_matrix = xyk_params.reshape(-1, n_cols)
-        yk_matrix = yk_int_params.reshape(-1, n_cols)
-
-        # Stack to form (hrm_dim, n_cat-1) matrix
-        hrm_int_matrix = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix])
-
-        # Flatten to get mix_man interaction params
-        mix_int_params = hrm_int_matrix.ravel()
-
-        # Step 6: Join into mix_man parameters
-        return self.mix_man.join_coords(base_hrm_params, mix_int_params, k_params)
-
-    def from_mixture_params(self, mix_params: Array) -> Array:
-        """Convert Mixture[Harmonium] parameters to MixtureOfConjugated parameters.
-
-        This converts from the redundant representation (independent component
-        harmoniums) to the shared-base-plus-offsets representation.
-
-        Args:
-            mix_params: Parameters in Mixture[Harmonium] representation (mix_man)
-
-        Returns:
-            Parameters in MixtureOfConjugated representation
-        """
-        # Step 1: Split mix_man parameters
-        base_hrm_params, mix_int_params, k_params = self.mix_man.split_coords(
-            mix_params
-        )
-
-        # Step 2: Extract base harmonium components
-        x_params, xy_params, y_params = self.bas_hrm.split_coords(base_hrm_params)
-
-        # Step 3: Split mix_man interaction matrix into blocks
-        n_cols = self.n_categories - 1
-        hrm_int_matrix = mix_int_params.reshape(-1, n_cols)
-
-        # Split along rows according to harmonium structure
-        obs_dim = self.bas_hrm.obs_man.dim
-        int_dim = self.bas_hrm.int_man.dim
-
-        xk_matrix = hrm_int_matrix[:obs_dim, :]
-        xyk_matrix = hrm_int_matrix[obs_dim : obs_dim + int_dim, :]
-        yk_matrix = hrm_int_matrix[obs_dim + int_dim :, :]
-
-        # Flatten back to parameter vectors
-        xk_params = xk_matrix.ravel()
-        xyk_params = xyk_matrix.ravel()
-        yk_int_params = yk_matrix.ravel()
-
-        # Step 4: Join interaction blocks
-        int_params = jnp.concatenate([xy_params, xyk_params, xk_params])
-
-        # Step 5: Join latent components (using pst_man)
-        yk_harm_params = self.pst_man.join_coords(y_params, yk_int_params, k_params)
-
-        # Step 6: Join into MixtureOfConjugated parameters
-        return self.join_coords(x_params, int_params, yk_harm_params)
-
-    def posterior_categorical(self, params: Array, x: Array) -> Array:
-        """Compute posterior categorical distribution p(Z|x) in natural coordinates.
-
-        Returns the natural parameters of the categorical distribution over
-        mixture components given an observation.
-
-        Args:
-            params: Model parameters (natural coordinates)
-            x: Observable data point
-
-        Returns:
-            Array of shape (n_components-1,) with categorical natural parameters
-        """
-        # Compute posterior harmonium parameters (in pst_man space)
-        posterior = self.posterior_at(params, x)
-
-        return self.pst_man.prior(posterior)
-
-    def posterior_soft_assignments(self, params: Array, x: Array) -> Array:
-        """Compute posterior assignment probabilities p(Z|x).
-
-        Returns the posterior probability distribution over mixture components,
-        often called "responsibilities" in EM literature.
-
-        Args:
-            params: Model parameters (natural coordinates)
-            x: Observable data point
-
-        Returns:
-            Array of shape (n_components,) giving p(z_k|x) for each component k
-        """
-        cat_natural = self.posterior_categorical(params, x)
-        cat_mean = self.pst_man.lat_man.to_mean(cat_natural)
-        return self.pst_man.lat_man.to_probs(cat_mean)
-
-    def posterior_hard_assignment(self, params: Array, x: Array) -> Array:
-        """Compute hard assignment to most probable mixture component.
-
-        Returns the index of the mixture component with the highest posterior
-        probability given the observation.
-
-        Args:
-            params: Model parameters (natural coordinates)
-            x: Observable data point
-
-        Returns:
-            Integer Array giving index of most probable component
-        """
-        soft_assignments = self.posterior_soft_assignments(params, x)
-        return jnp.argmax(soft_assignments)
-
 
 @dataclass(frozen=True)
 class CompleteMixtureOfSymmetric[

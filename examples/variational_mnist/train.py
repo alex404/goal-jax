@@ -20,6 +20,9 @@ Usage:
     python -m examples.variational_mnist.train --observable poisson
 """
 
+# pyright: reportAttributeAccessIssue=false
+# pyright: reportArgumentType=false
+
 import argparse
 import json
 from typing import Any, Literal
@@ -36,8 +39,9 @@ from .model import (
     ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
     N_OBSERVABLE,
     MixtureModel,
-    compute_analytical_rho,
     create_model,
+    normalized_reconstruction_error,
+    reconstruct,
 )
 
 # Data configuration
@@ -121,15 +125,10 @@ def parse_args() -> argparse.Namespace:
         help="Observable distribution type: 'binomial' (bounded) or 'poisson' (unbounded)",
     )
     parser.add_argument(
-        "--latent",
-        choices=["bernoulli", "vonmises"],
-        default="bernoulli",
-        help="Latent distribution type: 'bernoulli' (binary) or 'vonmises' (circular continuous)",
-    )
-    parser.add_argument(
-        "--complete",
-        action="store_true",
-        help="Use complete model variant with full mixture rho correction. Standard: rho_dim = n_latent. Complete: rho_dim = n_latent * n_clusters + (n_clusters-1).",
+        "--interaction",
+        choices=["hierarchical", "full"],
+        default="full",
+        help="Interaction mode: 'hierarchical' (X↔(Y,K)) or 'full' (X↔Y↔K three-block)",
     )
     parser.add_argument(
         "--analytical-samples-mult",
@@ -189,17 +188,7 @@ def compute_batch_entropy(all_probs: Array) -> Array:
 
 
 def compute_prior_entropy(model: MixtureModel, params: Array) -> Array:
-    """Compute entropy of the prior's marginal cluster distribution.
-
-    Delegates to model.prior_entropy() which handles both standard and complete models.
-
-    Args:
-        model: The mixture model
-        params: Full model parameters (including rho)
-
-    Returns:
-        Entropy of prior cluster distribution (scalar)
-    """
+    """Compute entropy of the prior's marginal cluster distribution."""
     return model.prior_entropy(params)
 
 
@@ -207,10 +196,6 @@ def compute_conjugation_metrics_jit(
     model: Any, params: Array, key: Array, n_samples: int
 ) -> tuple[Array, Array, Array]:
     """JIT-compatible conjugation metrics computation.
-
-    Uses the model's rho_emb to properly project sufficient statistics,
-    which handles both standard models (ObservableEmbedding) and
-    complete models (IdentityEmbedding) correctly.
 
     Returns:
         Tuple of (variance, std, r_squared)
@@ -284,12 +269,27 @@ def train_model(  # noqa: C901
     obs_bias, int_params, lat_params = model.hrm.split_coords(hrm_params)
     mix_obs_bias, _, cat_params = model.mix_man.split_coords(lat_params)
 
-    mix_int_dim = model.bas_lat_man.dim * (model.n_clusters - 1)
-    new_mix_int_mat = jax.random.normal(cluster_key, (mix_int_dim,)) * 0.5
+    mix_int_dim = model.bas_lat_man.dim * (model.n_categories - 1)
+    k1, k2, k3 = jax.random.split(cluster_key, 3)
+    new_mix_int_mat = jax.random.normal(k1, (mix_int_dim,)) * 0.5
 
     new_lat_params = model.mix_man.join_coords(
         mix_obs_bias, new_mix_int_mat, cat_params
     )
+
+    # For full model, also break symmetry in the xyk and xk interaction blocks
+    if hasattr(model.hrm, 'xyk_man'):
+        block_int = model.hrm.int_man
+        xy_params, xyk_params, xk_params = block_int.coord_blocks(int_params)
+        obs_dim = model.obs_man.dim
+        lat_dim = model.bas_lat_man.dim
+        # Use same scale as xy but divided across components
+        xyk_scale = 0.1 / jnp.sqrt(obs_dim * lat_dim)
+        xk_scale = 0.1 / jnp.sqrt(obs_dim)
+        new_xyk = jax.random.normal(k2, xyk_params.shape) * xyk_scale
+        new_xk = jax.random.normal(k3, xk_params.shape) * xk_scale
+        int_params = jnp.concatenate([xy_params, new_xyk, new_xk])
+
     new_hrm_params = model.hrm.join_coords(obs_bias, int_params, new_lat_params)
     params = model.join_coords(rho, new_hrm_params)
 
@@ -349,9 +349,11 @@ def train_model(  # noqa: C901
     ) -> tuple[Array, tuple[Array, Array, Array, Array, Array]]:
         key, rho_key, elbo_key, conj_key = jax.random.split(key, 4)
 
-        # Compute analytical rho via lstsq (differentiable in JAX)
-        rho_star, _, _ = compute_analytical_rho(
-            model, hrm_params, rho_key, n_samples=n_analytical_samples
+        # Compute analytical rho via regress_conjugation_parameters
+        zero_rho = jnp.zeros(model.rho_man.dim)
+        dummy_params = model.join_coords(zero_rho, hrm_params)
+        rho_star, _, _ = model.regress_conjugation_parameters(
+            rho_key, dummy_params, n_analytical_samples
         )
 
         # Build full params with analytical rho and compute ELBO
@@ -491,7 +493,7 @@ def train_model(  # noqa: C901
             assignments = get_assignments_batch(current_params, test_data)
             nmi = compute_nmi(assignments, test_labels)
             prior_ent = float(model.prior_entropy(current_params))
-            max_ent = float(jnp.log(model.n_clusters))
+            max_ent = float(jnp.log(model.n_categories))
 
             print(
                 f"  Step {step}: ELBO={elbo:.2f}, NMI={nmi:.4f}, R^2={conj_r2:.4f}, ||rho||={rho_norm:.2f}, H_prior={prior_ent:.2f}/{max_ent:.2f}"
@@ -517,23 +519,23 @@ def train_model(  # noqa: C901
         compute_nmi,
     )
 
-    purity = compute_cluster_purity(assignments, test_labels, model.n_clusters)
+    purity = compute_cluster_purity(assignments, test_labels, model.n_categories)
     nmi = compute_nmi(assignments, test_labels)
-    accuracy = compute_cluster_accuracy(assignments, test_labels, model.n_clusters)
+    accuracy = compute_cluster_accuracy(assignments, test_labels, model.n_categories)
 
     # Compute reconstruction error with appropriate normalization
     if observable_type == "poisson":
         recon_error = float(
-            model.normalized_reconstruction_error(
-                final_params, test_data, scale=n_trials
+            normalized_reconstruction_error(
+                model, final_params, test_data, scale=n_trials
             )
         )
     else:
         recon_error = float(
-            model.normalized_reconstruction_error(final_params, test_data)
+            normalized_reconstruction_error(model, final_params, test_data)
         )
 
-    cluster_counts = [int(jnp.sum(assignments == k)) for k in range(model.n_clusters)]
+    cluster_counts = [int(jnp.sum(assignments == k)) for k in range(model.n_categories)]
 
     print(f"  Purity: {100 * purity:.1f}%")
     print(f"  NMI: {nmi:.4f}")
@@ -551,27 +553,24 @@ def train_model(  # noqa: C901
     x_samples = jnp.clip(x_samples, 0, n_trials)
 
     # Also generate mean-based samples (expected values, not sampled)
-    # This shows what the prior "means" rather than random samples
     key, mean_key = jax.random.split(key)
     _, _, prior_mixture_params = model.hrm.split_coords(
         model.generative_params(final_params)
     )
     z_mean_samples = model.mix_man.sample(mean_key, prior_mixture_params, 20)
-    # Extract y components (base latent)
-    y_mean_samples = z_mean_samples[:, :model.bas_lat_man.dim]
 
-    def get_mean_image(y: Array) -> Array:
-        lkl_params = model.likelihood_at(final_params, y)
+    def get_mean_image(z: Array) -> Array:
+        lkl_params = model.likelihood_at(final_params, z)
         return model.obs_man.to_mean(lkl_params)
 
-    x_mean_samples = jax.vmap(get_mean_image)(y_mean_samples)
+    x_mean_samples = jax.vmap(get_mean_image)(z_mean_samples)
 
     # Clip mean samples for visualization (especially important for Poisson)
     x_mean_samples = jnp.clip(x_mean_samples, 0, n_trials)
 
     # Cluster prototypes
     cluster_prototypes: list[list[float]] = []
-    for k in range(model.n_clusters):
+    for k in range(model.n_categories):
         mask = assignments == k
         if jnp.sum(mask) > 0:
             prototype = jnp.mean(test_data[mask], axis=0)
@@ -608,8 +607,6 @@ def main():
     print("=" * 60)
     print(f"  Mode: {args.mode}")
     print(f"  Observable type: {args.observable}")
-    print(f"  Latent type: {args.latent}")
-    print(f"  Complete model: {args.complete}")
     print(f"  N latent: {args.n_latent}")
     print(f"  N clusters: {args.n_clusters}")
     print(f"  N steps: {args.n_steps}")
@@ -618,6 +615,7 @@ def main():
     print(f"  Posterior entropy weight: {args.posterior_entropy_weight}")
     print(f"  Conj weight: {args.conj_weight}")
     print(f"  Conj mode: {args.conj_mode}")
+    print(f"  Interaction: {args.interaction}")
     if args.mode == "analytical":
         print(f"  Analytical samples mult: {args.analytical_samples_mult}")
     print("=" * 60)
@@ -639,14 +637,11 @@ def main():
         n_latent=args.n_latent,
         n_clusters=args.n_clusters,
         observable_type=args.observable,
-        latent_type=args.latent,
         n_trials=DEFAULT_N_TRIALS,
-        complete=args.complete,
+        interaction=args.interaction,
     )
     print(f"Model dim: {model.dim}")
-    print(
-        f"  Rho params: {model.rho_man.dim} ({'full mixture' if args.complete else 'base latent only'})"
-    )
+    print(f"  Rho params: {model.rho_man.dim}")
     print(f"  Harmonium params: {model.hrm.dim}")
 
     # Train model
@@ -671,7 +666,7 @@ def main():
 
     # Reconstructions
     def get_recon(x: Array) -> Array:
-        return model.reconstruct(params, x)
+        return reconstruct(model, params, x)
 
     reconstructions = jax.vmap(get_recon)(test_data[:20])
     reconstructions = jnp.clip(reconstructions, 0, DEFAULT_N_TRIALS)
@@ -685,8 +680,6 @@ def main():
         "best_model": args.mode,
         "config": {
             "observable_type": args.observable,
-            "latent_type": args.latent,
-            "complete": args.complete,
             "n_latent": args.n_latent,
             "n_clusters": args.n_clusters,
             "n_trials": DEFAULT_N_TRIALS,
@@ -697,6 +690,7 @@ def main():
             "conj_weight": args.conj_weight,
             "conj_mode": args.conj_mode,
             "analytical_samples_mult": args.analytical_samples_mult,
+            "interaction": args.interaction,
         },
     }
 

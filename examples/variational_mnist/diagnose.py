@@ -6,6 +6,9 @@ generation (prior-based) in the trained model.
 Supports both Binomial and Poisson observable types.
 """
 
+# pyright: reportAttributeAccessIssue=false
+# pyright: reportArgumentType=false
+
 import json
 from typing import Literal
 
@@ -53,9 +56,7 @@ def diagnose_trained_model(mode: str = "gradient"):
     observable_type: Literal["binomial", "poisson"] = config.get(
         "observable_type", "binomial"
     )
-    latent_type: Literal["bernoulli", "vonmises"] = config.get(
-        "latent_type", "bernoulli"
-    )
+    interaction: Literal["hierarchical", "full"] = config.get("interaction", "full")
 
     # Load test data
     _, _, test_data, _ = load_mnist(n_trials, observable_type=observable_type)
@@ -65,8 +66,8 @@ def diagnose_trained_model(mode: str = "gradient"):
         n_latent=n_latent,
         n_clusters=n_clusters,
         observable_type=observable_type,
-        latent_type=latent_type,
         n_trials=n_trials,
+        interaction=interaction,
     )
 
     key = jax.random.PRNGKey(42)
@@ -88,7 +89,7 @@ def diagnose_trained_model(mode: str = "gradient"):
     )
 
     lat_dim = model.bas_lat_man.dim
-    int_matrix = int_params.reshape(model.n_observable, lat_dim)
+    int_matrix = int_params.reshape(model.obs_man.dim, lat_dim)
     print(
         f"Interaction matrix: shape={int_matrix.shape}, norm={float(jnp.linalg.norm(int_matrix)):.4f}, mean={float(int_matrix.mean()):.6f}, std={float(int_matrix.std()):.6f}"
     )
@@ -102,14 +103,9 @@ def diagnose_trained_model(mode: str = "gradient"):
     y_samples = z_samples_prior[:, :lat_dim]
     k_samples = z_samples_prior[:, lat_dim].astype(jnp.int32)
 
-    if latent_type == "vonmises":
-        print(
-            f"z samples: mean={float(y_samples.mean()):.4f}, std={float(y_samples.std()):.4f}, range=[{float(y_samples.min()):.4f}, {float(y_samples.max()):.4f}]"
-        )
-    else:
-        print(
-            f"y samples: mean={float(y_samples.mean()):.4f}, fraction 1s={float((y_samples > 0.5).mean()):.4f}"
-        )
+    print(
+        f"y samples: mean={float(y_samples.mean()):.4f}, fraction 1s={float((y_samples > 0.5).mean()):.4f}"
+    )
     print(f"k samples: distribution={[int((k_samples == k).sum()) for k in range(10)]}")
 
     # What are the likelihood parameters for prior samples?
@@ -153,14 +149,9 @@ def diagnose_trained_model(mode: str = "gradient"):
     all_y_post = jnp.concatenate(all_y_post)
     all_lkl_means_post = jnp.concatenate(all_lkl_means_post)
 
-    if latent_type == "vonmises":
-        print(
-            f"z samples: mean={float(all_y_post.mean()):.4f}, std={float(all_y_post.std()):.4f}"
-        )
-    else:
-        print(
-            f"y samples: mean={float(all_y_post.mean()):.4f}, fraction 1s={float((all_y_post > 0.5).mean()):.4f}"
-        )
+    print(
+        f"y samples: mean={float(all_y_post.mean()):.4f}, fraction 1s={float((all_y_post > 0.5).mean()):.4f}"
+    )
     print("Expected pixel values (posterior samples):")
     print(
         f"  min={float(all_lkl_means_post.min()):.4f}, max={float(all_lkl_means_post.max()):.4f}, mean={float(all_lkl_means_post.mean()):.4f}"
@@ -168,16 +159,12 @@ def diagnose_trained_model(mode: str = "gradient"):
 
     # Key comparison
     print("\n--- KEY COMPARISON ---")
-    if latent_type == "vonmises":
-        print(f"Prior z std:     {float(y_samples.std()):.4f}")
-        print(f"Posterior z std: {float(all_y_post.std()):.4f}")
-    else:
-        print(
-            f"Prior y activation rate:     {float((y_samples > 0.5).mean()) * 100:.1f}%"
-        )
-        print(
-            f"Posterior y activation rate: {float((all_y_post > 0.5).mean()) * 100:.1f}%"
-        )
+    print(
+        f"Prior y activation rate:     {float((y_samples > 0.5).mean()) * 100:.1f}%"
+    )
+    print(
+        f"Posterior y activation rate: {float((all_y_post > 0.5).mean()) * 100:.1f}%"
+    )
     print(f"Prior expected pixel mean:     {float(lkl_means_prior.mean()):.4f}")
     print(f"Posterior expected pixel mean: {float(all_lkl_means_post.mean()):.4f}")
     print(f"Test data actual mean:         {float(test_data.mean()):.4f}")
@@ -186,25 +173,18 @@ def diagnose_trained_model(mode: str = "gradient"):
     print("\n--- PRIOR MIXTURE COMPONENTS ---")
     mix_obs_bias, _mix_int_params, _cat_params = model.mix_man.split_coords(lat_params)
     print(
-        f"Mixture observable bias ({latent_type} prior): min={float(mix_obs_bias.min()):.4f}, max={float(mix_obs_bias.max()):.4f}, mean={float(mix_obs_bias.mean()):.4f}"
+        f"Mixture observable bias (bernoulli prior): min={float(mix_obs_bias.min()):.4f}, max={float(mix_obs_bias.max()):.4f}, mean={float(mix_obs_bias.mean()):.4f}"
     )
 
     # Get component-wise parameters
     components, _ = model.mix_man.split_natural_mixture(prior_mixture_params)
     comp_params_2d = model.mix_man.cmp_man.to_2d(components)
 
-    if latent_type == "vonmises":
-        print("\nComponent Von Mises mean parameters:")
-        for k in range(min(10, model.n_clusters)):
-            comp_mean = model.bas_lat_man.to_mean(comp_params_2d[k])
-            mean_norm = float(jnp.linalg.norm(comp_mean))
-            print(f"  Component {k}: mean norm = {mean_norm:.4f}")
-    else:
-        print("\nComponent Bernoulli activation rates (sigmoid of natural params):")
-        for k in range(min(10, model.n_clusters)):
-            comp_mean = model.bas_lat_man.to_mean(comp_params_2d[k])
-            activation_rate = float(comp_mean.mean())
-            print(f"  Component {k}: mean activation = {activation_rate:.4f}")
+    print("\nComponent Bernoulli activation rates (sigmoid of natural params):")
+    for k in range(min(10, model.n_categories)):
+        comp_mean = model.bas_lat_man.to_mean(comp_params_2d[k])
+        activation_rate = float(comp_mean.mean())
+        print(f"  Component {k}: mean activation = {activation_rate:.4f}")
 
     # Diagnosis summary
     print("\n--- DIAGNOSIS ---")
@@ -213,8 +193,6 @@ def diagnose_trained_model(mode: str = "gradient"):
     float(test_data.mean())
 
     # Generation gap: ratio of prior to posterior pixel means
-    # If this is near 1.0, prior and posterior produce similar images
-    # If this is near 0, prior produces blank images while posterior doesn't
     generation_gap = prior_pixel_mean / max(post_pixel_mean, 1e-6)
     print(f"Generation gap (prior/posterior pixel mean): {generation_gap:.4f}")
     print("  - 1.0 = prior matches aggregate posterior well")
@@ -245,12 +223,11 @@ def diagnose_trained_model(mode: str = "gradient"):
     print("\n--- LATENT CODE COLLAPSE DIAGNOSTICS ---")
 
     # 1. Analyze interaction weight distribution per latent dimension
-    # Each column of int_matrix corresponds to one latent neuron
     weight_norms_per_latent = jnp.linalg.norm(int_matrix, axis=0)  # (n_latent,)
     _ = jnp.abs(int_matrix).mean(axis=0)  # (n_latent,)
 
     print(
-        f"\nInteraction weight norms per latent dim ({model.n_observable} obs -> {lat_dim} latent dims):"
+        f"\nInteraction weight norms per latent dim ({model.obs_man.dim} obs -> {lat_dim} latent dims):"
     )
     print(
         f"  min={float(weight_norms_per_latent.min()):.4f}, max={float(weight_norms_per_latent.max()):.4f}, mean={float(weight_norms_per_latent.mean()):.4f}, std={float(weight_norms_per_latent.std()):.4f}"
@@ -264,7 +241,6 @@ def diagnose_trained_model(mode: str = "gradient"):
     )
 
     # 2. Analyze posterior activation variance across test data
-    # Sample posteriors for many test images and look at activation patterns
     print("\nPosterior latent activation analysis (100 test images):")
     key, _ = jax.random.split(key)
     n_analysis = 100
@@ -305,17 +281,14 @@ def diagnose_trained_model(mode: str = "gradient"):
         f"  Constant latent dims (var < {var_threshold}): {n_constant_latents}/{n_latent_dims} ({100 * n_constant_latents / n_latent_dims:.1f}%)"
     )
 
-    if latent_type != "vonmises":
-        # Count latents with very low mean (almost never active) — Bernoulli only
-        mean_threshold = 0.01
-        n_inactive_latents = int(jnp.sum(latent_means < mean_threshold))
-        print(
-            f"  Inactive latents (mean < {mean_threshold}): {n_inactive_latents}/{model.n_latent} ({100 * n_inactive_latents / model.n_latent:.1f}%)"
-        )
+    # Count latents with very low mean (almost never active) -- Bernoulli only
+    mean_threshold = 0.01
+    n_inactive_latents = int(jnp.sum(latent_means < mean_threshold))
+    print(
+        f"  Inactive latents (mean < {mean_threshold}): {n_inactive_latents}/{lat_dim} ({100 * n_inactive_latents / lat_dim:.1f}%)"
+    )
 
     # 3. Effective dimensionality via participation ratio
-    # PR = (sum of variances)^2 / sum of (variances^2)
-    # This gives ~1 if only one latent varies, ~n if all vary equally
     total_var = float(jnp.sum(latent_variances))
     sum_var_sq = float(jnp.sum(latent_variances**2))
     if sum_var_sq > 1e-12:
@@ -328,30 +301,18 @@ def diagnose_trained_model(mode: str = "gradient"):
     )
     print(f"  Utilization: {100 * participation_ratio / n_latent_dims:.1f}%")
 
-    # 4. Histogram of activation rates / variance distribution
-    if latent_type == "vonmises":
-        print(f"\nLatent variance distribution:")
-        var_bins = [0, 1e-6, 1e-4, 1e-2, 0.1, 0.5, 1.0, float("inf")]
-        for i in range(len(var_bins) - 1):
-            count = int(
-                jnp.sum(
-                    (latent_variances >= var_bins[i])
-                    & (latent_variances < var_bins[i + 1])
-                )
+    # 4. Histogram of activation rates
+    activation_rate_per_latent = latent_means  # For Bernoulli, mean = P(y=1)
+    print(f"\nActivation rate distribution:")
+    bins = [0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0]
+    for i in range(len(bins) - 1):
+        count = int(
+            jnp.sum(
+                (activation_rate_per_latent >= bins[i])
+                & (activation_rate_per_latent < bins[i + 1])
             )
-            print(f"  [{var_bins[i]:.1e}, {var_bins[i + 1]:.1e}): {count} latent dims")
-    else:
-        activation_rate_per_latent = latent_means  # For Bernoulli, mean = P(y=1)
-        print(f"\nActivation rate distribution:")
-        bins = [0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0]
-        for i in range(len(bins) - 1):
-            count = int(
-                jnp.sum(
-                    (activation_rate_per_latent >= bins[i])
-                    & (activation_rate_per_latent < bins[i + 1])
-                )
-            )
-            print(f"  [{bins[i]:.3f}, {bins[i + 1]:.3f}): {count} latents")
+        )
+        print(f"  [{bins[i]:.3f}, {bins[i + 1]:.3f}): {count} latents")
 
     # Summary
     print("\n--- LATENT COLLAPSE SUMMARY ---")
