@@ -112,17 +112,9 @@ class VariationalFullMixture[
 
     def get_cluster_probs(self, mixture_params: Array) -> Array:
         """Extract cluster probabilities from mixture parameters."""
-        components, _ = self.mix_man.split_natural_mixture(mixture_params)
-        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
-        _, _, cat_params = self.mix_man.split_coords(mixture_params)
-        log_partitions = jax.vmap(self.bas_lat_man.log_partition_function)(comp_params_2d)
-        n_clusters = self.n_categories
-        log_probs = jnp.zeros(n_clusters)
-        log_probs = log_probs.at[0].set(log_partitions[0])
-        for k in range(1, n_clusters):
-            log_probs = log_probs.at[k].set(cat_params[k - 1] + log_partitions[k])
-        log_probs = log_probs - jax.scipy.special.logsumexp(log_probs)
-        return jnp.exp(log_probs)
+        cat_natural = self.mix_man.prior(mixture_params)
+        cat_means = self.mix_man.lat_man.to_mean(cat_natural)
+        return self.mix_man.lat_man.to_probs(cat_means)
 
     def prior_entropy(self, params: Array) -> Array:
         """Compute entropy of the prior's marginal cluster distribution."""

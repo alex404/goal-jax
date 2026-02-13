@@ -580,7 +580,7 @@ def train_model(  # noqa: C901
             normalized_reconstruction_error(model, final_params, test_data)
         )
 
-    cluster_counts = [int(jnp.sum(assignments == k)) for k in range(model.n_categories)]
+    cluster_counts = jnp.bincount(assignments, length=model.n_categories).tolist()
 
     print(f"  Purity: {100 * purity:.1f}%")
     print(f"  NMI: {nmi:.4f}")

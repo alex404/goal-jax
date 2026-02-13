@@ -29,16 +29,11 @@ def compute_cluster_purity(
     Returns:
         Purity score in [0, 1]
     """
-    import jax.numpy as jnp
-
-    n_correct = 0
-    for k in range(n_clusters):
-        mask = assignments == k
-        if jnp.sum(mask) > 0:
-            cluster_labels = labels[mask]
-            label_counts = jnp.bincount(cluster_labels, length=10)
-            n_correct += int(jnp.max(label_counts))
-    return float(n_correct / len(labels))
+    assignments_np = np.array(assignments)
+    labels_np = np.array(labels)
+    contingency = np.zeros((n_clusters, 10), dtype=np.int32)
+    np.add.at(contingency, (assignments_np, labels_np), 1)
+    return float(contingency.max(axis=1).sum() / len(labels))
 
 
 def compute_nmi(assignments: Array, labels: Array) -> float:
@@ -86,15 +81,10 @@ def compute_cluster_accuracy(
     from scipy.optimize import linear_sum_assignment
 
     # Build contingency matrix
-    contingency = np.zeros((n_clusters, n_classes), dtype=np.int32)
     assignments_np = np.array(assignments)
     labels_np = np.array(labels)
-
-    for k in range(n_clusters):
-        mask = assignments_np == k
-        if np.sum(mask) > 0:
-            for c in range(n_classes):
-                contingency[k, c] = int(np.sum(labels_np[mask] == c))
+    contingency = np.zeros((n_clusters, n_classes), dtype=np.int32)
+    np.add.at(contingency, (assignments_np, labels_np), 1)
 
     # Find optimal assignment using Hungarian algorithm
     # We negate the contingency matrix since linear_sum_assignment minimizes

@@ -7,7 +7,6 @@ where the latent space is a CompleteMixture over a base latent manifold.
 from dataclasses import dataclass
 from typing import Any, override
 
-import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -72,7 +71,9 @@ class VariationalHierarchicalMixture[
         For a mixture q(y,k), the marginal over k is:
             q(k) proportional to exp(theta_K[k] + psi_Y(theta_Y[k]))
 
-        where psi_Y is the log-partition function of the base latent.
+        Uses the harmonium prior() which computes effective categorical natural
+        parameters (cat_params + conjugation_parameters), then converts to
+        probabilities via to_mean() (softmax) and to_probs() (prepend p_0).
 
         Args:
             mixture_params: Natural parameters of the mixture
@@ -80,32 +81,9 @@ class VariationalHierarchicalMixture[
         Returns:
             Array of shape (n_categories,) with cluster probabilities
         """
-        # Get component parameters for each cluster
-        components, _ = self.mix_man.split_natural_mixture(mixture_params)
-        comp_params_2d = self.mix_man.cmp_man.to_2d(components)
-
-        # Get categorical natural parameters
-        _, _, cat_params = self.mix_man.split_coords(mixture_params)
-
-        # Compute log-partition for each component
-        log_partitions = jax.vmap(self.bas_lat_man.log_partition_function)(
-            comp_params_2d
-        )
-
-        # Compute unnormalized log probabilities for each cluster k
-        n_clusters = self.n_categories
-        log_probs = jnp.zeros(n_clusters)
-
-        # First cluster (k=0): implicit cat param is 0
-        log_probs = log_probs.at[0].set(log_partitions[0])
-
-        # Other clusters (k=1,...,K-1): use cat_params
-        for k in range(1, n_clusters):
-            log_probs = log_probs.at[k].set(cat_params[k - 1] + log_partitions[k])
-
-        # Normalize (log-sum-exp trick for numerical stability)
-        log_probs = log_probs - jax.scipy.special.logsumexp(log_probs)
-        return jnp.exp(log_probs)
+        cat_natural = self.mix_man.prior(mixture_params)
+        cat_means = self.mix_man.lat_man.to_mean(cat_natural)
+        return self.mix_man.lat_man.to_probs(cat_means)
 
     def prior_entropy(self, params: Array) -> Array:
         """Compute entropy of the prior's marginal cluster distribution.

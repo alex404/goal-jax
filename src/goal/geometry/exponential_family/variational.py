@@ -524,19 +524,20 @@ class VariationalConjugated[
         Returns:
             Tuple of (variance, std, r_squared)
         """
-        _, hrm_params = self.split_coords(params)
+        rho, hrm_params = self.split_coords(params)
         p_params = self.prior_params(params)
         z_samples = self.pst_man.sample(key, p_params, n_samples)
 
-        # Compute f_tilde values
-        f_vals = jax.vmap(lambda z: self.reduced_learning_signal(params, z))(z_samples)
-
-        # Compute psi_X values (the target we're trying to approximate)
-        def psi_x_at_z(z: Array) -> Array:
+        # Compute both f_tilde and psi_X in a single vmap (shared likelihood_at)
+        def compute_both(z: Array) -> tuple[Array, Array]:
+            s_z = self.pst_man.sufficient_statistic(z)
+            s_rho = self.rho_emb.project(s_z)
             lkl_params = self.hrm.likelihood_at(hrm_params, z)
-            return self.obs_man.log_partition_function(lkl_params)
+            psi_x = self.obs_man.log_partition_function(lkl_params)
+            f_tilde = jnp.dot(rho, s_rho) - psi_x
+            return f_tilde, psi_x
 
-        psi_vals = jax.vmap(psi_x_at_z)(z_samples)
+        f_vals, psi_vals = jax.vmap(compute_both)(z_samples)
 
         var_f = jnp.var(f_vals)
         std_f = jnp.sqrt(var_f)
