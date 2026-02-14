@@ -165,7 +165,7 @@ def load_mnist_sklearn() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
             "scikit-learn is required. Install with: pip install scikit-learn"
         ) from e
     else:
-        return mnist.data, mnist.target  # pyright: ignore[reportAttributeAccessIssue]
+        return mnist.data, mnist.target
 
 
 def load_mnist(
@@ -426,8 +426,10 @@ def train_model(  # noqa: C901
 
         @jax.jit
         def train_step(
-            carry: Any, _: None, beta: Array = jnp.array(1.0)
+            carry: Any, _: None, beta: Array | None = None
         ) -> tuple[Any, tuple[Array, Array, Array]]:
+            if beta is None:
+                beta = jnp.array(1.0)
             hrm_params, opt_state, step_key, data = carry
             step_key, next_key, batch_key = jax.random.split(step_key, 3)
 
@@ -449,8 +451,10 @@ def train_model(  # noqa: C901
 
         @jax.jit
         def train_step(
-            carry: Any, _: None, beta: Array = jnp.array(1.0)
+            carry: Any, _: None, beta: Array | None = None
         ) -> tuple[Any, tuple[Array, Array]]:
+            if beta is None:
+                beta = jnp.array(1.0)
             params, opt_state, step_key, data = carry
             step_key, next_key, batch_key = jax.random.split(step_key, 3)
 
@@ -753,7 +757,7 @@ def main():
 
     # Save parameters for later diagnosis
     params_path = paths.results_dir / "params.npz"
-    np.savez(str(params_path), **{args.mode: np.array(params)})  # pyright: ignore[reportArgumentType]
+    np.savez(str(params_path), **{args.mode: np.array(params)})
     print(f"Parameters saved to {params_path}")
 
     # Print summary
