@@ -63,7 +63,7 @@ def test_mfa_whiten_preserves_observable_distribution() -> None:
     params = mfa.initialize(key, location=0.0, shape=0.5)
 
     # Convert to mix_man natural params, perturb each component's latent mean
-    mix_params = mfa.to_mixture_params(params)
+    mix_params = mfa.to_mixture_coords(params)
     comp_nats, cat_nat = mfa.mix_man.split_natural_mixture(mix_params)
 
     def perturb(comp_nat: Array) -> Array:
@@ -76,9 +76,11 @@ def test_mfa_whiten_preserves_observable_distribution() -> None:
     perturbed_comp_nats = mfa.mix_man.cmp_man.map(perturb, comp_nats, flatten=True)
     perturbed_mix_params = mfa.mix_man.join_natural_mixture(perturbed_comp_nats, cat_nat)
 
-    # Convert to mix_man mean coords and whiten
-    mix_means = mfa.mix_man.to_mean(perturbed_mix_params)
-    whitened_mix_means = mfa.whiten_prior(mix_means)
+    # Whiten in MFA mean coordinates (not mix_man coordinates)
+    perturbed_params = mfa.from_mixture_coords(perturbed_mix_params)
+    perturbed_means = mfa.to_mean(perturbed_params)
+    whitened_means = mfa.whiten_prior(perturbed_means)
+    whitened_mix_means = mfa.to_mixture_coords(whitened_means)
 
     # Verify per-component: observable distribution preserved, latent is N(0,I)
     orig_comp_nats, _ = mfa.mix_man.split_natural_mixture(perturbed_mix_params)

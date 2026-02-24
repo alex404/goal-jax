@@ -407,95 +407,47 @@ class CompleteMixtureOfHarmonium[
         """
         return CompleteMixture(self.bas_hrm, self.n_categories)  # pyright: ignore[reportArgumentType]
 
-    def to_mixture_params(self, params: Array) -> Array:
-        """Convert three-block parameters to Mixture[Harmonium] parameters.
+    def to_mixture_coords(self, coords: Array) -> Array:
+        """Repack coordinates from three-block layout to mix_man layout.
 
-        This converts from the shared-base-plus-offsets representation to the
-        redundant representation where each component harmonium has independent
-        parameters.
-
-        Args:
-            params: Parameters in CompleteMixtureOfHarmonium representation
-
-        Returns:
-            Parameters in Mixture[Harmonium] representation (mix_man)
+        Works identically in both natural and mean coordinates: the reorganization
+        is a block permutation of sufficient statistics, which is the same
+        linear operation in both dual spaces.
         """
-        # Step 1: Split parameters
-        x_params, int_params, yk_harm_params = self.split_coords(params)
+        x_coords, int_coords, yk_harm_coords = self.split_coords(coords)
+        xy_coords, xyk_coords, xk_coords = self.int_man.coord_blocks(int_coords)
+        y_coords, yk_int_coords, k_coords = self.bas_pst_man.split_coords(yk_harm_coords)
 
-        # Step 2: Extract interaction blocks
-        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_params)
+        base_hrm_coords = self.bas_hrm.join_coords(x_coords, xy_coords, y_coords)
 
-        # Step 3: Extract latent components (using bas_pst_man)
-        y_params, yk_int_params, k_params = self.bas_pst_man.split_coords(
-            yk_harm_params
-        )
-
-        # Step 4: Build base harmonium (component 0)
-        base_hrm_params = self.bas_hrm.join_coords(x_params, xy_params, y_params)
-
-        # Step 5: Build interaction matrix for mix_man
-        # All offset blocks have (n_categories-1) columns when viewed as matrices
         n_cols = self.n_categories - 1
+        xk_matrix = xk_coords.reshape(-1, n_cols)
+        xyk_matrix = xyk_coords.reshape(-1, n_cols)
+        yk_matrix = yk_int_coords.reshape(-1, n_cols)
+        mix_int_coords = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix]).ravel()
 
-        xk_matrix = xk_params.reshape(-1, n_cols)
-        xyk_matrix = xyk_params.reshape(-1, n_cols)
-        yk_matrix = yk_int_params.reshape(-1, n_cols)
+        return self.mix_man.join_coords(base_hrm_coords, mix_int_coords, k_coords)
 
-        # Stack to form (hrm_dim, n_cat-1) matrix
-        hrm_int_matrix = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix])
+    def from_mixture_coords(self, mix_coords: Array) -> Array:
+        """Repack coordinates from mix_man layout to three-block layout.
 
-        # Flatten to get mix_man interaction params
-        mix_int_params = hrm_int_matrix.ravel()
-
-        # Step 6: Join into mix_man parameters
-        return self.mix_man.join_coords(base_hrm_params, mix_int_params, k_params)
-
-    def from_mixture_params(self, mix_params: Array) -> Array:
-        """Convert Mixture[Harmonium] parameters to three-block parameters.
-
-        This converts from the redundant representation (independent component
-        harmoniums) to the shared-base-plus-offsets representation.
-
-        Args:
-            mix_params: Parameters in Mixture[Harmonium] representation (mix_man)
-
-        Returns:
-            Parameters in CompleteMixtureOfHarmonium representation
+        Works identically in both natural and mean coordinates.
         """
-        # Step 1: Split mix_man parameters
-        base_hrm_params, mix_int_params, k_params = self.mix_man.split_coords(
-            mix_params
-        )
+        base_hrm_coords, mix_int_coords, k_coords = self.mix_man.split_coords(mix_coords)
+        x_coords, xy_coords, y_coords = self.bas_hrm.split_coords(base_hrm_coords)
 
-        # Step 2: Extract base harmonium components
-        x_params, xy_params, y_params = self.bas_hrm.split_coords(base_hrm_params)
-
-        # Step 3: Split mix_man interaction matrix into blocks
         n_cols = self.n_categories - 1
-        hrm_int_matrix = mix_int_params.reshape(-1, n_cols)
-
-        # Split along rows according to harmonium structure
+        hrm_int_matrix = mix_int_coords.reshape(-1, n_cols)
         obs_dim = self.bas_hrm.obs_man.dim
         int_dim = self.bas_hrm.int_man.dim
 
-        xk_matrix = hrm_int_matrix[:obs_dim, :]
-        xyk_matrix = hrm_int_matrix[obs_dim : obs_dim + int_dim, :]
-        yk_matrix = hrm_int_matrix[obs_dim + int_dim :, :]
+        xk_coords = hrm_int_matrix[:obs_dim, :].ravel()
+        xyk_coords = hrm_int_matrix[obs_dim : obs_dim + int_dim, :].ravel()
+        yk_int_coords = hrm_int_matrix[obs_dim + int_dim :, :].ravel()
 
-        # Flatten back to parameter vectors
-        xk_params = xk_matrix.ravel()
-        xyk_params = xyk_matrix.ravel()
-        yk_int_params = yk_matrix.ravel()
-
-        # Step 4: Join interaction blocks
-        int_params = jnp.concatenate([xy_params, xyk_params, xk_params])
-
-        # Step 5: Join latent components (using bas_pst_man)
-        yk_harm_params = self.bas_pst_man.join_coords(y_params, yk_int_params, k_params)
-
-        # Step 6: Join into CompleteMixtureOfHarmonium parameters
-        return self.join_coords(x_params, int_params, yk_harm_params)
+        int_coords = jnp.concatenate([xy_coords, xyk_coords, xk_coords])
+        yk_harm_coords = self.bas_pst_man.join_coords(y_coords, yk_int_coords, k_coords)
+        return self.join_coords(x_coords, int_coords, yk_harm_coords)
 
 
 ### Mixture of Conjugated Harmoniums ###
@@ -665,18 +617,18 @@ class MixtureOfFactorAnalyzers(
     """Base factor analysis harmonium (lower level)."""
 
     def whiten_prior(self, means: Array) -> Array:
-        """Whiten each component's latent prior to N(0,I) while preserving p(x).
+        """Whiten MFA priors in CompleteMixtureOfHarmonium mean coordinates.
 
-        Takes and returns mix_man mean coordinate parameters. Obtain them via:
-            mix_means = self.mix_man.to_mean(self.to_mixture_params(nat_params))
-
-        Applies LGM whitening per-component; each component's p(x|k) is preserved,
-        so the overall marginal p(x) = sum_k pi_k p(x|k) is also preserved.
+        The input/output are mean parameters on ``MixtureOfFactorAnalyzers`` itself.
+        Internally, we convert to ``mix_man`` means, whiten each FA component, then
+        convert back to the three-block mean layout.
         """
-        comp_means, cat_means = self.mix_man.split_mean_mixture(means)
+        mix_means = self.to_mixture_coords(means)
+        comp_means, cat_means = self.mix_man.split_mean_mixture(mix_means)
         whitened_comp_means = self.mix_man.cmp_man.map(
             self.bas_hrm.whiten_prior,
             comp_means,
             flatten=True,
         )
-        return self.mix_man.join_mean_mixture(whitened_comp_means, cat_means)
+        whitened_mix_means = self.mix_man.join_mean_mixture(whitened_comp_means, cat_means)
+        return self.from_mixture_coords(whitened_mix_means)

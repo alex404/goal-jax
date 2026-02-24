@@ -241,7 +241,7 @@ def main():
         gt_mfa.pst_man.lat_man.from_probs(mixing)
     )
     gt_params = gt_mfa.mix_man.join_natural_mixture(gt_comp_params, gt_cat_params)
-    gt_params = gt_mfa.from_mixture_params(gt_params)
+    gt_params = gt_mfa.from_mixture_coords(gt_params)
     gt_ll = float(gt_mfa.average_log_observable_density(gt_params, samples))
     print(f"\nGround truth LL: {gt_ll:.4f}")
 

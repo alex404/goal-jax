@@ -240,9 +240,31 @@ class TestCompleteMixtureRepresentation:
         params: Array,
     ) -> None:
         """Test conversion to/from CompleteMixture is invertible."""
-        mix_params = model.to_mixture_params(params)
-        recovered = model.from_mixture_params(mix_params)
+        mix_params = model.to_mixture_coords(params)
+        recovered = model.from_mixture_coords(mix_params)
         assert jnp.allclose(params, recovered, atol=1e-10)
+
+    def test_mixture_means_round_trip(
+        self,
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
+        params: Array,
+    ) -> None:
+        """Test conversion to/from mix_man mean coordinates is invertible."""
+        means = model.to_mean(params)
+        mix_means = model.to_mixture_coords(means)
+        recovered = model.from_mixture_coords(mix_means)
+        assert jnp.allclose(means, recovered, atol=1e-10)
+
+    def test_mixture_means_match_natural_conversion(
+        self,
+        model: CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal],
+        params: Array,
+    ) -> None:
+        """Test direct mean conversion matches natural->mean on mix_man."""
+        means = model.to_mean(params)
+        direct_mix_means = model.to_mixture_coords(means)
+        via_natural_mix_means = model.mix_man.to_mean(model.to_mixture_coords(params))
+        assert jnp.allclose(direct_mix_means, via_natural_mix_means, atol=1e-10)
 
     def test_mixture_dimension(
         self,
@@ -250,7 +272,7 @@ class TestCompleteMixtureRepresentation:
         params: Array,
     ) -> None:
         """Test mix_man has correct dimension."""
-        mix_params = model.to_mixture_params(params)
+        mix_params = model.to_mixture_coords(params)
         assert mix_params.shape[0] == model.mix_man.dim
 
     def test_mixture_likelihood(
@@ -260,7 +282,7 @@ class TestCompleteMixtureRepresentation:
         key: Array,
     ) -> None:
         """Test likelihood equivalence between representations."""
-        mix_params = model.to_mixture_params(params)
+        mix_params = model.to_mixture_coords(params)
         y = jax.random.normal(key, (model.bas_hrm.pst_man.data_dim,))
 
         comp_params, _ = model.mix_man.split_natural_mixture(mix_params)
