@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -54,6 +55,7 @@ from ..harmonium.mixture import AnalyticMixture, Mixture
 ### HMoG Classes ###
 
 
+# TODO: Somehow figure out how to share more code between these classes while preserving the type system.
 @dataclass(frozen=True)
 class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
     DifferentiableHierarchical[
@@ -76,6 +78,44 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
     The prior latent mixture (`prr_upr_hrm`) embeds the restricted structure into full
     covariance for conjugation parameter computation.
     """
+
+    def whiten_prior(self, means: Array) -> Array:
+        """Reparameterize the latent Y-space to have zero mean and identity covariance.
+
+        Preserves p(x) by updating both:
+        - The lower LGM interaction (loading matrix + observable bias adjustment)
+        - Each GMM component (via the existing Normal.whiten relative to GMM marginal)
+        """
+        obs_means, lwr_int_means, lat_means = self.split_coords(means)
+
+        # GMM marginal statistics (obs_means_gmm = E[s_Y(y)] w.r.t. joint)
+        obs_means_gmm, _, cat_means = self.pst_upr_hrm.split_coords(lat_means)
+        lat_mean_y, lat_cov_y = self.pst_upr_hrm.obs_man.split_mean_covariance(
+            obs_means_gmm
+        )
+        chol = jnp.linalg.cholesky(
+            self.pst_upr_hrm.obs_man.cov_man.to_matrix(lat_cov_y)
+        )
+
+        # Whiten each GMM component using existing Normal.whiten
+        comp_means, _ = self.pst_upr_hrm.split_mean_mixture(lat_means)
+        new_comp_means = self.pst_upr_hrm.cmp_man.map(
+            lambda c: self.pst_upr_hrm.obs_man.relative_whiten(c, obs_means_gmm),
+            comp_means,
+            flatten=True,
+        )
+        new_lat_means = self.pst_upr_hrm.join_mean_mixture(new_comp_means, cat_means)
+
+        # Update lower LGM cross-statistics (same transform as LGM whitening)
+        obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
+        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)
+        cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W·Cov(Y)
+        new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
+            chol, cross_cov.T, lower=True
+        ).T
+        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)
+
+        return self.join_coords(obs_means, new_lwr_int_means, new_lat_means)
 
     # HMoG-specific methods
 
@@ -199,6 +239,42 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
 
     Requires full covariance Gaussians in the latent space.
     """
+
+    def whiten_prior(self, means: Array) -> Array:
+        """Reparameterize the latent Y-space to have zero mean and identity covariance.
+
+        Preserves p(x) by updating both:
+        - The lower LGM interaction (loading matrix + observable bias adjustment)
+        - Each GMM component (via the existing Normal.whiten relative to GMM marginal)
+        """
+        obs_means, lwr_int_means, lat_means = self.split_coords(means)
+
+        # GMM marginal statistics (obs_means_gmm = E[s_Y(y)] w.r.t. joint)
+        obs_means_gmm, _, cat_means = self.upr_hrm.split_coords(lat_means)
+        lat_mean_y, lat_cov_y = self.upr_hrm.obs_man.split_mean_covariance(
+            obs_means_gmm
+        )
+        chol = jnp.linalg.cholesky(self.upr_hrm.obs_man.cov_man.to_matrix(lat_cov_y))
+
+        # Whiten each GMM component using existing Normal.whiten
+        comp_means, _ = self.upr_hrm.split_mean_mixture(lat_means)
+        new_comp_means = self.upr_hrm.cmp_man.map(
+            lambda c: self.upr_hrm.obs_man.relative_whiten(c, obs_means_gmm),
+            comp_means,
+            flatten=True,
+        )
+        new_lat_means = self.upr_hrm.join_mean_mixture(new_comp_means, cat_means)
+
+        # Update lower LGM cross-statistics (same transform as LGM whitening)
+        obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
+        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)
+        cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W·Cov(Y)
+        new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
+            chol, cross_cov.T, lower=True
+        ).T
+        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)
+
+        return self.join_coords(obs_means, new_lwr_int_means, new_lat_means)
 
     # HMoG-specific methods
 

@@ -30,6 +30,7 @@ from ...geometry import (
     AnalyticConjugated,
     BlockMap,
     Conjugated,
+    Diagonal,
     Differentiable,
     DifferentiableConjugated,
     EmbeddedMap,
@@ -45,6 +46,8 @@ from ...geometry import (
     SymmetricConjugated,
 )
 from ..base.categorical import Categorical
+from ..base.gaussian.normal import FullNormal, Normal
+from ..harmonium.lgm import NormalAnalyticLGM
 from ..harmonium.mixture import CompleteMixture
 
 ### Embeddings ###
@@ -489,9 +492,7 @@ class CompleteMixtureOfHarmonium[
         int_params = jnp.concatenate([xy_params, xyk_params, xk_params])
 
         # Step 5: Join latent components (using bas_pst_man)
-        yk_harm_params = self.bas_pst_man.join_coords(
-            y_params, yk_int_params, k_params
-        )
+        yk_harm_params = self.bas_pst_man.join_coords(y_params, yk_int_params, k_params)
 
         # Step 6: Join into CompleteMixtureOfHarmonium parameters
         return self.join_coords(x_params, int_params, yk_harm_params)
@@ -612,6 +613,7 @@ class CompleteMixtureOfConjugated[
         # before flattening to match prr_man's expected interaction layout
         return self.prr_man.join_coords(rho_y, rho_yz.T.ravel(), rho_z)
 
+
 @dataclass(frozen=True)
 class CompleteMixtureOfSymmetric[
     Observable: Differentiable,
@@ -643,3 +645,38 @@ class CompleteMixtureOfSymmetric[
     def lat_man(self) -> CompleteMixture[Latent]:
         """The shared latent manifold (posterior == prior)."""
         return CompleteMixture(self.bas_hrm.lat_man, self.n_categories)
+
+
+@dataclass(frozen=True)
+class MixtureOfFactorAnalyzers(
+    CompleteMixtureOfSymmetric[Normal[Diagonal], FullNormal],
+):
+    """Mixture of Factor Analyzers: K factor analysis components with shared structure.
+
+    Each component is a FactorAnalysis model (diagonal observable noise,
+    full-covariance Gaussian latent prior). Provides whiten_prior to reparameterize
+    all components to standard-normal latent priors while preserving p(x).
+    """
+
+    n_categories: int
+    """Number of mixture components."""
+
+    bas_hrm: NormalAnalyticLGM[Diagonal]
+    """Base factor analysis harmonium (lower level)."""
+
+    def whiten_prior(self, means: Array) -> Array:
+        """Whiten each component's latent prior to N(0,I) while preserving p(x).
+
+        Takes and returns mix_man mean coordinate parameters. Obtain them via:
+            mix_means = self.mix_man.to_mean(self.to_mixture_params(nat_params))
+
+        Applies LGM whitening per-component; each component's p(x|k) is preserved,
+        so the overall marginal p(x) = sum_k pi_k p(x|k) is also preserved.
+        """
+        comp_means, cat_means = self.mix_man.split_mean_mixture(means)
+        whitened_comp_means = self.mix_man.cmp_man.map(
+            self.bas_hrm.whiten_prior,
+            comp_means,
+            flatten=True,
+        )
+        return self.mix_man.join_mean_mixture(whitened_comp_means, cat_means)

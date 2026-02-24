@@ -565,7 +565,7 @@ class Normal[Rep: PositiveDefinite](
 
         return self.join_mean_covariance(mean, adjusted_covariance)
 
-    def whiten(
+    def relative_whiten(
         self,
         given_means: Array,
         relative_means: Array,

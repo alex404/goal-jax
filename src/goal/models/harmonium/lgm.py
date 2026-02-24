@@ -6,6 +6,7 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Any, override
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -491,6 +492,30 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         # Use harmonium prior to get marginal distribution
         return nor_man, transposed_lgm.prior(transposed_params)
 
+    def whiten_prior(self, means: Array) -> Array:
+        """Reparameterize so latent prior is N(0,I) while preserving the observable marginal.
+
+        In mean coordinates:
+        - obs_means: unchanged (observable marginal E[s_X(x)] is preserved)
+        - lat_means: set to standard_normal() (mean coords of N(0,I))
+        - int_means: updated to WL where WΣ_z = E[x⊗z] - E[x]⊗E[z] and L = chol(Σ_z)
+        """
+        obs_means, int_means, lat_means = self.split_coords(means)
+        obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
+        lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
+
+        # WΣ_z = E[x⊗z] - E[x]⊗E[z]
+        int_mat = self.int_man.to_matrix(int_means)  # (obs_dim, lat_dim)
+        cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # WΣ_z
+
+        # WL = WΣ_z @ L^{-T},  L = chol(Σ_z)
+        chol = jnp.linalg.cholesky(self.prr_man.cov_man.to_matrix(lat_cov))
+        wl_mat = jax.scipy.linalg.solve_triangular(chol, cross_cov.T, lower=True).T
+
+        new_int_means = self.int_man.from_matrix(wl_mat)
+        new_lat_means = self.prr_man.standard_normal()
+        return self.join_coords(obs_means, new_int_means, new_lat_means)
+
     def to_normal(self, params: Array) -> Array:
         """Convert a linear model to a normal model.
 
@@ -740,12 +765,10 @@ class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
         Array
             Updated natural parameters.
         """
-        # E-step: Compute expectations
+        # E-step: compute mean statistics; whiten to set prior to N(0,I) while
+        # preserving the observable marginal, then convert to natural coordinates.
         q = self.mean_posterior_statistics(params, xs)
-        p1 = self.to_natural(q)
-        lkl_params = self.likelihood_function(p1)
-        z = self.lat_man.to_natural(self.lat_man.standard_normal())
-        return self.join_conjugated(lkl_params, z)
+        return self.to_natural(self.whiten_prior(q))
 
     def from_loadings(
         self,
@@ -815,12 +838,10 @@ class PrincipalComponentAnalysis(NormalAnalyticLGM[Scale]):
         Array
             Updated natural parameters.
         """
-        # E-step: Compute expectations
+        # E-step: compute mean statistics; whiten to set prior to N(0,I) while
+        # preserving the observable marginal, then convert to natural coordinates.
         q = self.mean_posterior_statistics(params, xs)
-        p1 = self.to_natural(q)
-        lkl_params = self.likelihood_function(p1)
-        z = self.lat_man.to_natural(self.lat_man.standard_normal())
-        return self.join_conjugated(lkl_params, z)
+        return self.to_natural(self.whiten_prior(q))
 
 
 ### Helper Functions ###

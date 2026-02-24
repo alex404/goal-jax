@@ -35,9 +35,6 @@ from .dynamical import (
     latent_process_log_observable_density,
     sample_latent_process,
 )
-from .graphical.mixture import (
-    CompleteMixtureOfHarmonium,
-)
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -45,6 +42,10 @@ from .graphical.hmog import (
     analytic_hmog,
     differentiable_hmog,
     symmetric_hmog,
+)
+from .graphical.mixture import (
+    CompleteMixtureOfHarmonium,
+    MixtureOfFactorAnalyzers,
 )
 from .graphical.variational import (
     VariationalHierarchicalMixture,
@@ -110,6 +111,7 @@ __all__ = [
     # Dynamical models - Kalman Filter
     "KalmanFilter",
     "Mixture",
+    "MixtureOfFactorAnalyzers",
     "Normal",
     "NormalAnalyticLGM",
     "NormalCovarianceEmbedding",

@@ -142,12 +142,15 @@ class TestNormalWhitening:
         model, means = ground_truth
         gt_mean, _ = model.split_mean_covariance(means)
 
-        whitened = model.whiten(means, means)
+        whitened = model.relative_whiten(means, means)
         w_mean, w_cov = model.split_mean_covariance(whitened)
 
         assert jnp.allclose(w_mean, jnp.zeros_like(gt_mean), rtol=RTOL, atol=ATOL)
         assert jnp.allclose(
-            model.cov_man.to_matrix(w_cov), jnp.eye(model.data_dim), rtol=RTOL, atol=ATOL
+            model.cov_man.to_matrix(w_cov),
+            jnp.eye(model.data_dim),
+            rtol=RTOL,
+            atol=ATOL,
         )
 
     def test_whiten_different(self, ground_truth: tuple[FullNormal, Array]) -> None:
@@ -162,7 +165,7 @@ class TestNormalWhitening:
             test_mean, model.cov_man.from_matrix(test_cov_mat)
         )
 
-        whitened_test = model.whiten(test_params, means)
+        whitened_test = model.relative_whiten(test_params, means)
         wt_mean, wt_cov = model.split_mean_covariance(whitened_test)
 
         # Verify against manual computation
