@@ -124,3 +124,19 @@ def test_hmog_whiten_preserves_log_likelihood() -> None:
     assert jnp.allclose(ll_before, ll_after, atol=1e-4), (
         f"Log-likelihood changed after whitening: {ll_before:.6f} vs {ll_after:.6f}"
     )
+
+
+def test_hmog_em_applies_whitening_round_trip() -> None:
+    """AnalyticHMoG EM should include mean-space whitening before to_natural."""
+    model = analytic_hmog(obs_dim=8, obs_rep=Diagonal(), lat_dim=3, n_components=4)
+    key = jax.random.PRNGKey(11)
+    params = model.initialize(key, location=0.0, shape=0.5)
+    xs = jax.random.normal(jax.random.PRNGKey(12), (128, 8))
+
+    q = model.mean_posterior_statistics(params, xs)
+    manual_em = model.to_natural(model.whiten_prior(q))
+    em_params = model.expectation_maximization(params, xs)
+
+    assert jnp.allclose(em_params, manual_em, atol=ATOL), (
+        "AnalyticHMoG EM no longer matches whiten_prior(mean_posterior_statistics)"
+    )

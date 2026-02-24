@@ -240,6 +240,16 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
     Requires full covariance Gaussians in the latent space.
     """
 
+    def expectation_maximization(self, params: Array, xs: Array) -> Array:
+        """Perform a single iteration of EM with latent-prior whitening.
+
+        HMoG has the same latent-space non-identifiability as FA/PCA. After the
+        E-step, whiten the latent prior in mean coordinates before mapping back
+        to natural coordinates.
+        """
+        q = self.mean_posterior_statistics(params, xs)
+        return self.to_natural(self.whiten_prior(q))
+
     def whiten_prior(self, means: Array) -> Array:
         """Reparameterize the latent Y-space to have zero mean and identity covariance.
 
