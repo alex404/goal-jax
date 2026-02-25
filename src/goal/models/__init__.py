@@ -44,6 +44,7 @@ from .graphical.hmog import (
     symmetric_hmog,
 )
 from .graphical.mixture import (
+    CompleteMixtureOfAnalytic,
     CompleteMixtureOfHarmonium,
     MixtureOfFactorAnalyzers,
 )
@@ -97,6 +98,7 @@ __all__ = [
     "CoMPoissonPopulation",
     "CoMShape",
     "CompleteMixture",
+    "CompleteMixtureOfAnalytic",
     "CompleteMixtureOfHarmonium",
     "Covariance",
     "DiagonalBoltzmann",

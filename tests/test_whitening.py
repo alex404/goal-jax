@@ -142,3 +142,39 @@ def test_hmog_em_applies_whitening_round_trip() -> None:
     assert jnp.allclose(em_params, manual_em, atol=ATOL), (
         "AnalyticHMoG EM no longer matches whiten_prior(mean_posterior_statistics)"
     )
+
+
+def test_mfa_to_natural_round_trip() -> None:
+    """MFA to_natural is a left-inverse of to_mean: to_natural(to_mean(params)) == params."""
+    n_categories = 4
+    fa = FactorAnalysis(obs_dim=8, lat_dim=3)
+    mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
+
+    key = jax.random.PRNGKey(99)
+    params = mfa.initialize(key, location=0.0, shape=0.5)
+
+    means = mfa.to_mean(params)
+    recovered_params = mfa.to_natural(means)
+
+    assert jnp.allclose(params, recovered_params, atol=ATOL), (
+        "MFA to_natural(to_mean(params)) != params"
+    )
+
+
+def test_mfa_em_matches_whiten_then_to_natural() -> None:
+    """MFA expectation_maximization matches manual whiten_prior + to_natural."""
+    n_categories = 3
+    fa = FactorAnalysis(obs_dim=6, lat_dim=2)
+    mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
+
+    key = jax.random.PRNGKey(77)
+    params = mfa.initialize(key, location=0.0, shape=0.5)
+    xs = jax.random.normal(jax.random.PRNGKey(78), (128, 6))
+
+    q = mfa.mean_posterior_statistics(params, xs)
+    manual_em = mfa.to_natural(mfa.whiten_prior(q))
+    em_params = mfa.expectation_maximization(params, xs)
+
+    assert jnp.allclose(em_params, manual_em, atol=ATOL), (
+        "MFA EM does not match whiten_prior(mean_posterior_statistics)"
+    )

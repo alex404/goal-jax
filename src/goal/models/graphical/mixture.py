@@ -48,7 +48,7 @@ from ...geometry import (
 from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, Normal
 from ..harmonium.lgm import NormalAnalyticLGM
-from ..harmonium.mixture import CompleteMixture
+from ..harmonium.mixture import AnalyticMixture, CompleteMixture
 
 ### Embeddings ###
 
@@ -600,14 +600,90 @@ class CompleteMixtureOfSymmetric[
 
 
 @dataclass(frozen=True)
+class CompleteMixtureOfAnalytic[
+    Observable: Differentiable,
+    Latent: Analytic,
+](
+    CompleteMixtureOfSymmetric[Observable, Latent],
+):
+    """Mixture of analytic conjugated harmoniums.
+
+    Extends CompleteMixtureOfSymmetric with a full analytic structure by overriding
+    ``lat_man`` to return an ``AnalyticMixture`` (which supports ``to_natural``),
+    and implementing ``to_natural_likelihood`` and ``to_natural``.
+
+    Requires the base harmonium to be ``AnalyticConjugated``.
+    """
+
+    n_categories: int
+    """Number of mixture components."""
+
+    bas_hrm: AnalyticConjugated[Observable, Latent]
+    """Base analytic conjugated harmonium (lower level)."""
+
+    @property
+    @override
+    def lat_man(self) -> AnalyticMixture[Latent]:
+        """The shared latent manifold as an AnalyticMixture (supports to_natural)."""
+        return AnalyticMixture(self.bas_hrm.lat_man, self.n_categories)
+
+    def to_natural_likelihood(self, means: Array) -> Array:
+        """Convert mean parameters to natural likelihood parameters.
+
+        Algorithm:
+        1. Convert to mix_man means (per-component base harmonium means)
+        2. Apply ``bas_hrm.to_natural_likelihood`` to each component
+        3. Use component 0 as anchor; compute offsets for remaining components
+        4. Pack into three-block interaction format [xy, xyk, xk]
+        """
+        mix_means = self.to_mixture_coords(means)
+        comp_means, _ = self.mix_man.split_mean_mixture(mix_means)
+
+        # Reshape to (n_categories, bas_hrm.dim) and apply per-component
+        comp_means_2d = comp_means.reshape(self.n_categories, -1)
+        comp_lkls = jax.vmap(self.bas_hrm.to_natural_likelihood)(comp_means_2d)
+        # comp_lkls: (n_categories, bas_hrm.lkl_fun_man.dim)
+
+        # Base component (k=0) sets the anchor likelihood params
+        x_params_0, xy_params_0 = self.bas_hrm.lkl_fun_man.split_coords(comp_lkls[0])
+
+        if self.n_categories == 1:
+            return self.lkl_fun_man.join_coords(x_params_0, xy_params_0)
+
+        # Compute offsets for remaining components (k=1..K-1)
+        def compute_offset(lkl_k: Array) -> Array:
+            x_k, xy_k = self.bas_hrm.lkl_fun_man.split_coords(lkl_k)
+            return jnp.concatenate([x_k - x_params_0, xy_k - xy_params_0])
+
+        rest_offsets = jax.vmap(compute_offset)(comp_lkls[1:])
+        # rest_offsets: (n_cols, obs_dim + int_dim)
+
+        obs_dim = self.bas_hrm.obs_man.dim
+        # Transpose to (obs_dim, n_cols) before ravel to match xk_man storage
+        xk_coords = rest_offsets[:, :obs_dim].T.ravel()
+        xyk_coords = rest_offsets[:, obs_dim:].T.ravel()
+
+        int_params = jnp.concatenate([xy_params_0, xyk_coords, xk_coords])
+        return self.lkl_fun_man.join_coords(x_params_0, int_params)
+
+    def to_natural(self, means: Array) -> Array:
+        """Convert mean to natural parameters using analytic structure."""
+        lkl_params = self.to_natural_likelihood(means)
+        mean_lat = self.split_coords(means)[2]
+        nat_lat = self.lat_man.to_natural(mean_lat)
+        return self.join_conjugated(lkl_params, nat_lat)
+
+
+@dataclass(frozen=True)
 class MixtureOfFactorAnalyzers(
-    CompleteMixtureOfSymmetric[Normal[Diagonal], FullNormal],
+    CompleteMixtureOfAnalytic[Normal[Diagonal], FullNormal],
 ):
     """Mixture of Factor Analyzers: K factor analysis components with shared structure.
 
     Each component is a FactorAnalysis model (diagonal observable noise,
     full-covariance Gaussian latent prior). Provides whiten_prior to reparameterize
-    all components to standard-normal latent priors while preserving p(x).
+    all components to standard-normal latent priors while preserving p(x), and
+    expectation_maximization for closed-form EM with whitening.
     """
 
     n_categories: int
@@ -615,6 +691,16 @@ class MixtureOfFactorAnalyzers(
 
     bas_hrm: NormalAnalyticLGM[Diagonal]
     """Base factor analysis harmonium (lower level)."""
+
+    def expectation_maximization(self, params: Array, xs: Array) -> Array:
+        """Perform a single EM iteration with latent-prior whitening.
+
+        MFA has the same latent-space non-identifiability as FA/PCA. After the
+        E-step, whiten the latent prior in mean coordinates before mapping back
+        to natural coordinates.
+        """
+        q = self.mean_posterior_statistics(params, xs)
+        return self.to_natural(self.whiten_prior(q))
 
     def whiten_prior(self, means: Array) -> Array:
         """Whiten MFA priors in CompleteMixtureOfHarmonium mean coordinates.
