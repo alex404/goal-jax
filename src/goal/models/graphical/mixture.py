@@ -609,8 +609,13 @@ class CompleteMixtureOfAnalytic[
     """Mixture of analytic conjugated harmoniums.
 
     Extends CompleteMixtureOfSymmetric with a full analytic structure by overriding
-    ``lat_man`` to return an ``AnalyticMixture`` (which supports ``to_natural``),
-    and implementing ``to_natural_likelihood`` and ``to_natural``.
+    ``lat_man`` to return an ``AnalyticMixture`` (which has ``to_natural``), and
+    implementing ``to_natural_likelihood`` and ``to_natural``.
+
+    ``AnalyticConjugated`` cannot be added as a formal base because its MRO ordering
+    of ``SymmetricConjugated`` before ``DifferentiableConjugated`` conflicts with the
+    ordering already established by ``CompleteMixtureOfConjugated``. So ``to_natural``
+    is implemented explicitly here, mirroring the ``AnalyticConjugated`` template.
 
     Requires the base harmonium to be ``AnalyticConjugated``.
     """
@@ -667,7 +672,12 @@ class CompleteMixtureOfAnalytic[
         return self.lkl_fun_man.join_coords(x_params_0, int_params)
 
     def to_natural(self, means: Array) -> Array:
-        """Convert mean to natural parameters using analytic structure."""
+        """Convert mean to natural parameters.
+
+        Mirrors ``AnalyticConjugated.to_natural``: uses ``to_natural_likelihood``
+        for the likelihood part, then ``lat_man.to_natural`` (``AnalyticMixture``)
+        for the latent part.
+        """
         lkl_params = self.to_natural_likelihood(means)
         mean_lat = self.split_coords(means)[2]
         nat_lat = self.lat_man.to_natural(mean_lat)

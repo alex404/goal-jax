@@ -33,6 +33,7 @@ convenient construction for common configurations.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -240,6 +241,7 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
     Requires full covariance Gaussians in the latent space.
     """
 
+    @override
     def expectation_maximization(self, params: Array, xs: Array) -> Array:
         """Perform a single iteration of EM with latent-prior whitening.
 
