@@ -8,11 +8,8 @@ import optax
 from jax import Array
 
 from goal.geometry import Diagonal, Differentiable
-from goal.models import DiagonalNormal, FactorAnalysis
-from goal.models.graphical.mixture import (
-    CompleteMixtureOfConjugated,
-    CompleteMixtureOfSymmetric,
-)
+from goal.models import DiagonalNormal, FactorAnalysis, MixtureOfFactorAnalyzers
+from goal.models.graphical.mixture import CompleteMixtureOfConjugated
 from goal.models.harmonium.lgm import NormalLGM
 
 from ..shared import example_paths, jax_cli
@@ -118,7 +115,36 @@ def compute_mfa_marginal_2d[Pst: Differentiable, Prr: Differentiable](
     return jax.vmap(point_marginal)(grid_2d).reshape(len(x_range), len(x_range))
 
 
-def fit_mfa[Pst: Differentiable, Prr: Differentiable](
+def fit_mfa_em(
+    key: Array,
+    mfa: MixtureOfFactorAnalyzers,
+    sample: Array,
+    n_steps: int,
+    name: str = "Model",
+) -> tuple[Array, Array, Array]:
+    """Fit MFA via closed-form expectation maximization with latent whitening."""
+    init_params = mfa.initialize_from_sample(key, sample)
+
+    @jax.jit
+    def em_step(params: Array) -> Array:
+        return mfa.expectation_maximization(params, sample)
+
+    params = init_params
+    lls = []
+    for step_i in range(n_steps):
+        ll = float(mfa.average_log_observable_density(params, sample))
+        lls.append(ll)
+        if jnp.isnan(ll):
+            print(f"{name}: NaN at step {step_i}")
+            break
+        if step_i % 50 == 0:
+            print(f"{name} step {step_i}: LL = {ll:.4f}")
+        params = em_step(params)
+
+    return jnp.array(lls), init_params, params
+
+
+def fit_mfa_gd[Pst: Differentiable, Prr: Differentiable](
     key: Array,
     mfa: CompleteMixtureOfConjugated[DiagonalNormal, Pst, Prr],
     sample: Array,
@@ -165,18 +191,18 @@ def main():
     # Data
     samples, gt_assignments, mixing = create_ground_truth(key_data, 1000)
 
-    # Model 1: Factor Analysis base (full latent covariance, symmetric)
-    mfa_fa = CompleteMixtureOfSymmetric(
+    # Model 1: Mixture of Factor Analyzers — closed-form EM with latent whitening
+    mfa_fa = MixtureOfFactorAnalyzers(
         n_categories=3, bas_hrm=FactorAnalysis(obs_dim=3, lat_dim=2)
     )
-    print("Training FA model...")
-    fa_lls, fa_init, fa_final = fit_mfa(key_fa, mfa_fa, samples, 5000, name="FA")
+    print("Training FA model (EM)...")
+    fa_lls, fa_init, fa_final = fit_mfa_em(key_fa, mfa_fa, samples, 500, name="FA")
 
-    # Model 2: NormalLGM with diagonal latent covariance (asymmetric pst/prr)
+    # Model 2: NormalLGM with diagonal latent covariance — gradient descent
     diag_lgm = NormalLGM(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, pst_rep=Diagonal())
     mfa_diag = CompleteMixtureOfConjugated(n_categories=3, bas_hrm=diag_lgm)
-    print("\nTraining Diag model...")
-    diag_lls, diag_init, diag_final = fit_mfa(
+    print("\nTraining Diag model (GD)...")
+    diag_lls, diag_init, diag_final = fit_mfa_gd(
         key_diag, mfa_diag, samples, 5000, name="Diag"
     )
 
@@ -234,8 +260,8 @@ def main():
     fa2_params = fa.from_loadings(loadings_2, means_2, diags_2)
     fa3_params = fa.from_loadings(loadings_3, means_3, diags_3)
 
-    # Build ground truth mixture model (symmetric since FA is symmetric)
-    gt_mfa = CompleteMixtureOfSymmetric(n_categories=3, bas_hrm=fa)
+    # Build ground truth mixture model
+    gt_mfa = MixtureOfFactorAnalyzers(n_categories=3, bas_hrm=fa)
     gt_comp_params = jnp.concatenate([fa1_params, fa2_params, fa3_params])
     gt_cat_params = gt_mfa.pst_man.lat_man.to_natural(
         gt_mfa.pst_man.lat_man.from_probs(mixing)
