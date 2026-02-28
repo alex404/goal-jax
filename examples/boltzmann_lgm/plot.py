@@ -39,8 +39,8 @@ def main():
     for i, ellipse in enumerate(results["component_confidence_ellipses"]):
         arr = np.array(ellipse)
         ax_lkl.plot(arr[:, 0], arr[:, 1], label=f"Component {i}")
-    ax_lkl.set_xlabel("x₁")
-    ax_lkl.set_ylabel("x₂")
+    ax_lkl.set_xlabel(r"$x_1$")
+    ax_lkl.set_ylabel(r"$x_2$")
     ax_lkl.set_title("Likelihood")
     ax_lkl.legend(fontsize="small", ncol=2)
 
@@ -69,8 +69,8 @@ def main():
     heatmap = ax_dens.contourf(xx, yy, density, levels=100, cmap="viridis")
     for i, (obs_x, obs_y) in enumerate(posterior_obs):
         ax_dens.scatter(obs_x, obs_y, color=model_colors[i], s=100, edgecolors="white", linewidths=2, zorder=10)
-    ax_dens.set_xlabel("x₁")
-    ax_dens.set_ylabel("x₂")
+    ax_dens.set_xlabel(r"$x_1$")
+    ax_dens.set_ylabel(r"$x_2$")
     ax_dens.set_title("Observable Density")
     plt.colorbar(heatmap, ax=ax_dens, label="Density")
 

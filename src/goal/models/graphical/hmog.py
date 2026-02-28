@@ -110,7 +110,7 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
         lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)
-        cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W·Cov(Y)
+        cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T
@@ -235,7 +235,7 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
 
     This model enables:
     - Closed-form EM algorithm for learning (from AnalyticConjugated)
-    - Bidirectional parameter conversion (mean ↔ natural)
+    - Bidirectional parameter conversion (mean <-> natural)
     - Full analytical tractability
 
     Requires full covariance Gaussians in the latent space.
@@ -280,7 +280,7 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
         lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)
-        cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W·Cov(Y)
+        cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T

@@ -70,7 +70,7 @@ def main():
         reg_grid, reg_actual,
         color=colors["ground_truth"],
         linewidth=2,
-        label="Σ rates",
+        label=r"$\Sigma$ rates",
     )
     ax_reg.plot(
         reg_grid, reg_fitted,

@@ -355,12 +355,12 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
     log-probabilities.
 
     For Categorical-Categorical harmoniums, the conjugation parameters are:
-        ρₖ = Ψ(θ_x + W_k) - Ψ(θ_x)
+        \\rho_k = \\Psi(\\theta_x + W_k) - \\Psi(\\theta_x)
 
     where:
-    - θ_x = observable bias (natural parameters)
+    - \\theta_x = observable bias (natural parameters)
     - W_k = k-th column of interaction matrix
-    - Ψ = log-partition function: log(1 + Σ exp(θᵢ))
+    - \\Psi = log-partition function: log(1 + \\sum exp(\\theta_i))
     """
 
     n_states: int
@@ -389,7 +389,7 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
-        """Compute conjugation parameters: ρₖ = Ψ(θ_x + W_k) - Ψ(θ_x).
+        """Compute conjugation parameters: \\rho_k = \\Psi(\\theta_x + W_k) - \\Psi(\\theta_x).
 
         For each latent category k, we compute how the log-partition function
         changes when we add the k-th column of the interaction matrix to the
@@ -397,7 +397,7 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
         """
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
 
-        # Base log-partition: Ψ(θ_x)
+        # Base log-partition: \Psi(\theta_x)
         psi_base = self.obs_man.log_partition_function(obs_bias)
 
         # Reshape interaction matrix: (obs_dim, lat_dim) = (n-1, n-1)
@@ -406,10 +406,10 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
         lat_dim = self.lat_man.dim
         int_matrix = int_mat.reshape((obs_dim, lat_dim))
 
-        # For each latent category k (k = 1, ..., n-1), compute ρₖ
-        # The 0-th category (reference) contributes ρ₀ = 0 implicitly
+        # For each latent category k (k = 1, ..., n-1), compute \rho_k
+        # The 0-th category (reference) contributes \rho_0 = 0 implicitly
         def compute_rho_k(col_k: Array) -> Array:
-            """Compute ρₖ = Ψ(θ_x + W_k) - Ψ(θ_x) for a single column."""
+            """Compute \\rho_k = \\Psi(\\theta_x + W_k) - \\Psi(\\theta_x) for a single column."""
             return self.obs_man.log_partition_function(obs_bias + col_k) - psi_base
 
         # Apply to each column (lat_dim columns)
@@ -430,7 +430,7 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
         lat_probs = self.lat_man.to_probs(lat_means)
 
         # Joint probabilities (outer product gives p(obs, lat))
-        # int_means represents E[s_obs(x) ⊗ s_lat(z)] = P(obs=i, lat=j) for i,j > 0
+        # int_means represents E[s_obs(x) \otimes s_lat(z)] = P(obs=i, lat=j) for i,j > 0
         obs_dim = self.obs_man.dim
         lat_dim = self.lat_man.dim
         int_matrix = int_means.reshape((obs_dim, lat_dim))
@@ -462,8 +462,8 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
         cond_probs = joint_probs / (lat_probs[None, :] + eps)
 
         # Convert to natural parameters
-        # θ_obs[i] = log(p(obs=i | lat=0) / p(obs=0 | lat=0)) for the bias
-        # θ_int[i,j] = log(p(obs=i | lat=j) / p(obs=i | lat=0)) - log(p(obs=0 | lat=j) / p(obs=0 | lat=0))
+        # \theta_obs[i] = log(p(obs=i | lat=0) / p(obs=0 | lat=0)) for the bias
+        # \theta_int[i,j] = log(p(obs=i | lat=j) / p(obs=i | lat=0)) - log(p(obs=0 | lat=j) / p(obs=0 | lat=0))
         # This is the log-linear parameterization
 
         # Observable bias: natural params from conditional p(obs | lat=0)
@@ -525,7 +525,7 @@ class CategoricalEmission(AnalyticConjugated[Categorical, Categorical]):
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
-        """Compute conjugation parameters: ρₖ = Ψ(θ_x + W_k) - Ψ(θ_x)."""
+        """Compute conjugation parameters: \\rho_k = \\Psi(\\theta_x + W_k) - \\Psi(\\theta_x)."""
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
 
         psi_base = self.obs_man.log_partition_function(obs_bias)
@@ -593,12 +593,12 @@ class HiddenMarkovModel(LatentProcess[Categorical, Categorical]):
     """Discrete Hidden Markov Model.
 
     The model is:
-        z_0 ~ Categorical(π_0)
+        z_0 ~ Categorical(\\pi_0)
         z_t | z_{t-1} ~ Categorical(A[z_{t-1}, :])
         x_t | z_t ~ Categorical(B[z_t, :])
 
     where:
-    - π_0 is the initial state distribution
+    - \\pi_0 is the initial state distribution
     - A is the transition probability matrix
     - B is the emission probability matrix
 

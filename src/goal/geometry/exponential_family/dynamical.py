@@ -485,8 +485,8 @@ def conjugated_smoothing0(
 
     # Compute two-slice joint mean parameters p(z_{t-1}, z_t | x_{1:T})
     #
-    # The formula for the two-slice joint (ξ) is:
-    # ξ(z_{t-1}, z_t) ∝ filtered[t-1](z_{t-1}) * A(z_{t-1}, z_t) * correction(z_t)
+    # The formula for the two-slice joint (\xi) is:
+    # \xi(z_{t-1}, z_t) \propto filtered[t-1](z_{t-1}) * A(z_{t-1}, z_t) * correction(z_t)
     #
     # where:
     # - filtered[t-1] = p(z_{t-1} | x_{1:t-1})
@@ -496,7 +496,7 @@ def conjugated_smoothing0(
     # The mean parameters of the joint are:
     # - obs_mean = E[s(z_{t-1})] = smoothed z_{t-1} mean params
     # - lat_mean = E[s(z_t)] = smoothed z_t mean params
-    # - int_mean = E[s(z_{t-1}) ⊗ s(z_t)] = cross term computed from ξ
+    # - int_mean = E[s(z_{t-1}) \otimes s(z_t)] = cross term computed from \xi
 
     # All smoothed z's including z_0
     all_smoothed = jnp.concatenate([smoothed_z0[None, :], smoothed_seq], axis=0)
@@ -507,13 +507,13 @@ def conjugated_smoothing0(
     def compute_joint_means(data: tuple[Array, Array, Array, Array]) -> Array:
         """Compute two-slice joint mean params using the xi formula.
 
-        The cross term E[s(z_{t-1}) ⊗ s(z_t)] is computed by:
+        The cross term E[s(z_{t-1}) \\otimes s(z_t)] is computed by:
         1. Building the joint natural params properly
         2. Using posterior_statistics to compute expectations
 
         For the two-slice joint, we need to compute the cross term by
         constructing a harmonium that represents:
-        p(z_{t-1}, z_t | x_{1:T}) ∝ prior(z_{t-1}) * trans(z_t|z_{t-1}) * corr(z_t)
+        p(z_{t-1}, z_t | x_{1:T}) \\propto prior(z_{t-1}) * trans(z_t|z_{t-1}) * corr(z_t)
         """
         prior_nat, smoothed_nat, predicted_nat, smoothed_prev_nat = data
 
@@ -521,7 +521,7 @@ def conjugated_smoothing0(
         obs_mean = lat_man.to_mean(smoothed_prev_nat)  # smoothed z_{t-1}
         lat_mean = lat_man.to_mean(smoothed_nat)  # smoothed z_t
 
-        # Compute the cross term E[s(z_{t-1}) ⊗ s(z_t)] using the ξ formula.
+        # Compute the cross term E[s(z_{t-1}) \otimes s(z_t)] using the \xi formula.
         #
         # The two-slice posterior \xi satisfies:
         # \xi(z_{t-1}, z_t) \propto \alpha(z_{t-1}) * A(z_{t-1}, z_t) * \beta(z_t)
@@ -534,24 +534,24 @@ def conjugated_smoothing0(
         # We compute this by constructing a joint harmonium with:
         # - obs params = prior_nat (encodes \alpha)
         # - int params = transition interaction (encodes A structure)
-        # - lat params = transition base + backward correction (encodes A * β)
+        # - lat params = transition base + backward correction (encodes A * \beta)
 
         # The transition likelihood params encode p(z_t | z_{t-1})
         # Split into obs_bias (base rate for z_t) and interaction
         obs_bias, int_params = trns_hrm.lkl_fun_man.split_coords(trns_lkl_params)
 
-        # The backward contribution in natural params gives the log-ratio of β
+        # The backward contribution in natural params gives the log-ratio of \beta
         backward_nat = smoothed_nat - predicted_nat
 
         # Build the joint natural params
         # The harmonium structure is:
-        # log p(z_{t-1}, z_t) = θ_obs · s(z_{t-1}) + θ_int · s(z_{t-1}) ⊗ s(z_t)
-        #                     + θ_lat · s(z_t) - ψ
+        # log p(z_{t-1}, z_t) = \theta_obs \cdot s(z_{t-1}) + \theta_int \cdot s(z_{t-1}) \otimes s(z_t)
+        #                     + \theta_lat \cdot s(z_t) - \psi
         #
         # For the two-slice joint:
-        # - θ_obs = prior_nat (the filtered prior on z_{t-1})
-        # - θ_int = transition interaction
-        # - θ_lat = obs_bias + backward_nat (base rate + backward correction)
+        # - \theta_obs = prior_nat (the filtered prior on z_{t-1})
+        # - \theta_int = transition interaction
+        # - \theta_lat = obs_bias + backward_nat (base rate + backward correction)
 
         joint_nat = trns_hrm.join_coords(prior_nat, int_params, obs_bias + backward_nat)
 
@@ -704,7 +704,7 @@ def latent_process_expectation_step(
     prior_means = lat_man.to_mean(smoothed_z0)
 
     # E-step for emission: E[s(x_t, z_t) | x_{1:T}] averaged over t
-    # For each t, we need E[s_obs(x_t), s_lat(z_t), s_obs(x_t) ⊗ s_lat(z_t)]
+    # For each t, we need E[s_obs(x_t), s_lat(z_t), s_obs(x_t) \otimes s_lat(z_t)]
     _, emsn_params, _ = process.split_coords(params)
 
     def emission_stats(x: Array, z_params: Array) -> Array:

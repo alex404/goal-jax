@@ -133,7 +133,7 @@ def parse_args() -> argparse.Namespace:
         "--interaction",
         choices=["hierarchical", "full"],
         default="full",
-        help="Interaction mode: 'hierarchical' (X↔(Y,K)) or 'full' (X↔Y↔K three-block)",
+        help="Interaction mode: 'hierarchical' (X<->(Y,K)) or 'full' (X<->Y<->K three-block)",
     )
     parser.add_argument(
         "--analytical-samples-mult",

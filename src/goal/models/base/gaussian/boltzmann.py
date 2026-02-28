@@ -2,7 +2,7 @@
 
 This module provides:
 - `DiagonalBoltzmann`: Mean-field wrapper with GeneralizedGaussian interface
-- `CouplingMatrix`: Exponential family over moment matrices (x⊗x)
+- `CouplingMatrix`: Exponential family over moment matrices (x \\otimes x)
 - `Boltzmann`: Full Boltzmann machine with pairwise coupling
 
 Note: `Bernoullis` (product of independent Bernoullis) is in categorical.py.
@@ -108,7 +108,7 @@ class DiagonalBoltzmann(
         Returns zeros for location since it's fully absorbed.
 
         The scaling by -2 matches the GeneralizedGaussian convention where
-        precision relates to natural params by θ₂ = -½Σ⁻¹.
+        precision relates to natural params by \\theta_2 = -1/2 \\Sigma^{-1}.
         """
         n = self.n_neurons
         return jnp.zeros(n), -2 * params
@@ -126,7 +126,7 @@ class DiagonalBoltzmann(
     def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
         """Split mean parameters into first and second moments.
 
-        For independent binary variables, E[xᵢ²] = E[xᵢ] since x² = x for {0,1}.
+        For independent binary variables, E[x_i^2] = E[x_i] since x^2 = x for {0,1}.
         Both moments are identical - complete redundancy.
         """
         return means, means
@@ -205,7 +205,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         """Compute energy difference for unit being 1 vs 0 - O(n) computation.
 
         The energy difference when flipping unit k from 0 to 1 is:
-            ΔE = θ_kk + sum_{j≠k} θ_kj * x_j
+            \\Delta E = \\theta_kk + sum_{j != k} \\theta_kj * x_j
 
         This extracts just the k-th row/column from the upper triangular storage
         rather than computing full O(n²) sufficient statistics.
@@ -218,7 +218,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         def get_triu_idx(i: Array, j: Array) -> Array:
             return i * n - i * (i + 1) // 2 + j
 
-        # For each j in 0..n-1, get the parameter θ_kj (symmetric: θ_kj = θ_jk)
+        # For each j in 0..n-1, get the parameter \theta_kj (symmetric: \theta_kj = \theta_jk)
         j = jnp.arange(n)
         # If j >= k: element (k, j) is in row k -> use get_triu_idx(k, j)
         # If j < k: element (j, k) is in row j -> use get_triu_idx(j, k)
@@ -229,8 +229,8 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         # Extract the k-th row/column of the parameter matrix
         theta_k = params[idx]
 
-        # Energy diff = θ_kk + sum_{j≠k} θ_kj * x_j
-        # Rewrite as: θ_kk * (1 - x_k) + dot(theta_k, state)
+        # Energy diff = \theta_kk + sum_{j != k} \theta_kj * x_j
+        # Rewrite as: \theta_kk * (1 - x_k) + dot(theta_k, state)
         # This avoids creating a masked state array
         return theta_k[k] * (1 - state[k]) + jnp.dot(theta_k, state)
 

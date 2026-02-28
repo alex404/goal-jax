@@ -101,7 +101,7 @@ class TestNormalTransition:
             z = jax.random.normal(jax.random.fold_in(key, i), (model.lat_man.data_dim,))
             s_z = model.lat_man.sufficient_statistic(z)
 
-            # LHS: ψ(θ_X + θ_{XZ}·s_Z(z))
+            # LHS: \psi(\theta_X + \theta_{XZ} \cdot s_Z(z))
             conditional_obs = model.lkl_fun_man(lkl_params, z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 
@@ -136,7 +136,7 @@ class TestNormalEmission:
             z = jax.random.normal(jax.random.fold_in(key, i), (model.lat_man.data_dim,))
             s_z = model.lat_man.sufficient_statistic(z)
 
-            # LHS: ψ(θ_X + θ_{XZ}·s_Z(z))
+            # LHS: \psi(\theta_X + \theta_{XZ} \cdot s_Z(z))
             conditional_obs = model.lkl_fun_man(lkl_params, z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 
@@ -392,7 +392,7 @@ class TestCategoricalTransition:
             z = jnp.array([z_val])
             s_z = model.lat_man.sufficient_statistic(z)
 
-            # LHS: ψ(θ_X + θ_{XZ}·s_Z(z))
+            # LHS: \psi(\theta_X + \theta_{XZ} \cdot s_Z(z))
             conditional_obs = model.lkl_fun_man(lkl_params, s_z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 

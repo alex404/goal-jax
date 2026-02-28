@@ -195,7 +195,7 @@ def plot_training_history(
 def get_pi_ticks() -> tuple[list[float], list[str]]:
     """Get standard pi tick locations and labels for circular plots."""
     ticks = [0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi]
-    labels = ["0", "π/2", "π", "3π/2", "2π"]
+    labels = ["0", r"$\pi/2$", r"$\pi$", r"$3\pi/2$", r"$2\pi$"]
     return ticks, labels
 
 

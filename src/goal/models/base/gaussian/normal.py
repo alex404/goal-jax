@@ -164,7 +164,7 @@ class Normal[Rep: PositiveDefinite](
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        """Compute sufficient statistic (x, x ⊗ x).
+        """Compute sufficient statistic (x, x \\otimes x).
 
         Returns:
             Sufficient statistic in mean parameters.
@@ -346,7 +346,7 @@ class Normal[Rep: PositiveDefinite](
         mean: Array,
         covariance: Array,
     ) -> Array:
-        """Construct mean parameters from the mean μ and covariance Σ.
+        """Construct mean parameters from the mean \\mu and covariance \\Sigma.
 
         Args:
             mean: Mean vector (in mean parameters).
@@ -355,14 +355,14 @@ class Normal[Rep: PositiveDefinite](
         Returns:
             Combined mean parameters.
         """
-        # Create the second moment η₂ = μμᵀ + Σ
+        # Create the second moment \eta_2 = \mu \mu^T + \Sigma
         outer = self.snd_man.outer_product(mean, mean)
         second_moment = outer + covariance
 
         return self.join_coords(mean, second_moment)
 
     def split_mean_covariance(self, means: Array) -> tuple[Array, Array]:
-        """Extract the mean μ and covariance Σ from mean parameters.
+        """Extract the mean \\mu and covariance \\Sigma from mean parameters.
 
         Args:
             means: Mean parameters (mean, second moment).
@@ -370,9 +370,9 @@ class Normal[Rep: PositiveDefinite](
         Returns:
             Tuple of (mean vector, covariance matrix) in mean parameters.
         """
-        # Split into μ and η₂
+        # Split into \mu and \eta_2
         mean, second_moment = self.split_coords(means)
-        # Compute Σ = η₂ - μμᵀ
+        # Compute \Sigma = \eta_2 - \mu \mu^T
         outer = self.snd_man.outer_product(mean, mean)
         covariance = second_moment - outer
 
@@ -411,9 +411,10 @@ class Normal[Rep: PositiveDefinite](
         parameters behaves correctly when used either as a vector in a dot product,
         or as a precision matrix.
 
-        For a multivariate normal distribution, the natural parameters (θ₁,θ₂) are
-        related to the standard parameters (μ,Σ) by, θ₁ = Σ⁻¹μ and θ₂ = -½Σ⁻¹.
-        Matrix representations require different scaling to maintain these relationships:
+        For a multivariate normal distribution, the natural parameters (\\theta_1, \\theta_2) are
+        related to the standard parameters (\\mu, \\Sigma) by \\theta_1 = \\Sigma^{-1} \\mu and
+        \\theta_2 = -1/2 \\Sigma^{-1}. Matrix representations require different scaling to
+        maintain these relationships:
 
         1. Diagonal case:
             - No additional rescaling needed as parameters directly represent diagonal elements
@@ -421,9 +422,9 @@ class Normal[Rep: PositiveDefinite](
         2. Full (PositiveDefinite) case:
             - Off-diagonal elements appear twice in the precision matrix but once in
               the natural parameters
-            - For i ≠ j, element θ₂,ᵢⱼ is stored as double its matrix value to account
+            - For i != j, element \\theta_{2,ij} is stored as double its matrix value to account
               for missing parameters in the dot product
-            - When converting to precision Σ⁻¹, vector elements corresponding to
+            - When converting to precision \\Sigma^{-1}, vector elements corresponding to
               off-diagonal elements are halved
 
         3. Scale case:

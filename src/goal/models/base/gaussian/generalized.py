@@ -74,10 +74,10 @@ class Euclidean(Differentiable):
     def log_partition_function(self, params: Array) -> Array:
         """Compute log partition function for standard normal with unit covariance.
 
-        For a normal distribution N(μ, I) with sufficient statistic s(x) = x
-        and natural parameter θ = μ:
+        For a normal distribution N(\\mu, I) with sufficient statistic s(x) = x
+        and natural parameter \\theta = \\mu:
 
-        ψ(θ) = 0.5 ||θ||² + (d/2) log(2π)
+        \\psi(\\theta) = 0.5 ||\\theta||^2 + (d/2) log(2\\pi)
 
         Args:
             params: Natural parameters (the mean)

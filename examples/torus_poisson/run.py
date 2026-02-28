@@ -36,7 +36,7 @@ def von_mises_inverse_cdf(u: Array, kappa: float, mu: float = 0.0) -> Array:
     """Compute inverse CDF of von Mises distribution via numerical root finding.
 
     For von Mises with concentration kappa and mean mu:
-        p(θ) = exp(κ·cos(θ - μ)) / (2π·I₀(κ))
+        p(\\theta) = exp(\\kappa cos(\\theta - \\mu)) / (2\\pi I_0(\\kappa))
 
     Args:
         u: Quantiles in [0, 1], shape (n,)
@@ -44,7 +44,7 @@ def von_mises_inverse_cdf(u: Array, kappa: float, mu: float = 0.0) -> Array:
         mu: Mean direction
 
     Returns:
-        Angles θ such that F(θ) = u, shape (n,)
+        Angles \\theta such that F(\\theta) = u, shape (n,)
     """
     import numpy as np
     import scipy.optimize as opt
@@ -244,7 +244,7 @@ def compute_gt_conjugation(
         reg_key, var_params, n_samples
     )
 
-    # Var[psi_X] = Var[RLS] when rho=0 (since RLS = 0·s - psi = -psi)
+    # Var[\psi_X] = Var[RLS] when rho=0 (since RLS = 0 \cdot s - \psi = -\psi)
     key, m0_key = jax.random.split(key)
     var_psi, _, _ = var_model.conjugation_metrics(m0_key, var_params, n_samples)
 
@@ -347,7 +347,7 @@ def train_model(
         params_with_rho = model.join_coords(rho_star, hrm_params)
         elbo = model.mean_elbo(elbo_key, params_with_rho, batch, n_mc_samples)
 
-        # Conjugation penalty: explicitly discourage nonlinear ψ_X
+        # Conjugation penalty: explicitly discourage nonlinear \psi_X
         p_params = model.prior_params(params_with_rho)
         z_sg = jax.lax.stop_gradient(
             model.pst_man.sample(conj_key, p_params, N_CONJ_SAMPLES)

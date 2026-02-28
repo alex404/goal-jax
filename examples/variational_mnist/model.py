@@ -2,7 +2,7 @@
 
 This module provides:
 - ConcreteHarmonium: concrete harmonium for arbitrary observable/latent pairs
-- VariationalFullMixture: fully connected X↔Y↔K via CompleteMixtureOfHarmonium
+- VariationalFullMixture: fully connected X<->Y<->K via CompleteMixtureOfHarmonium
 - Model creation with good defaults (hierarchical or full interaction)
 - Reconstruction and error utilities
 - Conjugation quality metrics (R², Std[residual], ||rho||)
@@ -83,7 +83,7 @@ class VariationalFullMixture[
         Observable, CompleteMixture[BaseLatent], BaseLatent
     ],
 ):
-    """Fully connected X↔Y↔K via CompleteMixtureOfHarmonium.
+    """Fully connected X<->Y<->K via CompleteMixtureOfHarmonium.
 
     Rho corrects only the BaseLatent (observable) component of the
     CompleteMixture posterior via ObservableEmbedding.  Cluster-specific
@@ -182,8 +182,8 @@ def create_model(
         observable_type: Type of observable distribution ("binomial" or "poisson")
         n_trials: Binomial discretization level (default: 16, only used for binomial)
         interaction: Interaction mode:
-            - "hierarchical": X↔(Y,K) with interaction restricted to Y component
-            - "full": X↔Y↔K with three-block interaction (xy, xyk, xk)
+            - "hierarchical": X<->(Y,K) with interaction restricted to Y component
+            - "full": X<->Y<->K with three-block interaction (xy, xyk, xk)
 
     Returns:
         MixtureModel instance

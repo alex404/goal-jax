@@ -25,7 +25,7 @@ class Bernoulli(Analytic):
 
     Mathematically equivalent to Categorical(n_categories=2).
 
-    The distribution over binary values x ∈ {0, 1} is:
+    The distribution over binary values x in {0, 1} is:
 
     .. math::
 
@@ -35,11 +35,11 @@ class Bernoulli(Analytic):
 
     As an exponential family:
         - Sufficient statistic: s(x) = x (identity)
-        - Base measure: μ(x) = 0
-        - Natural parameter: θ = log(p/(1-p)) (log odds)
-        - Mean parameter: η = p = P(x=1)
-        - Log partition: ψ(θ) = log(1 + exp(θ)) = softplus(θ)
-        - Negative entropy: φ(η) = η*log(η) + (1-η)*log(1-η)
+        - Base measure: \\mu(x) = 0
+        - Natural parameter: \\theta = log(p/(1-p)) (log odds)
+        - Mean parameter: \\eta = p = P(x=1)
+        - Log partition: \\psi(\\theta) = log(1 + exp(\\theta)) = softplus(\\theta)
+        - Negative entropy: \\phi(\\eta) = \\eta*log(\\eta) + (1-\\eta)*log(1-\\eta)
     """
 
     @property
@@ -66,12 +66,12 @@ class Bernoulli(Analytic):
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Log partition function: log(1 + exp(θ)) = softplus(θ)."""
+        """Log partition function: log(1 + exp(\\theta)) = softplus(\\theta)."""
         return jax.nn.softplus(params[0])
 
     @override
     def negative_entropy(self, means: Array) -> Array:
-        """Negative entropy: η*log(η) + (1-η)*log(1-η)."""
+        """Negative entropy: \\eta*log(\\eta) + (1-\\eta)*log(1-\\eta)."""
         p = means[0]
         p0 = 1 - p
         # Add small epsilon for numerical stability

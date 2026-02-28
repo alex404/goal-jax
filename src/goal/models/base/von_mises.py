@@ -89,7 +89,7 @@ class VonMises(Differentiable):
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        """Log base measure: -log(2π).
+        """Log base measure: -log(2\\pi).
 
         Args:
             x: Data point
@@ -217,11 +217,11 @@ class VonMisesProduct(DifferentiableProduct[VonMises]):
     """Product of n independent Von Mises distributions.
 
     Useful for modeling multiple circular/angular latent variables.
-    Each component has natural parameters (κ·cos(μ), κ·sin(μ)) where
-    μ is the mean direction and κ is the concentration.
+    Each component has natural parameters (\\kappa \\cos(\\mu), \\kappa \\sin(\\mu)) where
+    \\mu is the mean direction and \\kappa is the concentration.
 
     The sufficient statistic for n components is a 2n-dimensional vector:
-        [cos(θ_1), sin(θ_1), cos(θ_2), sin(θ_2), ..., cos(θ_n), sin(θ_n)]
+        [cos(\\theta_1), sin(\\theta_1), cos(\\theta_2), sin(\\theta_2), ..., cos(\\theta_n), sin(\\theta_n)]
 
     Attributes:
         n_components: Number of independent Von Mises variables

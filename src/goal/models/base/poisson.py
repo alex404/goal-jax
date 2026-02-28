@@ -228,7 +228,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
         Given mode $\\mu$ and shape $\\nu$ parameters, the approximations are:
         $E(X) \\approx \\mu + 1/(2\\nu) - 1/2$
-        Var(X) ≈ $\\mu$/$\\nu$
+        $\\text{Var}(X) \\approx \\mu / \\nu$
         """
         mu, nu = self.split_mode_dispersion(params)
         approx_mean = mu + 1 / (2 * nu) - 0.5

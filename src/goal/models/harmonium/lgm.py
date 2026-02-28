@@ -498,17 +498,17 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         In mean coordinates:
         - obs_means: unchanged (observable marginal E[s_X(x)] is preserved)
         - lat_means: set to standard_normal() (mean coords of N(0,I))
-        - int_means: updated to WL where WΣ_z = E[x⊗z] - E[x]⊗E[z] and L = chol(Σ_z)
+        - int_means: updated to WL where W \\Sigma_z = E[x \\otimes z] - E[x] \\otimes E[z] and L = chol(\\Sigma_z)
         """
         obs_means, int_means, lat_means = self.split_coords(means)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
         lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
 
-        # WΣ_z = E[x⊗z] - E[x]⊗E[z]
+        # W \Sigma_z = E[x \otimes z] - E[x] \otimes E[z]
         int_mat = self.int_man.to_matrix(int_means)  # (obs_dim, lat_dim)
-        cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # WΣ_z
+        cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # W \Sigma_z
 
-        # WL = WΣ_z @ L^{-T},  L = chol(Σ_z)
+        # WL = W \Sigma_z @ L^{-T},  L = chol(\Sigma_z)
         chol = jnp.linalg.cholesky(self.prr_man.cov_man.to_matrix(lat_cov))
         wl_mat = jax.scipy.linalg.solve_triangular(chol, cross_cov.T, lower=True).T
 

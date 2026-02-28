@@ -232,7 +232,7 @@ class TestNormalAnalyticLGMConjugation:
             z = jax.random.normal(jax.random.fold_in(key, i), (lat_dim,))
             s_z = model.pst_man.sufficient_statistic(z)
 
-            # LHS: ψ(θ_X + θ_{XZ}·s_Z(z))
+            # LHS: \psi(\theta_X + \theta_{XZ} \cdot s_Z(z))
             conditional_obs = model.lkl_fun_man(lkl_params, z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 
@@ -325,7 +325,7 @@ class TestBoltzmannLGMDensity:
     def test_observable_density_marginalization(
         self, model: BoltzmannLGM[PositiveDefinite], params: Array, key: Array
     ) -> None:
-        """Test p(x) = Σ_z p(x|z)p(z)."""
+        """Test p(x) = \\sum_z p(x|z)p(z)."""
         obs = jax.random.normal(key, (model.obs_dim,))
 
         density_model = model.observable_density(params, obs)
@@ -362,7 +362,7 @@ class TestBoltzmannLGMDensity:
     def test_log_density_formula(
         self, model: BoltzmannLGM[PositiveDefinite], params: Array, key: Array
     ) -> None:
-        """Test log p(x) = θ·s(x) + ψ(post) - ψ(prior) - ψ_X(θ_X) + log μ(x)."""
+        """Test log p(x) = \\theta \\cdot s(x) + \\psi(post) - \\psi(prior) - \\psi_X(\\theta_X) + log \\mu(x)."""
         obs = jax.random.normal(key, (model.obs_dim,))
 
         log_density = model.log_observable_density(params, obs)

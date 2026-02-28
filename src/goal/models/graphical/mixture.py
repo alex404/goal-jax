@@ -265,7 +265,7 @@ class CompleteMixtureOfHarmonium[
 ](
     Harmonium[Observable, CompleteMixture[Posterior]],
 ):
-    """Harmonium with three-block interaction structure X↔Y↔K.
+    """Harmonium with three-block interaction structure X<->Y<->K.
 
     Given a base harmonium over (Observable, Posterior), this constructs a harmonium
     where the latent space is CompleteMixture[Posterior] = (Y, K), with a three-block

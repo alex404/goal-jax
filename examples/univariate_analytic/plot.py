@@ -59,7 +59,7 @@ def main():
     axes[2].plot(k, p["true_pmf"], color=colors["ground_truth"], label="True")
     axes[2].plot(k, p["estimated_pmf"], color=colors["fitted"], ls="--", label="MLE")
     axes[2].plot(k, rate**k * np.exp(-rate) / factorial(k), color=colors["tertiary"], ls=":", label="Theory")
-    axes[2].set_title(f"Poisson (λ={rate})")
+    axes[2].set_title(rf"Poisson ($\lambda$={rate})")
     axes[2].set_xlabel("k")
     axes[2].set_ylabel("Probability")
     axes[2].legend()

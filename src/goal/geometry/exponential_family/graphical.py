@@ -252,14 +252,14 @@ class DifferentiableHierarchical[
 ):
     """Differentiable hierarchical conjugated harmonium.
 
-    Composes a lower harmonium (Observable → MiddleLatent) with an upper harmonium
-    (MiddleLatent → TopLatent) to form a hierarchical structure. Supports asymmetric
+    Composes a lower harmonium (Observable -> MiddleLatent) with an upper harmonium
+    (MiddleLatent -> TopLatent) to form a hierarchical structure. Supports asymmetric
     posterior/prior structures where the prior uses a fuller parameterization.
 
     The joint distribution factors as: p(x,y,z) = p(x|y)p(y|z)p(z)
 
     Type Parameters:
-        LowerHarmonium: The lower harmonium type (Observable → MiddleLatent)
+        LowerHarmonium: The lower harmonium type (Observable -> MiddleLatent)
         PstUpperHarmonium: Posterior upper harmonium type (possibly restricted)
         PrrUpperHarmonium: Prior upper harmonium type (for conjugation)
     """

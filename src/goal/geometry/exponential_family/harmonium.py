@@ -457,7 +457,7 @@ class Conjugated[
     def extract_likelihood_input(self, prr_sample: Array) -> Array:
         """Extract data required to evaluate the likelihood from a prior sample.
 
-        This method takes a sample from the prior distribution p(z) and extracts the variables needed for conditioning the likelihood p(x|·). In standard harmoniums, this returns the full latent sample. In hierarchical models, this extracts only the immediate child latent (e.g., y from a yz sample).
+        This method takes a sample from the prior distribution p(z) and extracts the variables needed for conditioning the likelihood p(x|.). In standard harmoniums, this returns the full latent sample. In hierarchical models, this extracts only the immediate child latent (e.g., y from a yz sample).
 
         Parameters
         ----------
@@ -467,7 +467,7 @@ class Conjugated[
         Returns
         -------
         Array
-            Variables for likelihood conditioning, shape (n, ·)
+            Variables for likelihood conditioning, shape (n, .)
         """
         return prr_sample
 

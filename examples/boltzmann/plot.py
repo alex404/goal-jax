@@ -52,7 +52,7 @@ def main():
     # Theoretical 1/sqrt(n) line
     theoretical = np.array(sample_sizes) ** (-0.5)
     theoretical = theoretical * errors[0][0] / theoretical[0]
-    axes[1, 0].loglog(sample_sizes, theoretical, "k--", alpha=0.5, label="1/√n")
+    axes[1, 0].loglog(sample_sizes, theoretical, "k--", alpha=0.5, label=r"$1/\sqrt{n}$")
     axes[1, 0].set_xlabel("Number of Samples")
     axes[1, 0].set_ylabel("L2 Error")
     axes[1, 0].set_title("Convergence vs Samples")

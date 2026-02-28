@@ -36,8 +36,8 @@ def find_optimal_matching(
     """Find optimal neuron matching accounting for torus symmetries.
 
     Accounts for:
-    - Rotational symmetry in each dimension (θ → θ + offset)
-    - Dimension permutation symmetry (θ₁ ↔ θ₂)
+    - Rotational symmetry in each dimension (\theta -> \theta + offset)
+    - Dimension permutation symmetry (\theta_1 <-> \theta_2)
 
     Uses Hungarian algorithm for optimal assignment.
 
@@ -202,8 +202,8 @@ def main():
     ax3.scatter(matched_theta1, matched_theta2, c=model_colors[0], s=50, alpha=0.8,
                 marker='^', label=f'Learned ({best_mode})', edgecolors='white', linewidths=0.5)
 
-    ax3.set_xlabel("θ₁")
-    ax3.set_ylabel("θ₂")
+    ax3.set_xlabel(r"$\theta_1$")
+    ax3.set_ylabel(r"$\theta_2$")
     ax3.set_xlim(0, 2 * np.pi)
     ax3.set_ylim(0, 2 * np.pi)
     ax3.set_aspect("equal")
@@ -302,11 +302,11 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         _, _, prior_p = var_model.hrm.split_coords(hrm_params)
 
         def log_bessel_i0(kappa: float) -> float:
-            """Numerically stable log I_0(κ)."""
+            """Numerically stable log I_0(\\kappa)."""
             if kappa < 500:
                 return float(np.log(bessel_i0(kappa)))
             else:
-                # Asymptotic: I_0(κ) ≈ exp(κ) / sqrt(2πκ)
+                # Asymptotic: I_0(\kappa) \approx exp(\kappa) / sqrt(2 \pi \kappa)
                 return kappa - 0.5 * np.log(2 * np.pi * kappa)
 
         def von_mises_log_prob(z, theta) -> float:
@@ -317,7 +317,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
                 theta_sin = float(theta[2 * dim + 1])
                 kappa = np.sqrt(theta_cos**2 + theta_sin**2)
 
-                # log p(z) = κ cos(z - μ) - log I₀(κ) - log(2π)
+                # log p(z) = \kappa cos(z - \mu) - log I_0(\kappa) - log(2\pi)
                 s_z_cos = float(jnp.cos(z[dim]))
                 s_z_sin = float(jnp.sin(z[dim]))
                 dot_product = theta_cos * s_z_cos + theta_sin * s_z_sin

@@ -30,7 +30,7 @@ class GTConjugationMetrics(TypedDict):
     optimal_rho_norm: float
     r_squared: float  # R² with optimal rho
     var_rls: float  # Var[RLS] with optimal rho
-    var_psi: float  # Var[ψ_X(z)] for reference
+    var_psi: float  # Var[\psi_X(z)] for reference
 
 
 class GroundTruth(TypedDict):
