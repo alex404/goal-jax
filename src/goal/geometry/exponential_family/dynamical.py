@@ -523,16 +523,16 @@ def conjugated_smoothing0(
 
         # Compute the cross term E[s(z_{t-1}) ⊗ s(z_t)] using the ξ formula.
         #
-        # The two-slice posterior ξ satisfies:
-        # ξ(z_{t-1}, z_t) ∝ α(z_{t-1}) * A(z_{t-1}, z_t) * β(z_t)
+        # The two-slice posterior \xi satisfies:
+        # \xi(z_{t-1}, z_t) \propto \alpha(z_{t-1}) * A(z_{t-1}, z_t) * \beta(z_t)
         #
         # where:
-        # - α(z_{t-1}) = filtered[t-1] = p(z_{t-1} | x_{1:t-1})
+        # - \alpha(z_{t-1}) = filtered[t-1] = p(z_{t-1} | x_{1:t-1})
         # - A(z_{t-1}, z_t) = p(z_t | z_{t-1})
-        # - β(z_t) ∝ p(x_t:T | z_t) = smoothed[t] / predicted[t] (up to normalization)
+        # - \beta(z_t) \propto p(x_t:T | z_t) = smoothed[t] / predicted[t] (up to normalization)
         #
         # We compute this by constructing a joint harmonium with:
-        # - obs params = prior_nat (encodes α)
+        # - obs params = prior_nat (encodes \alpha)
         # - int params = transition interaction (encodes A structure)
         # - lat params = transition base + backward correction (encodes A * β)
 

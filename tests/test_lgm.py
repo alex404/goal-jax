@@ -3,16 +3,22 @@
 Tests FactorAnalysis, NormalAnalyticLGM, and BoltzmannLGM.
 """
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import pytest
 from jax import Array
 from jax.scipy import stats
 
-from typing import Any
-
 from goal.geometry import Diagonal, PositiveDefinite, Scale
-from goal.models import BoltzmannLGM, FactorAnalysis, FullNormal, Normal, NormalAnalyticLGM
+from goal.models import (
+    BoltzmannLGM,
+    FactorAnalysis,
+    FullNormal,
+    Normal,
+    NormalAnalyticLGM,
+)
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -212,7 +218,7 @@ class TestNormalAnalyticLGMConjugation:
     """Test conjugation equation for NormalAnalyticLGM."""
 
     def test_conjugation_equation(self, key: Array) -> None:
-        """Test: ψ(θ_X + θ_{XZ}·s_Z(z)) = ρ·s_Z(z) + ψ_X(θ_X)."""
+        """Test: \\psi(\\theta_X + \\theta_{XZ} \\cdot s_Z(z)) = \\rho \\cdot s_Z(z) + \\psi_X(\\theta_X)."""
         obs_dim, lat_dim = 3, 2
         model = NormalAnalyticLGM(obs_dim, PositiveDefinite(), lat_dim)
 
@@ -230,7 +236,7 @@ class TestNormalAnalyticLGMConjugation:
             conditional_obs = model.lkl_fun_man(lkl_params, z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 
-            # RHS: ρ·s_Z(z) + ψ_X(θ_X)
+            # RHS: \rho \cdot s_Z(z) + \psi_X(\theta_X)
             rhs = jnp.dot(rho, s_z) + model.obs_man.log_partition_function(obs_params)
 
             assert jnp.abs(lhs - rhs) < 1e-5
@@ -271,7 +277,7 @@ class TestBoltzmannLGMConjugation:
         return model.initialize(key, location=0.0, shape=0.5)
 
     def test_conjugation_equation(self, model: BoltzmannLGM[PositiveDefinite], params: Array) -> None:
-        """Test: ψ(θ_X + θ_{XZ}·s_Z(z)) = ρ·s_Z(z) + ψ_X(θ_X)."""
+        """Test: \\psi(\\theta_X + \\theta_{XZ} \\cdot s_Z(z)) = \\rho \\cdot s_Z(z) + \\psi_X(\\theta_X)."""
         obs_params, int_params, _ = model.split_coords(params)
         lkl_params = model.lkl_fun_man.join_coords(obs_params, int_params)
         rho = model.conjugation_parameters(lkl_params)

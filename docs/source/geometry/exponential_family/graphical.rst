@@ -26,9 +26,3 @@ Embeddings
    :undoc-members:
    :show-inheritance:
 
-Helper Functions
-----------------
-
-.. autofunction:: goal.geometry.exponential_family.graphical.hierarchical_conjugation_parameters
-
-.. autofunction:: goal.geometry.exponential_family.graphical.hierarchical_to_natural_likelihood

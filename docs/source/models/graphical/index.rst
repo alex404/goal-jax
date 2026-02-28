@@ -12,7 +12,6 @@ suitable for clustering, hierarchical representation learning, and structured in
    :caption: Modules:
 
    hmog
-   mfa
    mixture
 
 Hierarchical Model Types
@@ -27,19 +26,9 @@ Hierarchical Model Types
   - Suitable for joint dimensionality reduction and clustering
   - Factory functions for common configurations
 
-**Mixture of Factor Analyzers (mfa.py)**
+**Mixture Infrastructure (mixture.py)**
 
-  - Combines mixture modeling with factor analysis
-  - Shared loading matrix across mixture components
-  - Component-specific means and optional dispersion
-  - Both analytic and differentiable implementations
-
-Supporting Infrastructure
---------------------------
-
-**Mixture Conjugation Utilities (mixture.py)**
-
+  - Complete and analytic mixture models for conjugated exponential families
+  - Mixture of Factor Analyzers combining mixture modeling with factor analysis
   - Helper functions for computing conjugation parameters in hierarchical mixtures
-  - Decomposition of conjugation parameters for mixture of harmoniums structure
-  - Supports efficient inference in multi-level mixture models
 

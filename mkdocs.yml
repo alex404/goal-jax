@@ -16,7 +16,6 @@ nav:
         - Matrix Representations: geometry/manifold/matrix.md
         - Linear Maps: geometry/manifold/linear.md
         - Subspaces: geometry/manifold/subspace.md
-        - Optimizers: geometry/manifold/optimizer.md
       - Exponential Family:
         - Exponential Families: geometry/exponential_family/exponential_family.md
         - Harmoniums: geometry/exponential_family/harmonium.md

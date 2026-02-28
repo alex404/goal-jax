@@ -1,27 +1,19 @@
 Poisson Mixture Models
 ======================
 
-.. automodule:: goal.models.harmonium.poisson_mixture
+.. automodule:: goal.models.harmonium.poisson
    :noindex:
    :no-members:
-
-Class Hierarchy
----------------
-
-.. inheritance-diagram:: goal.models.harmonium.poisson_mixture
-   :parts: 2
-
-\
 
 Classes
 -------
 
-.. autoclass:: goal.models.harmonium.poisson_mixture.CoMPoissonPopulation
+.. autoclass:: goal.models.harmonium.poisson.CoMPoissonPopulation
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.poisson_mixture.PopulationLocationEmbedding
+.. autoclass:: goal.models.harmonium.poisson.PopulationLocationEmbedding
    :members:
    :undoc-members:
    :show-inheritance:
@@ -29,6 +21,6 @@ Classes
 Factory Functions
 -----------------
 
-.. autofunction:: goal.models.harmonium.poisson_mixture.poisson_mixture
+.. autofunction:: goal.models.harmonium.poisson.poisson_mixture
 
-.. autofunction:: goal.models.harmonium.poisson_mixture.com_poisson_mixture
+.. autofunction:: goal.models.harmonium.poisson.com_poisson_mixture

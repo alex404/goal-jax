@@ -77,7 +77,7 @@ def main():
         color=colors["fitted"],
         linewidth=2,
         linestyle="--",
-        label="ρ fit",
+        label=r"$\rho$ fit",
     )
     ax_reg.set_ylabel("Sum of Rates")
     ax_reg.legend(loc="upper right", fontsize=8)

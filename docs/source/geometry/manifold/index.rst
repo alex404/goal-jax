@@ -22,7 +22,6 @@ This package provides:
    embedding
    linear
    matrix
-   optimizer
 
 Mathematical Framework
 ----------------------

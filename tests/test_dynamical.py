@@ -90,7 +90,7 @@ class TestNormalTransition:
         assert model.lat_man.data_dim == 3
 
     def test_conjugation_equation(self, model: NormalTransition, key: Array) -> None:
-        """Test: ψ(θ_X + θ_{XZ}·s_Z(z)) = ρ·s_Z(z) + ψ_X(θ_X)."""
+        """Test: \\psi(\\theta_X + \\theta_{XZ} \\cdot s_Z(z)) = \\rho \\cdot s_Z(z) + \\psi_X(\\theta_X)."""
         params = model.initialize(key, location=0.0, shape=0.5)
 
         obs_params, int_params, _ = model.split_coords(params)
@@ -105,7 +105,7 @@ class TestNormalTransition:
             conditional_obs = model.lkl_fun_man(lkl_params, z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 
-            # RHS: ρ·s_Z(z) + ψ_X(θ_X)
+            # RHS: \rho \cdot s_Z(z) + \psi_X(\theta_X)
             rhs = jnp.dot(rho, s_z) + model.obs_man.log_partition_function(obs_params)
 
             assert jnp.abs(lhs - rhs) < ATOL
@@ -125,7 +125,7 @@ class TestNormalEmission:
         assert model.lat_man.data_dim == 3
 
     def test_conjugation_equation(self, model: NormalEmission, key: Array) -> None:
-        """Test: ψ(θ_X + θ_{XZ}·s_Z(z)) = ρ·s_Z(z) + ψ_X(θ_X)."""
+        """Test: \\psi(\\theta_X + \\theta_{XZ} \\cdot s_Z(z)) = \\rho \\cdot s_Z(z) + \\psi_X(\\theta_X)."""
         params = model.initialize(key, location=0.0, shape=0.5)
 
         obs_params, int_params, _ = model.split_coords(params)
@@ -140,7 +140,7 @@ class TestNormalEmission:
             conditional_obs = model.lkl_fun_man(lkl_params, z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 
-            # RHS: ρ·s_Z(z) + ψ_X(θ_X)
+            # RHS: \rho \cdot s_Z(z) + \psi_X(\theta_X)
             rhs = jnp.dot(rho, s_z) + model.obs_man.log_partition_function(obs_params)
 
             assert jnp.abs(lhs - rhs) < ATOL
@@ -376,7 +376,7 @@ class TestCategoricalTransition:
         assert model.lat_man.dim == 2
 
     def test_conjugation_equation(self, model: CategoricalTransition, key: Array) -> None:
-        """Test: ψ(θ_X + θ_{XZ}·s_Z(z)) = ρ·s_Z(z) + ψ_X(θ_X).
+        """Test: \\psi(\\theta_X + \\theta_{XZ} \\cdot s_Z(z)) = \\rho \\cdot s_Z(z) + \\psi_X(\\theta_X).
 
         This verifies the conjugation parameters satisfy the fundamental equation
         that makes conjugation work for filtering/smoothing.
@@ -396,7 +396,7 @@ class TestCategoricalTransition:
             conditional_obs = model.lkl_fun_man(lkl_params, s_z)
             lhs = model.obs_man.log_partition_function(conditional_obs)
 
-            # RHS: ρ·s_Z(z) + ψ_X(θ_X)
+            # RHS: \rho \cdot s_Z(z) + \psi_X(\theta_X)
             rhs = jnp.dot(rho, s_z) + model.obs_man.log_partition_function(obs_params)
 
             assert jnp.abs(lhs - rhs) < ATOL, f"Failed for z={z_val}: {lhs} vs {rhs}"
@@ -416,7 +416,7 @@ class TestCategoricalEmission:
         assert model.lat_man.n_categories == 3
 
     def test_conjugation_equation(self, model: CategoricalEmission, key: Array) -> None:
-        """Test: ψ(θ_X + θ_{XZ}·s_Z(z)) = ρ·s_Z(z) + ψ_X(θ_X)."""
+        """Test: \\psi(\\theta_X + \\theta_{XZ} \\cdot s_Z(z)) = \\rho \\cdot s_Z(z) + \\psi_X(\\theta_X)."""
         params = model.initialize(key, location=0.0, shape=0.5)
 
         obs_params, int_params, _ = model.split_coords(params)
