@@ -21,15 +21,16 @@ from .base import (
     Analytic,
     Differentiable,
     Generative,
+    Gibbs,
 )
 
 
 @dataclass(frozen=True)
 class Harmonium[
-    Observable: Generative,
-    Posterior: Generative,
+    Observable: Gibbs,
+    Posterior: Gibbs,
 ](
-    Generative,
+    Gibbs,
     Triple[Observable, LinearMap[Posterior, Observable], Posterior],
     ABC,
 ):
@@ -167,23 +168,6 @@ class Harmonium[
         return self.join_coords(obs_params, int_params, lat_params)
 
     @override
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Sample from the joint via Gibbs chain with 100-step burn-in from zero initialization."""
-        key_burn, key_collect = jax.random.split(key)
-
-        init_state = jnp.zeros(self.data_dim)
-        burned = self.gibbs_chain(key_burn, params, init_state, 100)
-
-        keys = jax.random.split(key_collect, n)
-
-        def collect(carry: Array, step_key: Array) -> tuple[Array, Array]:
-            state = self.gibbs_step(step_key, params, carry)
-            return state, state
-
-        _, samples = jax.lax.scan(collect, burned, keys)
-        return samples
-
-    @override
     def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
         """One Gibbs sweep: sample $x \\sim p(x \\mid z)$, then $z \\sim p(z \\mid x)$."""
         key1, key2 = jax.random.split(key)
@@ -213,25 +197,17 @@ class Harmonium[
         """
         key1, key2 = jax.random.split(key)
 
-        # Positive phase
+        # Positive phase: sample z from posterior with x clamped
         post_params = self.posterior_at(params, x)
         z_0 = self.pst_man.gibbs_step(
             key1, post_params, jnp.zeros(self.pst_man.data_dim)
         )
-        obs_stats_pos = self.obs_man.sufficient_statistic(x)
-        z_0_stats = self.pst_man.sufficient_statistic(z_0)
-        int_stats_pos = self.int_man.outer_product(obs_stats_pos, z_0_stats)
-        positive_stats = self.join_coords(obs_stats_pos, int_stats_pos, z_0_stats)
+        positive_state = jnp.concatenate([x, z_0])
+        positive_stats = self.sufficient_statistic(positive_state)
 
-        # Negative phase
-        initial_state = jnp.concatenate([x, z_0])
-        final_state = self.gibbs_chain(key2, params, initial_state, k)
-        obs_dim = self.obs_man.data_dim
-        x_k, z_k = final_state[:obs_dim], final_state[obs_dim:]
-        obs_stats_neg = self.obs_man.sufficient_statistic(x_k)
-        z_k_stats = self.pst_man.sufficient_statistic(z_k)
-        int_stats_neg = self.int_man.outer_product(obs_stats_neg, z_k_stats)
-        negative_stats = self.join_coords(obs_stats_neg, int_stats_neg, z_k_stats)
+        # Negative phase: k joint Gibbs steps from (x, z_0)
+        negative_state = self.gibbs_chain(key2, params, positive_state, k)
+        negative_stats = self.sufficient_statistic(negative_state)
 
         return negative_stats - positive_stats
 
@@ -255,10 +231,11 @@ class Harmonium[
 
 class Conjugated[
     Observable: Differentiable,
-    Posterior: Generative,
+    Posterior: Gibbs,
     Prior: Generative,
 ](
     Harmonium[Observable, Posterior],
+    Generative,
     ABC,
 ):
     """A harmonium whose prior $p(z)$ belongs to the same exponential family as the posterior $p(z \\mid x)$, enabling exact computation of the prior via conjugation parameters $\\rho$."""
@@ -394,6 +371,7 @@ class DifferentiableConjugated[
         return self.prr_man.log_partition_function(adjusted_lat) + chi
 
     # Methods
+
     def log_observable_density(self, params: Array, x: Array) -> Array:
         """Compute log marginal density $\\log p(x)$ at the given natural parameters by integrating out the latent variable analytically."""
         obs_params, _, _ = self.split_coords(params)

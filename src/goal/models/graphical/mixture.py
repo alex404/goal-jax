@@ -450,6 +450,7 @@ class CompleteMixtureOfHarmonium[
         return self.join_coords(x_coords, int_coords, yk_harm_coords)
 
 
+
 ### Mixture of Conjugated Harmoniums ###
 
 

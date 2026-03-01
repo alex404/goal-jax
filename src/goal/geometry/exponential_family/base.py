@@ -1,6 +1,6 @@
-"""Exponential family hierarchy: ExponentialFamily, Generative, Differentiable, Analytic.
+"""Exponential family hierarchy: ExponentialFamily, Gibbs, Generative, Differentiable, Analytic.
 
-Each level adds capabilities --- sufficient statistics, sampling, log-partition function, or negative entropy --- that unlock progressively more powerful inference algorithms.
+Each level adds capabilities --- sufficient statistics, Gibbs sampling, i.i.d. sampling, log-partition function, or negative entropy --- that unlock progressively more powerful inference algorithms.
 
 Variable names encode the coordinate system throughout: ``params`` for natural parameters (with prefixed variants like ``obs_params`` for slices), ``means`` for mean parameters, and ``coords`` for coordinate-system-agnostic arrays in the manifold layer.
 """
@@ -76,33 +76,16 @@ class ExponentialFamily(Manifold, ABC):
         return self.initialize(key, location, shape)
 
 
-class Generative(ExponentialFamily, ABC):
-    """Adds sampling to an exponential family, enabling Monte Carlo estimation when closed-form expressions are unavailable."""
+class Gibbs(ExponentialFamily, ABC):
+    """Adds Gibbs sampling to an exponential family, enabling MCMC-based inference for models without direct i.i.d. sampling."""
 
     # Contract
 
     @abstractmethod
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Draw ``n`` samples from the distribution with the given natural parameters."""
+    def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
+        """Perform one Gibbs sampling step given natural parameters and a current state."""
 
     # Methods
-
-    def stochastic_to_mean(self, key: Array, params: Array, n: int) -> Array:
-        """Estimate average sufficient statistics by sampling from the given natural parameters."""
-        samples = self.sample(key, params, n)
-        return self.average_sufficient_statistic(samples)
-
-    def gibbs_step(
-        self,
-        key: Array,
-        params: Array,
-        state: Array,  # pyright: ignore[reportUnusedParameter]
-    ) -> Array:
-        """Perform one Gibbs sampling step given natural parameters and a current state.
-
-        Default: samples independently, ignoring state. Override for models with efficient conditional sampling.
-        """
-        return self.sample(key, params, n=1)[0]
 
     def gibbs_chain(
         self,
@@ -119,6 +102,38 @@ class Generative(ExponentialFamily, ABC):
 
         final_state, _ = jax.lax.scan(step, initial_state, jnp.arange(k))
         return final_state
+
+
+class Generative(Gibbs, ABC):
+    """Adds i.i.d. sampling to a Gibbs-capable exponential family, enabling Monte Carlo estimation when closed-form expressions are unavailable."""
+
+    # Contract
+
+    @abstractmethod
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        """Draw ``n`` samples from the distribution with the given natural parameters."""
+
+    # Overrides
+
+    @override
+    def gibbs_step(
+        self,
+        key: Array,
+        params: Array,
+        state: Array,
+    ) -> Array:
+        """Perform one Gibbs sampling step given natural parameters and a current state.
+
+        Default: samples independently, ignoring state. Override for models with efficient conditional sampling.
+        """
+        return self.sample(key, params, n=1)[0]
+
+    # Methods
+
+    def stochastic_to_mean(self, key: Array, params: Array, n: int) -> Array:
+        """Estimate average sufficient statistics by sampling from the given natural parameters."""
+        samples = self.sample(key, params, n)
+        return self.average_sufficient_statistic(samples)
 
 
 class Differentiable(Generative, ABC):

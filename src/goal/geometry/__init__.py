@@ -3,6 +3,7 @@ from .exponential_family.base import (
     Differentiable,
     ExponentialFamily,
     Generative,
+    Gibbs,
 )
 from .exponential_family.combinators import (
     AnalyticProduct,
@@ -107,6 +108,7 @@ __all__ = [
     "ExponentialFamily",
     "Generative",
     "GenerativeProduct",
+    "Gibbs",
     "Harmonium",
     "Identity",
     "IdentityEmbedding",
