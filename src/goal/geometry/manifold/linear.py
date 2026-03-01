@@ -1,4 +1,7 @@
-"""This module provides a hierarchy of linear operators that transform points between manifolds, with specific matrix representations for efficient implementations."""
+"""Linear and affine maps between manifolds.
+
+A ``LinearMap`` is itself a ``Manifold`` whose points are the parameters of the map. The main concrete implementation is ``EmbeddedMap``, which combines a ``MatrixRep`` (from ``matrix.py``) with domain/codomain embeddings to handle the project-multiply-embed pipeline. ``BlockMap`` sums several such maps for heterogeneous block structure, and ``AffineMap`` adds a bias term.
+"""
 
 from __future__ import annotations
 
@@ -20,17 +23,11 @@ from .matrix import MatrixRep, Square
 
 @dataclass(frozen=True)
 class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
-    """Abstract base class for linear transformations between manifolds.
+    """A linear transformation between manifolds, which is itself a manifold (its points are the map's parameters).
 
-    A linear map $L: V \\to W$ between vector spaces satisfies:
+    The key pattern: a ``LinearMap`` knows its domain, codomain, and how to apply itself, transpose itself, and compute outer products. Concrete implementations choose how to store and execute the map.
 
-    $$L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$$
-
-    for all $x, y \\in V$ and scalars $\\alpha, \\beta$. The map preserves vector space
-    operations like addition and scalar multiplication.
-
-    Concrete implementations include AmbientMap (explicit matrix representation) and
-    BlockMap (composition of submaps).
+    Mathematically, a linear map $L: V \\to W$ satisfies $L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$.
     """
 
     @property
@@ -50,51 +47,20 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
 
     @abstractmethod
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        """Apply the linear map to transform a point.
-
-        Args:
-            f_coords: Parameters of the linear map
-            v_coords: Point in the domain to transform
-
-        Returns:
-            Transformed point in the codomain
-        """
+        """Apply the map: takes map parameters and a domain point, returns a codomain point."""
 
     @abstractmethod
     def transpose(self, f_coords: Array) -> Array:
-        """Transpose of the linear map.
-
-        Args:
-            f_coords: Parameters of the linear map
-
-        Returns:
-            Parameters of the transposed linear map
-        """
+        """Return parameters of the transposed map."""
 
     def transpose_apply(self, f_coords: Array, w_coords: Array) -> Array:
-        """Apply the transpose of the linear map.
-
-        Args:
-            f_coords: Parameters of the linear map
-            w_coords: Point in the codomain
-
-        Returns:
-            Transformed point in the domain
-        """
+        """Apply the transpose: takes map parameters and a codomain point, returns a domain point."""
         f_trn_coords = self.transpose(f_coords)
         return self.trn_man(f_trn_coords, w_coords)
 
     @abstractmethod
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
-        """Outer product of points.
-
-        Args:
-            w_coords: Point in the codomain
-            v_coords: Point in the domain
-
-        Returns:
-            Parameters of the outer product linear map
-        """
+        """Outer product $w \\otimes v$, returned as map parameters."""
 
     @abstractmethod
     def map_domain_embedding[NewDomain: Manifold](
@@ -144,11 +110,9 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
 
 @dataclass(frozen=True)
 class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
-    """EmbeddedMap represents a linear transformation with explicit embeddings.
+    """A linear map backed by a ``MatrixRep`` and domain/codomain embeddings.
 
-    The embeddings manage the relationship between internal matrix dimensions
-    and external manifold dimensions, allowing linear maps to operate on
-    restricted subspaces of the domain and codomain.
+    Application follows the pipeline: project input to internal domain, multiply by the matrix, embed result into external codomain. This lets the matrix operate on a lower-dimensional internal space while the map's external interface matches the full manifold dimensions.
     """
 
     # Fields
@@ -198,52 +162,18 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        """Apply the linear map to transform a point.
-
-        Args:
-            f_coords: Parameters of the linear map
-            v_coords: Point in the domain to transform
-
-        Returns:
-            Transformed point in the codomain
-        """
-        # 1. Project to internal domain
         internal_v = self.dom_emb.project(v_coords)
-
-        # 2. Apply matrix operation on internal dimensions
         internal_result = self.rep.matvec(self.matrix_shape, f_coords, internal_v)
-
-        # 3. Embed back to external codomain
         return self.cod_emb.embed(internal_result)
 
     @override
     def transpose(self, f_coords: Array) -> Array:
-        """Transpose of the linear map.
-
-        Args:
-            f_coords: Parameters of the linear map
-
-        Returns:
-            Parameters of the transposed linear map
-        """
         return self.rep.transpose(self.matrix_shape, f_coords)
 
     @override
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
-        """Outer product of points.
-
-        Args:
-            w_coords: Point in the codomain
-            v_coords: Point in the domain
-
-        Returns:
-            Parameters of the outer product linear map
-        """
-        # Project both to internal spaces
         internal_w = self.cod_emb.project(w_coords)
         internal_v = self.dom_emb.project(v_coords)
-
-        # Compute outer product in internal space
         return self.rep.outer_product(internal_w, internal_v)
 
     @override
@@ -288,54 +218,27 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         )
 
     def from_matrix(self, matrix: Array) -> Array:
-        """Create coordinates from dense 2D matrix (in internal dimensions).
-
-        Args:
-            matrix: Dense 2D matrix array with shape (internal_cod_dim, internal_dom_dim)
-
-        Returns:
-            Coordinates in this manifold's representation (1D array in storage format)
-        """
+        """Pack a dense 2D matrix (in internal dimensions) into flat parameters."""
         return self.rep.from_matrix(matrix)
 
     def to_matrix(self, f_coords: Array) -> Array:
-        """Convert to dense 2D matrix representation (in internal dimensions).
-
-        Args:
-            f_coords: Coordinates of the linear map (1D array in representation storage format)
-
-        Returns:
-            Dense 2D matrix array with shape (internal_cod_dim, internal_dom_dim),
-            where internal dimensions are determined by the embeddings (cod_emb.sub_man.dim, dom_emb.sub_man.dim)
-        """
+        """Unpack flat parameters into a dense 2D matrix (in internal dimensions)."""
         return self.rep.to_matrix(self.matrix_shape, f_coords)
+
+    def get_diagonal(self, f_coords: Array) -> Array:
+        """Extract diagonal elements from the matrix."""
+        return self.rep.get_diagonal(self.matrix_shape, f_coords)
 
     def map_diagonal(
         self, f_coords: Array, diagonal_f: Callable[[Array], Array]
     ) -> Array:
-        """Apply a function to the diagonal elements while preserving matrix structure.
-
-        Args:
-            f_coords: Coordinates of the linear map
-            diagonal_f: Function to apply to diagonal elements
-
-        Returns:
-            Modified coordinates
-        """
+        """Apply a function to the diagonal elements, preserving matrix structure."""
         return self.rep.map_diagonal(self.matrix_shape, f_coords, diagonal_f)
 
     def embed_rep(
         self, f_coords: Array, target_rep: MatrixRep
     ) -> tuple[EmbeddedMap[Domain, Codomain], Array]:
-        """Embed linear map into more complex representation.
-
-        Args:
-            f_coords: Coordinates of the linear map
-            target_rep: Target matrix representation
-
-        Returns:
-            Tuple of (new manifold, new coordinates)
-        """
+        """Embed into a more general representation (e.g. Diagonal -> Symmetric)."""
         target_man = EmbeddedMap(target_rep, self.dom_emb, self.cod_emb)
         coords = self.rep.embed_params(self.matrix_shape, f_coords, target_rep)
         return target_man, coords
@@ -343,15 +246,7 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     def project_rep(
         self, f_coords: Array, target_rep: MatrixRep
     ) -> tuple[EmbeddedMap[Domain, Codomain], Array]:
-        """Project linear map to simpler representation.
-
-        Args:
-            f_coords: Coordinates of the linear map
-            target_rep: Target matrix representation
-
-        Returns:
-            Tuple of (new manifold, new coordinates)
-        """
+        """Project to a more constrained representation (e.g. Symmetric -> Diagonal)."""
         target_man = EmbeddedMap(target_rep, self.dom_emb, self.cod_emb)
         coords = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
         return target_man, coords
@@ -359,11 +254,9 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
 @dataclass(frozen=True)
 class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
-    """BlockMap represents a linear transformation as a block diagonal composition of submaps.
+    """Sum of independent linear maps (blocks), each potentially with a different ``MatrixRep``.
 
-    Each block is an embedded linear map, and the overall transformation is the sum of
-    these block contributions. This enables efficient composition of heterogeneous linear
-    maps with different matrix representations and embeddings.
+    Used when different parts of a transformation have different structure --- e.g. a harmonium interaction matrix with one dense block and one diagonal block. Parameters are the concatenation of each block's parameters.
     """
 
     # Fields
@@ -392,15 +285,6 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        """Apply the block linear map to transform a point.
-
-        Args:
-            f_coords: Coordinates of the block linear map
-            v_coords: Point in the domain to transform
-
-        Returns:
-            Transformed point in the codomain
-        """
         result = self.cod_man.zeros()
         for block, block_coords in zip(self.blocks, self.coord_blocks(f_coords)):
             result = result + block(block_coords, v_coords)
@@ -414,14 +298,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         return BlockMap(transposed_blocks)
 
     def coord_blocks(self, coords: Array) -> list[Array]:
-        """Section coordinate array into sub-coordinates for each block.
-
-        Args:
-            coords: Coordinate array for the block map
-
-        Returns:
-            List of coordinate arrays, one for each block
-        """
+        """Split flat parameters into per-block slices."""
         sections = []
         offset = 0
         for block in self.blocks:
@@ -432,14 +309,6 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
     @override
     def transpose(self, f_coords: Array) -> Array:
-        """Transpose of the block linear map.
-
-        Args:
-            f_coords: Coordinates of the block linear map
-
-        Returns:
-            Coordinates of the transposed linear map
-        """
         transposed_coords = [
             block.transpose(block_coords)
             for block, block_coords in zip(self.blocks, self.coord_blocks(f_coords))
@@ -448,15 +317,6 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
     @override
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
-        """Outer product of points.
-
-        Args:
-            w_coords: Point in the codomain
-            v_coords: Point in the domain
-
-        Returns:
-            Parameters of the outer product linear map
-        """
         outer_params = [
             block.outer_product(w_coords, v_coords) for block in self.blocks
         ]
@@ -483,27 +343,18 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
 
 class AmbientMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codomain]):
-    """AmbientMap represents a linear transformation with identity embeddings.
+    """Convenience wrapper: an ``EmbeddedMap`` with identity embeddings on both sides.
 
-    This is a convenience class that wraps EmbeddedMap with identity embeddings,
-    providing a simpler constructor for the common case where the linear map
-    operates on the full domain and codomain manifolds without restriction.
+    Use this when the map operates on the full domain and codomain without restriction.
     """
 
     def __init__(self, rep: MatrixRep, dom_man: Domain, cod_man: Codomain):
-        """Create a AmbientMap with identity embeddings.
-
-        Args:
-            rep: The matrix representation strategy
-            dom_man: The domain manifold
-            cod_man: The codomain manifold
-        """
         super().__init__(rep, IdentityEmbedding(dom_man), IdentityEmbedding(cod_man))
 
 
 @dataclass(frozen=True)
 class SquareMap[M: Manifold](AmbientMap[M, M]):
-    """SquareMap provides specialized operations for square matrices, like determinants, inverses, and tests for positive definiteness."""
+    """Square ``AmbientMap`` (domain = codomain), exposing inverse, log-determinant, and positive-definiteness checks."""
 
     # Constructor
 
@@ -519,36 +370,15 @@ class SquareMap[M: Manifold](AmbientMap[M, M]):
     # Methods
 
     def inverse(self, f_coords: Array) -> Array:
-        """Matrix inverse (requires square matrix).
-
-        Args:
-            f_coords: Parameters of the square matrix
-
-        Returns:
-            Parameters of the inverse matrix
-        """
+        """Parameters of the inverse matrix."""
         return self.rep.inverse(self.matrix_shape, f_coords)
 
     def logdet(self, f_coords: Array) -> Array:
-        """Log determinant (requires square matrix).
-
-        Args:
-            f_coords: Parameters of the square matrix
-
-        Returns:
-            Log determinant scalar
-        """
+        """Log determinant."""
         return self.rep.logdet(self.matrix_shape, f_coords)
 
     def is_positive_definite(self, f_coords: Array) -> Array:
-        """Check if matrix is positive definite.
-
-        Args:
-            v_coords: Parameters of the square matrix
-
-        Returns:
-            Boolean indicating positive definiteness
-        """
+        """Check positive definiteness."""
         return self.rep.is_positive_definite(self.matrix_shape, f_coords)
 
 
@@ -562,20 +392,9 @@ class AffineMap[
 ](
     Pair[Codomain, LinearMap[Domain, Codomain]],
 ):
-    """AffineMap combines a linear transformation with a translation component.
+    """A linear map plus a bias: $A(x) = L(x) + b$.
 
-    In theory, an affine map $A: V \\to W$ has the form:
-
-    $$A(x) = L(x) + b$$
-
-    where $L: V \\to W$ is a linear map and $b \\in W$ is a translation vector.
-    The map preserves affine combinations: for points $x_i$ and weights $\\alpha_i$ where
-    $\\sum_i \\alpha_i = 1$, we have:
-
-    $$A(\\sum_i \\alpha_i x_i) = \\sum_i \\alpha_i A(x_i)$$
-
-    The linear map (which may be an EmbeddedMap) internally handles any embedding
-    structure between internal and external spaces.
+    Stored as a ``Pair`` of the bias $b$ (on the codomain) and the linear map $L$. This is the natural parameter space for exponential family likelihoods (bias = observable natural parameters, linear part = interaction).
     """
 
     # Fields
@@ -601,17 +420,6 @@ class AffineMap[
     # Methods
 
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        """Apply the affine transformation.
-
-        Args:
-            f_coords: Parameters of the affine map (concatenation of bias and linear map)
-            v_coords: Point in the domain
-
-        Returns:
-            Transformed point in the codomain
-        """
+        """Apply the affine map: $L(v) + b$."""
         bias, linear = self.split_coords(f_coords)
-        shift = self.snd_man(linear, v_coords)
-        # The linear map (if EmbeddedMap) already handles embedding internally,
-        # so shift is in codomain space. Just add the bias.
-        return bias + shift
+        return bias + self.snd_man(linear, v_coords)

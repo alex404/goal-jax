@@ -288,7 +288,7 @@ class Normal[Rep: PositiveDefinite](
         mean, second_moment = self.split_mean_second_moment(avg_stats)
 
         # Compute variance for proper scaling: Var(x) = E[x²] - E[x]²
-        second_moment_diag = jnp.diag(self.cov_man.to_matrix(second_moment))
+        second_moment_diag = self.cov_man.get_diagonal(second_moment)
         variance_diag = jnp.maximum(second_moment_diag - mean**2, 1e-6)
         observed_scale = jnp.sqrt(variance_diag)
 

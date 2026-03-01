@@ -1,13 +1,15 @@
-"""This module provides a hierarchy of matrix representations with increasingly specialized structure, providing
-    - Progressive specialization from general to highly constrained structures,
-    - storage-efficient representations for special matrix types,
-    - optimized implementations of key operations like multiplication and inversion, and
-    - Type-safe handling of different matrix constraints (symmetry, positive-definiteness).
+"""Storage-efficient matrix representations for use as strategies in linear maps.
 
-The following table provides an overview of the storage and computational complexity of each matrix representation:
+A ``MatrixRep`` defines how to store a matrix as a flat parameter array and how to perform linear algebra (matvec, transpose, inverse, etc.) while respecting structural constraints. ``EmbeddedMap`` in ``linear.py`` plugs a rep into the manifold system; this module is purely about the matrix operations themselves.
+
+The hierarchy from most to least general is::
+
+    Rectangular > Square > Symmetric > PositiveDefinite > Diagonal > Scale > Identity
+
+Each level exploits additional structure for cheaper storage and operations:
 
 +----------------+---------------+---------------+---------------+
-| Operator Type  | Storage       | Matmul        | Inverse/Det   |
+| Representation | Storage       | Matmul        | Inverse/Det   |
 +================+===============+===============+===============+
 | Rectangular    | $O(n^2)$      | $O(n^2)$      | $O(n^3)$      |
 +----------------+---------------+---------------+---------------+
@@ -22,6 +24,12 @@ The following table provides an overview of the storage and computational comple
 +----------------+---------------+---------------+---------------+
 | Identity       | $O(1)$        | $O(1)$        | $O(1)$        |
 +----------------+---------------+---------------+---------------+
+
+TODO: A ``Convolutional`` rep could fit naturally here. It would store a kernel and
+implement ``matvec`` via convolution on a flat array (i.e. a compactly-stored Toeplitz
+matrix), with ``shape = (output_len, input_len)`` preserving the existing contract.
+Multi-channel and 2D structure would be handled in ``linear.py`` via ``BlockMap``
+(one block per channel pair) or embeddings that reshape between flat and spatial layouts.
 """
 
 from __future__ import annotations
@@ -45,42 +53,11 @@ def _matmat(
     right_shape: tuple[int, int],
     right_params: Array,
 ) -> tuple[MatrixRep, tuple[int, int], Array]:
-    """Compute matrix-matrix product while maintaining optimal representation.
+    """Compute matrix-matrix product, choosing the tightest representation for the result.
 
-    This function implements efficient matrix multiplication by choosing the most
-    specialized representation for the result. Given two matrices A (shape, params, rep)
-    and B (right_shape, right_params, right_rep), computes A @ B and returns the result
-    with the tightest applicable representation.
-
-    The key insight is that the result's representation depends on both the input
-    representations and the output shape:
-    - Identity times anything returns the other matrix
-    - Scale (diagonal with repeated values) scales the other matrix
-    - Diagonal times Diagonal yields Diagonal
-    - Diagonal times general/rectangular yields Rectangular or Square depending on shape
-    - General times special matrix can be optimized by swapping (A * S = S^T * A^T)
-    - General times general yields Rectangular or Square depending on output shape
-
-    The representation hierarchy from most to least general is:
-        Rectangular > Square > Symmetric > PositiveDefinite > Diagonal > Scale > Identity
-
-    When multiplying across hierarchy levels, the result type is determined by the
-    output shape and the specific input representations, ensuring we always return
-    the most specialized representation that is mathematically guaranteed by the inputs.
-
-    Args:
-        rep: Left matrix representation
-        shape: Left matrix shape (m, n)
-        params: Left matrix parameters (1D array)
-        right_rep: Right matrix representation
-        right_shape: Right matrix shape (n, p)
-        right_params: Right matrix parameters (1D array)
-
-    Returns:
-        Tuple of (output_rep, output_shape, output_params) where:
-        - output_rep: Most specialized applicable representation for the result
-        - output_shape: Shape of result (m, p)
-        - output_params: Parameters of result matrix
+    Dispatches on both operands' representations: Identity and Scale short-circuit,
+    Diagonal * Diagonal stays Diagonal, and mixed cases fall back to dense multiplication
+    with the result stored as Square or Rectangular based on output shape.
     """
     out_shape = (shape[0], right_shape[1])
     out_rep: MatrixRep
@@ -117,14 +94,12 @@ def _matmat(
             # General matrix (Rectangular/Square/Symmetric/PositiveDefinite) multiplication
             match right_rep:
                 case Identity() | Scale() | Diagonal():
-                    # Optimization: A * S = (S^T * A^T)^T, so swap, recurse, and transpose back
-                    # This lets us handle special-right matrices more efficiently by moving special to left
-                    right_params_t = right_rep.transpose(right_shape, right_params)
-                    right_shape_t = (right_shape[1], right_shape[0])
+                    # A * S = (S * A^T)^T — S is symmetric so S^T = S
+                    left_params_t = rep.transpose(shape, params)
+                    left_shape_t = (shape[1], shape[0])
                     result_rep, result_shape, result_params = _matmat(
-                        right_rep, right_shape_t, right_params_t, rep, shape, params
+                        right_rep, right_shape, right_params, rep, left_shape_t, left_params_t
                     )
-                    # Transpose result back to correct orientation
                     result_params_t = result_rep.transpose(result_shape, result_params)
                     result_shape_t = (result_shape[1], result_shape[0])
                     return result_rep, result_shape_t, result_params_t
@@ -154,11 +129,11 @@ def _diag_indices_in_triangular(n: int) -> Array:
 
 
 class MatrixRep(ABC):
-    """MatrixRep acts as a strategy pattern for matrix operations, allowing different representations (full, symmetric, diagonal) to share the same interface while using optimized implementations. It defines operations that maintain the specific structure of each matrix type.
+    """Strategy interface for matrix storage and operations.
 
-    In theory, each subclass corresponds to a specific matrix structure with constraints on the entries, and implements the corresponding linear algebraic operations while preserving those constraints.
+    Each subclass defines how to pack a matrix into a flat 1D parameter array and how to perform linear algebra (matvec, transpose, outer product, etc.) while preserving the structural constraint (symmetry, diagonal, etc.). Representations are stateless --- two instances of the same class are equal.
 
-    All matrix parameters are stored as 1D arrays for compatibility with Point. The flattened representation enables unified parameter handling across different matrix structures, while each operation respects the specific matrix type's constraints.
+    The ``embed_params`` / ``project_params`` methods convert between representations by walking the linear inheritance chain (e.g. Diagonal -> PositiveDefinite -> Symmetric -> Square -> Rectangular).
     """
 
     @override
@@ -225,6 +200,11 @@ class MatrixRep(ABC):
         """Apply function f to diagonal elements while preserving matrix structure."""
 
     @classmethod
+    def get_diagonal(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Extract diagonal elements from the matrix."""
+        return jnp.diag(cls.to_matrix(shape, params))
+
+    @classmethod
     def embed_params(
         cls, shape: tuple[int, int], params: Array, target_rep: MatrixRep
     ) -> Array:
@@ -273,14 +253,7 @@ class MatrixRep(ABC):
 
 
 class Rectangular(MatrixRep):
-    """Rectangular stores all $m \\times n$ entries explicitly. This representation supports arbitrary linear transformations without constraints.
-
-    In theory, this represents the full space of linear maps from $\\mathbb{R}^n$ to $\\mathbb{R}^m$. It requires $mn$ parameters for storage.
-
-    Properties:
-        - Full $m \\times n$ matrix representation
-        - $O(mn)$ parameters stored in row-major order
-    """
+    """Full $m \\times n$ matrix, stored in row-major order. No structural constraints."""
 
     @classmethod
     @override
@@ -341,14 +314,7 @@ class Rectangular(MatrixRep):
 
 
 class Square(Rectangular):
-    """Square matrices enable additional operations like determinants and inverses.
-
-    Properties:
-        - $n \\times n$ matrix shape (same dimension for rows and columns)
-        - Supports determinant and inverse operations
-        - Forms an algebra under matrix multiplication
-        - Storage: $O(n^2)$ parameters
-    """
+    """Square $n \\times n$ matrix, adding inverse, determinant, and positive-definiteness checks."""
 
     @classmethod
     def is_positive_definite(cls, shape: tuple[int, int], params: Array) -> Array:
@@ -381,14 +347,7 @@ class Square(Rectangular):
 
 
 class Symmetric(Square):
-    """Symmetric matrices require roughly half the storage of general square matrices and arise naturally in many statistical applications like covariance matrices. In theory, symmetric matrices satisfy $A = A^T$ and have a complete basis of orthogonal eigenvectors with real eigenvalues.
-
-    Properties:
-        - Self-transpose with guaranteed real eigenvalues
-        - Orthogonally diagonalizable
-        - Stores only upper/lower triangular elements
-        - Storage: $O(n^2/2)$ parameters
-    """
+    """Symmetric matrix ($A = A^T$), stored as upper-triangular elements. Roughly half the storage of a full square matrix."""
 
     @classmethod
     @override
@@ -420,6 +379,21 @@ class Symmetric(Square):
 
     @classmethod
     @override
+    def get_diagonal(cls, shape: tuple[int, int], params: Array) -> Array:
+        """Extract diagonal from packed upper-triangular storage in O(n)."""
+        return params[_diag_indices_in_triangular(shape[0])]
+
+    @classmethod
+    @override
+    def map_diagonal(
+        cls, shape: tuple[int, int], params: Array, f: Callable[[Array], Array]
+    ) -> Array:
+        """Apply f to diagonal elements in packed upper-triangular storage in O(n)."""
+        diag_idx = _diag_indices_in_triangular(shape[0])
+        return params.at[diag_idx].set(f(params[diag_idx]))
+
+    @classmethod
+    @override
     def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Convert upper triangular parameters to full square matrix parameters."""
         # To Square means including each off-diagonal element twice
@@ -436,19 +410,9 @@ class Symmetric(Square):
 
 
 class PositiveDefinite(Symmetric):
-    """PositiveDefinite matrices enable numerically stable operations through Cholesky decomposition and arise naturally in statistical models as covariance matrices. They ensure that quadratic forms like $x^TAx$ represent valid variance-like quantities.
+    """Symmetric positive-definite matrix, using Cholesky decomposition for stable inverse and log-determinant.
 
-    A symmetric matrix $A$ is positive definite if and only if any of these equivalent conditions hold:
-        1. $x^T A x > 0$ for all $x \\neq 0$
-        2. All eigenvalues $\\lambda_i > 0$
-        3. Unique Cholesky decomposition exists: $A = LL^T$
-
-    Properties:
-        - Inverse is also positive definite
-        - Determinant is positive
-        - Stable and efficient algorithms via Cholesky factorization
-        - Forms a convex cone (not a vector space)
-        - Storage: $O(n^2/2)$ parameters
+    Mathematically, $A$ is positive definite iff $x^T A x > 0$ for all $x \\neq 0$, equivalently iff a unique Cholesky factorization $A = LL^T$ exists.
     """
 
     @classmethod
@@ -546,14 +510,9 @@ class PositiveDefinite(Symmetric):
 
 
 class Diagonal(PositiveDefinite):
-    """Diagonal matrix representation $A = \\text{diag}(a_1, ..., a_n)$. Most operations with Diagonal matrices become $O(n)$ instead of $O(n^2)$ or $O(n^3)$.
+    """Diagonal matrix $A = \\text{diag}(a_1, \\ldots, a_n)$, storing only the $n$ diagonal entries.
 
-    Properties:
-        - Only diagonal elements stored, zero elsewhere
-        - Most operations reduce to element-wise operations on diagonal
-        - Eigenvalues are the diagonal elements
-        - Forms a commutative subalgebra (AB = BA for diagonal matrices)
-        - Storage and operations: $O(n)$ complexity
+    All operations reduce to element-wise arithmetic, giving $O(n)$ storage and compute.
     """
 
     @classmethod
@@ -617,7 +576,6 @@ class Diagonal(PositiveDefinite):
     ) -> Array:
         return vector * jnp.sqrt(params)
 
-    # In class Diagonal
     @classmethod
     @override
     def cholesky_whiten(
@@ -645,6 +603,11 @@ class Diagonal(PositiveDefinite):
 
     @classmethod
     @override
+    def get_diagonal(cls, shape: tuple[int, int], params: Array) -> Array:
+        return params
+
+    @classmethod
+    @override
     def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Put diagonal elements into upper triangular format."""
         n = shape[0]
@@ -663,13 +626,7 @@ class Diagonal(PositiveDefinite):
 
 
 class Scale(Diagonal):
-    """Scale transformation $A = \\alpha I$.
-
-    Properties:
-        - Single parameter $\\alpha$ represents uniform scaling
-        - All operations are $O(1)$ in storage
-        - Matrix operations reduce to scalar operations on $\\alpha$
-    """
+    """Scalar multiple of the identity, $A = \\alpha I$. Single parameter, $O(1)$ storage."""
 
     @classmethod
     @override
@@ -719,6 +676,11 @@ class Scale(Diagonal):
 
     @classmethod
     @override
+    def get_diagonal(cls, shape: tuple[int, int], params: Array) -> Array:
+        return jnp.full(shape[0], params[0])
+
+    @classmethod
+    @override
     def embed_in_super(cls, shape: tuple[int, int], params: Array) -> Array:
         """Expand scalar to diagonal vector."""
         n = shape[0]
@@ -732,13 +694,7 @@ class Scale(Diagonal):
 
 
 class Identity(Scale):
-    """Identity transformation $A = I$.
-
-    Properties:
-        - Zero parameters - fully determined by shape
-        - All operations are $O(1)$ and parameter-free
-        - Acts as multiplicative identity in composition
-    """
+    """The identity matrix $A = I$. Zero parameters --- fully determined by shape."""
 
     @classmethod
     @override
@@ -791,7 +747,6 @@ class Identity(Scale):
     ) -> Array:
         return vector
 
-    # In class Scale
     @classmethod
     @override
     def cholesky_whiten(
@@ -802,12 +757,13 @@ class Identity(Scale):
         mean2: Array,
         params2: Array,
     ) -> tuple[Array, Array]:
-        # For scale matrices, even simpler - just scalar division
-        sqrt_scale = jnp.sqrt(params2[0])
-        whitened_mean = (mean1 - mean2) / sqrt_scale
-        whitened_params = jnp.array([params1[0] / params2[0]])
+        # Identity has no parameters; whitening is just centering the mean
+        return mean1 - mean2, params1
 
-        return whitened_mean, whitened_params
+    @classmethod
+    @override
+    def get_diagonal(cls, shape: tuple[int, int], params: Array) -> Array:
+        return jnp.ones(shape[0])
 
     @classmethod
     @override
