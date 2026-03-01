@@ -101,16 +101,6 @@ The codebase defines convenient type aliases for common parameterized types:
 - `IsotropicNormal = Normal[Scale]` - Isotropic (scalar variance) normal
 - `StandardNormal = Normal[Identity]` - Standard normal (identity covariance)
 
-### Suppression Strategy
-```toml
-# Backend/external library type issues handled via pyproject.toml:
-[tool.basedpyright]
-reportUnknownParameterType = "none"         # JAX integration challenges
-reportUnknownMemberType = "none"           # External library type inference
-reportUnknownArgumentType = "none"         # Complex generic type inference
-reportUnknownVariableType = "none"  # JAX, scipy, etc. have incomplete types
-```
-
 ### Current State
 - **Core codebase**: Zero type errors, fully functional and well-typed
 - **External library integration**: JAX, optax, and scipy types appropriately suppressed where incomplete
