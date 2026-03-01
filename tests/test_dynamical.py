@@ -21,8 +21,10 @@ from goal.models import (
     NormalTransition,
     conjugated_filtering,
     conjugated_smoothing,
+    conjugated_smoothing0,
     create_hmm,
     create_kalman_filter,
+    latent_process_expectation_maximization,
     latent_process_log_density,
     latent_process_log_observable_density,
     sample_latent_process,
@@ -790,7 +792,7 @@ class TestHMMBruteForceValidation:
 
         # Compare
         assert jnp.allclose(
-            smoothed_probs_generic, smoothed_probs_brute, rtol=1e-3, atol=1e-3
+            smoothed_probs_generic, smoothed_probs_brute, rtol=1e-10, atol=1e-10
         ), f"Mismatch:\nGeneric:\n{smoothed_probs_generic}\nBrute:\n{smoothed_probs_brute}"
 
     def test_log_likelihood_matches_brute_force(
@@ -809,5 +811,327 @@ class TestHMMBruteForceValidation:
         _, log_lik_brute = brute_force_filtering(small_hmm, params, observations)
 
         assert jnp.allclose(
-            log_lik_generic, log_lik_brute, rtol=1e-3, atol=1e-3
+            log_lik_generic, log_lik_brute, rtol=1e-10, atol=1e-10
         ), f"Mismatch: generic={log_lik_generic}, brute={log_lik_brute}"
+
+
+# =============================================================================
+# Two-Slice Joint Validation
+# =============================================================================
+
+
+def brute_force_two_slice_joints(
+    model: HiddenMarkovModel,
+    params: Array,
+    observations: Array,
+) -> Array:
+    """Compute exact two-slice joint marginals p(z_{t-1}, z_t | x_{1:T}).
+
+    Returns mean parameters of the joint harmonium for each transition.
+
+    Args:
+        model: HMM model
+        params: Model parameters
+        observations: Shape (T, 1) - observation indices
+
+    Returns:
+        joints: Shape (T, joint_dim) - joint mean params for each (z_{t-1}, z_t)
+    """
+    n_steps = len(observations)
+    n_states = model.n_states
+    obs_flat = observations.flatten().astype(int)
+    trns_hrm = model.trns_hrm
+
+    # Enumerate all possible latent sequences
+    all_seqs = list(itertools.product(range(n_states), repeat=n_steps + 1))
+    log_joints = jnp.array([
+        brute_force_log_joint(model, params, obs_flat, seq)
+        for seq in all_seqs
+    ])
+    # Normalize
+    log_Z = jax.scipy.special.logsumexp(log_joints)
+    weights = jnp.exp(log_joints - log_Z)
+
+    joints = []
+    for t in range(n_steps):
+        # Accumulate E[joint_stats] for the pair (z_t, z_{t+1}) in sequence indexing
+        # z_t is at index t, z_{t+1} at index t+1
+        joint_mean = jnp.zeros(trns_hrm.dim)
+        for i, seq in enumerate(all_seqs):
+            z_prev = jnp.array([seq[t]])
+            z_curr = jnp.array([seq[t + 1]])
+            # Compute joint sufficient statistics
+            obs_stats = trns_hrm.obs_man.sufficient_statistic(z_curr)
+            lat_stats = trns_hrm.lat_man.sufficient_statistic(z_prev)
+            int_stats = trns_hrm.int_man.outer_product(obs_stats, lat_stats)
+            joint_stats = trns_hrm.join_coords(obs_stats, int_stats, lat_stats)
+            joint_mean = joint_mean + weights[i] * joint_stats
+        joints.append(joint_mean)
+
+    return jnp.array(joints)
+
+
+class TestTwoSliceJointValidation:
+    """Validate two-slice joint computation against brute-force for small HMMs."""
+
+    @pytest.fixture
+    def small_hmm(self) -> HiddenMarkovModel:
+        return create_hmm(n_obs=2, n_states=3)
+
+    @pytest.fixture
+    def params(self, small_hmm: HiddenMarkovModel, key: Array) -> Array:
+        return small_hmm.initialize(key, location=0.0, shape=0.5)
+
+    @pytest.fixture
+    def short_data(
+        self, small_hmm: HiddenMarkovModel, params: Array, key: Array
+    ) -> tuple[Array, Array]:
+        key_sample = jax.random.fold_in(key, 200)
+        return sample_latent_process(small_hmm, params, key_sample, n_steps=4)
+
+    def test_joint_means_match_brute_force(
+        self,
+        small_hmm: HiddenMarkovModel,
+        params: Array,
+        short_data: tuple[Array, Array],
+    ) -> None:
+        """Two-slice joint mean params should match brute-force computation."""
+        observations, _ = short_data
+
+        _, _, joints = conjugated_smoothing0(small_hmm, params, observations)
+        brute_joints = brute_force_two_slice_joints(small_hmm, params, observations)
+
+        assert jnp.allclose(joints, brute_joints, rtol=1e-10, atol=1e-10), (
+            f"Joint mismatch:\nGeneric:\n{joints}\nBrute:\n{brute_joints}"
+        )
+
+    def test_joint_marginals_match_smoothed(
+        self,
+        small_hmm: HiddenMarkovModel,
+        params: Array,
+        short_data: tuple[Array, Array],
+    ) -> None:
+        """Joint marginals should equal smoothed distributions."""
+        observations, _ = short_data
+        trns_hrm = small_hmm.trns_hrm
+        lat_man = small_hmm.lat_man
+
+        smoothed_z0, smoothed, joints = conjugated_smoothing0(
+            small_hmm, params, observations
+        )
+
+        all_smoothed = jnp.concatenate([smoothed_z0[None, :], smoothed], axis=0)
+
+        for t in range(len(observations)):
+            _, _, lat_mean = trns_hrm.split_coords(joints[t])
+            obs_mean = trns_hrm.split_coords(joints[t])[0]
+
+            # lat marginal = E[s(z_{t-1})] should match smoothed z_{t-1}
+            expected_lat = lat_man.to_mean(all_smoothed[t])
+            assert jnp.allclose(lat_mean, expected_lat, rtol=1e-10, atol=1e-10), (
+                f"Lat marginal mismatch at t={t}"
+            )
+
+            # obs marginal = E[s(z_t)] should match smoothed z_t
+            expected_obs = lat_man.to_mean(all_smoothed[t + 1])
+            assert jnp.allclose(obs_mean, expected_obs, rtol=1e-10, atol=1e-10), (
+                f"Obs marginal mismatch at t={t}"
+            )
+
+
+# =============================================================================
+# EM Learning Tests
+# =============================================================================
+
+
+class TestKalmanFilterEM:
+    """Test EM learning for Kalman Filter."""
+
+    @pytest.fixture
+    def model(self) -> KalmanFilter:
+        return create_kalman_filter(obs_dim=2, lat_dim=2)
+
+    @pytest.fixture
+    def true_params(self, model: KalmanFilter, key: Array) -> Array:
+        return model.initialize(key, location=0.0, shape=0.3)
+
+    @pytest.fixture
+    def training_data(
+        self, model: KalmanFilter, true_params: Array, key: Array
+    ) -> Array:
+        """Generate batch of training sequences."""
+        key_sample = jax.random.fold_in(key, 300)
+        keys = jax.random.split(key_sample, 5)
+
+        def sample_one(k: Array) -> tuple[Array, Array]:
+            return sample_latent_process(model, true_params, k, n_steps=20)
+
+        observations_batch, _ = jax.vmap(sample_one)(keys)
+        return observations_batch
+
+    def test_em_monotonicity(
+        self, model: KalmanFilter, true_params: Array, training_data: Array, key: Array
+    ) -> None:
+        """Log-likelihood should be non-decreasing across EM steps."""
+        init_params = model.initialize(
+            jax.random.fold_in(key, 999), location=0.0, shape=0.5
+        )
+
+        params = init_params
+        prev_ll = -jnp.inf
+
+        for _ in range(8):
+            params = latent_process_expectation_maximization(
+                model, params, training_data
+            )
+            avg_ll = jnp.mean(
+                jax.vmap(
+                    lambda obs: latent_process_log_observable_density(
+                        model, params, obs
+                    )
+                )(training_data)
+            )
+            assert jnp.isfinite(avg_ll), "Log-likelihood is NaN or Inf"
+            assert avg_ll >= prev_ll - 0.1, (
+                f"EM not monotone: {float(avg_ll):.4f} < {float(prev_ll):.4f}"
+            )
+            prev_ll = avg_ll
+
+    def test_em_improves_likelihood(
+        self, model: KalmanFilter, true_params: Array, training_data: Array, key: Array
+    ) -> None:
+        """EM should improve log-likelihood over initial parameters."""
+        init_params = model.initialize(
+            jax.random.fold_in(key, 999), location=0.0, shape=0.5
+        )
+
+        initial_ll = float(
+            jnp.mean(
+                jax.vmap(
+                    lambda obs: latent_process_log_observable_density(
+                        model, init_params, obs
+                    )
+                )(training_data)
+            )
+        )
+
+        params = init_params
+        for _ in range(10):
+            params = latent_process_expectation_maximization(
+                model, params, training_data
+            )
+
+        final_ll = float(
+            jnp.mean(
+                jax.vmap(
+                    lambda obs: latent_process_log_observable_density(
+                        model, params, obs
+                    )
+                )(training_data)
+            )
+        )
+
+        assert final_ll > initial_ll, (
+            f"EM did not improve: {final_ll:.4f} <= {initial_ll:.4f}"
+        )
+
+
+class TestHMMEM:
+    """Test EM learning for Hidden Markov Model."""
+
+    @pytest.fixture
+    def model(self) -> HiddenMarkovModel:
+        return create_hmm(n_obs=2, n_states=3)
+
+    @pytest.fixture
+    def true_params(self, model: HiddenMarkovModel, key: Array) -> Array:
+        return model.initialize(key, location=0.0, shape=0.5)
+
+    @pytest.fixture
+    def training_data(
+        self, model: HiddenMarkovModel, true_params: Array, key: Array
+    ) -> Array:
+        """Generate batch of training sequences."""
+        key_sample = jax.random.fold_in(key, 400)
+        keys = jax.random.split(key_sample, 5)
+
+        def sample_one(k: Array) -> tuple[Array, Array]:
+            return sample_latent_process(model, true_params, k, n_steps=15)
+
+        observations_batch, _ = jax.vmap(sample_one)(keys)
+        return observations_batch
+
+    def test_em_monotonicity(
+        self,
+        model: HiddenMarkovModel,
+        true_params: Array,
+        training_data: Array,
+        key: Array,
+    ) -> None:
+        """Log-likelihood should be non-decreasing across EM steps."""
+        init_params = model.initialize(
+            jax.random.fold_in(key, 999), location=0.0, shape=0.5
+        )
+
+        params = init_params
+        prev_ll = -jnp.inf
+
+        for _ in range(8):
+            params = latent_process_expectation_maximization(
+                model, params, training_data
+            )
+            avg_ll = jnp.mean(
+                jax.vmap(
+                    lambda obs: latent_process_log_observable_density(
+                        model, params, obs
+                    )
+                )(training_data)
+            )
+            assert jnp.isfinite(avg_ll), "Log-likelihood is NaN or Inf"
+            assert avg_ll >= prev_ll - 0.1, (
+                f"EM not monotone: {float(avg_ll):.4f} < {float(prev_ll):.4f}"
+            )
+            prev_ll = avg_ll
+
+    def test_em_improves_likelihood(
+        self,
+        model: HiddenMarkovModel,
+        true_params: Array,
+        training_data: Array,
+        key: Array,
+    ) -> None:
+        """EM should improve log-likelihood over initial parameters."""
+        # Use a distant initialization (shape=2.0) so EM has room to improve
+        init_params = model.initialize(
+            jax.random.fold_in(key, 999), location=0.0, shape=2.0
+        )
+
+        initial_ll = float(
+            jnp.mean(
+                jax.vmap(
+                    lambda obs: latent_process_log_observable_density(
+                        model, init_params, obs
+                    )
+                )(training_data)
+            )
+        )
+
+        params = init_params
+        for _ in range(10):
+            params = latent_process_expectation_maximization(
+                model, params, training_data
+            )
+
+        final_ll = float(
+            jnp.mean(
+                jax.vmap(
+                    lambda obs: latent_process_log_observable_density(
+                        model, params, obs
+                    )
+                )(training_data)
+            )
+        )
+
+        assert final_ll > initial_ll, (
+            f"EM did not improve: {final_ll:.4f} <= {initial_ll:.4f}"
+        )
