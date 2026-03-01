@@ -126,6 +126,16 @@ Lead with what the class or function *does* in concrete terms (what arrays it op
 
 Place mathematical definitions at the highest appropriate level in the class hierarchy. Subclasses should not repeat them --- they inherit the concept and just state their specialization.
 
+### Coordinate system naming
+Variable names encode the coordinate system that a flat array lives in. This convention replaces what a richer type system would enforce:
+
+- `params` --- natural parameters (the full vector for a model)
+- `*_params` (e.g. `obs_params`, `lat_params`, `int_params`) --- slices of a natural parameter vector
+- `means` --- mean parameters
+- `coords` --- generic, coordinate-system-agnostic (used in the manifold layer)
+
+Docstrings should naturally reiterate which coordinate system their inputs live in --- e.g. "at the given natural parameters", "convert mean parameters to natural parameters" --- so that the coordinate system is always clear without needing explicit Args blocks.
+
 ### Args/Returns blocks
 Only document a parameter when its name and type aren't enough to use it correctly. Shape conventions, non-obvious defaults, and semantic constraints the type system can't express earn Args entries. Self-evident parameters (e.g., `coords: Array` on a method called `split_coords`) do not.
 

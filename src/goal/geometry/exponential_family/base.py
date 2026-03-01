@@ -1,6 +1,8 @@
-"""This module implements the fundamental abstractions for exponential families, providing a hierarchy of classes with increasing capabilities for statistical modeling and inference.
+"""Exponential family hierarchy: ExponentialFamily, Generative, Differentiable, Analytic.
 
-See the package index for mathematical background on exponential families.
+Each level adds capabilities --- sufficient statistics, sampling, log-partition function, or negative entropy --- that unlock progressively more powerful inference algorithms.
+
+Variable names encode the coordinate system throughout: ``params`` for natural parameters (with prefixed variants like ``obs_params`` for slices), ``means`` for mean parameters, and ``coords`` for coordinate-system-agnostic arrays in the manifold layer.
 """
 
 from __future__ import annotations
@@ -19,7 +21,12 @@ from ..manifold.util import batched_mean
 
 
 class ExponentialFamily(Manifold, ABC):
-    """ExponentialFamily defines the basic structure for statistical manifolds, where points represent probability distributions. It provides abstract methods defining the sufficient statistics and base measure. Concrete subclasses implement specific statistical models by defining these components and potentially adding additional capabilities."""
+    """A statistical manifold whose points are probability distributions in an exponential family.
+
+    Subclasses define the sufficient statistic $\\mathbf{s}(x)$ and base measure $\\mu(x)$; higher levels of the hierarchy add the normalizing constant and its dual.
+
+    Mathematically, an exponential family is a set of distributions whose densities share the form $p(x; \\theta) \\propto \\mu(x)\\exp(\\theta \\cdot \\mathbf{s}(x))$, where $\\theta \\in \\mathbb{R}^n$ are the natural parameters, $\\mathbf{s}(x)$ is the sufficient statistic --- a fixed mapping from data to $\\mathbb{R}^n$ that captures all information the data carries about $\\theta$ --- and $\\mu(x)$ is the base measure, a fixed reference density independent of $\\theta$.
+    """
 
     # Contract
 
@@ -30,42 +37,20 @@ class ExponentialFamily(Manifold, ABC):
 
     @abstractmethod
     def sufficient_statistic(self, x: Array) -> Array:
-        """Compute the sufficient statistics of an observation in mean coordinates.
-
-        Args:
-            x: Data point
-
-        Returns:
-            Sufficient statistics array (mean parameters)
-        """
+        """Compute the sufficient statistic $\\mathbf{s}(x)$ of an observation."""
 
     @abstractmethod
     def log_base_measure(self, x: Array) -> Array:
-        """Compute log of base measure $\\mu(x)$."""
+        """Compute $\\log \\mu(x)$ for an observation."""
 
-    # Templates
+    # Methods
 
     def average_sufficient_statistic(self, xs: Array, batch_size: int = 256) -> Array:
-        """Average sufficient statistics of a batch of observations.
-
-        Args:
-            xs: Batch of data points
-            batch_size: Size of batches for vmapped computation
-
-        Returns:
-            Average sufficient statistics (mean parameters)
-        """
+        """Average sufficient statistics over a batch of observations."""
         return batched_mean(self.sufficient_statistic, xs, batch_size)
 
     def check_natural_parameters(self, params: Array) -> Array:
-        """Check if parameters are valid for this exponential family.
-
-        Args:
-            params: Natural parameters
-
-        Returns:
-            Scalar indicating validity (all finite)
-        """
+        """Check if the given natural parameters are valid (all finite)."""
         return jnp.all(jnp.isfinite(params)).astype(jnp.int32)
 
     def initialize(
@@ -74,16 +59,7 @@ class ExponentialFamily(Manifold, ABC):
         location: float = 0.0,
         shape: float = 0.1,
     ) -> Array:
-        """Initialize natural parameters randomly.
-
-        Args:
-            key: JAX random key
-            location: Mean of initialization distribution
-            shape: Standard deviation of initialization
-
-        Returns:
-            Natural parameters array
-        """
+        """Generate random natural parameters from a Gaussian perturbation."""
         return jax.random.normal(key, shape=(self.dim,)) * shape + location
 
     def initialize_from_sample(
@@ -93,74 +69,39 @@ class ExponentialFamily(Manifold, ABC):
         location: float = 0.0,
         shape: float = 0.1,
     ) -> Array:
-        """Initialize based on sample (default: ignore sample).
+        """Generate random natural parameters, optionally informed by data.
 
-        Args:
-            key: JAX random key
-            sample: Data sample to potentially use
-            location: Mean of initialization distribution
-            shape: Standard deviation of initialization
-
-        Returns:
-            Natural parameters array
+        Default: ignores the sample. ``Analytic`` overrides this to use average sufficient statistics.
         """
         return self.initialize(key, location, shape)
 
 
 class Generative(ExponentialFamily, ABC):
-    """Generative extends ExponentialFamily with sampling capabilities, enabling simulation-based methods like Monte Carlo estimation. This allows for working with distributions even when closed-form expressions for statistics are unavailable or intractable.
-
-    In particular, sampling from $p(x; \\theta)$ provides an empirical approach to estimating expectation-based quantities like mean parameters:
-
-    $$\\hat{\\eta} = \\frac{1}{n}\\sum_{i=1}^n \\mathbf{s}(x_i), \\quad x_i \\sim p(x; \\theta).$$
-    """
+    """Adds sampling to an exponential family, enabling Monte Carlo estimation when closed-form expressions are unavailable."""
 
     # Contract
 
     @abstractmethod
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Generate random samples from the distribution.
+        """Draw ``n`` samples from the distribution with the given natural parameters."""
 
-        Args:
-            key: JAX random key
-            params: Natural parameters
-            n: Number of samples
-
-        Returns:
-            Array of n samples
-        """
-
-    # Templates
+    # Methods
 
     def stochastic_to_mean(self, key: Array, params: Array, n: int) -> Array:
-        """Estimate mean parameters via Monte Carlo sampling.
-
-        Args:
-            key: JAX random key
-            params: Natural parameters
-            n: Number of samples
-
-        Returns:
-            Estimated mean parameters
-        """
+        """Estimate average sufficient statistics by sampling from the given natural parameters."""
         samples = self.sample(key, params, n)
         return self.average_sufficient_statistic(samples)
 
-    def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
-        """Perform one Gibbs sampling step from current state.
+    def gibbs_step(
+        self,
+        key: Array,
+        params: Array,
+        state: Array,  # pyright: ignore[reportUnusedParameter]
+    ) -> Array:
+        """Perform one Gibbs sampling step given natural parameters and a current state.
 
-        Default implementation: sample independently (ignoring state).
-        Override for models with efficient conditional sampling.
-
-        Args:
-            key: JAX random key
-            params: Natural parameters
-            state: Current state (same shape as data)
-
-        Returns:
-            New state after one Gibbs step
+        Default: samples independently, ignoring state. Override for models with efficient conditional sampling.
         """
-        _ = state  # Unused in default implementation
         return self.sample(key, params, n=1)[0]
 
     def gibbs_chain(
@@ -170,17 +111,7 @@ class Generative(ExponentialFamily, ABC):
         initial_state: Array,
         k: int,
     ) -> Array:
-        """Run k Gibbs sampling steps from initial state.
-
-        Args:
-            key: JAX random key
-            params: Natural parameters
-            initial_state: Starting state
-            k: Number of Gibbs steps
-
-        Returns:
-            Final state after k steps
-        """
+        """Run ``k`` Gibbs sampling steps given natural parameters, returning the final state."""
 
         def step(state: Array, step_idx: Array) -> tuple[Array, None]:
             subkey = jax.random.fold_in(key, step_idx)
@@ -191,60 +122,27 @@ class Generative(ExponentialFamily, ABC):
 
 
 class Differentiable(Generative, ABC):
-    """Differentiable adds the ability to compute exact mean parameters from natural parameters, enabling efficient parameter estimation, density evaluation, and data-fitting via gradient descent.
+    """Adds an analytic log-partition function, enabling exact density evaluation and gradient-based optimization.
 
-    In particular, the log partition function $\\psi(\\theta)$ is given by:
-
-    $$
-    \\psi(\\theta) = \\log \\int_{\\mathcal{X}} \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x))dx
-    $$
-
-    Its gradient gives the mean parameters through the dual relationship:
-
-    $$
-    \\eta = \\nabla \\psi(\\theta) = \\mathbb{E}_{p(x;\\theta)}[\\mathbf s(x)]
-    $$
+    Mathematically, the log-partition function $\\psi(\\theta) = \\log \\int \\mu(x)\\exp(\\theta \\cdot \\mathbf{s}(x))\\,dx$ normalizes the density. Its gradient defines the mean parameters $\\eta = \\nabla\\psi(\\theta) = \\mathbb{E}_{p(x;\\theta)}[\\mathbf{s}(x)]$, providing a dual coordinate system on the manifold.
     """
 
     # Contract
 
     @abstractmethod
     def log_partition_function(self, params: Array) -> Array:
-        """Compute log partition function $\\psi(\\theta)$.
+        """Compute the log-partition function $\\psi$ at the given natural parameters."""
 
-        Args:
-            params: Natural parameters
-
-        Returns:
-            Log partition function value (scalar)
-        """
-
-    # Templates
+    # Methods
 
     def to_mean(self, params: Array) -> Array:
-        """Convert from natural to mean parameters via $\\eta = \\nabla \\psi(\\theta)$.
-
-        Args:
-            params: Natural parameters
-
-        Returns:
-            Mean parameters
-        """
-        return jax.value_and_grad(self.log_partition_function)(params)[1]
+        """Convert natural parameters to mean parameters via $\\eta = \\nabla \\psi(\\theta)$."""
+        return jax.grad(self.log_partition_function)(params)
 
     def log_density(self, params: Array, x: Array) -> Array:
-        """Compute log density at x.
+        """Evaluate log-density at observation $x$ under the given natural parameters.
 
-        $$
-        \\log p(x;\\theta) = \\theta \\cdot \\mathbf s(x) + \\log \\mu(x) - \\psi(\\theta)
-        $$
-
-        Args:
-            params: Natural parameters
-            x: Data point
-
-        Returns:
-            Log density (scalar)
+        Computes $\\log p(x;\\theta) = \\theta \\cdot \\mathbf{s}(x) + \\log \\mu(x) - \\psi(\\theta)$.
         """
         suff_stats = self.sufficient_statistic(x)
         return (
@@ -254,38 +152,13 @@ class Differentiable(Generative, ABC):
         )
 
     def density(self, params: Array, x: Array) -> Array:
-        """Compute density at x.
-
-        $$
-        p(x;\\theta) = \\mu(x)\\exp(\\theta \\cdot \\mathbf s(x) - \\psi(\\theta))
-        $$
-
-        Args:
-            params: Natural parameters
-            x: Data point
-
-        Returns:
-            Density (scalar)
-        """
+        """Evaluate density at observation $x$ under the given natural parameters."""
         return jnp.exp(self.log_density(params, x))
 
     def relative_entropy(self, p_params: Array, q_params: Array) -> Array:
-        """Compute the entropy of $p$ relative to $q$ (a.k.a. KL divergence).
+        """Compute KL divergence $D(p \\| q)$ between two distributions given their natural parameters.
 
-        Uses the Bregman divergence form:
-
-        $$
-        D(p \\| q) = \\psi(\\theta_q) - \\psi(\\theta_p) + \\eta_p \\cdot (\\theta_p - \\theta_q)
-        $$
-
-        where $\\eta_p = \\nabla\\psi(\\theta_p)$.
-
-        Args:
-            p_params: Natural parameters of p
-            q_params: Natural parameters of q
-
-        Returns:
-            KL divergence D(p || q) (scalar)
+        Uses the Bregman divergence form: $D(p \\| q) = \\psi(\\theta_q) - \\psi(\\theta_p) + \\eta_p \\cdot (\\theta_p - \\theta_q)$.
         """
         p_means = self.to_mean(p_params)
         psi_p = self.log_partition_function(p_params)
@@ -295,16 +168,7 @@ class Differentiable(Generative, ABC):
     def average_log_density(
         self, params: Array, xs: Array, batch_size: int = 2048
     ) -> Array:
-        """Compute average log density over a batch of observations.
-
-        Args:
-            params: Natural parameters
-            xs: Batch of data points
-            batch_size: Size of batches for vmapped computation
-
-        Returns:
-            Scalar array of the average log density
-        """
+        """Average log-density over a batch of observations under the given natural parameters."""
 
         def _log_density(x: Array) -> Array:
             return self.log_density(params, x)
@@ -313,38 +177,18 @@ class Differentiable(Generative, ABC):
 
 
 class Analytic(Differentiable, ABC):
-    """Analytic provides the highest level of analytical capabilities, supporting bidirectional conversion between natural and mean parameters, and closed-form expression for quantities like entropy and KL divergence calculation.
+    """Adds a closed-form negative entropy $\\phi(\\eta)$, completing the duality between natural and mean coordinates.
 
-    In particular, the negative entropy $\\phi(\\eta)$ is the convex conjugate of the log-partition function:
+    Mathematically, $\\phi(\\eta) = \\sup_{\\theta}\\{\\theta \\cdot \\eta - \\psi(\\theta)\\}$ is the Legendre conjugate of $\\psi$, and $\\theta = \\nabla\\phi(\\eta)$ inverts the natural-to-mean mapping.
 
-    $$
-    \\phi(\\eta) = \\sup_{\\theta} \\{\\theta \\cdot \\eta - \\psi(\\theta)\\}
-    $$
-
-    Its gradient gives the natural parameters through the dual relationship:
-
-    $$
-    \\theta = \\nabla\\phi(\\eta)
-    $$
-
-    This completes the duality between natural and mean coordinates, allowing
-    for closed-form solutions to many statistical problems.
-
-    **NB:** This form of negative entropy is the convex conjugate of the log-partition function and does not include the base measure term. It may differ from entropy as traditionally defined in information theory.
+    **NB:** This negative entropy is the convex conjugate of the log-partition function and does not include the base measure term. It may differ from the entropy as defined in information theory.
     """
 
     # Contract
 
     @abstractmethod
     def negative_entropy(self, means: Array) -> Array:
-        """Compute negative entropy $\\phi(\\eta)$.
-
-        Args:
-            means: Mean parameters
-
-        Returns:
-            Negative entropy (scalar)
-        """
+        """Compute negative entropy $\\phi$ at the given mean parameters."""
 
     # Overrides
 
@@ -356,33 +200,14 @@ class Analytic(Differentiable, ABC):
         location: float = 0.0,
         shape: float = 0.1,
     ) -> Array:
-        """Initialize a model based on the noisy average sufficient statistics.
-
-        Args:
-            key: JAX random key
-            sample: Data sample
-            location: Mean of noise distribution
-            shape: Std dev of noise distribution
-
-        Returns:
-            Natural parameters array
-        """
+        """Initialize natural parameters from noisy average sufficient statistics of the sample."""
         avg_suff_stat = self.average_sufficient_statistic(sample)
-        # add gaussian noise to mean parameters
         noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
         noisy_means = avg_suff_stat + noise
-        # convert to natural parameters
         return self.to_natural(noisy_means)
 
-    # Templates
+    # Methods
 
     def to_natural(self, means: Array) -> Array:
-        """Convert mean to natural parameters via $\\theta = \\nabla\\phi(\\eta)$.
-
-        Args:
-            means: Mean parameters
-
-        Returns:
-            Natural parameters
-        """
-        return jax.value_and_grad(self.negative_entropy)(means)[1]
+        """Convert mean parameters to natural parameters via $\\theta = \\nabla\\phi(\\eta)$."""
+        return jax.grad(self.negative_entropy)(means)

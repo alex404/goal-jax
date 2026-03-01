@@ -59,7 +59,7 @@ class Harmonium[
         The LinearMap (typically EmbeddedMap) internally manages any restriction
         of interactions to submanifolds via embeddings."""
 
-    # Templates
+    # Methods
 
     @property
     def obs_man(self) -> Observable:
@@ -409,7 +409,7 @@ class Conjugated[
 
         """
 
-    # Templates
+    # Methods
 
     @property
     def prr_man(self) -> Prior:
@@ -471,7 +471,7 @@ class Conjugated[
         """
         return prr_sample
 
-    # Templates
+    # Methods
 
     def observable_sample(self, key: Array, params: Array, n: int = 1) -> Array:
         xzs = self.sample(key, params, n)
@@ -557,7 +557,7 @@ class DifferentiableConjugated[
         # Use latent family's partition function
         return self.prr_man.log_partition_function(adjusted_lat) + chi
 
-    # Templates
+    # Methods
     def log_observable_density(self, params: Array, x: Array) -> Array:
         """Compute log density of the observable distribution $p(x)$.
 
@@ -675,7 +675,7 @@ class AnalyticConjugated[
         log_partition = self.log_partition_function(params)
         return jnp.dot(params, means) - log_partition
 
-    # Templates
+    # Methods
 
     def expectation_maximization(self, params: Array, xs: Array) -> Array:
         """Perform a single iteration of the EM algorithm."""
