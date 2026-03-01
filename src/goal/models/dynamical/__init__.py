@@ -113,17 +113,17 @@ class NormalTransition(AnalyticConjugated[FullNormal, FullNormal]):
         obs_sigma = obs_cov_man.inverse(obs_prec)
         obs_mean = obs_cov_man(obs_sigma, obs_loc)
 
-        with self.int_man as im:
-            int_mat_trn = im.transpose(int_mat)
-            rho_mean = im.trn_man.rep.matvec(
-                im.trn_man.matrix_shape, int_mat_trn, obs_mean
-            )
+        im = self.int_man
+        int_mat_trn = im.transpose(int_mat)
+        rho_mean = im.trn_man.rep.matvec(
+            im.trn_man.matrix_shape, int_mat_trn, obs_mean
+        )
 
-            # Change of basis for covariance contribution
-            int_mat_dense = im.to_matrix(int_mat)
-            obs_sigma_dense = obs_cov_man.to_matrix(obs_sigma)
-            rho_cov_dense = int_mat_dense.T @ obs_sigma_dense @ int_mat_dense
-            rho_shape = self.lat_man.cov_man.from_matrix(-rho_cov_dense)
+        # Change of basis for covariance contribution
+        int_mat_dense = im.to_matrix(int_mat)
+        obs_sigma_dense = obs_cov_man.to_matrix(obs_sigma)
+        rho_cov_dense = int_mat_dense.T @ obs_sigma_dense @ int_mat_dense
+        rho_shape = self.lat_man.cov_man.from_matrix(-rho_cov_dense)
 
         return self.lat_man.join_location_precision(rho_mean, rho_shape)
 
@@ -226,16 +226,16 @@ class NormalEmission(AnalyticConjugated[FullNormal, FullNormal]):
         obs_sigma = obs_cov_man.inverse(obs_prec)
         obs_mean = obs_cov_man(obs_sigma, obs_loc)
 
-        with self.int_man as im:
-            int_mat_trn = im.transpose(int_mat)
-            rho_mean = im.trn_man.rep.matvec(
-                im.trn_man.matrix_shape, int_mat_trn, obs_mean
-            )
+        im = self.int_man
+        int_mat_trn = im.transpose(int_mat)
+        rho_mean = im.trn_man.rep.matvec(
+            im.trn_man.matrix_shape, int_mat_trn, obs_mean
+        )
 
-            int_mat_dense = im.to_matrix(int_mat)
-            obs_sigma_dense = obs_cov_man.to_matrix(obs_sigma)
-            rho_cov_dense = int_mat_dense.T @ obs_sigma_dense @ int_mat_dense
-            rho_shape = self.lat_man.cov_man.from_matrix(-rho_cov_dense)
+        int_mat_dense = im.to_matrix(int_mat)
+        obs_sigma_dense = obs_cov_man.to_matrix(obs_sigma)
+        rho_cov_dense = int_mat_dense.T @ obs_sigma_dense @ int_mat_dense
+        rho_shape = self.lat_man.cov_man.from_matrix(-rho_cov_dense)
 
         return self.lat_man.join_location_precision(rho_mean, rho_shape)
 

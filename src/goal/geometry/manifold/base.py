@@ -1,10 +1,6 @@
-"""This module provides the building blocks for representing manifolds and points upon them.
+"""Base classes for manifolds.
 
-In practice, these tools let you create and manipulate points on manifolds, calculate gradients, and implement optimization algorithms.
-
-In theory, this implements the mathematical foundation for information geometry, where statistical models form manifolds with natural geometric structures.
-
-See the package index for additional mathematical background on manifolds.
+A `Manifold` is a stateless object that bundles operations for interpreting and manipulating flat JAX arrays of a fixed dimension. It holds no data itself --- the arrays it operates on are passed in and returned as plain `Array` values. Subclasses add structure (array manipulation, matrix representations, exponential-family operations) while preserving this pattern.
 """
 
 from __future__ import annotations
@@ -17,31 +13,12 @@ from jax import Array
 
 
 class Manifold(ABC):
-    """A space that locally resembles Euclidean space.
+    """A stateless bundle of dimension and array operations.
 
-    In practice, a Manifold defines operations on arrays representing points and provides methods for manipulating them.
+    A ``Manifold`` declares the length $n$ of the flat arrays it works with and provides operations (initialization, coordinate access, geometric computations) that give those arrays meaning. Points on the manifold are plain ``Array`` values --- the manifold object interprets them but does not store them.
 
-    In theory, a manifold $\\mathcal M$ is a topological space that locally resembles $\\mathbb R^n$
-    with a geometric structure described by:
-
-    - The dimension $n$ of the manifold,
-    - a collection of valid coordinate systems,
-    - transition maps between coordinate systems, and
-    - geometric constructions like tangent spaces and metrics.
+    Mathematically, a smooth manifold $\\mathcal M$ of dimension $n$ is a topological space that is locally homeomorphic to $\\mathbb R^n$. A coordinate chart $(U, \\phi)$ maps an open subset $U \\subseteq \\mathcal M$ to $\\mathbb R^n$, and an atlas is a collection of charts covering $\\mathcal M$ with smooth transition maps on overlaps.
     """
-
-    # Simple context manager
-
-    def __enter__(self):
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: type[BaseException] | None,
-    ) -> None:
-        pass
 
     # Abstract methods
 

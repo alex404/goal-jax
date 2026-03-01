@@ -1,10 +1,6 @@
-"""Defines subspace relationships between manifolds.
+"""Subspace relationships between manifolds.
 
-This module provides the fundamental embedding operations that define how manifolds relate to each other through subspace relationships.
-
-In practice, embeddings allow you to transform parameters between different model spaces, project complex models to simpler ones, and define how changes in one manifold affect another.
-
-In theory, embeddings formalize the essential concept from information geometry where one statistical model (manifold) can be viewed as a submanifold of another. This corresponds to statistical concepts like sufficiency and model constraints.
+An embedding defines how one manifold sits inside another: it provides maps for injecting points into the ambient space (``embed``), and for pulling back cotangent vectors --- i.e. gradients --- from the ambient space to the subspace (``pullback``). Linear embeddings additionally support projection and translation.
 """
 
 from __future__ import annotations
@@ -24,9 +20,11 @@ from .combinators import Null, Tuple
 
 @dataclass(frozen=True)
 class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
-    """Embeddings let you transform points between manifolds, enabling operations like embedding and pullback that are crucial for model specification and constrained optimization.
+    """Defines how a smaller model space sits inside a larger one.
 
-    In theory, an embedding relationship between manifolds $\\mathcal{M} \\subset \\mathcal{N}$ is characterized by an embedding map $\\phi: \\mathcal{M} \\to \\mathcal{N}$ that injects the submanifold into the ambient space.
+    Use an embedding when you want to convert parameters from a constrained model to a more general one (``embed``), or transform gradients computed in the general space back to the constrained space (``pullback``). For example, embedding a diagonal-covariance normal into a full-covariance normal.
+
+    Mathematically, an injection $\\phi: \\mathcal{M} \\to \\mathcal{N}$ from a submanifold into an ambient space. Subclasses implement ``embed``; the default ``pullback`` is computed via JAX's VJP.
     """
 
     # Contract
@@ -43,23 +41,14 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
 
     @abstractmethod
     def embed(self, coords: Array) -> Array:
-        """Embed a point from the submanifold in the ambient manifold.
-
-        Args:
-            coords: Point on the submanifold
-
-        Returns:
-            Embedded point on the ambient manifold
-        """
+        """Embed a point from the submanifold into the ambient manifold."""
 
     def pullback(self, at_point: Array, cotangent_vector: Array) -> Array:
-        """Pull back a cotangent vector from the ambient manifold to the submanifold.
+        """Transform a gradient from the ambient space to the subspace.
 
-        In practice, this transforms gradients computed in the larger model space to the constrained model space,
-        enabling optimization in the lower-dimensional space. It's essential for efficiently computing natural
-        gradients on submodels and implementing constrained optimization.
+        This is what makes constrained optimization work: compute a gradient in the full model space, then pull it back to get the gradient in the restricted space.
 
-        In theory, given the embedding $\\phi: \\mathcal M \\to \\mathcal N$. At $w = \\phi(v)$, the pullback is the mapping
+        Mathematically, given the embedding $\\phi: \\mathcal M \\to \\mathcal N$, at $w = \\phi(v)$ the pullback is the mapping
         $$
         \\phi^*: T^*_w \\mathcal N \\to T^*_v \\mathcal M
         $$
@@ -87,60 +76,42 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
 
 @dataclass(frozen=True)
 class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient], ABC):
-    """A structure-preserving embedding with projection and translation operations.
+    """An embedding that additionally supports projection and translation.
 
-    In practice, linear embeddings enable direct conversion of coordinates between model spaces through projection, while preserving vector operations like translation.
+    Use a linear embedding when you need to move coordinates in both directions: ``embed`` to go from the smaller space to the larger, and ``project`` to extract the relevant components back out. Translation lets you update just the subspace components of an ambient point without touching the rest.
 
-    A linear embedding $\\phi: \\mathcal{M} \\to \\mathcal{N}$ supports
+    Mathematically, a linear embedding $\\phi: \\mathcal{M} \\to \\mathcal{N}$ comes with:
 
-        - A projection map $\\pi: \\mathcal{N} \\to \\mathcal{M}$ satisfying $\\pi \\circ \\phi = \\text{id}_{\\mathcal{M}}$ (the identity on $\\mathcal{M}$), and
-        - A translation operation $\\tau(p,q) = p + \\phi(q)$ that preserves the vector space structure.
+    - A projection $\\pi: \\mathcal{N} \\to \\mathcal{M}$ satisfying $\\pi \\circ \\phi = \\text{id}_{\\mathcal{M}}$, and
+    - a translation $\\tau(p, q) = p + \\phi(q)$.
+
+    For linear embeddings the pullback is location-independent and reduces to projection.
     """
 
     # Contract
 
     @abstractmethod
     def project(self, coords: Array) -> Array:
-        """Project a point from the ambient space to the subspace.
-
-        Args:
-            coords: Point on the ambient manifold
-
-        Returns:
-            Projected point on the submanifold
-        """
+        """Project from the ambient space to the subspace."""
 
     def translate(self, p_coords: Array, q_coords: Array) -> Array:
-        """Translate point by subspace components.
-
-        Args:
-            p_coords: Point on the ambient manifold
-            q_coords: Point on the submanifold
-
-        Returns:
-            Translated point on the ambient manifold
-        """
+        """Translate an ambient point by a subspace displacement: $p + \\phi(q)$."""
         return p_coords + self.embed(q_coords)
 
     # Overrides
 
     @override
     def pullback(self, at_point: Array, cotangent_vector: Array) -> Array:
-        """For linear subspaces, pullback is location-independent.
-
-        Args:
-            at_point: Point on the submanifold
-            cotangent_vector: Cotangent vector on the ambient manifold
-
-        Returns:
-            Pulled back cotangent vector on the submanifold
-        """
+        """For linear embeddings, pullback reduces to projection."""
         return self.project(cotangent_vector)
 
 
 @dataclass(frozen=True)
 class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
-    """Identity subspace relationship for a manifold M."""
+    """The trivial case where sub and ambient are the same manifold.
+
+    Used as the default embedding when a linear map operates on the full space without restriction (see ``AmbientMap``).
+    """
 
     man: M
 
@@ -156,39 +127,14 @@ class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
 
     @override
     def project(self, coords: Array) -> Array:
-        """Project a point (identity operation).
-
-        Args:
-            coords: Point on the manifold
-
-        Returns:
-            Same point
-        """
         return coords
 
     @override
     def embed(self, coords: Array) -> Array:
-        """Embed a point (identity operation).
-
-        Args:
-            coords: Point on the manifold
-
-        Returns:
-            Same point
-        """
         return coords
 
     @override
     def translate(self, p_coords: Array, q_coords: Array) -> Array:
-        """Translate point by adding (identity operation).
-
-        Args:
-            p_coords: First point
-            q_coords: Second point
-
-        Returns:
-            Sum of the two points
-        """
         return p_coords + q_coords
 
 
@@ -196,12 +142,11 @@ class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
 class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
     Embedding[Sub, Ambient], ABC
 ):
-    """Composed embeddings allow you to chain multiple embeddings.
+    """Chain two embeddings when a model space is nested two levels deep.
 
-    In theory, given embeddings $\\phi_1: \\mathcal{M} \\to \\mathcal{L}$ and $\\phi_2: \\mathcal{L} \\to \\mathcal{N}$, their composition $\\phi = \\phi_2 \\circ \\phi_1: \\mathcal{M} \\to \\mathcal{N}$ forms a new embedding with:
+    For example, a diagonal normal embeds into a full normal, which in turn embeds into a harmonium --- composing these lets you pull gradients all the way back to the diagonal parameters.
 
-        - Embedding map: $\\phi(p) = \\phi_2(\\phi_1(p))$ for $p \\in \\mathcal{M}$
-        - Pullback operation: $\\phi^*(\\omega) = \\phi_1^*(\\phi_2^*(\\omega))$ for cotangent vectors $\\omega \\in T^*\\mathcal{N}$
+    Mathematically, $\\phi = \\phi_2 \\circ \\phi_1: \\mathcal{M} \\to \\mathcal{L} \\to \\mathcal{N}$, with pullback in reverse order: $\\phi^*(\\omega) = \\phi_1^*(\\phi_2^*(\\omega))$.
     """
 
     # Fields
@@ -227,35 +172,12 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
 
     @override
     def embed(self, coords: Array) -> Array:
-        """Embed through composed embeddings.
-
-        Args:
-            coords: Point on the submanifold
-
-        Returns:
-            Embedded point on the ambient manifold
-        """
-        mid = self.sub_emb.embed(coords)
-        return self.mid_emb.embed(mid)
+        return self.mid_emb.embed(self.sub_emb.embed(coords))
 
     @override
     def pullback(self, at_point: Array, cotangent_vector: Array) -> Array:
-        """Pull back through composed embeddings.
-
-        Args:
-            at_point: Point on the submanifold
-            cotangent_vector: Cotangent vector on the ambient manifold
-
-        Returns:
-            Pulled back cotangent vector on the submanifold
-        """
-        # First, embed the point to get its location in the middle space
         mid_point = self.sub_emb.embed(at_point)
-
-        # Pull back through the upper subspace
         mid_cotangent = self.mid_emb.pullback(mid_point, cotangent_vector)
-
-        # Pull back through the lower subspace
         return self.sub_emb.pullback(at_point, mid_cotangent)
 
 
@@ -265,12 +187,9 @@ class LinearComposedEmbedding[
     Mid: Manifold,
     Ambient: Manifold,
 ](ComposedEmbedding[Sub, Mid, Ambient], LinearEmbedding[Sub, Ambient]):
-    """Linear composed embeddings maintain projection and translation operations through nested embeddings.
+    """Linear version of ``ComposedEmbedding``, preserving projection and translation through the chain.
 
-    In theory, given linear embeddings $(\\phi_1, \\pi_1, \\tau_1)$ from $\\mathcal{M} \\to \\mathcal{L}$ and $(\\phi_2, \\pi_2, \\tau_2)$ from $\\mathcal{L} \\to \\mathcal{N}$, their composition forms a linear embedding $(\\phi, \\pi, \\tau)$ from $\\mathcal{M} \\to \\mathcal{N}$ where
-
-        - Projection map: $\\pi = \\pi_1 \\circ \\pi_2$
-        - Translation operation: $\\tau(p, q) = \\tau_2(p, \\tau_1(0_{\\mathcal{L}}, q))$, where $0_{\\mathcal{L}}$ is the zero point in $\\mathcal{L}$
+    Mathematically, $\\pi = \\pi_1 \\circ \\pi_2$ and $\\tau(p, q) = \\tau_2(p, \\tau_1(0_{\\mathcal{L}}, q))$.
     """
 
     # Fields
@@ -294,12 +213,9 @@ class LinearComposedEmbedding[
 
 @dataclass(frozen=True)
 class TrivialEmbedding[Ambient: Manifold](LinearEmbedding[Null, Ambient]):
-    """Trivial embedding from zero-dimensional manifold to any ambient manifold.
+    """Embedding from a zero-dimensional manifold, used to mark a component as fixed.
 
-    This embedding is used to indicate that a component does not vary in a
-    mixture or product structure. The submanifold has zero dimension, so:
-    - embed() returns zeros in the ambient space
-    - project() returns an empty array
+    In a mixture or product structure, a trivial embedding on a component means that component carries no free parameters. ``embed`` returns zeros; ``project`` returns an empty array.
     """
 
     _amb_man: Ambient
@@ -335,9 +251,9 @@ class TrivialEmbedding[Ambient: Manifold](LinearEmbedding[Null, Ambient]):
 class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
     LinearEmbedding[Component, TupleMan], ABC
 ):
-    """Embedding that projects to or embeds from a specific component of a tuple manifold.
+    """Embeds a single component of a ``Tuple`` manifold, used to isolate one factor of a product space.
 
-    This embedding provides a way to work with individual components of tuple manifolds like Pair and Triple, enabling operations such as projection, embedding, and translation on specific components.
+    For example, in a harmonium (which is a ``Triple`` of observable, interaction, and latent), a ``TupleEmbedding`` lets you extract or update just the observable parameters. Projection extracts the ``tup_idx``-th component; embedding sets that component and zeros the rest; translation adds to that component only.
     """
 
     # Contract
@@ -348,12 +264,9 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         """The index of the component in the tuple manifold."""
 
     def __post_init__(self):
-        """Validate that the component manifold matches the expected component at the given index."""
-        # Get all components
+        """Validate that tup_idx is in range."""
         zero_tuple = self.amb_man.zeros()
         components = self.amb_man.split_coords(zero_tuple)
-
-        # Check if index is valid
         if self.tup_idx >= len(components):
             raise IndexError(
                 f"Component index {self.tup_idx} out of range for {type(self.amb_man)}"
@@ -361,68 +274,18 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
 
     # Overrides
 
-    @property
-    @override
-    def amb_man(self) -> TupleMan:
-        """The tuple manifold (super-manifold)."""
-        return self.amb_man
-
-    @property
-    @override
-    def sub_man(self) -> Component:
-        """The component manifold (sub-manifold)."""
-        return self.sub_man
-
     @override
     def project(self, coords: Array) -> Array:
-        """Project a point from the tuple manifold to the specified component.
-
-        Args:
-            p_coords: Point on the tuple manifold
-
-        Returns:
-            Component at the specified index
-        """
-        # Split the tuple and get the component at the specified index
-        components = self.amb_man.split_coords(coords)
-        return components[self.tup_idx]
+        return self.amb_man.split_coords(coords)[self.tup_idx]
 
     @override
     def embed(self, coords: Array) -> Array:
-        """Creates a new point in the tuple manifold with the specified component set to p and all other components set to zero.
-
-        Args:
-            p_coords: Point on the component manifold
-
-        Returns:
-            Point on the tuple manifold
-        """
-        # Split a zero tuple to get zero components
-        zero_tuple = self.amb_man.zeros()
-        components = list(self.amb_man.split_coords(zero_tuple))
-
-        # Replace the component at the specified index
+        components = list(self.amb_man.split_coords(self.amb_man.zeros()))
         components[self.tup_idx] = coords
-
-        # Join the components back into a tuple
         return self.amb_man.join_coords(*components)
 
     @override
     def translate(self, p_coords: Array, q_coords: Array) -> Array:
-        """Updates the component at the specified index by adding q, leaving other components unchanged.
-
-        Args:
-            p_coords: Point on the tuple manifold
-            q_coords: Point on the component manifold
-
-        Returns:
-            Updated point on the tuple manifold
-        """
-        # Split the tuple into components
         components = list(self.amb_man.split_coords(p_coords))
-
-        # Update the component at the specified index
         components[self.tup_idx] = components[self.tup_idx] + q_coords
-
-        # Join the components back into a tuple
         return self.amb_man.join_coords(*components)

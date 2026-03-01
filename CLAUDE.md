@@ -116,6 +116,27 @@ reportUnknownVariableType = "none"  # JAX, scipy, etc. have incomplete types
 - **External library integration**: JAX, optax, and scipy types appropriately suppressed where incomplete
 - **Complex generics**: Some inference limitations remain in deep hierarchical models (expected with current Python typing)
 
+## Documentation Strategy
+
+### Source of truth
+Python docstrings are the single source of truth. Sphinx `.rst` files should be thin scaffolding (title, `automodule`, inheritance diagrams, section headings) --- no duplicated prose. `index.rst` files get a brief orientation paragraph and module listing, nothing more.
+
+### Docstring structure
+Lead with what the class or function *does* in concrete terms (what arrays it operates on, what it returns, when you'd use it). Then, when the underlying mathematics adds clarity, introduce it with a **"Mathematically,"** marker. This signals "here comes the formal version" --- readers who don't need the math can stop. Keep the math precise but brief.
+
+Place mathematical definitions at the highest appropriate level in the class hierarchy. Subclasses should not repeat them --- they inherit the concept and just state their specialization.
+
+### Args/Returns blocks
+Only document a parameter when its name and type aren't enough to use it correctly. Shape conventions, non-obvious defaults, and semantic constraints the type system can't express earn Args entries. Self-evident parameters (e.g., `coords: Array` on a method called `split_coords`) do not.
+
+### Guards and validation
+Only add runtime checks for errors that might slip through silently. If the operation would crash with a clear error anyway (e.g., wrong-shaped array in `reshape`), don't add a redundant guard.
+
+### Style
+- No Unicode math in docstrings or comments --- use LaTeX notation throughout (`\\theta`, `\\mathcal M`, etc.)
+- Use `\\\\` (doubled backslash) in docstrings for LaTeX commands (Python string escaping); single `\\` in comments
+- Matplotlib labels use raw strings with `$...$` for LaTeX rendering
+
 ## Testing Notes
 - Test files correspond to major components: matrix representations, normal distributions, LGMs, harmoniums, graphical models
 - Tests use pytest fixtures with parametrization for testing across different model configurations

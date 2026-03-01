@@ -1,3 +1,5 @@
+"""Internal helpers for batched computation and triangular matrix packing."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

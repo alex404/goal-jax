@@ -22,25 +22,26 @@ def create_ground_truth() -> tuple[AnalyticHMoG[Diagonal], Array]:
     """Create ground truth HMoG model."""
     hmog = analytic_hmog(obs_dim=2, obs_rep=Diagonal(), lat_dim=1, n_components=2)
 
-    with hmog.pst_man.prr_man as cm:
-        cat_natural = jnp.array([0.5])
-        cat_mean = cm.to_mean(cat_natural)
+    cm = hmog.pst_man.prr_man
+    cat_natural = jnp.array([0.5])
+    cat_mean = cm.to_mean(cat_natural)
 
-    with hmog.pst_man as um, um.obs_man as lm:
-        y0_means = lm.join_mean_covariance(jnp.array([-sep / 2]), jnp.array([1.0]))
-        y1_means = lm.join_mean_covariance(jnp.array([sep / 2]), jnp.array([1.0]))
-        components = jnp.concatenate([y0_means, y1_means])
-        mix_mean = um.join_mean_mixture(components, cat_mean)
-        mix_natural = um.to_natural(mix_mean)
+    um = hmog.pst_man
+    lm = um.obs_man
+    y0_means = lm.join_mean_covariance(jnp.array([-sep / 2]), jnp.array([1.0]))
+    y1_means = lm.join_mean_covariance(jnp.array([sep / 2]), jnp.array([1.0]))
+    components = jnp.concatenate([y0_means, y1_means])
+    mix_mean = um.join_mean_mixture(components, cat_mean)
+    mix_natural = um.to_natural(mix_mean)
 
-    with hmog.obs_man as om:
-        obs_mean = om.join_mean_covariance(
-            jnp.array([0.0, 0.0]), jnp.array([width, height])
-        )
-        obs_natural = om.to_natural(obs_mean)
-        int_mat0 = jnp.array([1.0, 0.0])
-        obs_prs = om.split_location_precision(obs_natural)[1]
-        int_mat = hmog.int_man.from_matrix(om.cov_man.to_matrix(obs_prs) @ int_mat0)
+    om = hmog.obs_man
+    obs_mean = om.join_mean_covariance(
+        jnp.array([0.0, 0.0]), jnp.array([width, height])
+    )
+    obs_natural = om.to_natural(obs_mean)
+    int_mat0 = jnp.array([1.0, 0.0])
+    obs_prs = om.split_location_precision(obs_natural)[1]
+    int_mat = hmog.int_man.from_matrix(om.cov_man.to_matrix(obs_prs) @ int_mat0)
 
     lkl_params = hmog.lkl_fun_man.join_coords(obs_natural, int_mat)
     return hmog, hmog.join_conjugated(lkl_params, mix_natural)

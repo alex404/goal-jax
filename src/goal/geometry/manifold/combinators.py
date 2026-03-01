@@ -1,6 +1,6 @@
-"""Core classes for combining and replicating manifolds.
+"""Combinators for building complex manifolds from simpler ones.
 
-This module provides ways to build complex manifolds from simpler ones, including products, triples, and replicated copies. These combinators let you create coordinate spaces for complex models by combining simpler components, making it easy to split, join, and transform coordinates.
+Provides product manifolds (`Pair`, `Triple`), homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
 """
 
 from __future__ import annotations
@@ -29,10 +29,9 @@ class Null(Manifold):
 
 @dataclass(frozen=True)
 class Tuple(Manifold, ABC):
-    """This protocol defines a common interface for manifolds like Pair and Triple that split coordinates into tuples and join them back together.
+    """Abstract Cartesian product of manifolds, with coordinates stored as a flat concatenation.
 
-    Subclasses implement split_coords with a specific return type (e.g., tuple[Array, Array]
-    for Pair), and join_coords with a specific number of coordinates.
+    Mathematically, the Cartesian product $\\mathcal M_1 \\times \\cdots \\times \\mathcal M_k$ has $\\dim = \\sum_i \\dim(\\mathcal M_i)$. Subclasses (``Pair``, ``Triple``) fix the arity and provide typed ``split_coords`` / ``join_coords``.
     """
 
     @abstractmethod
@@ -50,10 +49,7 @@ class Tuple(Manifold, ABC):
 
 @dataclass(frozen=True)
 class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
-    """Pair combines two coordinate spaces, providing methods to split coordinates into their respective components and join them back together. This is useful for models that have separate location and shape coordinates, for example.
-
-    In theory, this implements the Cartesian product $\\mathcal M_1 \\times \\mathcal M_2$ of two manifolds, where the dimension is the sum of the component dimensions.
-    """
+    """Binary Cartesian product, with coordinates stored as ``[fst | snd]``."""
 
     # Contract
 
@@ -76,35 +72,20 @@ class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
 
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array]:
-        """Split coordinates into first and second components.
-
-        Args:
-            coords: Array of concatenated coordinates
-
-        Returns:
-            Tuple of (first_coords, second_coords)
-        """
+        """Split into ``(fst, snd)`` components."""
         first_coords = coords[: self.fst_man.dim]
         second_coords = coords[self.fst_man.dim :]
         return first_coords, second_coords
 
     @override
     def join_coords(self, fst_coords: Array, snd_coords: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Join component coordinates into a single array.
-
-        Args:
-            fst_coords: coordinates from first manifold
-            snd_coords: coordinates from second manifold
-
-        Returns:
-            Concatenated array
-        """
+        """Concatenate component coordinates."""
         return jnp.concatenate([fst_coords, snd_coords])
 
 
 @dataclass(frozen=True)
 class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
-    """Triple combines three coordinate spaces, providing methods to split coordinates into their respective components and join them back together."""
+    """Product of three manifolds, with coordinates stored as ``[fst | snd | trd]``."""
 
     # Contract
 
@@ -133,14 +114,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
 
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array, Array]:
-        """Split coordinates into first, second, and third components.
-
-        Args:
-            coords: Array of concatenated coordinates
-
-        Returns:
-            Tuple of (fst_coords, snd_coords, trd_coords)
-        """
+        """Split into ``(fst, snd, trd)`` components."""
         first_dim = self.fst_man.dim
         second_dim = self.snd_man.dim
 
@@ -154,26 +128,17 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
     def join_coords(  # pyright: ignore[reportIncompatibleMethodOverride]
         self, fst_coords: Array, snd_coords: Array, trd_coords: Array
     ) -> Array:
-        """Join component coordinates into a single array.
-
-        Args:
-            fst_coords: coordinates from first manifold
-            snd_coords: coordinates from second manifold
-            trd_coords: coordinates from third manifold
-
-        Returns:
-            Concatenated array
-        """
+        """Concatenate component coordinates."""
         return jnp.concatenate([fst_coords, snd_coords, trd_coords])
 
 
 @dataclass(frozen=True)
 class Replicated[M: Manifold](Manifold):
-    """Replicated allows working with collections of coordinates each of which lives on the same fundamental manifold, like mixture model components or time series observations. It provides special methods for mapping functions across the copies.
+    """Homogeneous product of $n$ copies of the same manifold, stored flat as ``[n_reps * rep_man.dim]``.
 
-    In theory, this implements the product manifold $\\mathcal M^n$ consisting of $n$ copies of the same manifold $\\mathcal M$, with efficient mapping operations via vmap.
+    Used for collections where every element lives on the same manifold (e.g. mixture components, time series states). The ``map`` method applies a function across copies via ``vmap``.
 
-    In practice, each point is stored as a flat array of shape ``[n_reps * rep_man.dim]``, i.e. in row-major order.
+    Mathematically, the $n$-fold product $\\mathcal M^n = \\mathcal M \\times \\cdots \\times \\mathcal M$ with $\\dim = n \\cdot \\dim(\\mathcal M)$. Unlike ``Tuple``, the homogeneity allows ``vmap``-based operations over the copies.
     """
 
     # Fields
@@ -186,63 +151,17 @@ class Replicated[M: Manifold](Manifold):
     # Array operations
 
     def get_replicate(self, coords: Array, idx: int) -> Array:
-        """Get coordinates for a specific replicate.
-
-        Args:
-            coords: Array of replicated coordinates (flat, shape [n_reps * rep_man.dim])
-            idx: Index of the replicate to extract
-
-        Returns:
-            Array of coordinates for that replicate (shape [rep_man.dim])
-        """
+        """Extract the ``idx``-th replicate from flat coordinates."""
         start = idx * self.rep_man.dim
         end = start + self.rep_man.dim
         return coords[start:end]
 
     def to_2d(self, coords: Array) -> Array:
-        """Convert flat coordinates to 2D array for easier indexing.
-
-        Args:
-            coords: Flat array of replicated coordinates (shape ``[n_reps * rep_man.dim]``)
-
-        Returns:
-            2D array with shape ``[n_reps, rep_man.dim]``
-
-        Raises:
-            ValueError: If input is not 1D or has wrong size
-        """
-        if coords.ndim != 1:
-            raise ValueError(
-                f"to_2d expects 1D array, got shape {coords.shape}. Array is already {coords.ndim}D."
-            )
-        expected_size = self.n_reps * self.rep_man.dim
-        if coords.size != expected_size:
-            raise ValueError(
-                f"to_2d expects array of size {expected_size} (n_reps={self.n_reps} * rep_man.dim={self.rep_man.dim}), got size {coords.size}"
-            )
+        """Convert flat coordinates to 2D array with shape ``[n_reps, rep_man.dim]``."""
         return coords.reshape([self.n_reps, self.rep_man.dim])
 
     def to_1d(self, array: Array) -> Array:
-        """Convert 2D array to flat coordinates.
-
-        Args:
-            array: 2D array with shape ``[n_reps, rep_man.dim]``
-
-        Returns:
-            Flat array of replicated coordinates (shape ``[n_reps * rep_man.dim]``)
-
-        Raises:
-            ValueError: If input is not 2D or has wrong shape
-        """
-        if array.ndim != 2:
-            raise ValueError(
-                f"to_1d expects 2D array, got shape {array.shape}. Array is already {array.ndim}D."
-            )
-        expected_shape = (self.n_reps, self.rep_man.dim)
-        if array.shape != expected_shape:
-            raise ValueError(
-                f"to_1d expects array of shape {expected_shape}, got {array.shape}"
-            )
+        """Convert 2D array back to flat coordinates."""
         return array.ravel()
 
     def map(

@@ -402,19 +402,19 @@ class LGM[
 
         # Conjugation parameters
 
-        with self.int_man as im:
-            int_mat_trn = im.transpose(int_mat)
-            rho_mean = im.trn_man.rep.matvec(
-                im.trn_man.matrix_shape, int_mat_trn, obs_mean
-            )
+        im = self.int_man
+        int_mat_trn = im.transpose(int_mat)
+        rho_mean = im.trn_man.rep.matvec(
+            im.trn_man.matrix_shape, int_mat_trn, obs_mean
+        )
 
-            _, rho_shape = _change_of_basis(
-                im.matrix_shape,
-                im.rep,
-                int_mat,
-                obs_cov_man.rep,
-                obs_sigma,
-            )
+        _, rho_shape = _change_of_basis(
+            im.matrix_shape,
+            im.rep,
+            int_mat,
+            obs_cov_man.rep,
+            obs_sigma,
+        )
         rho_shape *= -1
 
         # Join parameters into moment parameters
@@ -793,12 +793,12 @@ class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
             Natural parameters for the factor analysis model.
         """
         # Initialize interaction matrix scaled by precision
-        with self.obs_man as om:
-            mu = means
-            cov = diags
-            obs_params = om.to_natural(om.join_mean_covariance(mu, cov))
-            obs_prs = om.split_location_precision(obs_params)[1]
-            dns_prs = om.cov_man.to_matrix(obs_prs)
+        om = self.obs_man
+        mu = means
+        cov = diags
+        obs_params = om.to_natural(om.join_mean_covariance(mu, cov))
+        obs_prs = om.split_location_precision(obs_params)[1]
+        dns_prs = om.cov_man.to_matrix(obs_prs)
 
         int_mat = self.int_man.from_matrix(dns_prs @ loadings)
 
