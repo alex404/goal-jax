@@ -10,6 +10,8 @@ from .exponential_family.combinators import (
     GenerativeProduct,
     LocationShape,
     Product,
+)
+from .exponential_family.protocols import (
     StatisticalMoments,
 )
 from .exponential_family.dynamical import (

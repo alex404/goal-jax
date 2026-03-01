@@ -14,14 +14,6 @@ Class Hierarchy
 
 \
 
-Protocols
----------
-
-.. autoclass:: goal.geometry.exponential_family.combinators.StatisticalMoments
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Location-Shape Models
 ---------------------
 

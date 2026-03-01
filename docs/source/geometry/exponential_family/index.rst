@@ -9,5 +9,6 @@ Abstract exponential family structure: base classes with increasing capabilities
 
    base
    combinators
+   protocols
    harmonium
    graphical
