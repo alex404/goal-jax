@@ -162,10 +162,6 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
         return self.mid_emb.amb_man
 
     @property
-    def mid_man(self) -> Mid:
-        return self.mid_emb.sub_man
-
-    @property
     @override
     def sub_man(self) -> Sub:
         return self.sub_emb.sub_man
@@ -179,6 +175,13 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
         mid_point = self.sub_emb.embed(at_point)
         mid_cotangent = self.mid_emb.pullback(mid_point, cotangent_vector)
         return self.sub_emb.pullback(at_point, mid_cotangent)
+
+    # Methods
+
+    @property
+    def mid_man(self) -> Mid:
+        """The intermediate manifold."""
+        return self.mid_emb.sub_man
 
 
 @dataclass(frozen=True)

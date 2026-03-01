@@ -132,6 +132,16 @@ Only document a parameter when its name and type aren't enough to use it correct
 ### Guards and validation
 Only add runtime checks for errors that might slip through silently. If the operation would crash with a clear error anyway (e.g., wrong-shaped array in `reshape`), don't add a redundant guard.
 
+### Class body organization
+Within each class, order members as follows:
+
+1. **Fields** --- dataclass fields that define the class
+2. **Contract** --- abstract properties and methods that subclasses must implement
+3. **Overrides** --- implementations of parent abstract properties and methods
+4. **Methods** --- new concrete functionality specific to this class
+
+Use comment headers (`# Fields`, `# Contract`, `# Overrides`, `# Methods`) to separate sections. Omit headers when the class is small enough that the structure is obvious. Within each section, properties naturally precede methods.
+
 ### Style
 - No Unicode math in docstrings or comments --- use LaTeX notation throughout (`\\theta`, `\\mathcal M`, etc.)
 - Use `\\\\` (doubled backslash) in docstrings for LaTeX commands (Python string escaping); single `\\` in comments

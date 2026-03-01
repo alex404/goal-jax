@@ -20,7 +20,7 @@ class Manifold(ABC):
     Mathematically, a smooth manifold $\\mathcal M$ of dimension $n$ is a topological space that is locally homeomorphic to $\\mathbb R^n$. A coordinate chart $(U, \\phi)$ maps an open subset $U \\subseteq \\mathcal M$ to $\\mathbb R^n$, and an atlas is a collection of charts covering $\\mathcal M$ with smooth transition maps on overlaps.
     """
 
-    # Abstract methods
+    # Contract
 
     @property
     @abstractmethod
@@ -28,7 +28,7 @@ class Manifold(ABC):
         """The dimension of the manifold."""
         ...
 
-    # Array operations
+    # Methods
 
     def zeros(self) -> Array:
         """Create an array of zeros with the manifold's dimension."""

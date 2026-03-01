@@ -1,10 +1,7 @@
 Geometry Package
 ================
 
-Core geometric structures for statistical modeling and optimization.
-
-The geometry package provides the mathematical foundation for information geometry, 
-implementing manifolds, exponential families, and optimization tools.
+Abstract mathematical machinery for information geometry: manifolds and their operations, exponential family structure, and composed models.
 
 .. toctree::
    :maxdepth: 1
@@ -12,11 +9,3 @@ implementing manifolds, exponential families, and optimization tools.
 
    manifold/index
    exponential_family/index
-   
-Key Concepts
-------------
-
-* **Manifolds** - Spaces that locally resemble Euclidean space
-* **Points** - Elements of a manifold with specific coordinates
-* **Exponential Families** - Statistical manifolds with natural parametrizations
-* **Optimization** - Tools for finding optima while respecting geometric structure

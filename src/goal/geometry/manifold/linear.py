@@ -30,6 +30,8 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
     Mathematically, a linear map $L: V \\to W$ satisfies $L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$.
     """
 
+    # Contract
+
     @property
     @abstractmethod
     def dom_man(self) -> Domain:
@@ -52,11 +54,6 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
     @abstractmethod
     def transpose(self, f_coords: Array) -> Array:
         """Return parameters of the transposed map."""
-
-    def transpose_apply(self, f_coords: Array, w_coords: Array) -> Array:
-        """Apply the transpose: takes map parameters and a codomain point, returns a domain point."""
-        f_trn_coords = self.transpose(f_coords)
-        return self.trn_man(f_trn_coords, w_coords)
 
     @abstractmethod
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
@@ -88,6 +85,13 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
         This enables operations like tensoring with a new factor by wrapping
         the codomain embedding in a more complex structure.
         """
+
+    # Methods
+
+    def transpose_apply(self, f_coords: Array, w_coords: Array) -> Array:
+        """Apply the transpose: takes map parameters and a codomain point, returns a domain point."""
+        f_trn_coords = self.transpose(f_coords)
+        return self.trn_man(f_trn_coords, w_coords)
 
     def prepend_embedding[NewDomain: Manifold](
         self,
@@ -126,7 +130,7 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     cod_emb: LinearEmbedding[Manifold, Codomain]
     """Embedding from internal codomain to external codomain manifold."""
 
-    # Properties
+    # Overrides
 
     @property
     @override
@@ -144,21 +148,10 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         return self.rep.num_params(self.matrix_shape)
 
     @property
-    def matrix_shape(self) -> tuple[int, int]:
-        """Shape of the matrix operating on internal dimensions.
-
-        Returns the shape $(\\dim(internal\\_codomain), \\dim(internal\\_domain))$
-        of the underlying matrix in the internal coordinate system.
-        """
-        return (self.cod_emb.sub_man.dim, self.dom_emb.sub_man.dim)
-
-    @property
     @override
     def trn_man(self) -> EmbeddedMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
         return EmbeddedMap(self.rep, self.cod_emb, self.dom_emb)
-
-    # Methods
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
@@ -217,6 +210,17 @@ class EmbeddedMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
             lambda cod_emb: LinearComposedEmbedding(cod_emb, emb)
         )
 
+    # Methods
+
+    @property
+    def matrix_shape(self) -> tuple[int, int]:
+        """Shape of the matrix operating on internal dimensions.
+
+        Returns the shape $(\\dim(internal\\_codomain), \\dim(internal\\_domain))$
+        of the underlying matrix in the internal coordinate system.
+        """
+        return (self.cod_emb.sub_man.dim, self.dom_emb.sub_man.dim)
+
     def from_matrix(self, matrix: Array) -> Array:
         """Pack a dense 2D matrix (in internal dimensions) into flat parameters."""
         return self.rep.from_matrix(matrix)
@@ -264,31 +268,22 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
     blocks: list[LinearMap[Domain, Codomain]]
     """The embedded linear maps that compose this block map."""
 
+    # Overrides
+
     @property
     @override
     def dom_man(self) -> Domain:
-        """The domain manifold."""
         return self.blocks[0].dom_man
 
     @property
     @override
     def cod_man(self) -> Codomain:
-        """The codomain manifold."""
         return self.blocks[0].cod_man
-
-    # Overrides
 
     @property
     @override
     def dim(self) -> int:
         return sum(block.dim for block in self.blocks)
-
-    @override
-    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        result = self.cod_man.zeros()
-        for block, block_coords in zip(self.blocks, self.coord_blocks(f_coords)):
-            result = result + block(block_coords, v_coords)
-        return result
 
     @property
     @override
@@ -297,15 +292,12 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
         transposed_blocks = [block.trn_man for block in self.blocks]
         return BlockMap(transposed_blocks)
 
-    def coord_blocks(self, coords: Array) -> list[Array]:
-        """Split flat parameters into per-block slices."""
-        sections = []
-        offset = 0
-        for block in self.blocks:
-            dim = block.dim
-            sections.append(coords[offset : offset + dim])
-            offset += dim
-        return sections
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        result = self.cod_man.zeros()
+        for block, block_coords in zip(self.blocks, self.coord_blocks(f_coords)):
+            result = result + block(block_coords, v_coords)
+        return result
 
     @override
     def transpose(self, f_coords: Array) -> Array:
@@ -341,6 +333,18 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
     ) -> BlockMap[Domain, NewCodomain]:
         return BlockMap([block.map_codomain_embedding(f) for block in self.blocks])
 
+    # Methods
+
+    def coord_blocks(self, coords: Array) -> list[Array]:
+        """Split flat parameters into per-block slices."""
+        sections = []
+        offset = 0
+        for block in self.blocks:
+            dim = block.dim
+            sections.append(coords[offset : offset + dim])
+            offset += dim
+        return sections
+
 
 class AmbientMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codomain]):
     """Convenience wrapper: an ``EmbeddedMap`` with identity embeddings on both sides.
@@ -356,7 +360,7 @@ class AmbientMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codom
 class SquareMap[M: Manifold](AmbientMap[M, M]):
     """Square ``AmbientMap`` (domain = codomain), exposing inverse, log-determinant, and positive-definiteness checks."""
 
-    # Constructor
+    # Fields
 
     rep: Square
 

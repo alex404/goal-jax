@@ -148,7 +148,15 @@ class Replicated[M: Manifold](Manifold):
     n_reps: int
     """Number of copies of the base manifold."""
 
-    # Array operations
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Total dimension is product of base dimension and number of copies."""
+        return self.rep_man.dim * self.n_reps
+
+    # Methods
 
     def get_replicate(self, coords: Array, idx: int) -> Array:
         """Extract the ``idx``-th replicate from flat coordinates."""
@@ -188,11 +196,3 @@ class Replicated[M: Manifold](Manifold):
         shaped = coords.reshape([self.n_reps, self.rep_man.dim])
         result = jax.vmap(f)(shaped)
         return result.ravel() if flatten else result
-
-    # Overrides
-
-    @property
-    @override
-    def dim(self) -> int:
-        """Total dimension is product of base dimension and number of copies."""
-        return self.rep_man.dim * self.n_reps
