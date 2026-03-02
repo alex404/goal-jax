@@ -327,6 +327,66 @@ class KalmanFilter(LatentProcess[FullNormal, FullNormal]):
         trns_params = self.trns_hrm.initialize(keys[2], location, shape)
         return self.join_coords(prior_params, emsn_params, trns_params)
 
+    def from_standard(
+        self,
+        transition_matrix: Array,
+        process_noise: Array,
+        emission_matrix: Array,
+        observation_noise: Array,
+        prior_mean: Array,
+        prior_covariance: Array,
+    ) -> Array:
+        """Construct natural parameters from standard LDS parameterization.
+
+        Converts from the standard linear dynamical system form:
+            z_0 ~ N(mu_0, Sigma_0)
+            z_t = A z_{t-1} + w_t,  w_t ~ N(0, Q)
+            x_t = C z_t + v_t,      v_t ~ N(0, R)
+
+        Following the harmonium encoding where p(x | z) = N(Wz + b, Sigma_x)
+        maps to natural parameters via precision-weighted interaction.
+        """
+
+        def _build_harmonium(
+            hrm: NormalEmission | NormalTransition,
+            weight_matrix: Array,
+            noise_covariance: Array,
+        ) -> Array:
+            """Build harmonium natural parameters from W and Sigma_x."""
+            om = hrm.obs_man
+            # Zero-mean Gaussian with given covariance -> natural params
+            zero_mean = jnp.zeros(om.data_dim)
+            cov_coords = om.cov_man.from_matrix(noise_covariance)
+            obs_params = om.to_natural(om.join_mean_covariance(zero_mean, cov_coords))
+            obs_prec = om.split_location_precision(obs_params)[1]
+            dns_prec = om.cov_man.to_matrix(obs_prec)
+
+            int_mat = hrm.int_man.from_matrix(dns_prec @ weight_matrix)
+
+            lkl_params = hrm.lkl_fun_man.join_coords(obs_params, int_mat)
+            # Use standard normal as latent prior (gets replaced during inference)
+            z = hrm.lat_man.to_natural(hrm.lat_man.standard_normal())
+            return hrm.join_conjugated(lkl_params, z)
+
+        # Build emission: p(x_t | z_t) with W=C, Sigma_x=R
+        emsn_params = _build_harmonium(
+            self.emsn_hrm, emission_matrix, observation_noise
+        )
+
+        # Build transition: p(z_t | z_{t-1}) with W=A, Sigma_x=Q
+        trns_params = _build_harmonium(
+            self.trns_hrm, transition_matrix, process_noise
+        )
+
+        # Build prior: p(z_0) = N(mu_0, Sigma_0)
+        lm = self.lat_man
+        prior_cov_coords = lm.cov_man.from_matrix(prior_covariance)
+        prior_params = lm.to_natural(
+            lm.join_mean_covariance(prior_mean, prior_cov_coords)
+        )
+
+        return self.join_coords(prior_params, emsn_params, trns_params)
+
 
 def create_kalman_filter(obs_dim: int, lat_dim: int) -> KalmanFilter:
     """Create a Kalman filter model structure.
