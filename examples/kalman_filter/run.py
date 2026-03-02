@@ -1,20 +1,20 @@
-"""Kalman Filter Example with EM Learning.
+"""Kalman Filter Example with Gradient-Based Learning.
 
 Demonstrates:
 1. Creating a Kalman filter from a damped oscillator
 2. Sampling trajectories from the model
 3. Forward filtering and backward smoothing with known parameters
-4. EM learning to fit model parameters from data
+4. Gradient ascent on log p(x_{1:T}) to learn model parameters
 """
 
 import jax
 import jax.numpy as jnp
+import optax
 
 from goal.models import (
     conjugated_filtering,
     conjugated_smoothing,
     create_kalman_filter,
-    latent_process_expectation_maximization,
     latent_process_log_observable_density,
     sample_latent_process,
 )
@@ -27,7 +27,7 @@ jax.config.update("jax_enable_x64", True)
 
 
 def main() -> None:
-    """Run Kalman filter example with EM learning."""
+    """Run Kalman filter example with gradient-based learning."""
     jax_cli()
     paths = example_paths(__file__)
 
@@ -36,10 +36,10 @@ def main() -> None:
     lat_dim = 2
     n_steps = 50
     n_sequences = 20
-    n_em_steps = 30
+    n_learn_steps = 200
 
     print("=" * 60)
-    print("Kalman Filter with EM Learning")
+    print("Kalman Filter with Gradient-Based Learning")
     print("=" * 60)
 
     # Create model
@@ -69,7 +69,7 @@ def main() -> None:
 
     true_params = model.from_standard(A, Q, C, R, mu0, Sigma0)
 
-    # Generate training data: multiple sequences
+    # Generate training data
     key = jax.random.PRNGKey(42)
     key_init, key_sample = jax.random.split(key)
 
@@ -87,7 +87,7 @@ def main() -> None:
     observations = observations_batch[0]
     true_latents = latents_batch[0]
 
-    # --- Inference with TRUE parameters (oracle) ---
+    # --- Oracle inference with TRUE parameters ---
     print("Running inference with true parameters...")
     true_filtered, true_log_lik = conjugated_filtering(
         model, true_params, observations
@@ -104,7 +104,6 @@ def main() -> None:
 
     true_filt_stats = jax.vmap(extract_mean_std)(true_filtered)
     true_smth_stats = jax.vmap(extract_mean_std)(true_smoothed)
-
     true_filt_means, true_filt_stds = true_filt_stats
     true_smth_means, true_smth_stds = true_smth_stats
 
@@ -119,59 +118,69 @@ def main() -> None:
     print(f"  Smoothed RMSE: {smth_rmse:.4f}")
     print()
 
-    # --- EM learning ---
+    # --- Gradient ascent on log p(x_{1:T}) ---
     init_params = model.initialize(key_init, location=0.0, shape=1.0)
 
-    initial_log_lik = float(
-        jnp.mean(
+    def avg_log_lik(p: jax.Array) -> jax.Array:
+        return jnp.mean(
             jax.vmap(
-                lambda obs: latent_process_log_observable_density(
-                    model, init_params, obs
-                )
+                lambda obs: latent_process_log_observable_density(model, p, obs)
             )(observations_batch)
         )
-    )
+
+    # Use Adam with gradient ascent (negate for minimization)
+    optimizer = optax.adam(learning_rate=1e-2)
+    opt_state = optimizer.init(init_params)
+    params = init_params
+
+    initial_log_lik = float(avg_log_lik(params))
     print(f"Initial average log-likelihood: {initial_log_lik:.4f}")
 
-    print(f"\nRunning {n_em_steps} EM iterations...")
-    params = init_params
+    true_avg_ll = float(avg_log_lik(true_params))
+    print(f"True-param average log-likelihood: {true_avg_ll:.4f}")
+
+    print(f"\nRunning {n_learn_steps} gradient ascent steps...")
     log_likelihoods = [initial_log_lik]
 
-    for i in range(n_em_steps):
-        params = latent_process_expectation_maximization(
-            model, params, observations_batch
-        )
+    grad_fn = jax.grad(avg_log_lik)
 
-        avg_ll = float(
-            jnp.mean(
-                jax.vmap(
-                    lambda obs, p=params: latent_process_log_observable_density(
-                        model, p, obs
-                    )
-                )(observations_batch)
-            )
+    for i in range(n_learn_steps):
+        grads = grad_fn(params)
+        # Negate for ascent (optax minimizes)
+        updates, opt_state = optimizer.update(
+            jax.tree.map(jnp.negative, grads), opt_state
         )
-        log_likelihoods.append(avg_ll)
+        params = jnp.asarray(optax.apply_updates(params, updates))
 
-        if (i + 1) % 5 == 0:
-            print(f"  Step {i + 1}: avg log-lik = {avg_ll:.4f}")
+        if (i + 1) % 10 == 0:
+            ll = float(avg_log_lik(params))
+            log_likelihoods.append(ll)
+            if (i + 1) % 50 == 0:
+                print(f"  Step {i + 1}: avg log-lik = {ll:.4f}")
 
     final_log_lik = log_likelihoods[-1]
     print(f"\nFinal average log-likelihood: {final_log_lik:.4f}")
     print(f"Improvement: {final_log_lik - initial_log_lik:.4f}")
-
-    # True-param log-likelihood for reference
-    true_avg_ll = float(
-        jnp.mean(
-            jax.vmap(
-                lambda obs: latent_process_log_observable_density(
-                    model, true_params, obs
-                )
-            )(observations_batch)
-        )
-    )
-    print(f"True-param average log-likelihood: {true_avg_ll:.4f}")
     print()
+
+    # --- Inference with learned parameters ---
+    print("Running inference with learned parameters...")
+    learned_filtered, _ = conjugated_filtering(model, params, observations)
+    learned_smoothed = conjugated_smoothing(model, params, observations)
+
+    learned_filt_stats = jax.vmap(extract_mean_std)(learned_filtered)
+    learned_smth_stats = jax.vmap(extract_mean_std)(learned_smoothed)
+    learned_filt_means, learned_filt_stds = learned_filt_stats
+    learned_smth_means, learned_smth_stds = learned_smth_stats
+
+    learned_filt_rmse = float(
+        jnp.sqrt(jnp.mean((learned_filt_means - true_latents[1:, :lat_dim]) ** 2))
+    )
+    learned_smth_rmse = float(
+        jnp.sqrt(jnp.mean((learned_smth_means - true_latents[1:, :lat_dim]) ** 2))
+    )
+    print(f"  Learned filtered RMSE: {learned_filt_rmse:.4f}")
+    print(f"  Learned smoothed RMSE: {learned_smth_rmse:.4f}")
 
     # Save results
     results = KalmanFilterResults(
@@ -179,14 +188,19 @@ def main() -> None:
         lat_dim=lat_dim,
         n_steps=n_steps,
         n_sequences=n_sequences,
-        n_em_steps=n_em_steps,
+        n_em_steps=n_learn_steps,
         observations=observations.tolist(),
         true_latents=true_latents.tolist(),
         filtered_means=true_filt_means.tolist(),
         filtered_stds=true_filt_stds.tolist(),
         smoothed_means=true_smth_means.tolist(),
         smoothed_stds=true_smth_stds.tolist(),
+        learned_filtered_means=learned_filt_means.tolist(),
+        learned_filtered_stds=learned_filt_stds.tolist(),
+        learned_smoothed_means=learned_smth_means.tolist(),
+        learned_smoothed_stds=learned_smth_stds.tolist(),
         log_likelihoods=log_likelihoods,
+        true_log_lik=true_avg_ll,
         initial_log_lik=initial_log_lik,
         final_log_lik=final_log_lik,
     )
