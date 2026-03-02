@@ -970,7 +970,7 @@ class TestKalmanFilterEM:
         return observations_batch
 
     def test_em_monotonicity(
-        self, model: KalmanFilter, true_params: Array, training_data: Array, key: Array
+        self, model: KalmanFilter, true_params: Array, training_data: Array, key: Array  # pyright: ignore[reportUnusedParameter]
     ) -> None:
         """Log-likelihood should be non-decreasing across EM steps."""
         init_params = model.initialize(
@@ -998,7 +998,7 @@ class TestKalmanFilterEM:
             prev_ll = avg_ll
 
     def test_em_improves_likelihood(
-        self, model: KalmanFilter, true_params: Array, training_data: Array, key: Array
+        self, model: KalmanFilter, true_params: Array, training_data: Array, key: Array  # pyright: ignore[reportUnusedParameter]
     ) -> None:
         """EM should improve log-likelihood over initial parameters."""
         init_params = model.initialize(
@@ -1064,7 +1064,7 @@ class TestHMMEM:
     def test_em_monotonicity(
         self,
         model: HiddenMarkovModel,
-        true_params: Array,
+        true_params: Array,  # pyright: ignore[reportUnusedParameter]
         training_data: Array,
         key: Array,
     ) -> None:
@@ -1096,7 +1096,7 @@ class TestHMMEM:
     def test_em_improves_likelihood(
         self,
         model: HiddenMarkovModel,
-        true_params: Array,
+        true_params: Array,  # pyright: ignore[reportUnusedParameter]
         training_data: Array,
         key: Array,
     ) -> None:
