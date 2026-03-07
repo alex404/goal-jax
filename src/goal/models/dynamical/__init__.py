@@ -34,10 +34,15 @@ from ...geometry import (
     AnalyticConjugated,
     EmbeddedMap,
     IdentityEmbedding,
+    PositiveDefinite,
     Rectangular,
 )
 from ...geometry.exponential_family.dynamical import (
+    AnalyticMarkovProcess,
+    ConjugatedMarkovProcess,
+    DifferentiableMarkovProcess,
     LatentProcess,
+    MarkovProcess,
     conjugated_filtering,
     conjugated_smoothing,
     conjugated_smoothing0,
@@ -50,7 +55,7 @@ from ...geometry.exponential_family.dynamical import (
 )
 from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, full_normal
-from ..harmonium.lgm import GeneralizedGaussianLocationEmbedding
+from ..harmonium.lgm import NormalAnalyticLGM
 
 # =============================================================================
 # Kalman Filter Implementation
@@ -58,219 +63,28 @@ from ..harmonium.lgm import GeneralizedGaussianLocationEmbedding
 
 
 @dataclass(frozen=True)
-class NormalTransition(AnalyticConjugated[FullNormal, FullNormal]):
+class NormalTransition(NormalAnalyticLGM[PositiveDefinite]):
     """Transition harmonium for Kalman filter: p(z_t | z_{t-1}).
 
-    Models linear Gaussian transitions:
-        z_t = A * z_{t-1} + w_t,  w_t ~ N(0, Q)
-
-    This is a symmetric conjugated harmonium where both observable (z_{t-1})
-    and latent (z_t) are FullNormal distributions.
+    Models linear Gaussian transitions z_t = A z_{t-1} + w_t, w_t ~ N(0, Q).
+    Both observable (current state z_t) and latent (previous state z_{t-1})
+    are FullNormal. Inherits all inference methods from NormalAnalyticLGM.
     """
 
-    lat_dim: int
-    """Dimension of the latent state."""
-
-    @property
-    @override
-    def lat_man(self) -> FullNormal:
-        return full_normal(self.lat_dim)
-
-    @property
-    @override
-    def obs_man(self) -> FullNormal:
-        # In the transition model, the "observable" is z_{t-1}
-        return full_normal(self.lat_dim)
-
-    @property
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[FullNormal]:
-        return GeneralizedGaussianLocationEmbedding(self.obs_man)
-
-    @property
-    def int_lat_emb(self) -> GeneralizedGaussianLocationEmbedding[FullNormal]:
-        return GeneralizedGaussianLocationEmbedding(self.lat_man)
-
-    @property
-    @override
-    def int_man(self) -> EmbeddedMap[FullNormal, FullNormal]:
-        return EmbeddedMap(
-            Rectangular(),
-            self.int_lat_emb,
-            self.int_obs_emb,
-        )
-
-    @override
-    def conjugation_parameters(self, lkl_params: Array) -> Array:
-        """Compute conjugation parameters for Normal-Normal transition.
-
-        Same formula as LGM since both are linear Gaussian.
-        """
-        obs_cov_man = self.obs_man.cov_man
-        obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
-        obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
-
-        # Intermediate computations
-        obs_sigma = obs_cov_man.inverse(obs_prec)
-        obs_mean = obs_cov_man(obs_sigma, obs_loc)
-
-        im = self.int_man
-        int_mat_trn = im.transpose(int_mat)
-        rho_mean = im.trn_man.rep.matvec(
-            im.trn_man.matrix_shape, int_mat_trn, obs_mean
-        )
-
-        # Change of basis for covariance contribution
-        int_mat_dense = im.to_matrix(int_mat)
-        obs_sigma_dense = obs_cov_man.to_matrix(obs_sigma)
-        rho_cov_dense = int_mat_dense.T @ obs_sigma_dense @ int_mat_dense
-        rho_shape = self.lat_man.cov_man.from_matrix(-rho_cov_dense)
-
-        return self.lat_man.join_location_precision(rho_mean, rho_shape)
-
-    @override
-    def to_natural_likelihood(self, means: Array) -> Array:
-        """Convert mean parameters to natural likelihood parameters."""
-        # Get relevant manifolds
-        ocm = self.obs_man.cov_man
-        lcm = self.lat_man.cov_man
-        im = self.int_man
-
-        # Deconstruct parameters
-        obs_means, int_means, lat_means = self.split_coords(means)
-        obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
-        lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
-
-        # Interaction covariance
-        int_cov = int_means - im.rep.outer_product(obs_mean, lat_mean)
-
-        # Construct precisions
-        lat_prs = lcm.inverse(lat_cov)
-
-        # Change of basis
-        int_cov_dense = im.to_matrix(int_cov)
-        lat_prs_dense = lcm.to_matrix(lat_prs)
-        cob_dense = int_cov_dense @ lat_prs_dense @ int_cov_dense.T
-        shaped_cob = ocm.from_matrix(cob_dense)
-
-        obs_prs = ocm.inverse(obs_cov - shaped_cob)
-
-        # Compute interaction in natural coords
-        obs_prs_dense = ocm.to_matrix(obs_prs)
-        int_params_dense = -obs_prs_dense @ im.to_matrix(int_cov) @ lat_prs_dense
-        int_params = im.from_matrix(int_params_dense)
-
-        # Compute observable location
-        obs_loc0 = ocm(obs_prs, obs_mean)
-        obs_loc1 = im.rep.matvec(im.matrix_shape, int_params, lat_mean)
-        obs_loc = obs_loc0 - obs_loc1
-
-        obs_params = self.obs_man.join_location_precision(obs_loc, obs_prs)
-        return self.lkl_fun_man.join_coords(obs_params, int_params)
+    def __init__(self, lat_dim: int):
+        super().__init__(obs_dim=lat_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
 
 
 @dataclass(frozen=True)
-class NormalEmission(AnalyticConjugated[FullNormal, FullNormal]):
+class NormalEmission(NormalAnalyticLGM[PositiveDefinite]):
     """Emission harmonium for Kalman filter: p(x_t | z_t).
 
-    Models linear Gaussian emissions:
-        x_t = C * z_t + v_t,  v_t ~ N(0, R)
-
-    This is essentially an LGM but both observable and latent use full covariance.
+    Models linear Gaussian emissions x_t = C z_t + v_t, v_t ~ N(0, R).
+    Inherits all inference methods from NormalAnalyticLGM.
     """
 
-    obs_dim: int
-    """Dimension of observations."""
-
-    _lat_dim: int
-    """Dimension of latent state."""
-
-    @property
-    def lat_dim(self) -> int:
-        """Dimension of latent state."""
-        return self._lat_dim
-
-    @property
-    @override
-    def lat_man(self) -> FullNormal:
-        return full_normal(self._lat_dim)
-
-    @property
-    @override
-    def obs_man(self) -> FullNormal:
-        return full_normal(self.obs_dim)
-
-    @property
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[FullNormal]:
-        return GeneralizedGaussianLocationEmbedding(self.obs_man)
-
-    @property
-    def int_lat_emb(self) -> GeneralizedGaussianLocationEmbedding[FullNormal]:
-        return GeneralizedGaussianLocationEmbedding(self.lat_man)
-
-    @property
-    @override
-    def int_man(self) -> EmbeddedMap[FullNormal, FullNormal]:
-        return EmbeddedMap(
-            Rectangular(),
-            self.int_lat_emb,
-            self.int_obs_emb,
-        )
-
-    @override
-    def conjugation_parameters(self, lkl_params: Array) -> Array:
-        """Compute conjugation parameters for Normal emission."""
-        obs_cov_man = self.obs_man.cov_man
-        obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
-        obs_loc, obs_prec = self.obs_man.split_location_precision(obs_bias)
-
-        obs_sigma = obs_cov_man.inverse(obs_prec)
-        obs_mean = obs_cov_man(obs_sigma, obs_loc)
-
-        im = self.int_man
-        int_mat_trn = im.transpose(int_mat)
-        rho_mean = im.trn_man.rep.matvec(
-            im.trn_man.matrix_shape, int_mat_trn, obs_mean
-        )
-
-        int_mat_dense = im.to_matrix(int_mat)
-        obs_sigma_dense = obs_cov_man.to_matrix(obs_sigma)
-        rho_cov_dense = int_mat_dense.T @ obs_sigma_dense @ int_mat_dense
-        rho_shape = self.lat_man.cov_man.from_matrix(-rho_cov_dense)
-
-        return self.lat_man.join_location_precision(rho_mean, rho_shape)
-
-    @override
-    def to_natural_likelihood(self, means: Array) -> Array:
-        """Convert mean parameters to natural likelihood parameters."""
-        ocm = self.obs_man.cov_man
-        lcm = self.lat_man.cov_man
-        im = self.int_man
-
-        obs_means, int_means, lat_means = self.split_coords(means)
-        obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
-        lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
-
-        int_cov = int_means - im.rep.outer_product(obs_mean, lat_mean)
-
-        lat_prs = lcm.inverse(lat_cov)
-
-        int_cov_dense = im.to_matrix(int_cov)
-        lat_prs_dense = lcm.to_matrix(lat_prs)
-        cob_dense = int_cov_dense @ lat_prs_dense @ int_cov_dense.T
-        shaped_cob = ocm.from_matrix(cob_dense)
-
-        obs_prs = ocm.inverse(obs_cov - shaped_cob)
-
-        obs_prs_dense = ocm.to_matrix(obs_prs)
-        int_params_dense = -obs_prs_dense @ im.to_matrix(int_cov) @ lat_prs_dense
-        int_params = im.from_matrix(int_params_dense)
-
-        obs_loc0 = ocm(obs_prs, obs_mean)
-        obs_loc1 = im.rep.matvec(im.matrix_shape, int_params, lat_mean)
-        obs_loc = obs_loc0 - obs_loc1
-
-        obs_params = self.obs_man.join_location_precision(obs_loc, obs_prs)
-        return self.lkl_fun_man.join_coords(obs_params, int_params)
+    def __init__(self, obs_dim: int, lat_dim: int):
+        super().__init__(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
 
 
 @dataclass(frozen=True)
@@ -348,7 +162,7 @@ class KalmanFilter(LatentProcess[FullNormal, FullNormal]):
         """
 
         def _build_harmonium(
-            hrm: NormalEmission | NormalTransition,
+            hrm: NormalAnalyticLGM[PositiveDefinite],
             weight_matrix: Array,
             noise_covariance: Array,
         ) -> Array:
@@ -434,7 +248,7 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
     @property
     @override
     def obs_man(self) -> Categorical:
-        # In the transition model, the "observable" is z_{t-1}
+        # In the transition model, the observable side is the current state z_t
         return Categorical(self.n_states)
 
     @property
@@ -485,55 +299,34 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
         """
         obs_means, int_means, lat_means = self.split_coords(means)
 
-        # Get probabilities from means
         obs_probs = self.obs_man.to_probs(obs_means)
         lat_probs = self.lat_man.to_probs(lat_means)
 
-        # Joint probabilities (outer product gives p(obs, lat))
-        # int_means represents E[s_obs(x) \otimes s_lat(z)] = P(obs=i, lat=j) for i,j > 0
         obs_dim = self.obs_man.dim
         lat_dim = self.lat_man.dim
         int_matrix = int_means.reshape((obs_dim, lat_dim))
 
-        # Reconstruct full joint probability table
-        # P(obs=i, lat=j) for i,j = 0, ..., n-1
+        # Reconstruct full joint probability table P(obs=i, lat=j).
+        # Fill in order: interior, then lat=0 column, then obs=0 row (which needs lat=0 column).
         joint_probs = jnp.zeros((self.n_states, self.n_states))
-        # Interior: directly from means (for i,j > 0)
+        # P(obs=i, lat=j) for i,j > 0: directly from interaction means
         joint_probs = joint_probs.at[1:, 1:].set(int_matrix)
-        # First row (obs=0): P(obs=0, lat=j) = P(lat=j) - sum over obs>0
-        for j in range(self.n_states):
-            if j == 0:
-                joint_probs = joint_probs.at[0, 0].set(
-                    lat_probs[0] - jnp.sum(int_matrix[:, 0] if lat_dim > 0 else 0.0)
-                )
-            else:
-                joint_probs = joint_probs.at[0, j].set(
-                    lat_probs[j] - jnp.sum(int_matrix[:, j - 1])
-                )
-        # First column (lat=0): P(obs=i, lat=0) = P(obs=i) - sum over lat>0
-        for i in range(1, self.n_states):
-            joint_probs = joint_probs.at[i, 0].set(
-                obs_probs[i] - jnp.sum(int_matrix[i - 1, :])
-            )
+        # P(obs=i, lat=0) for i > 0: P(obs=i) - sum_{j>0} P(obs=i, lat=j)
+        col0_nonref = obs_probs[1:] - jnp.sum(int_matrix, axis=1)
+        joint_probs = joint_probs.at[1:, 0].set(col0_nonref)
+        # P(obs=0, lat=j) for j > 0: P(lat=j) - sum_{i>0} P(obs=i, lat=j)
+        joint_probs = joint_probs.at[0, 1:].set(lat_probs[1:] - jnp.sum(int_matrix, axis=0))
+        # P(obs=0, lat=0): P(lat=0) - sum_{i>0} P(obs=i, lat=0)
+        joint_probs = joint_probs.at[0, 0].set(lat_probs[0] - jnp.sum(col0_nonref))
 
-        # Conditional p(obs | lat) = joint / p(lat)
-        # Add small epsilon for numerical stability
         eps = 1e-10
         cond_probs = joint_probs / (lat_probs[None, :] + eps)
 
-        # Convert to natural parameters
-        # \theta_obs[i] = log(p(obs=i | lat=0) / p(obs=0 | lat=0)) for the bias
-        # \theta_int[i,j] = log(p(obs=i | lat=j) / p(obs=i | lat=0)) - log(p(obs=0 | lat=j) / p(obs=0 | lat=0))
-        # This is the log-linear parameterization
-
-        # Observable bias: natural params from conditional p(obs | lat=0)
         cond_given_lat0 = cond_probs[:, 0]
         obs_nat = jnp.log(cond_given_lat0[1:] + eps) - jnp.log(cond_given_lat0[0] + eps)
 
-        # Interaction: for each lat category j > 0
         def compute_int_col(j: int) -> Array:
             cond_j = cond_probs[:, j]
-            # log(p(obs=i|lat=j)/p(obs=0|lat=j)) - log(p(obs=i|lat=0)/p(obs=0|lat=0))
             nat_j = jnp.log(cond_j[1:] + eps) - jnp.log(cond_j[0] + eps)
             return nat_j - obs_nat
 
@@ -611,24 +404,14 @@ class CategoricalEmission(AnalyticConjugated[Categorical, Categorical]):
         lat_dim = self.lat_man.dim
         int_matrix = int_means.reshape((obs_dim, lat_dim))
 
-        # Reconstruct full joint probability table
+        # Reconstruct full joint probability table P(obs=i, lat=j).
+        # Fill in order: interior, then lat=0 column, then obs=0 row.
         joint_probs = jnp.zeros((self.n_obs, self._n_states))
         joint_probs = joint_probs.at[1:, 1:].set(int_matrix)
-
-        for j in range(self._n_states):
-            if j == 0:
-                joint_probs = joint_probs.at[0, 0].set(
-                    lat_probs[0] - jnp.sum(int_matrix[:, 0] if lat_dim > 0 else 0.0)
-                )
-            else:
-                joint_probs = joint_probs.at[0, j].set(
-                    lat_probs[j] - jnp.sum(int_matrix[:, j - 1])
-                )
-
-        for i in range(1, self.n_obs):
-            joint_probs = joint_probs.at[i, 0].set(
-                obs_probs[i] - jnp.sum(int_matrix[i - 1, :])
-            )
+        col0_nonref = obs_probs[1:] - jnp.sum(int_matrix, axis=1)
+        joint_probs = joint_probs.at[1:, 0].set(col0_nonref)
+        joint_probs = joint_probs.at[0, 1:].set(lat_probs[1:] - jnp.sum(int_matrix, axis=0))
+        joint_probs = joint_probs.at[0, 0].set(lat_probs[0] - jnp.sum(col0_nonref))
 
         eps = 1e-10
         cond_probs = joint_probs / (lat_probs[None, :] + eps)
@@ -730,20 +513,80 @@ def create_hmm(n_obs: int, n_states: int) -> HiddenMarkovModel:
 
 
 # =============================================================================
+# Fully Observed Markov Chains
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class GaussianMarkovChain(AnalyticMarkovProcess[FullNormal]):
+    """Fully observed Gaussian Markov chain."""
+
+    bas_hrm: NormalTransition
+
+    @property
+    def lat_dim(self) -> int:
+        return self.bas_hrm.lat_dim
+
+    @property
+    @override
+    def trns_hrm(self) -> NormalTransition:
+        return self.bas_hrm
+
+
+@dataclass(frozen=True)
+class CategoricalMarkovChain(AnalyticMarkovProcess[Categorical]):
+    """Fully observed categorical Markov chain."""
+
+    bas_hrm: CategoricalTransition
+
+    @property
+    def n_states(self) -> int:
+        return self.bas_hrm.n_states
+
+    @property
+    @override
+    def trns_hrm(self) -> CategoricalTransition:
+        return self.bas_hrm
+
+
+def create_gaussian_markov_chain(lat_dim: int, n_steps: int) -> GaussianMarkovChain:
+    """Create a fully observed Gaussian Markov chain."""
+    return GaussianMarkovChain(n_steps=n_steps, bas_hrm=NormalTransition(lat_dim))
+
+
+def create_categorical_markov_chain(
+    n_states: int, n_steps: int
+) -> CategoricalMarkovChain:
+    """Create a fully observed categorical Markov chain."""
+    return CategoricalMarkovChain(
+        n_steps=n_steps,
+        bas_hrm=CategoricalTransition(n_states),
+    )
+
+
+# =============================================================================
 # Exports
 # =============================================================================
 
 __all__ = [
+    "CategoricalMarkovChain",
     "CategoricalEmission",
     "CategoricalTransition",
+    "ConjugatedMarkovProcess",
+    "DifferentiableMarkovProcess",
+    "GaussianMarkovChain",
     "HiddenMarkovModel",
     "KalmanFilter",
+    "AnalyticMarkovProcess",
     "LatentProcess",
+    "MarkovProcess",
     "NormalEmission",
     "NormalTransition",
     "conjugated_filtering",
     "conjugated_smoothing",
     "conjugated_smoothing0",
+    "create_categorical_markov_chain",
+    "create_gaussian_markov_chain",
     "create_hmm",
     "create_kalman_filter",
     "latent_process_expectation_maximization",

@@ -21,19 +21,174 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TypeVar, override
+from typing import Any, Self, TypeVar, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.combinators import Triple
-from .base import Analytic, Differentiable
-from .harmonium import AnalyticConjugated
+from .base import Analytic, Differentiable, Gibbs
+from .graphical import PosteriorEmbedding
+from .harmonium import (
+    AnalyticConjugated,
+    DifferentiableConjugated,
+    Harmonium,
+    SymmetricConjugated,
+)
 
 # Type variables for generic functions
 Obs = TypeVar("Obs", bound=Differentiable)
 Lat = TypeVar("Lat", bound=Analytic)
+
+
+@dataclass(frozen=True)
+class MarkovProcess[L: Gibbs](
+    Harmonium[Any, L],
+    ABC,
+):
+    """Fully observed Markov chain built recursively as a harmonium.
+
+    The recursion is driven by a one-step transition harmonium ``bas_hrm`` over
+    the state family ``L``.
+
+    - ``n_steps == 1``: the chain is exactly ``bas_hrm``
+    - ``n_steps > 1``: the observable side is the same chain with one fewer
+      transition, and the current interaction is ``bas_hrm.int_man`` embedded
+      into that shorter chain's posterior block
+
+    Trajectories use harmonium-native reverse chronological order
+    ``[z_T | z_{T-1} | \\cdots | z_0]``. With this layout, the recursive chain
+    inherits the standard harmonium sufficient statistic and base-measure
+    formulas without any custom trajectory overrides.
+    """
+
+    # Fields
+
+    n_steps: int
+    bas_hrm: Harmonium[L, L]
+
+    def __post_init__(self) -> None:
+        if self.n_steps < 1:
+            raise ValueError("MarkovProcess requires n_steps >= 1.")
+        if self.bas_hrm.obs_man != self.bas_hrm.pst_man:
+            raise TypeError(
+                "MarkovProcess requires a one-step self-transition harmonium."
+            )
+
+    # Overrides
+
+    @property
+    def trns_hrm(self) -> Harmonium[L, L]:
+        """One-step transition harmonium used at every recursion level."""
+        return self.bas_hrm
+
+    @property
+    def lat_man(self) -> L:
+        return self.trns_hrm.pst_man
+
+    @property
+    @override
+    def obs_man(self) -> Any:
+        if self.n_steps == 1:
+            return self.trns_hrm.obs_man
+        return self._obs_chain()
+
+    @property
+    @override
+    def int_man(self) -> Any:
+        if self.n_steps == 1:
+            return self.trns_hrm.int_man
+        return self.trns_hrm.int_man.append_embedding(
+            PosteriorEmbedding(self._obs_chain())
+        )
+
+    # Methods
+
+    def _obs_chain(self) -> Self:
+        """The same recursive chain with one fewer transition."""
+        if self.n_steps == 1:
+            raise ValueError("A one-step MarkovProcess has no shorter suffix chain.")
+        return type(self)(n_steps=self.n_steps - 1, bas_hrm=self.bas_hrm)
+
+
+@dataclass(frozen=True)
+class ConjugatedMarkovProcess[L: Differentiable](
+    MarkovProcess[L],
+    SymmetricConjugated[Any, L],
+    ABC,
+):
+    """Recursive symmetric conjugated Markov chain."""
+
+    @property
+    @override
+    def trns_hrm(self) -> SymmetricConjugated[L, L]:
+        return self.bas_hrm  # pyright: ignore[reportReturnType]
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array) -> Array:
+        if self.n_steps == 1:
+            return self.trns_hrm.conjugation_parameters(lkl_params)
+
+        obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
+        prior_short = self._obs_chain().prior(obs_params)
+        base_lkl = self.trns_hrm.lkl_fun_man.join_coords(prior_short, int_params)
+        return self.trns_hrm.conjugation_parameters(base_lkl)
+
+
+@dataclass(frozen=True)
+class DifferentiableMarkovProcess[L: Differentiable](
+    ConjugatedMarkovProcess[L],
+    DifferentiableConjugated[Any, L, L],
+    ABC,
+):
+    """Recursive differentiable conjugated Markov chain."""
+
+
+@dataclass(frozen=True)
+class AnalyticMarkovProcess[L: Analytic](
+    DifferentiableMarkovProcess[L],
+    Analytic,
+    ABC,
+):
+    """Recursive analytic Markov chain."""
+
+    @property
+    @override
+    def trns_hrm(self) -> AnalyticConjugated[L, L]:
+        return self.bas_hrm  # pyright: ignore[reportReturnType]
+
+    @override
+    def to_natural(self, means: Array) -> Array:
+        lkl_params = self.to_natural_likelihood(means)
+        mean_lat = self.split_coords(means)[2]
+        nat_lat = self.pst_man.to_natural(mean_lat)
+        return self.join_conjugated(lkl_params, nat_lat)
+
+    @override
+    def negative_entropy(self, means: Array) -> Array:
+        params = self.to_natural(means)
+        return jnp.dot(params, means) - self.log_partition_function(params)
+
+    def to_natural_likelihood(self, means: Array) -> Array:
+        """Convert recursive mean coordinates to likelihood natural parameters."""
+        if self.n_steps == 1:
+            return self.trns_hrm.to_natural_likelihood(means)
+
+        obs_means, int_means, lat_means = self.split_coords(means)
+        obs_chain = self._obs_chain()
+        obs_params = obs_chain.to_natural(obs_means)
+
+        first_state_means = obs_chain.split_coords(obs_means)[2]
+        edge_means = self.trns_hrm.join_coords(
+            first_state_means,
+            int_means,
+            lat_means,
+        )
+        edge_lkl = self.trns_hrm.to_natural_likelihood(edge_means)
+        _, int_params = self.trns_hrm.lkl_fun_man.split_coords(edge_lkl)
+
+        return self.lkl_fun_man.join_coords(obs_params, int_params)
 
 
 @dataclass(frozen=True)
@@ -340,9 +495,7 @@ def conjugated_smoothing0(
     trns_lkl_params, _ = trns_hrm.split_conjugated(trns_params)
     emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
 
-    def forward_step(
-        prior: Array, obs: Array
-    ) -> tuple[Array, Array]:
+    def forward_step(prior: Array, obs: Array) -> tuple[Array, Array]:
         """Forward step: filter and return filtered state."""
         # Prediction step: p(z_t | x_{1:t-1}) via transition
         predicted = trns_hrm.join_conjugated(trns_lkl_params, prior)

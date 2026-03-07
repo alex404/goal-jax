@@ -13,8 +13,10 @@ import pytest
 from jax import Array
 
 from goal.models import (
+    CategoricalMarkovChain,
     CategoricalEmission,
     CategoricalTransition,
+    GaussianMarkovChain,
     HiddenMarkovModel,
     KalmanFilter,
     NormalEmission,
@@ -22,6 +24,8 @@ from goal.models import (
     conjugated_filtering,
     conjugated_smoothing,
     conjugated_smoothing0,
+    create_categorical_markov_chain,
+    create_gaussian_markov_chain,
     create_hmm,
     create_kalman_filter,
     latent_process_expectation_maximization,
@@ -119,7 +123,7 @@ class TestNormalEmission:
     @pytest.fixture
     def model(self) -> NormalEmission:
         """Create an emission model."""
-        return NormalEmission(obs_dim=2, _lat_dim=3)
+        return NormalEmission(obs_dim=2, lat_dim=3)
 
     def test_dimensions(self, model: NormalEmission) -> None:
         """Test that dimensions are correct."""
@@ -319,6 +323,406 @@ class TestKalmanFilterLogLikelihood:
         _, log_lik2 = conjugated_filtering(model, params, observations)
 
         assert jnp.allclose(log_lik1, log_lik2, rtol=RTOL, atol=ATOL)
+
+
+# =============================================================================
+# Fully Observed Markov Chain Tests
+# =============================================================================
+
+
+def sample_markov_trajectory(
+    model: GaussianMarkovChain | CategoricalMarkovChain,
+    params: Array,
+    key: Array,
+) -> Array:
+    """Sample a trajectory in reverse chronological harmonium layout."""
+    return model.sample(key, params, n=1)[0]
+
+
+def split_markov_trajectory(
+    model: GaussianMarkovChain | CategoricalMarkovChain,
+    trajectory: Array,
+) -> tuple[Array, Array]:
+    """Split a trajectory into suffix and initial-state blocks."""
+    obs_dim = model.obs_man.data_dim
+    return trajectory[:obs_dim], trajectory[obs_dim:]
+
+
+def pack_markov_trajectory(states: Array) -> Array:
+    """Pack chronological states ``[z_0, ..., z_T]`` into ``[z_T | ... | z_0]``."""
+    return states[::-1].reshape(-1)
+
+
+def markov_process_recursive_log_density(
+    model: GaussianMarkovChain | CategoricalMarkovChain,
+    params: Array,
+    trajectory: Array,
+) -> Array:
+    """Evaluate the recursive factorization ``p(z_T:1 | z_0) p(z_0)`` directly."""
+    suffix, z0 = split_markov_trajectory(model, trajectory)
+    log_prior = model.lat_man.log_density(model.prior(params), z0)
+    log_suffix = model.obs_man.log_density(model.likelihood_at(params, z0), suffix)
+    return log_prior + log_suffix
+
+
+class TestGaussianMarkovChain:
+    """Test GaussianMarkovChain recursive harmonium structure."""
+
+    @pytest.fixture
+    def model(self) -> GaussianMarkovChain:
+        return create_gaussian_markov_chain(lat_dim=2, n_steps=3)
+
+    @pytest.fixture
+    def base_model(self) -> NormalTransition:
+        return NormalTransition(lat_dim=2)
+
+    @pytest.fixture
+    def one_step_model(self) -> GaussianMarkovChain:
+        return create_gaussian_markov_chain(lat_dim=2, n_steps=1)
+
+    def test_base_case_matches_transition(
+        self,
+        one_step_model: GaussianMarkovChain,
+        base_model: NormalTransition,
+        key: Array,
+    ) -> None:
+        params = one_step_model.initialize(key, location=0.0, shape=0.5)
+        base_params = base_model.initialize(key, location=0.0, shape=0.5)
+        trajectory = sample_markov_trajectory(
+            one_step_model, params, jax.random.fold_in(key, 1)
+        )
+        x, z = split_markov_trajectory(one_step_model, trajectory)
+
+        assert jnp.allclose(params, base_params, rtol=RTOL, atol=ATOL)
+        assert one_step_model.dim == base_model.dim
+        assert one_step_model.data_dim == base_model.data_dim
+        assert jnp.allclose(
+            one_step_model.sufficient_statistic(trajectory),
+            base_model.sufficient_statistic(trajectory),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.log_base_measure(trajectory),
+            base_model.log_base_measure(trajectory),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.prior(params),
+            base_model.prior(base_params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.likelihood_at(params, z),
+            base_model.likelihood_at(base_params, z),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.posterior_at(params, x),
+            base_model.posterior_at(base_params, x),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.log_partition_function(params),
+            base_model.log_partition_function(base_params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        means = one_step_model.to_mean(params)
+        assert jnp.allclose(
+            one_step_model.to_natural_likelihood(means),
+            base_model.to_natural_likelihood(means),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.negative_entropy(means),
+            base_model.negative_entropy(means),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+
+    def test_recursive_structure(self, model: GaussianMarkovChain) -> None:
+        assert isinstance(model.obs_man, GaussianMarkovChain)
+        assert model.obs_man.n_steps == model.n_steps - 1
+        assert model.int_man.dim == model.trns_hrm.int_man.dim
+        assert model.data_dim == (model.n_steps + 1) * model.lat_man.data_dim
+
+    def test_split_join_roundtrip(self, model: GaussianMarkovChain, key: Array) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        obs, interaction, lat = model.split_coords(params)
+        recovered = model.join_coords(obs, interaction, lat)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+    def test_interaction_targets_shorter_chain_prior_block(
+        self, model: GaussianMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        _, int_params, _ = model.split_coords(params)
+        z = jax.random.normal(jax.random.fold_in(key, 1), (model.lat_man.data_dim,))
+        z_stats = model.lat_man.sufficient_statistic(z)
+        obs_shift = model.int_man(int_params, z_stats)
+        obs_block, int_block, _ = model.obs_man.split_coords(obs_shift)
+
+        assert jnp.allclose(obs_block, jnp.zeros_like(obs_block), rtol=RTOL, atol=ATOL)
+        assert jnp.allclose(int_block, jnp.zeros_like(int_block), rtol=RTOL, atol=ATOL)
+
+    def test_sufficient_statistic_finite(
+        self, model: GaussianMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        trajectory = sample_markov_trajectory(model, params, jax.random.fold_in(key, 1))
+        suff_stats = model.sufficient_statistic(trajectory)
+
+        assert suff_stats.shape == (model.dim,)
+        assert jnp.all(jnp.isfinite(suff_stats))
+        assert jnp.isfinite(model.log_base_measure(trajectory))
+
+    def test_conjugation_equation(self, model: GaussianMarkovChain, key: Array) -> None:
+        params = model.initialize(key, location=0.0, shape=0.3)
+        lkl_params = model.likelihood_function(params)
+        obs_params, _ = model.lkl_fun_man.split_coords(lkl_params)
+        rho = model.conjugation_parameters(lkl_params)
+
+        for i in range(3):
+            z = jax.random.normal(
+                jax.random.fold_in(key, i + 10), (model.lat_man.data_dim,)
+            )
+            z_stats = model.lat_man.sufficient_statistic(z)
+            conditional_obs = model.lkl_fun_man(lkl_params, z_stats)
+            lhs = model.obs_man.log_partition_function(conditional_obs)
+            rhs = jnp.dot(rho, z_stats) + model.obs_man.log_partition_function(obs_params)
+            assert jnp.abs(lhs - rhs) < ATOL
+
+    def test_log_density_matches_recursive_factorization(
+        self, model: GaussianMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.3)
+        trajectory = sample_markov_trajectory(model, params, jax.random.fold_in(key, 2))
+
+        log_density = model.log_density(params, trajectory)
+        recursive_log_density = markov_process_recursive_log_density(
+            model, params, trajectory
+        )
+
+        assert jnp.allclose(
+            log_density, recursive_log_density, rtol=RTOL, atol=ATOL
+        )
+
+    def test_analytic_methods_finite(
+        self, model: GaussianMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.2)
+        means = model.to_mean(params)
+        lkl_params = model.to_natural_likelihood(means)
+
+        assert lkl_params.shape == (model.lkl_fun_man.dim,)
+        assert jnp.all(jnp.isfinite(lkl_params))
+        assert jnp.isfinite(model.negative_entropy(means))
+
+
+class TestCategoricalMarkovChain:
+    """Test CategoricalMarkovChain recursive harmonium structure."""
+
+    @pytest.fixture
+    def model(self) -> CategoricalMarkovChain:
+        return create_categorical_markov_chain(n_states=3, n_steps=3)
+
+    @pytest.fixture
+    def base_model(self) -> CategoricalTransition:
+        return CategoricalTransition(n_states=3)
+
+    @pytest.fixture
+    def one_step_model(self) -> CategoricalMarkovChain:
+        return create_categorical_markov_chain(n_states=3, n_steps=1)
+
+    def test_base_case_matches_transition(
+        self,
+        one_step_model: CategoricalMarkovChain,
+        base_model: CategoricalTransition,
+        key: Array,
+    ) -> None:
+        params = one_step_model.initialize(key, location=0.0, shape=0.5)
+        base_params = base_model.initialize(key, location=0.0, shape=0.5)
+        trajectory = sample_markov_trajectory(
+            one_step_model, params, jax.random.fold_in(key, 3)
+        )
+        x, z = split_markov_trajectory(one_step_model, trajectory)
+
+        assert jnp.allclose(params, base_params, rtol=RTOL, atol=ATOL)
+        assert one_step_model.dim == base_model.dim
+        assert one_step_model.data_dim == base_model.data_dim
+        assert jnp.allclose(
+            one_step_model.sufficient_statistic(trajectory),
+            base_model.sufficient_statistic(trajectory),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.log_base_measure(trajectory),
+            base_model.log_base_measure(trajectory),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.prior(params),
+            base_model.prior(base_params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.likelihood_at(params, z),
+            base_model.likelihood_at(base_params, z),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.posterior_at(params, x),
+            base_model.posterior_at(base_params, x),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.log_partition_function(params),
+            base_model.log_partition_function(base_params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        means = one_step_model.to_mean(params)
+        assert jnp.allclose(
+            one_step_model.to_natural_likelihood(means),
+            base_model.to_natural_likelihood(means),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            one_step_model.negative_entropy(means),
+            base_model.negative_entropy(means),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+
+    def test_recursive_structure(self, model: CategoricalMarkovChain) -> None:
+        assert isinstance(model.obs_man, CategoricalMarkovChain)
+        assert model.obs_man.n_steps == model.n_steps - 1
+        assert model.int_man.dim == model.trns_hrm.int_man.dim
+        assert model.data_dim == (model.n_steps + 1) * model.lat_man.data_dim
+
+    def test_split_join_roundtrip(
+        self, model: CategoricalMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        obs, interaction, lat = model.split_coords(params)
+        recovered = model.join_coords(obs, interaction, lat)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+    def test_interaction_targets_shorter_chain_prior_block(
+        self, model: CategoricalMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        _, int_params, _ = model.split_coords(params)
+        z = jnp.array([1], dtype=jnp.int32)
+        z_stats = model.lat_man.sufficient_statistic(z)
+        obs_shift = model.int_man(int_params, z_stats)
+        obs_block, int_block, _ = model.obs_man.split_coords(obs_shift)
+
+        assert jnp.allclose(obs_block, jnp.zeros_like(obs_block), rtol=RTOL, atol=ATOL)
+        assert jnp.allclose(int_block, jnp.zeros_like(int_block), rtol=RTOL, atol=ATOL)
+
+    def test_sufficient_statistic_finite(
+        self, model: CategoricalMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        trajectory = sample_markov_trajectory(model, params, jax.random.fold_in(key, 3))
+        suff_stats = model.sufficient_statistic(trajectory)
+
+        assert suff_stats.shape == (model.dim,)
+        assert jnp.all(jnp.isfinite(suff_stats))
+        assert jnp.isfinite(model.log_base_measure(trajectory))
+
+    def test_conjugation_equation(
+        self, model: CategoricalMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        lkl_params = model.likelihood_function(params)
+        obs_params, _ = model.lkl_fun_man.split_coords(lkl_params)
+        rho = model.conjugation_parameters(lkl_params)
+
+        for z_val in range(model.n_states):
+            z = jnp.array([z_val], dtype=jnp.int32)
+            z_stats = model.lat_man.sufficient_statistic(z)
+            conditional_obs = model.lkl_fun_man(lkl_params, z_stats)
+            lhs = model.obs_man.log_partition_function(conditional_obs)
+            rhs = jnp.dot(rho, z_stats) + model.obs_man.log_partition_function(obs_params)
+            assert jnp.abs(lhs - rhs) < ATOL
+
+    def test_log_density_matches_recursive_factorization(
+        self, model: CategoricalMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        trajectory = sample_markov_trajectory(model, params, jax.random.fold_in(key, 4))
+
+        log_density = model.log_density(params, trajectory)
+        recursive_log_density = markov_process_recursive_log_density(
+            model, params, trajectory
+        )
+
+        assert jnp.allclose(
+            log_density, recursive_log_density, rtol=RTOL, atol=ATOL
+        )
+
+    def test_analytic_methods_finite(
+        self, model: CategoricalMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.3)
+        means = model.to_mean(params)
+        lkl_params = model.to_natural_likelihood(means)
+
+        assert lkl_params.shape == (model.lkl_fun_man.dim,)
+        assert jnp.all(jnp.isfinite(lkl_params))
+        assert jnp.isfinite(model.negative_entropy(means))
+
+
+class TestCategoricalMarkovChainBruteForce:
+    """Brute-force validation of the recursive categorical chain density."""
+
+    @pytest.fixture
+    def model(self) -> CategoricalMarkovChain:
+        return create_categorical_markov_chain(n_states=2, n_steps=3)
+
+    @pytest.fixture
+    def params(self, model: CategoricalMarkovChain, key: Array) -> Array:
+        return model.initialize(key, location=0.0, shape=0.5)
+
+    def test_log_density_normalizes(
+        self, model: CategoricalMarkovChain, params: Array
+    ) -> None:
+        log_densities = []
+        recursive_log_densities = []
+
+        for seq in itertools.product(range(model.n_states), repeat=model.n_steps + 1):
+            states = jnp.array(seq, dtype=jnp.int32)[:, None]
+            trajectory = pack_markov_trajectory(states)
+            log_densities.append(model.log_density(params, trajectory))
+            recursive_log_densities.append(
+                markov_process_recursive_log_density(model, params, trajectory)
+            )
+
+        log_densities_arr = jnp.array(log_densities)
+        recursive_log_densities_arr = jnp.array(recursive_log_densities)
+        total_probability = jnp.sum(jnp.exp(log_densities_arr))
+
+        assert jnp.allclose(
+            log_densities_arr,
+            recursive_log_densities_arr,
+            rtol=1e-10,
+            atol=1e-10,
+        )
+        assert jnp.allclose(total_probability, 1.0, rtol=1e-10, atol=1e-10)
 
 
 # =============================================================================
@@ -1135,3 +1539,98 @@ class TestHMMEM:
         assert final_ll > initial_ll, (
             f"EM did not improve: {final_ll:.4f} <= {initial_ll:.4f}"
         )
+
+
+# =============================================================================
+# Roundtrip Tests: to_mean → to_natural
+# =============================================================================
+
+
+class TestNormalTransitionRoundtrip:
+    """Test NormalTransition to_mean/to_natural roundtrip."""
+
+    @pytest.fixture
+    def model(self) -> NormalTransition:
+        return NormalTransition(lat_dim=3)
+
+    def test_to_mean_to_natural_roundtrip(self, model: NormalTransition, key: Array) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        means = model.to_mean(params)
+        recovered = model.to_natural(means)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+
+class TestNormalEmissionRoundtrip:
+    """Test NormalEmission to_mean/to_natural roundtrip."""
+
+    @pytest.fixture
+    def model(self) -> NormalEmission:
+        return NormalEmission(obs_dim=2, lat_dim=3)
+
+    def test_to_mean_to_natural_roundtrip(self, model: NormalEmission, key: Array) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        means = model.to_mean(params)
+        recovered = model.to_natural(means)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+
+class TestGaussianMarkovChainRoundtrip:
+    """Test GaussianMarkovChain to_mean/to_natural roundtrip."""
+
+    @pytest.fixture
+    def model(self) -> GaussianMarkovChain:
+        return create_gaussian_markov_chain(lat_dim=2, n_steps=1)
+
+    def test_to_mean_to_natural_roundtrip(self, model: GaussianMarkovChain, key: Array) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        means = model.to_mean(params)
+        recovered = model.to_natural(means)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+
+class TestCategoricalTransitionRoundtrip:
+    """Test CategoricalTransition to_mean/to_natural roundtrip."""
+
+    @pytest.fixture
+    def model(self) -> CategoricalTransition:
+        return CategoricalTransition(n_states=3)
+
+    def test_to_mean_to_natural_roundtrip(
+        self, model: CategoricalTransition, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        means = model.to_mean(params)
+        recovered = model.to_natural(means)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+
+class TestCategoricalEmissionRoundtrip:
+    """Test CategoricalEmission to_mean/to_natural roundtrip."""
+
+    @pytest.fixture
+    def model(self) -> CategoricalEmission:
+        return CategoricalEmission(n_obs=4, _n_states=3)
+
+    def test_to_mean_to_natural_roundtrip(
+        self, model: CategoricalEmission, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        means = model.to_mean(params)
+        recovered = model.to_natural(means)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+
+class TestCategoricalMarkovChainRoundtrip:
+    """Test CategoricalMarkovChain to_mean/to_natural roundtrip."""
+
+    @pytest.fixture
+    def model(self) -> CategoricalMarkovChain:
+        return create_categorical_markov_chain(n_states=3, n_steps=1)
+
+    def test_to_mean_to_natural_roundtrip(
+        self, model: CategoricalMarkovChain, key: Array
+    ) -> None:
+        params = model.initialize(key, location=0.0, shape=0.5)
+        means = model.to_mean(params)
+        recovered = model.to_natural(means)
+        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)

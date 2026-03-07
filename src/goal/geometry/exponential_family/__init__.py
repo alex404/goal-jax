@@ -1,7 +1,11 @@
 """Exponential family distributions and harmoniums."""
 
 from .dynamical import (
+    AnalyticMarkovProcess,
+    ConjugatedMarkovProcess,
+    DifferentiableMarkovProcess,
     LatentProcess,
+    MarkovProcess,
     conjugated_filtering,
     conjugated_smoothing,
     conjugated_smoothing0,
@@ -19,7 +23,11 @@ from .variational import (
 
 __all__ = [
     # Dynamical models
+    "AnalyticMarkovProcess",
+    "ConjugatedMarkovProcess",
+    "DifferentiableMarkovProcess",
     "LatentProcess",
+    "MarkovProcess",
     # Variational
     "VariationalConjugated",
     "conjugated_filtering",
