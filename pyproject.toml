@@ -14,8 +14,8 @@ license = {text = "LICENSE"}
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",  # For coverage reporting
+    "pytest",
+    "pytest-cov",
 ]
 
 examples = [
@@ -24,18 +24,18 @@ examples = [
     "scikit-learn",
     "scipy-stubs",
     "seaborn",
-    ]
+]
 
 gpu = [
     "jax[cuda12]",
 ]
 
 docs = [
-    "sphinx>=7.0.0",
+    "sphinx",
     "furo",
     "sphinx-copybutton",
-    "sphinx-math-dollar", 
-    "myst-parser>=2.0.0",
+    "sphinx-math-dollar",
+    "myst-parser",
     "graphviz",
 ]
 

@@ -14,6 +14,18 @@ This project uses `uv` for Python environment and dependency management. Always 
 source .venv/bin/activate
 ```
 
+### Package management strategy
+
+This is a **library**, not an application. The dependency policy is:
+
+- `pyproject.toml` — the source of truth for what the project needs (bare package names, no version pins)
+- `uv.lock` — committed snapshot for reproducible dev environments; regenerate with `uv sync --all-extras` when deps change
+- Project `.venv` — should always match the lockfile; restore with `uv sync`
+
+**Do not** manually `uv pip install` into the project env — it creates drift from the lockfile. Instead:
+- Add permanent dependencies with `uv add` (updates both `pyproject.toml` and `uv.lock`)
+- Use `uvx <tool>` or `uv run --with <pkg> <cmd>` for one-off tools/packages
+
 ## Development Commands
 
 ### Testing
@@ -25,13 +37,11 @@ source .venv/bin/activate
   - `python -m pytest tests/test_matrix.py`
 
 ### Code Quality
-- Type checking: `basedpyright` (configured via pyproject.toml, available via uv)
+- Type checking: `uvx basedpyright` (or `basedpyright` with venv active)
 
-### Installation and Dependencies
-- Install for development: `pip install -e ".[test]"` or `uv pip install -e ".[test]"`
-- Install for examples: `pip install -e ".[examples]"` or `uv pip install -e ".[examples]"`
-- Install for documentation: `pip install -e ".[docs]"` or `uv pip install -e ".[docs]"`
-- GPU support: `pip install -e ".[gpu]"`
+### Syncing the environment
+- Sync all extras (recommended after pulling): `uv sync --all-extras`
+- Sync only core deps: `uv sync`
 
 ### Examples
 Examples are located in the `examples/` directory and organized by topic:
