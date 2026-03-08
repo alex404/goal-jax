@@ -188,9 +188,7 @@ class KalmanFilter(LatentProcess[FullNormal, FullNormal]):
         )
 
         # Build transition: p(z_t | z_{t-1}) with W=A, Sigma_x=Q
-        trns_params = _build_harmonium(
-            self.trns_hrm, transition_matrix, process_noise
-        )
+        trns_params = _build_harmonium(self.trns_hrm, transition_matrix, process_noise)
 
         # Build prior: p(z_0) = N(mu_0, Sigma_0)
         lm = self.lat_man
@@ -315,7 +313,9 @@ class CategoricalTransition(AnalyticConjugated[Categorical, Categorical]):
         col0_nonref = obs_probs[1:] - jnp.sum(int_matrix, axis=1)
         joint_probs = joint_probs.at[1:, 0].set(col0_nonref)
         # P(obs=0, lat=j) for j > 0: P(lat=j) - sum_{i>0} P(obs=i, lat=j)
-        joint_probs = joint_probs.at[0, 1:].set(lat_probs[1:] - jnp.sum(int_matrix, axis=0))
+        joint_probs = joint_probs.at[0, 1:].set(
+            lat_probs[1:] - jnp.sum(int_matrix, axis=0)
+        )
         # P(obs=0, lat=0): P(lat=0) - sum_{i>0} P(obs=i, lat=0)
         joint_probs = joint_probs.at[0, 0].set(lat_probs[0] - jnp.sum(col0_nonref))
 
@@ -410,7 +410,9 @@ class CategoricalEmission(AnalyticConjugated[Categorical, Categorical]):
         joint_probs = joint_probs.at[1:, 1:].set(int_matrix)
         col0_nonref = obs_probs[1:] - jnp.sum(int_matrix, axis=1)
         joint_probs = joint_probs.at[1:, 0].set(col0_nonref)
-        joint_probs = joint_probs.at[0, 1:].set(lat_probs[1:] - jnp.sum(int_matrix, axis=0))
+        joint_probs = joint_probs.at[0, 1:].set(
+            lat_probs[1:] - jnp.sum(int_matrix, axis=0)
+        )
         joint_probs = joint_probs.at[0, 0].set(lat_probs[0] - jnp.sum(col0_nonref))
 
         eps = 1e-10
@@ -521,37 +523,27 @@ def create_hmm(n_obs: int, n_states: int) -> HiddenMarkovModel:
 class GaussianMarkovChain(AnalyticMarkovProcess[FullNormal]):
     """Fully observed Gaussian Markov chain."""
 
-    bas_hrm: NormalTransition
+    trns_hrm: NormalTransition
 
     @property
     def lat_dim(self) -> int:
-        return self.bas_hrm.lat_dim
-
-    @property
-    @override
-    def trns_hrm(self) -> NormalTransition:
-        return self.bas_hrm
+        return self.trns_hrm.lat_dim
 
 
 @dataclass(frozen=True)
 class CategoricalMarkovChain(AnalyticMarkovProcess[Categorical]):
     """Fully observed categorical Markov chain."""
 
-    bas_hrm: CategoricalTransition
+    trns_hrm: CategoricalTransition
 
     @property
     def n_states(self) -> int:
-        return self.bas_hrm.n_states
-
-    @property
-    @override
-    def trns_hrm(self) -> CategoricalTransition:
-        return self.bas_hrm
+        return self.trns_hrm.n_states
 
 
 def create_gaussian_markov_chain(lat_dim: int, n_steps: int) -> GaussianMarkovChain:
     """Create a fully observed Gaussian Markov chain."""
-    return GaussianMarkovChain(n_steps=n_steps, bas_hrm=NormalTransition(lat_dim))
+    return GaussianMarkovChain(n_steps=n_steps, trns_hrm=NormalTransition(lat_dim))
 
 
 def create_categorical_markov_chain(
@@ -560,7 +552,7 @@ def create_categorical_markov_chain(
     """Create a fully observed categorical Markov chain."""
     return CategoricalMarkovChain(
         n_steps=n_steps,
-        bas_hrm=CategoricalTransition(n_states),
+        trns_hrm=CategoricalTransition(n_states),
     )
 
 
@@ -569,15 +561,15 @@ def create_categorical_markov_chain(
 # =============================================================================
 
 __all__ = [
-    "CategoricalMarkovChain",
+    "AnalyticMarkovProcess",
     "CategoricalEmission",
+    "CategoricalMarkovChain",
     "CategoricalTransition",
     "ConjugatedMarkovProcess",
     "DifferentiableMarkovProcess",
     "GaussianMarkovChain",
     "HiddenMarkovModel",
     "KalmanFilter",
-    "AnalyticMarkovProcess",
     "LatentProcess",
     "MarkovProcess",
     "NormalEmission",

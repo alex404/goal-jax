@@ -5,6 +5,7 @@ A hierarchical harmonium composes a lower harmonium (observable \\to middle late
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -233,27 +234,28 @@ class DifferentiableHierarchical[
         return upr_obs_emb.embed(self.lwr_hrm.conjugation_parameters(lkl_params))
 
 
-@dataclass(frozen=True)
 class SymmetricHierarchical[
     LowerHarmonium: SymmetricConjugated[Any, Any],
     UpperHarmonium: DifferentiableConjugated[Any, Any, Any],
 ](
     SymmetricConjugated[Any, UpperHarmonium],
+    ABC,
 ):
     """Symmetric hierarchical harmonium where the lower harmonium has matching posterior and prior manifolds."""
 
-    # Fields
+    # Contract
 
-    lwr_hrm: LowerHarmonium
-    """Lower harmonium: observable \\to middle latent."""
+    @property
+    @abstractmethod
+    def lwr_hrm(self) -> LowerHarmonium:
+        """Lower harmonium: observable \\to middle latent."""
+        ...
 
-    upr_hrm: UpperHarmonium
-    """Upper harmonium: middle latent \\to top latent."""
-
-    def __post_init__(self) -> None:
-        assert self.lwr_hrm.lat_man == self.upr_hrm.obs_man, (
-            "Lower harmonium's latent must match upper harmonium's observable"
-        )
+    @property
+    @abstractmethod
+    def upr_hrm(self) -> UpperHarmonium:
+        """Upper harmonium: middle latent \\to top latent."""
+        ...
 
     # Overrides
 
@@ -277,13 +279,13 @@ class SymmetricHierarchical[
         return upr_obs_emb.embed(self.lwr_hrm.conjugation_parameters(lkl_params))
 
 
-@dataclass(frozen=True)
 class AnalyticHierarchical[
     LowerHarmonium: AnalyticConjugated[Any, Any],
     UpperHarmonium: AnalyticConjugated[Any, Any],
 ](
     SymmetricHierarchical[LowerHarmonium, UpperHarmonium],
     AnalyticConjugated[Any, UpperHarmonium],
+    ABC,
 ):
     """Analytic hierarchical harmonium enabling closed-form EM and bidirectional parameter conversion."""
 

@@ -20,8 +20,8 @@ There are no Kalman-specific or HMM-specific algorithm implementations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Self, TypeVar, override
+from dataclasses import dataclass, replace
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp
@@ -29,7 +29,7 @@ from jax import Array
 
 from ..manifold.combinators import Triple
 from .base import Analytic, Differentiable, Gibbs
-from .graphical import PosteriorEmbedding
+from .graphical import AnalyticHierarchical, SymmetricHierarchical
 from .harmonium import (
     AnalyticConjugated,
     DifferentiableConjugated,
@@ -37,41 +37,40 @@ from .harmonium import (
     SymmetricConjugated,
 )
 
-# Type variables for generic functions
-Obs = TypeVar("Obs", bound=Differentiable)
-Lat = TypeVar("Lat", bound=Analytic)
-
 
 @dataclass(frozen=True)
 class MarkovProcess[L: Gibbs](
-    Harmonium[Any, L],
+    Harmonium[L, Any],
     ABC,
 ):
     """Fully observed Markov chain built recursively as a harmonium.
 
-    The recursion is driven by a one-step transition harmonium ``bas_hrm`` over
-    the state family ``L``.
+    The recursion is driven by a one-step transition harmonium ``trns_hrm`` over
+    the state family ``L``.  Data layout is chronological
+    ``[x_0, x_1, \\ldots, x_T]`` where ``obs = x_0`` (single state) and
+    ``lat = nxt\\_mrk(x_1 \\ldots x_T)`` for ``T > 1``.
 
-    - ``n_steps == 1``: the chain is exactly ``bas_hrm``
-    - ``n_steps > 1``: the observable side is the same chain with one fewer
-      transition, and the current interaction is ``bas_hrm.int_man`` embedded
-      into that shorter chain's posterior block
+    - ``n_steps == 1``: the chain is exactly ``trns_hrm``
+    - ``n_steps > 1``: the latent side is the same chain with one fewer
+      transition, and the interaction embeds via the sub-chain's observable slot
 
-    Trajectories use harmonium-native reverse chronological order
-    ``[z_T | z_{T-1} | \\cdots | z_0]``. With this layout, the recursive chain
-    inherits the standard harmonium sufficient statistic and base-measure
-    formulas without any custom trajectory overrides.
+    The ``Posterior`` type parameter of ``Harmonium`` is ``Any`` because the
+    latent manifold is recursive: for ``n_steps > 1`` it is another
+    ``MarkovProcess`` (i.e. ``Self``), while for ``n_steps == 1`` it is ``L``.
+    Python's type system cannot express this runtime-dependent self-referential
+    type, so ``Any`` is used throughout the hierarchy wherever this recursive
+    latent type appears.
     """
 
     # Fields
 
     n_steps: int
-    bas_hrm: Harmonium[L, L]
+    trns_hrm: Harmonium[L, L]
 
     def __post_init__(self) -> None:
         if self.n_steps < 1:
             raise ValueError("MarkovProcess requires n_steps >= 1.")
-        if self.bas_hrm.obs_man != self.bas_hrm.pst_man:
+        if self.trns_hrm.obs_man != self.trns_hrm.pst_man:
             raise TypeError(
                 "MarkovProcess requires a one-step self-transition harmonium."
             )
@@ -79,116 +78,111 @@ class MarkovProcess[L: Gibbs](
     # Overrides
 
     @property
-    def trns_hrm(self) -> Harmonium[L, L]:
-        """One-step transition harmonium used at every recursion level."""
-        return self.bas_hrm
+    @override
+    def obs_man(self) -> L:
+        return self.trns_hrm.obs_man
+
+    # Methods
 
     @property
-    def lat_man(self) -> L:
-        return self.trns_hrm.pst_man
+    def nxt_mrk(self) -> Self:
+        """The recursive sub-chain with one fewer step."""
+        if self.n_steps == 1:
+            raise ValueError("A one-step MarkovProcess has no sub-chain.")
+        return replace(self, n_steps=self.n_steps - 1)
+
+
+@dataclass(frozen=True)
+class ConjugatedMarkovProcess[L: Differentiable](
+    MarkovProcess[L],
+    SymmetricHierarchical[SymmetricConjugated[L, L], Any],
+    ABC,
+):
+    """Recursive symmetric conjugated Markov chain.
+
+    Inherits from ``SymmetricHierarchical`` with ``lwr_hrm = trns_hrm`` and
+    ``upr_hrm = nxt_mrk`` (the sub-chain). The ``UpperHarmonium`` type
+    parameter is ``Any`` for the same recursive reason as ``MarkovProcess``:
+    the upper harmonium is another ``ConjugatedMarkovProcess`` (``Self``),
+    which cannot be expressed as a static generic bound.
+    """
+
+    trns_hrm: SymmetricConjugated[L, L]
+
+    # Bridge properties: map hierarchy to Markov process
 
     @property
     @override
-    def obs_man(self) -> Any:
+    def lwr_hrm(self) -> SymmetricConjugated[L, L]:
+        return self.trns_hrm
+
+    @property
+    @override
+    def upr_hrm(self) -> Any:
+        return self.nxt_mrk
+
+    # n_steps==1 base case overrides (n_steps>1 delegates to SymmetricHierarchical)
+
+    @property
+    @override
+    def lat_man(self) -> Any:
         if self.n_steps == 1:
-            return self.trns_hrm.obs_man
-        return self._obs_chain()
+            return self.trns_hrm.lat_man
+        return super().lat_man
 
     @property
     @override
     def int_man(self) -> Any:
         if self.n_steps == 1:
             return self.trns_hrm.int_man
-        return self.trns_hrm.int_man.append_embedding(
-            PosteriorEmbedding(self._obs_chain())
-        )
-
-    # Methods
-
-    def _obs_chain(self) -> Self:
-        """The same recursive chain with one fewer transition."""
-        if self.n_steps == 1:
-            raise ValueError("A one-step MarkovProcess has no shorter suffix chain.")
-        return type(self)(n_steps=self.n_steps - 1, bas_hrm=self.bas_hrm)
-
-
-@dataclass(frozen=True)
-class ConjugatedMarkovProcess[L: Differentiable](
-    MarkovProcess[L],
-    SymmetricConjugated[Any, L],
-    ABC,
-):
-    """Recursive symmetric conjugated Markov chain."""
-
-    @property
-    @override
-    def trns_hrm(self) -> SymmetricConjugated[L, L]:
-        return self.bas_hrm  # pyright: ignore[reportReturnType]
+        return super().int_man
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
         if self.n_steps == 1:
             return self.trns_hrm.conjugation_parameters(lkl_params)
-
-        obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
-        prior_short = self._obs_chain().prior(obs_params)
-        base_lkl = self.trns_hrm.lkl_fun_man.join_coords(prior_short, int_params)
-        return self.trns_hrm.conjugation_parameters(base_lkl)
+        return super().conjugation_parameters(lkl_params)
 
 
 @dataclass(frozen=True)
 class DifferentiableMarkovProcess[L: Differentiable](
     ConjugatedMarkovProcess[L],
-    DifferentiableConjugated[Any, L, L],
+    DifferentiableConjugated[L, Any, Any],
     ABC,
 ):
-    """Recursive differentiable conjugated Markov chain."""
+    """Recursive differentiable conjugated Markov chain.
+
+    Both ``Posterior`` and ``Prior`` type parameters of
+    ``DifferentiableConjugated`` are ``Any`` because they are the recursive
+    sub-chain type (see ``MarkovProcess``).
+    """
 
 
 @dataclass(frozen=True)
 class AnalyticMarkovProcess[L: Analytic](
     DifferentiableMarkovProcess[L],
-    Analytic,
+    AnalyticHierarchical[AnalyticConjugated[L, L], Any],
     ABC,
 ):
-    """Recursive analytic Markov chain."""
+    """Recursive analytic Markov chain.
+
+    The ``UpperHarmonium`` parameter of ``AnalyticHierarchical`` is ``Any``
+    for the same recursive reason (see ``MarkovProcess``).
+    """
+
+    trns_hrm: AnalyticConjugated[L, L]
 
     @property
     @override
-    def trns_hrm(self) -> AnalyticConjugated[L, L]:
-        return self.bas_hrm  # pyright: ignore[reportReturnType]
+    def lwr_hrm(self) -> AnalyticConjugated[L, L]:
+        return self.trns_hrm
 
     @override
-    def to_natural(self, means: Array) -> Array:
-        lkl_params = self.to_natural_likelihood(means)
-        mean_lat = self.split_coords(means)[2]
-        nat_lat = self.pst_man.to_natural(mean_lat)
-        return self.join_conjugated(lkl_params, nat_lat)
-
-    @override
-    def negative_entropy(self, means: Array) -> Array:
-        params = self.to_natural(means)
-        return jnp.dot(params, means) - self.log_partition_function(params)
-
     def to_natural_likelihood(self, means: Array) -> Array:
         """Convert recursive mean coordinates to likelihood natural parameters."""
         if self.n_steps == 1:
             return self.trns_hrm.to_natural_likelihood(means)
-
-        obs_means, int_means, lat_means = self.split_coords(means)
-        obs_chain = self._obs_chain()
-        obs_params = obs_chain.to_natural(obs_means)
-
-        first_state_means = obs_chain.split_coords(obs_means)[2]
-        edge_means = self.trns_hrm.join_coords(
-            first_state_means,
-            int_means,
-            lat_means,
-        )
-        edge_lkl = self.trns_hrm.to_natural_likelihood(edge_means)
-        _, int_params = self.trns_hrm.lkl_fun_man.split_coords(edge_lkl)
-
-        return self.lkl_fun_man.join_coords(obs_params, int_params)
+        return super().to_natural_likelihood(means)
 
 
 @dataclass(frozen=True)
@@ -262,7 +256,7 @@ class LatentProcess[O: Differentiable, L: Analytic](
 # =============================================================================
 
 
-def transpose_harmonium(
+def transpose_harmonium[Lat: Analytic](
     hrm: AnalyticConjugated[Lat, Lat],
     params: Array,
 ) -> Array:
@@ -293,7 +287,7 @@ def transpose_harmonium(
 # =============================================================================
 
 
-def sample_latent_process(
+def sample_latent_process[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     key: Array,
@@ -365,7 +359,7 @@ def sample_latent_process(
 # =============================================================================
 
 
-def conjugated_forward_step(
+def conjugated_forward_step[Obs: Differentiable, Lat: Analytic](
     emsn_hrm: AnalyticConjugated[Obs, Lat],
     trns_hrm: AnalyticConjugated[Lat, Lat],
     emsn_params: Array,
@@ -420,7 +414,7 @@ def conjugated_forward_step(
     return filtered, log_lik
 
 
-def conjugated_filtering(
+def conjugated_filtering[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations: Array,
@@ -467,7 +461,7 @@ def conjugated_filtering(
 # =============================================================================
 
 
-def conjugated_smoothing0(
+def conjugated_smoothing0[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations: Array,
@@ -563,7 +557,7 @@ def conjugated_smoothing0(
     return smoothed_z0, smoothed_seq, joints
 
 
-def conjugated_smoothing(
+def conjugated_smoothing[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations: Array,
@@ -589,7 +583,7 @@ def conjugated_smoothing(
 # =============================================================================
 
 
-def latent_process_log_observable_density(
+def latent_process_log_observable_density[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations: Array,
@@ -610,7 +604,7 @@ def latent_process_log_observable_density(
     return log_likelihood
 
 
-def latent_process_log_density(
+def latent_process_log_density[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations: Array,
@@ -666,7 +660,7 @@ def latent_process_log_density(
 # =============================================================================
 
 
-def latent_process_expectation_step(
+def latent_process_expectation_step[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations: Array,
@@ -712,7 +706,7 @@ def latent_process_expectation_step(
     return prior_means, emsn_means, trns_means
 
 
-def latent_process_expectation_step_batch(
+def latent_process_expectation_step_batch[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations_batch: Array,
@@ -742,7 +736,7 @@ def latent_process_expectation_step_batch(
     )
 
 
-def latent_process_expectation_maximization(
+def latent_process_expectation_maximization[Obs: Differentiable, Lat: Analytic](
     process: LatentProcess[Obs, Lat],
     params: Array,
     observations_batch: Array,

@@ -189,6 +189,23 @@ class SymmetricHMoG[ObsRep: PositiveDefinite](
     over the latent space, which can be slower than DifferentiableHMoG.
     """
 
+    # Fields
+
+    _lwr_hrm: NormalAnalyticLGM[ObsRep]
+    _upr_hrm: Mixture[FullNormal]
+
+    # Overrides
+
+    @property
+    @override
+    def lwr_hrm(self) -> NormalAnalyticLGM[ObsRep]:
+        return self._lwr_hrm
+
+    @property
+    @override
+    def upr_hrm(self) -> Mixture[FullNormal]:
+        return self._upr_hrm
+
     # HMoG-specific methods
 
     def posterior_categorical(self, params: Array, x: Array) -> Array:
@@ -240,6 +257,23 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
 
     Requires full covariance Gaussians in the latent space.
     """
+
+    # Fields
+
+    _lwr_hrm: NormalAnalyticLGM[ObsRep]
+    _upr_hrm: AnalyticMixture[FullNormal]
+
+    # Overrides
+
+    @property
+    @override
+    def lwr_hrm(self) -> NormalAnalyticLGM[ObsRep]:
+        return self._lwr_hrm
+
+    @property
+    @override
+    def upr_hrm(self) -> AnalyticMixture[FullNormal]:
+        return self._upr_hrm
 
     @override
     def expectation_maximization(self, params: Array, xs: Array) -> Array:
@@ -388,8 +422,8 @@ def symmetric_hmog[ObsRep: PositiveDefinite](
     upr_hrm = Mixture(n_components, mix_sub)
 
     return SymmetricHMoG(
-        lwr_hrm,
-        upr_hrm,
+        _lwr_hrm=lwr_hrm,
+        _upr_hrm=upr_hrm,
     )
 
 
@@ -411,6 +445,6 @@ def analytic_hmog[ObsRep: PositiveDefinite](
     upr_hrm = AnalyticMixture(lat_man, n_components)
 
     return AnalyticHMoG(
-        lwr_hrm,
-        upr_hrm,
+        _lwr_hrm=lwr_hrm,
+        _upr_hrm=upr_hrm,
     )

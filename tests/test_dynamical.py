@@ -343,14 +343,14 @@ def split_markov_trajectory(
     model: GaussianMarkovChain | CategoricalMarkovChain,
     trajectory: Array,
 ) -> tuple[Array, Array]:
-    """Split a trajectory into suffix and initial-state blocks."""
+    """Split a trajectory into first-state and sub-chain blocks."""
     obs_dim = model.obs_man.data_dim
     return trajectory[:obs_dim], trajectory[obs_dim:]
 
 
 def pack_markov_trajectory(states: Array) -> Array:
-    """Pack chronological states ``[z_0, ..., z_T]`` into ``[z_T | ... | z_0]``."""
-    return states[::-1].reshape(-1)
+    """Pack chronological states ``[x_0, ..., x_T]`` into flat trajectory."""
+    return states.reshape(-1)
 
 
 def markov_process_recursive_log_density(
@@ -358,11 +358,11 @@ def markov_process_recursive_log_density(
     params: Array,
     trajectory: Array,
 ) -> Array:
-    """Evaluate the recursive factorization ``p(z_T:1 | z_0) p(z_0)`` directly."""
-    suffix, z0 = split_markov_trajectory(model, trajectory)
-    log_prior = model.lat_man.log_density(model.prior(params), z0)
-    log_suffix = model.obs_man.log_density(model.likelihood_at(params, z0), suffix)
-    return log_prior + log_suffix
+    """Evaluate the recursive factorization ``p(x_0 | rest) p(rest)`` directly."""
+    x0, rest = split_markov_trajectory(model, trajectory)
+    log_prior = model.lat_man.log_density(model.prior(params), rest)
+    log_obs = model.obs_man.log_density(model.likelihood_at(params, rest), x0)
+    return log_prior + log_obs
 
 
 class TestGaussianMarkovChain:
@@ -447,10 +447,10 @@ class TestGaussianMarkovChain:
         )
 
     def test_recursive_structure(self, model: GaussianMarkovChain) -> None:
-        assert isinstance(model.obs_man, GaussianMarkovChain)
-        assert model.obs_man.n_steps == model.n_steps - 1
+        assert isinstance(model.lat_man, GaussianMarkovChain)
+        assert model.lat_man.n_steps == model.n_steps - 1
         assert model.int_man.dim == model.trns_hrm.int_man.dim
-        assert model.data_dim == (model.n_steps + 1) * model.lat_man.data_dim
+        assert model.data_dim == (model.n_steps + 1) * model.obs_man.data_dim
 
     def test_split_join_roundtrip(self, model: GaussianMarkovChain, key: Array) -> None:
         params = model.initialize(key, location=0.0, shape=0.5)
@@ -458,18 +458,24 @@ class TestGaussianMarkovChain:
         recovered = model.join_coords(obs, interaction, lat)
         assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
 
-    def test_interaction_targets_shorter_chain_prior_block(
+    def test_interaction_depends_only_on_sub_chain_observable(
         self, model: GaussianMarkovChain, key: Array
     ) -> None:
+        """Interaction output should depend only on x_1 (observable of sub-chain)."""
         params = model.initialize(key, location=0.0, shape=0.5)
         _, int_params, _ = model.split_coords(params)
-        z = jax.random.normal(jax.random.fold_in(key, 1), (model.lat_man.data_dim,))
-        z_stats = model.lat_man.sufficient_statistic(z)
-        obs_shift = model.int_man(int_params, z_stats)
-        obs_block, int_block, _ = model.obs_man.split_coords(obs_shift)
 
-        assert jnp.allclose(obs_block, jnp.zeros_like(obs_block), rtol=RTOL, atol=ATOL)
-        assert jnp.allclose(int_block, jnp.zeros_like(int_block), rtol=RTOL, atol=ATOL)
+        # Random sub-chain sufficient statistics
+        sub_stats = jax.random.normal(
+            jax.random.fold_in(key, 1), (model.lat_man.dim,)
+        )
+        # x_1 stats are the observable portion of the sub-chain
+        x1_stats = sub_stats[: model.obs_man.dim]
+
+        # Full interaction and base interaction should match
+        full_result = model.int_man(int_params, sub_stats)
+        base_result = model.trns_hrm.int_man(int_params, x1_stats)
+        assert jnp.allclose(full_result, base_result, rtol=RTOL, atol=ATOL)
 
     def test_sufficient_statistic_finite(
         self, model: GaussianMarkovChain, key: Array
@@ -489,6 +495,7 @@ class TestGaussianMarkovChain:
         rho = model.conjugation_parameters(lkl_params)
 
         for i in range(3):
+            # Sample a valid sub-chain trajectory as latent data
             z = jax.random.normal(
                 jax.random.fold_in(key, i + 10), (model.lat_man.data_dim,)
             )
@@ -607,10 +614,10 @@ class TestCategoricalMarkovChain:
         )
 
     def test_recursive_structure(self, model: CategoricalMarkovChain) -> None:
-        assert isinstance(model.obs_man, CategoricalMarkovChain)
-        assert model.obs_man.n_steps == model.n_steps - 1
+        assert isinstance(model.lat_man, CategoricalMarkovChain)
+        assert model.lat_man.n_steps == model.n_steps - 1
         assert model.int_man.dim == model.trns_hrm.int_man.dim
-        assert model.data_dim == (model.n_steps + 1) * model.lat_man.data_dim
+        assert model.data_dim == (model.n_steps + 1) * model.obs_man.data_dim
 
     def test_split_join_roundtrip(
         self, model: CategoricalMarkovChain, key: Array
@@ -620,18 +627,24 @@ class TestCategoricalMarkovChain:
         recovered = model.join_coords(obs, interaction, lat)
         assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
 
-    def test_interaction_targets_shorter_chain_prior_block(
+    def test_interaction_depends_only_on_sub_chain_observable(
         self, model: CategoricalMarkovChain, key: Array
     ) -> None:
+        """Interaction output should depend only on x_1 (observable of sub-chain)."""
         params = model.initialize(key, location=0.0, shape=0.5)
         _, int_params, _ = model.split_coords(params)
-        z = jnp.array([1], dtype=jnp.int32)
-        z_stats = model.lat_man.sufficient_statistic(z)
-        obs_shift = model.int_man(int_params, z_stats)
-        obs_block, int_block, _ = model.obs_man.split_coords(obs_shift)
 
-        assert jnp.allclose(obs_block, jnp.zeros_like(obs_block), rtol=RTOL, atol=ATOL)
-        assert jnp.allclose(int_block, jnp.zeros_like(int_block), rtol=RTOL, atol=ATOL)
+        # Random sub-chain sufficient statistics
+        sub_stats = jax.random.normal(
+            jax.random.fold_in(key, 1), (model.lat_man.dim,)
+        )
+        # x_1 stats are the observable portion of the sub-chain
+        x1_stats = sub_stats[: model.obs_man.dim]
+
+        # Full interaction and base interaction should match
+        full_result = model.int_man(int_params, sub_stats)
+        base_result = model.trns_hrm.int_man(int_params, x1_stats)
+        assert jnp.allclose(full_result, base_result, rtol=RTOL, atol=ATOL)
 
     def test_sufficient_statistic_finite(
         self, model: CategoricalMarkovChain, key: Array
@@ -652,8 +665,14 @@ class TestCategoricalMarkovChain:
         obs_params, _ = model.lkl_fun_man.split_coords(lkl_params)
         rho = model.conjugation_parameters(lkl_params)
 
-        for z_val in range(model.n_states):
-            z = jnp.array([z_val], dtype=jnp.int32)
+        # Sample valid sub-chain trajectories as latent data
+        sub_params = model.lat_man.initialize(
+            jax.random.fold_in(key, 100), location=0.0, shape=0.5
+        )
+        for i in range(3):
+            z = model.lat_man.sample(
+                jax.random.fold_in(key, i + 10), sub_params, n=1
+            )[0]
             z_stats = model.lat_man.sufficient_statistic(z)
             conditional_obs = model.lkl_fun_man(lkl_params, z_stats)
             lhs = model.obs_man.log_partition_function(conditional_obs)
