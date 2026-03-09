@@ -23,9 +23,6 @@ from goal.models import (
     KalmanFilter,
     NormalEmission,
     NormalTransition,
-    conjugated_filtering,
-    conjugated_smoothing,
-    conjugated_smoothing0,
     create_categorical_markov_chain,
     create_gaussian_markov_chain,
     create_hmm,
@@ -33,10 +30,6 @@ from goal.models import (
     create_homogeneous_gaussian_markov_chain,
     create_kalman_filter,
     expand_homogeneous_params,
-    latent_process_expectation_maximization,
-    latent_process_log_density,
-    latent_process_log_observable_density,
-    sample_latent_process,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -175,7 +168,7 @@ class TestKalmanFilterSampling:
     ) -> None:
         """Test that sampled trajectories have correct shapes."""
         n_steps = 10
-        observations, latents = sample_latent_process(model, params, key, n_steps)
+        observations, latents = model.sample(key, params, n_steps)
 
         assert observations.shape == (n_steps, model.obs_man.data_dim)
         assert latents.shape == (n_steps + 1, model.lat_man.data_dim)
@@ -184,7 +177,7 @@ class TestKalmanFilterSampling:
         self, model: KalmanFilter, params: Array, key: Array
     ) -> None:
         """Test that sampled values are finite."""
-        observations, latents = sample_latent_process(model, params, key, n_steps=20)
+        observations, latents = model.sample(key, params, n_steps=20)
 
         assert jnp.all(jnp.isfinite(observations))
         assert jnp.all(jnp.isfinite(latents))
@@ -209,14 +202,14 @@ class TestKalmanFilterFiltering:
     ) -> tuple[Array, Array]:
         """Sample data from model."""
         key_sample = jax.random.fold_in(key, 100)
-        return sample_latent_process(model, params, key_sample, n_steps=15)
+        return model.sample(key_sample, params, n_steps=15)
 
     def test_filtering_shape(
         self, model: KalmanFilter, params: Array, data: tuple[Array, Array]
     ) -> None:
         """Test that filtered distributions have correct shape."""
         observations, _ = data
-        filtered, log_lik = conjugated_filtering(model, params, observations)
+        filtered, log_lik = model.filtering(params, observations)
 
         assert filtered.shape == (observations.shape[0], model.lat_man.dim)
         assert log_lik.shape == ()
@@ -226,7 +219,7 @@ class TestKalmanFilterFiltering:
     ) -> None:
         """Test that filtered values are finite."""
         observations, _ = data
-        filtered, log_lik = conjugated_filtering(model, params, observations)
+        filtered, log_lik = model.filtering(params, observations)
 
         assert jnp.all(jnp.isfinite(filtered))
         assert jnp.isfinite(log_lik)
@@ -251,14 +244,14 @@ class TestKalmanFilterSmoothing:
     ) -> tuple[Array, Array]:
         """Sample data from model."""
         key_sample = jax.random.fold_in(key, 100)
-        return sample_latent_process(model, params, key_sample, n_steps=15)
+        return model.sample(key_sample, params, n_steps=15)
 
     def test_smoothing_shape(
         self, model: KalmanFilter, params: Array, data: tuple[Array, Array]
     ) -> None:
         """Test that smoothed distributions have correct shape."""
         observations, _ = data
-        smoothed = conjugated_smoothing(model, params, observations)
+        smoothed = model.smoothing(params, observations)[1]
 
         assert smoothed.shape == (observations.shape[0], model.lat_man.dim)
 
@@ -267,7 +260,7 @@ class TestKalmanFilterSmoothing:
     ) -> None:
         """Test that smoothed values are finite."""
         observations, _ = data
-        smoothed = conjugated_smoothing(model, params, observations)
+        smoothed = model.smoothing(params, observations)[1]
 
         assert jnp.all(jnp.isfinite(smoothed))
 
@@ -276,8 +269,8 @@ class TestKalmanFilterSmoothing:
     ) -> None:
         """Test that smoothed[T] == filtered[T] (boundary condition)."""
         observations, _ = data
-        filtered, _ = conjugated_filtering(model, params, observations)
-        smoothed = conjugated_smoothing(model, params, observations)
+        filtered, _ = model.filtering(params, observations)
+        smoothed = model.smoothing(params, observations)[1]
 
         assert jnp.allclose(smoothed[-1], filtered[-1], rtol=RTOL, atol=ATOL)
 
@@ -301,14 +294,14 @@ class TestKalmanFilterLogLikelihood:
     ) -> tuple[Array, Array]:
         """Sample data from model."""
         key_sample = jax.random.fold_in(key, 100)
-        return sample_latent_process(model, params, key_sample, n_steps=15)
+        return model.sample(key_sample, params, n_steps=15)
 
     def test_log_observable_density_finite(
         self, model: KalmanFilter, params: Array, data: tuple[Array, Array]
     ) -> None:
         """Test that log observable density is finite."""
         observations, _ = data
-        log_lik = latent_process_log_observable_density(model, params, observations)
+        log_lik = model.log_observable_density(params, observations)
         assert jnp.isfinite(log_lik)
 
     def test_log_density_finite(
@@ -316,7 +309,7 @@ class TestKalmanFilterLogLikelihood:
     ) -> None:
         """Test that joint log density is finite."""
         observations, latents = data
-        log_joint = latent_process_log_density(model, params, observations, latents)
+        log_joint = model.log_density(params, observations, latents)
         assert jnp.isfinite(log_joint)
 
     def test_log_observable_matches_filtering(
@@ -324,8 +317,8 @@ class TestKalmanFilterLogLikelihood:
     ) -> None:
         """Test that log observable density matches filtering result."""
         observations, _ = data
-        log_lik1 = latent_process_log_observable_density(model, params, observations)
-        _, log_lik2 = conjugated_filtering(model, params, observations)
+        log_lik1 = model.log_observable_density(params, observations)
+        _, log_lik2 = model.filtering(params, observations)
 
         assert jnp.allclose(log_lik1, log_lik2, rtol=RTOL, atol=ATOL)
 
@@ -883,7 +876,7 @@ class TestHMMSampling:
     ) -> None:
         """Test that sampled trajectories have correct shapes."""
         n_steps = 10
-        observations, latents = sample_latent_process(model, params, key, n_steps)
+        observations, latents = model.sample(key, params, n_steps)
 
         # Observations: (n_steps, data_dim) where data_dim=1 for Categorical
         assert observations.shape == (n_steps, model.obs_man.data_dim)
@@ -894,7 +887,7 @@ class TestHMMSampling:
         self, model: HiddenMarkovModel, params: Array, key: Array
     ) -> None:
         """Test that sampled values are valid category indices."""
-        observations, latents = sample_latent_process(model, params, key, n_steps=20)
+        observations, latents = model.sample(key, params, n_steps=20)
 
         # All values should be valid category indices
         assert jnp.all(observations >= 0)
@@ -922,14 +915,14 @@ class TestHMMFiltering:
     ) -> tuple[Array, Array]:
         """Sample data from model."""
         key_sample = jax.random.fold_in(key, 100)
-        return sample_latent_process(model, params, key_sample, n_steps=10)
+        return model.sample(key_sample, params, n_steps=10)
 
     def test_filtering_shape(
         self, model: HiddenMarkovModel, params: Array, data: tuple[Array, Array]
     ) -> None:
         """Test that filtered distributions have correct shape."""
         observations, _ = data
-        filtered, log_lik = conjugated_filtering(model, params, observations)
+        filtered, log_lik = model.filtering(params, observations)
 
         assert filtered.shape == (observations.shape[0], model.lat_man.dim)
         assert log_lik.shape == ()
@@ -939,7 +932,7 @@ class TestHMMFiltering:
     ) -> None:
         """Test that filtered values are finite."""
         observations, _ = data
-        filtered, log_lik = conjugated_filtering(model, params, observations)
+        filtered, log_lik = model.filtering(params, observations)
 
         assert jnp.all(jnp.isfinite(filtered))
         assert jnp.isfinite(log_lik)
@@ -964,14 +957,14 @@ class TestHMMSmoothing:
     ) -> tuple[Array, Array]:
         """Sample data from model."""
         key_sample = jax.random.fold_in(key, 100)
-        return sample_latent_process(model, params, key_sample, n_steps=10)
+        return model.sample(key_sample, params, n_steps=10)
 
     def test_smoothing_shape(
         self, model: HiddenMarkovModel, params: Array, data: tuple[Array, Array]
     ) -> None:
         """Test that smoothed distributions have correct shape."""
         observations, _ = data
-        smoothed = conjugated_smoothing(model, params, observations)
+        smoothed = model.smoothing(params, observations)[1]
 
         assert smoothed.shape == (observations.shape[0], model.lat_man.dim)
 
@@ -980,7 +973,7 @@ class TestHMMSmoothing:
     ) -> None:
         """Test that smoothed values are finite."""
         observations, _ = data
-        smoothed = conjugated_smoothing(model, params, observations)
+        smoothed = model.smoothing(params, observations)[1]
 
         assert jnp.all(jnp.isfinite(smoothed))
 
@@ -989,8 +982,8 @@ class TestHMMSmoothing:
     ) -> None:
         """Test that smoothed[T] == filtered[T] (boundary condition)."""
         observations, _ = data
-        filtered, _ = conjugated_filtering(model, params, observations)
-        smoothed = conjugated_smoothing(model, params, observations)
+        filtered, _ = model.filtering(params, observations)
+        smoothed = model.smoothing(params, observations)[1]
 
         assert jnp.allclose(smoothed[-1], filtered[-1], rtol=RTOL, atol=ATOL)
 
@@ -1195,7 +1188,7 @@ class TestHMMBruteForceValidation:
         key_sample = jax.random.fold_in(key, 200)
         # Use short sequence (4 steps) so brute force is tractable
         # 3^5 = 243 possible latent sequences
-        return sample_latent_process(small_hmm, params, key_sample, n_steps=4)
+        return small_hmm.sample(key_sample, params, n_steps=4)
 
     def test_smoothing_matches_brute_force(
         self,
@@ -1207,7 +1200,7 @@ class TestHMMBruteForceValidation:
         observations, _ = short_data
 
         # Get smoothed distributions from generic algorithm
-        smoothed_nat = conjugated_smoothing(small_hmm, params, observations)
+        smoothed_nat = small_hmm.smoothing(params, observations)[1]
 
         # Convert to probabilities
         smoothed_probs_generic = jnp.array([
@@ -1233,7 +1226,7 @@ class TestHMMBruteForceValidation:
         observations, _ = short_data
 
         # Get log likelihood from filtering
-        _, log_lik_generic = conjugated_filtering(small_hmm, params, observations)
+        _, log_lik_generic = small_hmm.filtering(params, observations)
 
         # Get brute-force log likelihood
         _, log_lik_brute = brute_force_filtering(small_hmm, params, observations)
@@ -1315,7 +1308,7 @@ class TestTwoSliceJointValidation:
         self, small_hmm: HiddenMarkovModel, params: Array, key: Array
     ) -> tuple[Array, Array]:
         key_sample = jax.random.fold_in(key, 200)
-        return sample_latent_process(small_hmm, params, key_sample, n_steps=4)
+        return small_hmm.sample(key_sample, params, n_steps=4)
 
     def test_joint_means_match_brute_force(
         self,
@@ -1326,7 +1319,7 @@ class TestTwoSliceJointValidation:
         """Two-slice joint mean params should match brute-force computation."""
         observations, _ = short_data
 
-        _, _, joints = conjugated_smoothing0(small_hmm, params, observations)
+        _, _, joints = small_hmm.smoothing(params, observations)
         brute_joints = brute_force_two_slice_joints(small_hmm, params, observations)
 
         assert jnp.allclose(joints, brute_joints, rtol=1e-10, atol=1e-10), (
@@ -1344,9 +1337,7 @@ class TestTwoSliceJointValidation:
         trns_hrm = small_hmm.trns_hrm
         lat_man = small_hmm.lat_man
 
-        smoothed_z0, smoothed, joints = conjugated_smoothing0(
-            small_hmm, params, observations
-        )
+        smoothed_z0, smoothed, joints = small_hmm.smoothing(params, observations)
 
         all_smoothed = jnp.concatenate([smoothed_z0[None, :], smoothed], axis=0)
 
@@ -1392,7 +1383,7 @@ class TestKalmanFilterEM:
         keys = jax.random.split(key_sample, 5)
 
         def sample_one(k: Array) -> tuple[Array, Array]:
-            return sample_latent_process(model, true_params, k, n_steps=20)
+            return model.sample(k, true_params, n_steps=20)
 
         observations_batch, _ = jax.vmap(sample_one)(keys)
         return observations_batch
@@ -1409,18 +1400,14 @@ class TestKalmanFilterEM:
         prev_ll = -jnp.inf
 
         for _ in range(8):
-            params = latent_process_expectation_maximization(
-                model, params, training_data
-            )
+            params = model.expectation_maximization(params, training_data)
             avg_ll = jnp.mean(
                 jax.vmap(
-                    lambda obs: latent_process_log_observable_density(
-                        model, params, obs
-                    )
+                    lambda obs: model.log_observable_density(params, obs)
                 )(training_data)
             )
             assert jnp.isfinite(avg_ll), "Log-likelihood is NaN or Inf"
-            assert avg_ll >= prev_ll - 0.1, (
+            assert avg_ll >= prev_ll - 1e-4, (
                 f"EM not monotone: {float(avg_ll):.4f} < {float(prev_ll):.4f}"
             )
             prev_ll = avg_ll
@@ -1436,25 +1423,19 @@ class TestKalmanFilterEM:
         initial_ll = float(
             jnp.mean(
                 jax.vmap(
-                    lambda obs: latent_process_log_observable_density(
-                        model, init_params, obs
-                    )
+                    lambda obs: model.log_observable_density(init_params, obs)
                 )(training_data)
             )
         )
 
         params = init_params
         for _ in range(10):
-            params = latent_process_expectation_maximization(
-                model, params, training_data
-            )
+            params = model.expectation_maximization(params, training_data)
 
         final_ll = float(
             jnp.mean(
                 jax.vmap(
-                    lambda obs: latent_process_log_observable_density(
-                        model, params, obs
-                    )
+                    lambda obs: model.log_observable_density(params, obs)
                 )(training_data)
             )
         )
@@ -1484,7 +1465,7 @@ class TestHMMEM:
         keys = jax.random.split(key_sample, 5)
 
         def sample_one(k: Array) -> tuple[Array, Array]:
-            return sample_latent_process(model, true_params, k, n_steps=15)
+            return model.sample(k, true_params, n_steps=15)
 
         observations_batch, _ = jax.vmap(sample_one)(keys)
         return observations_batch
@@ -1505,18 +1486,14 @@ class TestHMMEM:
         prev_ll = -jnp.inf
 
         for _ in range(8):
-            params = latent_process_expectation_maximization(
-                model, params, training_data
-            )
+            params = model.expectation_maximization(params, training_data)
             avg_ll = jnp.mean(
                 jax.vmap(
-                    lambda obs: latent_process_log_observable_density(
-                        model, params, obs
-                    )
+                    lambda obs: model.log_observable_density(params, obs)
                 )(training_data)
             )
             assert jnp.isfinite(avg_ll), "Log-likelihood is NaN or Inf"
-            assert avg_ll >= prev_ll - 0.1, (
+            assert avg_ll >= prev_ll - 1e-4, (
                 f"EM not monotone: {float(avg_ll):.4f} < {float(prev_ll):.4f}"
             )
             prev_ll = avg_ll
@@ -1537,25 +1514,19 @@ class TestHMMEM:
         initial_ll = float(
             jnp.mean(
                 jax.vmap(
-                    lambda obs: latent_process_log_observable_density(
-                        model, init_params, obs
-                    )
+                    lambda obs: model.log_observable_density(init_params, obs)
                 )(training_data)
             )
         )
 
         params = init_params
         for _ in range(10):
-            params = latent_process_expectation_maximization(
-                model, params, training_data
-            )
+            params = model.expectation_maximization(params, training_data)
 
         final_ll = float(
             jnp.mean(
                 jax.vmap(
-                    lambda obs: latent_process_log_observable_density(
-                        model, params, obs
-                    )
+                    lambda obs: model.log_observable_density(params, obs)
                 )(training_data)
             )
         )

@@ -11,7 +11,6 @@ class KalmanFilterResults(TypedDict):
     lat_dim: int
     n_steps: int
     n_sequences: int
-    n_em_steps: int
 
     # Training data (one sample trajectory for visualization)
     observations: list[list[float]]  # (n_steps, obs_dim)
@@ -23,16 +22,15 @@ class KalmanFilterResults(TypedDict):
     smoothed_means: list[list[float]]  # (n_steps, lat_dim)
     smoothed_stds: list[list[float]]  # (n_steps, lat_dim)
 
-    # Learned inference (learned parameters)
-    learned_filtered_means: list[list[float]]  # (n_steps, lat_dim)
-    learned_filtered_stds: list[list[float]]  # (n_steps, lat_dim)
-    learned_smoothed_means: list[list[float]]  # (n_steps, lat_dim)
-    learned_smoothed_stds: list[list[float]]  # (n_steps, lat_dim)
+    # Learning curves
+    log_likelihoods: dict[str, list[float]]  # {"Gradient": [...], "EM": [...]}
 
-    # Learning curve
-    log_likelihoods: list[float]
+    # Learned inference — keyed by method name
+    learned_filtered_means: dict[str, list[list[float]]]
+    learned_filtered_stds: dict[str, list[list[float]]]
+    learned_smoothed_means: dict[str, list[list[float]]]
+    learned_smoothed_stds: dict[str, list[list[float]]]
 
     # Metrics
     true_log_lik: float
     initial_log_lik: float
-    final_log_lik: float

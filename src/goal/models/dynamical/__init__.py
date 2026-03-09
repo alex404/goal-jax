@@ -13,14 +13,14 @@ Example usage:
     params = kf.initialize(key)
 
     # Sample a trajectory
-    observations, latents = sample_latent_process(kf, params, key, n_steps=100)
+    observations, latents = kf.sample(key, params, n_steps=100)
 
     # Filter and smooth
-    filtered, log_lik = conjugated_filtering(kf, params, observations)
-    smoothed = conjugated_smoothing(kf, params, observations)
+    filtered, log_lik = kf.filtering(params, observations)
+    _, smoothed, _ = kf.smoothing(params, observations)
 
     # EM learning
-    params = latent_process_expectation_maximization(kf, params, observations_batch)
+    params = kf.expectation_maximization(params, observations_batch)
 """
 
 from dataclasses import dataclass
@@ -45,16 +45,7 @@ from ...geometry.exponential_family.dynamical import (
     HomogeneousMarkovProcess,
     LatentProcess,
     MarkovProcess,
-    conjugated_filtering,
-    conjugated_smoothing,
-    conjugated_smoothing0,
     expand_homogeneous_params,
-    latent_process_expectation_maximization,
-    latent_process_expectation_step,
-    latent_process_expectation_step_batch,
-    latent_process_log_density,
-    latent_process_log_observable_density,
-    sample_latent_process,
 )
 from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, full_normal
@@ -620,9 +611,6 @@ __all__ = [
     "MarkovProcess",
     "NormalEmission",
     "NormalTransition",
-    "conjugated_filtering",
-    "conjugated_smoothing",
-    "conjugated_smoothing0",
     "create_categorical_markov_chain",
     "create_gaussian_markov_chain",
     "create_hmm",
@@ -630,10 +618,4 @@ __all__ = [
     "create_homogeneous_gaussian_markov_chain",
     "create_kalman_filter",
     "expand_homogeneous_params",
-    "latent_process_expectation_maximization",
-    "latent_process_expectation_step",
-    "latent_process_expectation_step_batch",
-    "latent_process_log_density",
-    "latent_process_log_observable_density",
-    "sample_latent_process",
 ]
