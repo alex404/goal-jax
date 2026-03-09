@@ -18,6 +18,8 @@ from goal.models import (
     CategoricalTransition,
     GaussianMarkovChain,
     HiddenMarkovModel,
+    HomogeneousCategoricalMarkovChain,
+    HomogeneousGaussianMarkovChain,
     KalmanFilter,
     NormalEmission,
     NormalTransition,
@@ -27,7 +29,10 @@ from goal.models import (
     create_categorical_markov_chain,
     create_gaussian_markov_chain,
     create_hmm,
+    create_homogeneous_categorical_markov_chain,
+    create_homogeneous_gaussian_markov_chain,
     create_kalman_filter,
+    expand_homogeneous_params,
     latent_process_expectation_maximization,
     latent_process_log_density,
     latent_process_log_observable_density,
@@ -1653,3 +1658,199 @@ class TestCategoricalMarkovChainRoundtrip:
         means = model.to_mean(params)
         recovered = model.to_natural(means)
         assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
+
+
+# =============================================================================
+# Homogeneous Markov Process Tests
+# =============================================================================
+
+
+class TestHomogeneousGaussianMarkovChain:
+    """Test HomogeneousGaussianMarkovChain."""
+
+    @pytest.fixture(params=[1, 2, 3])
+    def n_steps(self, request: pytest.FixtureRequest) -> int:
+        return request.param
+
+    @pytest.fixture
+    def hom_model(
+        self, n_steps: int
+    ) -> HomogeneousGaussianMarkovChain:
+        return create_homogeneous_gaussian_markov_chain(lat_dim=2, n_steps=n_steps)
+
+    @pytest.fixture
+    def rec_model(self, n_steps: int) -> GaussianMarkovChain:
+        return create_gaussian_markov_chain(lat_dim=2, n_steps=n_steps)
+
+    def test_dimensions(
+        self, hom_model: HomogeneousGaussianMarkovChain, n_steps: int
+    ) -> None:
+        assert hom_model.dim == hom_model.trns_hrm.dim
+        assert hom_model.data_dim == (n_steps + 1) * hom_model.state_man.data_dim
+
+    def test_sample_valid(
+        self, hom_model: HomogeneousGaussianMarkovChain, key: Array
+    ) -> None:
+        params = hom_model.initialize(key, shape=0.3)
+        samples = hom_model.sample(key, params, n=5)
+        assert samples.shape == (5, hom_model.data_dim)
+        assert jnp.all(jnp.isfinite(samples))
+
+    def test_log_density_consistency(
+        self, hom_model: HomogeneousGaussianMarkovChain, key: Array
+    ) -> None:
+        """Verify log p(x) = theta . s(x) + h(x) - psi(theta)."""
+        params = hom_model.initialize(key, shape=0.3)
+        key_sample = jax.random.fold_in(key, 1)
+        trajectory = hom_model.sample(key_sample, params, n=1)[0]
+
+        log_p = hom_model.log_density(params, trajectory)
+        manual = (
+            jnp.dot(params, hom_model.sufficient_statistic(trajectory))
+            + hom_model.log_base_measure(trajectory)
+            - hom_model.log_partition_function(params)
+        )
+        assert jnp.allclose(log_p, manual, rtol=RTOL, atol=ATOL)
+
+    def test_log_partition_n1_matches_harmonium(
+        self, key: Array
+    ) -> None:
+        """For n_steps=1, homogeneous log partition should equal trns_hrm's."""
+        hom = create_homogeneous_gaussian_markov_chain(lat_dim=2, n_steps=1)
+        params = hom.initialize(key, shape=0.3)
+        psi_hom = hom.log_partition_function(params)
+        psi_hrm = hom.trns_hrm.log_partition_function(params)
+        assert jnp.allclose(psi_hom, psi_hrm, rtol=RTOL, atol=ATOL)
+
+    def test_log_density_matches_recursive(
+        self,
+        hom_model: HomogeneousGaussianMarkovChain,
+        rec_model: GaussianMarkovChain,
+        key: Array,
+    ) -> None:
+        """Homogeneous and recursive chains should give same log density."""
+        hom_params = hom_model.initialize(key, shape=0.3)
+        rec_params = expand_homogeneous_params(hom_model, hom_params)
+
+        key_sample = jax.random.fold_in(key, 1)
+        trajectory = hom_model.sample(key_sample, hom_params, n=1)[0]
+
+        log_p_hom = hom_model.log_density(hom_params, trajectory)
+        log_p_rec = rec_model.log_density(rec_params, trajectory)
+        assert jnp.allclose(log_p_hom, log_p_rec, rtol=RTOL, atol=ATOL)
+
+    def test_to_mean_roundtrip(
+        self, hom_model: HomogeneousGaussianMarkovChain, key: Array
+    ) -> None:
+        params = hom_model.initialize(key, shape=0.3)
+        means = hom_model.to_mean(params)
+        recovered = hom_model.to_natural(means)
+        assert jnp.allclose(params, recovered, rtol=1e-3, atol=1e-3)
+
+    def test_to_mean_matches_sample_statistics(
+        self, key: Array
+    ) -> None:
+        """to_mean should approximate sample average sufficient statistics."""
+        hom = create_homogeneous_gaussian_markov_chain(lat_dim=2, n_steps=2)
+        params = hom.initialize(key, shape=0.3)
+        means_analytic = hom.to_mean(params)
+
+        key_sample = jax.random.fold_in(key, 99)
+        samples = hom.sample(key_sample, params, n=5000)
+        means_mc = jnp.mean(
+            jax.vmap(hom.sufficient_statistic)(samples), axis=0
+        )
+        assert jnp.allclose(means_analytic, means_mc, rtol=0.1, atol=0.1)
+
+
+class TestHomogeneousCategoricalMarkovChain:
+    """Test HomogeneousCategoricalMarkovChain."""
+
+    @pytest.fixture(params=[1, 2, 3])
+    def n_steps(self, request: pytest.FixtureRequest) -> int:
+        return request.param
+
+    @pytest.fixture
+    def hom_model(
+        self, n_steps: int
+    ) -> HomogeneousCategoricalMarkovChain:
+        return create_homogeneous_categorical_markov_chain(
+            n_states=3, n_steps=n_steps
+        )
+
+    @pytest.fixture
+    def rec_model(self, n_steps: int) -> CategoricalMarkovChain:
+        return create_categorical_markov_chain(n_states=3, n_steps=n_steps)
+
+    def test_dimensions(
+        self, hom_model: HomogeneousCategoricalMarkovChain, n_steps: int
+    ) -> None:
+        assert hom_model.dim == hom_model.trns_hrm.dim
+        assert hom_model.data_dim == (n_steps + 1) * hom_model.state_man.data_dim
+
+    def test_sample_valid(
+        self, hom_model: HomogeneousCategoricalMarkovChain, key: Array
+    ) -> None:
+        params = hom_model.initialize(key, shape=0.3)
+        samples = hom_model.sample(key, params, n=5)
+        assert samples.shape == (5, hom_model.data_dim)
+        assert jnp.all(jnp.isfinite(samples))
+
+    def test_log_partition_n1_matches_harmonium(self, key: Array) -> None:
+        """For n_steps=1, homogeneous log partition should equal trns_hrm's."""
+        hom = create_homogeneous_categorical_markov_chain(n_states=3, n_steps=1)
+        params = hom.initialize(key, shape=0.3)
+        psi_hom = hom.log_partition_function(params)
+        psi_hrm = hom.trns_hrm.log_partition_function(params)
+        assert jnp.allclose(psi_hom, psi_hrm, rtol=RTOL, atol=ATOL)
+
+    def test_log_density_matches_recursive(
+        self,
+        hom_model: HomogeneousCategoricalMarkovChain,
+        rec_model: CategoricalMarkovChain,
+        key: Array,
+    ) -> None:
+        """Homogeneous and recursive chains should give same log density."""
+        hom_params = hom_model.initialize(key, shape=0.3)
+        rec_params = expand_homogeneous_params(hom_model, hom_params)
+
+        key_sample = jax.random.fold_in(key, 1)
+        trajectory = hom_model.sample(key_sample, hom_params, n=1)[0]
+
+        log_p_hom = hom_model.log_density(hom_params, trajectory)
+        log_p_rec = rec_model.log_density(rec_params, trajectory)
+        assert jnp.allclose(log_p_hom, log_p_rec, rtol=RTOL, atol=ATOL)
+
+    def test_log_density_consistency(
+        self, hom_model: HomogeneousCategoricalMarkovChain, key: Array
+    ) -> None:
+        """Verify log p(x) = theta . s(x) + h(x) - psi(theta)."""
+        params = hom_model.initialize(key, shape=0.3)
+        key_sample = jax.random.fold_in(key, 1)
+        trajectory = hom_model.sample(key_sample, params, n=1)[0]
+
+        log_p = hom_model.log_density(params, trajectory)
+        manual = (
+            jnp.dot(params, hom_model.sufficient_statistic(trajectory))
+            + hom_model.log_base_measure(trajectory)
+            - hom_model.log_partition_function(params)
+        )
+        assert jnp.allclose(log_p, manual, rtol=RTOL, atol=ATOL)
+
+    def test_categorical_brute_force_normalization(self, key: Array) -> None:
+        """For small categorical chain, verify probabilities sum to 1."""
+        n_states = 2
+        n_steps = 2
+        hom = create_homogeneous_categorical_markov_chain(
+            n_states=n_states, n_steps=n_steps
+        )
+        params = hom.initialize(key, shape=0.5)
+
+        # Enumerate all trajectories
+        total_prob = 0.0
+        for combo in itertools.product(range(n_states), repeat=n_steps + 1):
+            trajectory = jnp.array(combo, dtype=jnp.float64)
+            log_p = hom.log_density(params, trajectory)
+            total_prob += jnp.exp(log_p)
+
+        assert jnp.allclose(total_prob, 1.0, rtol=RTOL, atol=ATOL)

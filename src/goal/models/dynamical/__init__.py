@@ -38,14 +38,17 @@ from ...geometry import (
     Rectangular,
 )
 from ...geometry.exponential_family.dynamical import (
+    AnalyticHomogeneousMarkovProcess,
     AnalyticMarkovProcess,
     ConjugatedMarkovProcess,
     DifferentiableMarkovProcess,
+    HomogeneousMarkovProcess,
     LatentProcess,
     MarkovProcess,
     conjugated_filtering,
     conjugated_smoothing,
     conjugated_smoothing0,
+    expand_homogeneous_params,
     latent_process_expectation_maximization,
     latent_process_expectation_step,
     latent_process_expectation_step_batch,
@@ -557,10 +560,50 @@ def create_categorical_markov_chain(
 
 
 # =============================================================================
+# Homogeneous Fully Observed Markov Chains
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class HomogeneousGaussianMarkovChain(AnalyticHomogeneousMarkovProcess[FullNormal]):
+    """Homogeneous fully-observed Gaussian Markov chain."""
+
+    trns_hrm: NormalTransition
+
+
+@dataclass(frozen=True)
+class HomogeneousCategoricalMarkovChain(
+    AnalyticHomogeneousMarkovProcess[Categorical],
+):
+    """Homogeneous fully-observed categorical Markov chain."""
+
+    trns_hrm: CategoricalTransition
+
+
+def create_homogeneous_gaussian_markov_chain(
+    lat_dim: int, n_steps: int
+) -> HomogeneousGaussianMarkovChain:
+    """Create a homogeneous fully-observed Gaussian Markov chain."""
+    return HomogeneousGaussianMarkovChain(
+        n_steps=n_steps, trns_hrm=NormalTransition(lat_dim)
+    )
+
+
+def create_homogeneous_categorical_markov_chain(
+    n_states: int, n_steps: int
+) -> HomogeneousCategoricalMarkovChain:
+    """Create a homogeneous fully-observed categorical Markov chain."""
+    return HomogeneousCategoricalMarkovChain(
+        n_steps=n_steps, trns_hrm=CategoricalTransition(n_states)
+    )
+
+
+# =============================================================================
 # Exports
 # =============================================================================
 
 __all__ = [
+    "AnalyticHomogeneousMarkovProcess",
     "AnalyticMarkovProcess",
     "CategoricalEmission",
     "CategoricalMarkovChain",
@@ -569,6 +612,9 @@ __all__ = [
     "DifferentiableMarkovProcess",
     "GaussianMarkovChain",
     "HiddenMarkovModel",
+    "HomogeneousCategoricalMarkovChain",
+    "HomogeneousGaussianMarkovChain",
+    "HomogeneousMarkovProcess",
     "KalmanFilter",
     "LatentProcess",
     "MarkovProcess",
@@ -580,7 +626,10 @@ __all__ = [
     "create_categorical_markov_chain",
     "create_gaussian_markov_chain",
     "create_hmm",
+    "create_homogeneous_categorical_markov_chain",
+    "create_homogeneous_gaussian_markov_chain",
     "create_kalman_filter",
+    "expand_homogeneous_params",
     "latent_process_expectation_maximization",
     "latent_process_expectation_step",
     "latent_process_expectation_step_batch",

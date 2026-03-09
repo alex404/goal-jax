@@ -762,3 +762,247 @@ def latent_process_expectation_maximization[Obs: Differentiable, Lat: Analytic](
     trns_params = process.trns_hrm.to_natural(trns_means)
 
     return process.join_coords(prior_params, emsn_params, trns_params)
+
+
+# =============================================================================
+# Homogeneous Markov Processes
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class HomogeneousMarkovProcess[L: Differentiable](Differentiable, ABC):
+    """Homogeneous fully-observed Markov chain as a flat exponential family.
+
+    Stores a single copy of transition harmonium parameters. All operations
+    use scan/vmap instead of Python recursion, giving O(1) Python overhead.
+
+    The chain models an undirected Markov random field on a path graph with
+    ``n_steps`` edges and ``n_steps + 1`` nodes. Natural parameters are a
+    single copy of the transition harmonium's parameters
+    ``[obs_params, int_params, lat_params]``, and the sufficient statistic is
+    the sum of pairwise transition sufficient statistics.
+
+    In the transition harmonium's convention, ``obs`` is the left node and
+    ``lat`` is the right node of each edge. The leftmost node receives only
+    ``obs_params`` bias, interior nodes receive ``obs_params + lat_params``,
+    and the rightmost node receives only ``lat_params``.
+    """
+
+    # Fields
+
+    n_steps: int
+    trns_hrm: SymmetricConjugated[L, L]
+
+    def __post_init__(self) -> None:
+        if self.n_steps < 1:
+            raise ValueError("HomogeneousMarkovProcess requires n_steps >= 1.")
+
+    # Methods
+
+    @property
+    def state_man(self) -> L:
+        """State manifold (same as trns_hrm.obs_man and trns_hrm.lat_man)."""
+        return self.trns_hrm.obs_man
+
+    def reshape_trajectory(self, trajectory: Array) -> Array:
+        """Reshape flat trajectory to ``(n_steps + 1, state_data_dim)``."""
+        return trajectory.reshape(self.n_steps + 1, self.state_man.data_dim)
+
+    # Overrides
+
+    @override
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        """Delegate to the transition harmonium's initialization."""
+        return self.trns_hrm.initialize(key, location, shape)
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.trns_hrm.dim
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        return (self.n_steps + 1) * self.state_man.data_dim
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Sum of pairwise transition sufficient statistics via vmap."""
+        states = self.reshape_trajectory(x)
+        pairs = jnp.concatenate([states[:-1], states[1:]], axis=-1)
+        pair_stats = jax.vmap(self.trns_hrm.sufficient_statistic)(pairs)
+        return jnp.sum(pair_stats, axis=0)
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        """Sum of per-state base measures."""
+        states = self.reshape_trajectory(x)
+        return jnp.sum(jax.vmap(self.state_man.log_base_measure)(states))
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        """Compute log partition via forward scan (transfer matrix method).
+
+        Integrates states left-to-right using conjugation parameters. The
+        leftmost state has bias ``obs_params``, interior states accumulate
+        ``obs_params + lat_params + rho``, and the rightmost state gets
+        ``lat_params + rho``.
+        """
+        obs_params, int_params, lat_params = self.trns_hrm.split_coords(params)
+        lkl_fun_man = self.trns_hrm.lkl_fun_man
+
+        def compute_rho(f: Array) -> Array:
+            lkl = lkl_fun_man.join_coords(f, int_params)
+            return self.trns_hrm.conjugation_parameters(lkl)
+
+        def interior_step(f: Array, _: None) -> tuple[Array, Array]:
+            rho = compute_rho(f)
+            psi = self.state_man.log_partition_function(f)
+            f_next = obs_params + lat_params + rho
+            return f_next, psi
+
+        f_init = obs_params
+        f_last, psi_terms = jax.lax.scan(
+            interior_step, f_init, None, length=self.n_steps - 1
+        )
+
+        rho_final = compute_rho(f_last)
+        psi_last = self.state_man.log_partition_function(f_last)
+        psi_final = self.state_man.log_partition_function(lat_params + rho_final)
+
+        return jnp.sum(psi_terms) + psi_last + psi_final
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        """Sample trajectories via forward-filtering backward-sampling.
+
+        Computes forward messages (marginal natural params for each state),
+        then samples backward from rightmost to leftmost.
+        """
+        obs_params, int_params, lat_params = self.trns_hrm.split_coords(params)
+        lkl_fun_man = self.trns_hrm.lkl_fun_man
+
+        def compute_rho(f: Array) -> Array:
+            lkl = lkl_fun_man.join_coords(f, int_params)
+            return self.trns_hrm.conjugation_parameters(lkl)
+
+        # Compute forward messages
+        def fwd_step(f: Array, _: None) -> tuple[Array, Array]:
+            rho = compute_rho(f)
+            f_next = obs_params + lat_params + rho
+            return f_next, f
+
+        f_init = obs_params
+        f_last, f_interior = jax.lax.scan(
+            fwd_step, f_init, None, length=self.n_steps - 1
+        )
+
+        # f_interior has shape (n_steps-1, dim): forward messages for
+        # states 0 through n_steps-2 (the scan outputs f before transitioning).
+        # f_last is the forward message for state n_steps-1.
+        rho_final = compute_rho(f_last)
+        f_rightmost = lat_params + rho_final
+
+        # All forward messages ordered left-to-right: shape (n_steps+1, dim)
+        all_f = jnp.concatenate([f_interior, f_last[None], f_rightmost[None]])
+
+        def sample_one(key: Array) -> Array:
+            # Sample rightmost state from marginal
+            key_last, key_rest = jax.random.split(key)
+            x_last = self.state_man.sample(key_last, all_f[-1], n=1)[0]
+
+            # Backward sampling: x_{k} | x_{k+1}
+            def bwd_step(
+                x_right: Array, carry: tuple[Array, Array]
+            ) -> tuple[Array, Array]:
+                f_k, key_k = carry
+                s_right = self.state_man.sufficient_statistic(x_right)
+                cond_params = f_k + self.trns_hrm.int_man(int_params, s_right)
+                x_k = self.state_man.sample(key_k, cond_params, n=1)[0]
+                return x_k, x_k
+
+            keys_bwd = jax.random.split(key_rest, self.n_steps)
+            # Reverse the forward messages (exclude rightmost) and keys
+            f_reversed = all_f[:-1][::-1]
+            keys_reversed = keys_bwd[::-1]
+
+            _, states_reversed = jax.lax.scan(
+                bwd_step, x_last, (f_reversed, keys_reversed)
+            )
+            # states_reversed is in reverse order (x_{n-1}, ..., x_0)
+            states_fwd = states_reversed[::-1]
+            return jnp.concatenate([states_fwd.reshape(-1), x_last])
+
+        keys = jax.random.split(key, n)
+        return jax.vmap(sample_one)(keys)
+
+
+@dataclass(frozen=True)
+class AnalyticHomogeneousMarkovProcess[L: Analytic](
+    HomogeneousMarkovProcess[L], Analytic, ABC
+):
+    """Homogeneous Markov chain with analytic mean-to-natural conversion.
+
+    Adds ``to_natural`` (via Newton iteration on the log-partition Hessian)
+    and ``negative_entropy``, enabling closed-form EM.
+    """
+
+    trns_hrm: AnalyticConjugated[L, L]
+
+    @override
+    def to_natural(self, means: Array) -> Array:
+        """Invert ``to_mean`` via Newton-Raphson on the log-partition function.
+
+        Uses the transition harmonium's ``to_natural`` as an initial guess
+        (exact for ``n_steps == 1``) and refines with Newton steps.
+        """
+        init = self.trns_hrm.to_natural(means)
+
+        def newton_step(params: Array, _: None) -> tuple[Array, None]:
+            residual = self.to_mean(params) - means
+            H = jax.hessian(self.log_partition_function)(params)
+            delta = jnp.linalg.solve(H, residual)
+            return params - delta, None
+
+        result, _ = jax.lax.scan(newton_step, init, None, length=10)
+        return result
+
+    @override
+    def negative_entropy(self, means: Array) -> Array:
+        params = self.to_natural(means)
+        return jnp.dot(params, means) - self.log_partition_function(params)
+
+
+# =============================================================================
+# Homogeneous / Recursive Conversion
+# =============================================================================
+
+
+def expand_homogeneous_params[L: Analytic](
+    hom: AnalyticHomogeneousMarkovProcess[L],
+    hom_params: Array,
+) -> Array:
+    """Expand homogeneous params into recursive MarkovProcess params.
+
+    In the homogeneous chain, interior states get bias ``obs_params + lat_params``
+    while the leftmost gets ``obs_params`` and rightmost gets ``lat_params``.
+    The recursive chain assigns biases hierarchically: the outermost level's
+    obs gets ``obs_params``, and all inner levels' obs must be ``obs_params +
+    lat_params`` to match the homogeneous interior bias. The innermost lat
+    remains ``lat_params``.
+    """
+    obs_params, int_params, lat_params = hom.trns_hrm.split_coords(hom_params)
+    outer_prefix = jnp.concatenate([obs_params, int_params])
+    inner_prefix = jnp.concatenate([obs_params + lat_params, int_params])
+    inner_tail = hom.trns_hrm.join_coords(
+        obs_params + lat_params, int_params, lat_params
+    )
+
+    if hom.n_steps == 1:
+        return hom_params
+
+    # [outer_prefix, inner_prefix * (n_steps - 2), inner_tail]
+    inner_repeated = jnp.tile(inner_prefix, hom.n_steps - 2)
+    return jnp.concatenate([outer_prefix, inner_repeated, inner_tail])

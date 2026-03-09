@@ -17,6 +17,7 @@ from .base.gaussian.normal import (
 from .base.poisson import CoMPoisson, CoMShape, Poisson, Poissons
 from .base.von_mises import VonMises, VonMisesProduct
 from .dynamical import (
+    AnalyticHomogeneousMarkovProcess,
     AnalyticMarkovProcess,
     CategoricalMarkovChain,
     CategoricalEmission,
@@ -25,6 +26,9 @@ from .dynamical import (
     DifferentiableMarkovProcess,
     GaussianMarkovChain,
     HiddenMarkovModel,
+    HomogeneousCategoricalMarkovChain,
+    HomogeneousGaussianMarkovChain,
+    HomogeneousMarkovProcess,
     KalmanFilter,
     MarkovProcess,
     NormalEmission,
@@ -35,7 +39,10 @@ from .dynamical import (
     create_categorical_markov_chain,
     create_gaussian_markov_chain,
     create_hmm,
+    create_homogeneous_categorical_markov_chain,
+    create_homogeneous_gaussian_markov_chain,
     create_kalman_filter,
+    expand_homogeneous_params,
     latent_process_expectation_maximization,
     latent_process_expectation_step,
     latent_process_expectation_step_batch,
@@ -89,6 +96,7 @@ from .harmonium.poisson import (
 __all__ = [
     "LGM",
     "AnalyticHMoG",
+    "AnalyticHomogeneousMarkovProcess",
     "AnalyticMarkovProcess",
     "AnalyticMixture",
     "Bernoulli",
@@ -122,6 +130,9 @@ __all__ = [
     "FullNormal",
     "GaussianMarkovChain",
     "HiddenMarkovModel",
+    "HomogeneousCategoricalMarkovChain",
+    "HomogeneousGaussianMarkovChain",
+    "HomogeneousMarkovProcess",
     "IsotropicNormal",
     # Dynamical models - Kalman Filter
     "KalmanFilter",
@@ -156,7 +167,10 @@ __all__ = [
     "create_categorical_markov_chain",
     "create_gaussian_markov_chain",
     "create_hmm",
+    "create_homogeneous_categorical_markov_chain",
+    "create_homogeneous_gaussian_markov_chain",
     "create_kalman_filter",
+    "expand_homogeneous_params",
     "diagonal_normal",
     "differentiable_hmog",
     "full_normal",
