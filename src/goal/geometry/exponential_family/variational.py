@@ -361,6 +361,20 @@ class VariationalConjugated[
         log_px_given_z = self.obs_man.log_density(lkl_params, x)
         return log_pz + log_px_given_z
 
+    def reconstruct(self, params: Array, x: Array) -> Array:
+        """Reconstruct observable means via mean-field approximation: posterior mean stats through likelihood."""
+        q_params = self.approximate_posterior_at(params, x)
+        z_mean_stats = self.pst_man.to_mean(q_params)
+        _, hrm_params = self.split_coords(params)
+        lkl_fun = self.hrm.likelihood_function(hrm_params)
+        lkl_natural = self.hrm.lkl_fun_man(lkl_fun, z_mean_stats)
+        return self.obs_man.to_mean(lkl_natural)
+
+    def reconstruction_error(self, params: Array, xs: Array) -> Array:
+        """Compute mean squared reconstruction error over a batch."""
+        recons = jax.vmap(self.reconstruct, in_axes=(None, 0))(params, xs)
+        return jnp.mean((xs - recons) ** 2)
+
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:

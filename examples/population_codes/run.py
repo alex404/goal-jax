@@ -9,7 +9,7 @@ This example demonstrates:
 import jax
 import jax.numpy as jnp
 
-from goal.models import VonMisesPopulationCode
+from goal.models import PoissonVonMisesHarmonium, VonMisesPopulationCode
 
 from ..shared import example_paths, jax_cli
 from .types import PopulationCodeResults
@@ -24,24 +24,18 @@ baseline_rate = 1.0  # Baseline firing rate
 max_rate = 10.0  # Maximum firing rate at preferred direction
 
 
-def create_population_code() -> tuple[VonMisesPopulationCode, jax.Array]:
+def create_population_code(key: jax.Array) -> tuple[VonMisesPopulationCode, jax.Array]:
     """Create a population code with evenly spaced tuning curves."""
-    model = VonMisesPopulationCode(n_neurons)
-
-    # Evenly spaced preferred directions
+    model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, 1))
     preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
-
-    # Gains to achieve max_rate at preferred direction
-    # log(rate) = baseline + gain * cos(0) = baseline + gain
-    # So gain = log(max_rate) - baseline
-    baselines = jnp.ones(n_neurons) * jnp.log(baseline_rate)
-    gains = jnp.ones(n_neurons) * (jnp.log(max_rate) - jnp.log(baseline_rate))
-
-    # Uniform prior (low concentration)
-    prior_params = model.lat_man.join_mean_concentration(0.0, 0.1)
-
-    params = model.join_tuning_parameters(gains, preferred, baselines, prior_params)
-
+    params = model.initialize_from_tuning_curves(
+        key=key,
+        gains=jnp.ones(n_neurons) * (jnp.log(max_rate) - jnp.log(baseline_rate)),
+        preferred=preferred,
+        baselines=jnp.ones(n_neurons) * jnp.log(baseline_rate),
+        prior_mean=0.0,
+        prior_concentration=0.1,
+    )
     return model, params
 
 
@@ -50,27 +44,63 @@ def compute_tuning_curves(
 ) -> tuple[jax.Array, jax.Array]:
     """Compute tuning curves over a grid of stimuli."""
     grid = jnp.linspace(0, 2 * jnp.pi, n_grid_points, endpoint=False)
+    _, hrm_params = model.split_coords(params)
 
-    # Compute firing rates at each grid point
-    rates = jax.vmap(lambda z: model.firing_rates(params, z))(grid)
+    def rates_at(z: jax.Array) -> jax.Array:
+        lkl_params = model.hrm.likelihood_at(hrm_params, z)
+        return model.obs_man.to_mean(lkl_params)
 
+    rates = jax.vmap(rates_at)(grid)
     return grid, rates
+
+
+def compute_regression_diagnostics(
+    model: VonMisesPopulationCode, params: jax.Array
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """Compute regression fit diagnostics for visualization."""
+    _, hrm_params = model.split_coords(params)
+    obs_params, int_params, _ = model.hrm.split_coords(hrm_params)
+    int_matrix = int_params.reshape(n_neurons, 2)
+    vm = model.pst_man.rep_man  # underlying VonMises
+
+    grid = jnp.linspace(0, 2 * jnp.pi, n_grid_points, endpoint=False)
+
+    def log_partition_at(z: jax.Array) -> jax.Array:
+        suff = vm.sufficient_statistic(z)
+        log_rates = obs_params + int_matrix @ suff
+        return jnp.sum(jnp.exp(log_rates))
+
+    actual = jax.vmap(log_partition_at)(grid)
+    suff_stats = jax.vmap(vm.sufficient_statistic)(grid)
+    design = jnp.column_stack([jnp.ones(n_grid_points), suff_stats])
+    coeffs, _, _, _ = jnp.linalg.lstsq(design, actual, rcond=None)
+    fitted = design @ coeffs
+    return grid, actual, fitted
 
 
 def run_inference(
     model: VonMisesPopulationCode, params: jax.Array, key: jax.Array
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
-    """Sample from joint distribution and infer posterior."""
-    # Sample (spike_counts, stimuli) pairs from the joint distribution
-    spike_counts, stimuli = model.sample_joint(key, params, n=n_test_stimuli)
+    """Sample from generative model and infer posterior."""
+    vm = model.pst_man.rep_man  # underlying VonMises
 
-    # Compute posterior for each observation
-    posterior_means = jax.vmap(lambda x: model.posterior_mean(params, x))(spike_counts)
-    posterior_kappas = jax.vmap(lambda x: model.posterior_concentration(params, x))(
-        spike_counts
-    )
+    # Sample joint (x, z) from generative model
+    key, sample_key = jax.random.split(key)
+    joint_samples = model.sample(sample_key, params, n_test_stimuli)
+    spike_counts = joint_samples[:, : model.obs_man.data_dim]
+    stimuli = joint_samples[:, model.obs_man.data_dim :]
 
-    return stimuli, spike_counts, posterior_means, posterior_kappas
+    # Compute approximate posterior for each observation
+    def posterior_stats(x: jax.Array) -> tuple[jax.Array, jax.Array]:
+        q_params = model.approximate_posterior_at(params, x)
+        # VonMisesProduct(1) has 2 natural params; extract mean/concentration from underlying VonMises
+        mu, kappa = vm.split_mean_concentration(q_params)
+        return mu, kappa
+
+    posterior_means, posterior_kappas = jax.vmap(posterior_stats)(spike_counts)
+
+    # stimuli are angles from VonMisesProduct(1) — shape (n, 1), squeeze to (n,)
+    return stimuli.squeeze(-1), spike_counts, posterior_means, posterior_kappas
 
 
 def circular_error(estimate: jax.Array, true_val: jax.Array) -> jax.Array:
@@ -84,10 +114,15 @@ def main():
     key = jax.random.PRNGKey(42)
 
     print(f"Creating population code with {n_neurons} neurons...")
-    model, params = create_population_code()
+    key, init_key = jax.random.split(key)
+    model, params = create_population_code(init_key)
 
-    # Get preferred directions
-    _, preferred, _, _ = model.split_tuning_parameters(params)
+    # Extract preferred directions from interaction weights
+    _, hrm_params = model.split_coords(params)
+    _, int_params, _ = model.hrm.split_coords(hrm_params)
+    int_matrix = int_params.reshape(n_neurons, 2)
+    preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])
+    preferred = jnp.mod(preferred, 2 * jnp.pi)
 
     # Compute tuning curves
     print("Computing tuning curves...")
@@ -95,7 +130,7 @@ def main():
 
     # Get regression diagnostics
     print("Computing regression diagnostics...")
-    reg_grid, reg_actual, reg_fitted = model.regression_diagnostics(params)
+    reg_grid, reg_actual, reg_fitted = compute_regression_diagnostics(model, params)
 
     # Run inference
     print(f"Running inference on {n_test_stimuli} test stimuli...")

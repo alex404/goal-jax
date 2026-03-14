@@ -14,8 +14,13 @@ from ...geometry import (
     Differentiable,
     ExponentialFamily,
     LocationShape,
+    Product,
+    TupleEmbedding,
 )
-from ...geometry.exponential_family.combinators import AnalyticProduct
+from ...geometry.exponential_family.combinators import (
+    AnalyticProduct,
+    DifferentiableProduct,
+)
 
 
 @dataclass(frozen=True)
@@ -349,6 +354,63 @@ class Poissons(AnalyticProduct[Poisson]):
     def n_neurons(self) -> int:
         """Number of Poisson units."""
         return self.n_reps
+
+
+type PopulationShape = Product[CoMShape]
+
+
+@dataclass(frozen=True)
+class CoMPoissons(
+    DifferentiableProduct[CoMPoisson], LocationShape[Poissons, PopulationShape]
+):
+    """A population of independent Conway-Maxwell-Poisson (COM-Poisson) units."""
+
+    def __init__(self, n_reps: int):
+        super().__init__(CoMPoisson(), n_reps)
+
+    @property
+    @override
+    def fst_man(self) -> Poissons:
+        return Poissons(self.n_reps)
+
+    @property
+    @override
+    def snd_man(self) -> PopulationShape:
+        return Product(CoMShape(), n_reps=self.n_reps)
+
+    @override
+    def join_coords(self, fst_coords: Array, snd_coords: Array) -> Array:
+        params_matrix = jnp.stack([fst_coords, snd_coords])
+        return params_matrix.T.reshape(-1)
+
+    @override
+    def split_coords(self, coords: Array) -> tuple[Array, Array]:
+        matrix = coords.reshape(self.n_reps, 2).T
+        return matrix[0], matrix[1]
+
+
+@dataclass(frozen=True)
+class PopulationLocationEmbedding(
+    TupleEmbedding[Poissons, CoMPoissons]
+):
+    """Embedding that projects COM-Poisson to Poisson via location parameters."""
+
+    n_neurons: int
+
+    @property
+    @override
+    def tup_idx(self) -> int:
+        return 0
+
+    @property
+    @override
+    def amb_man(self) -> CoMPoissons:
+        return CoMPoissons(n_reps=self.n_neurons)
+
+    @property
+    @override
+    def sub_man(self) -> Poissons:
+        return Poissons(self.n_neurons)
 
 
 def _log_factorial(k: Array) -> Array:

@@ -23,9 +23,7 @@ from jax import Array
 
 from goal.models import (
     PoissonVonMisesHarmonium,
-    VariationalPoissonVonMises,
-    poisson_vonmises_harmonium,
-    variational_poisson_vonmises,
+    VonMisesPopulationCode,
 )
 
 from ..shared import example_paths, jax_cli
@@ -129,7 +127,7 @@ def create_ground_truth_model(
     density_mu2: float = DENSITY_MU2,
 ) -> tuple[PoissonVonMisesHarmonium, Array, TuningParams]:
     """Create ground truth population code on n-torus."""
-    model = poisson_vonmises_harmonium(n_neurons, n_latent)
+    model = PoissonVonMisesHarmonium(n_neurons, n_latent)
 
     # For 2D torus: arrange neurons on a grid (possibly non-uniform)
     if n_latent == 2:
@@ -201,7 +199,7 @@ def create_ground_truth_model(
 
 
 def extract_tuning_params(
-    model: VariationalPoissonVonMises, params: Array
+    model: VonMisesPopulationCode, params: Array
 ) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
     _, hrm_params = model.split_coords(params)
@@ -234,7 +232,7 @@ def compute_gt_conjugation(
 ) -> GTConjugationMetrics:
     """Compute conjugation metrics for the ground truth model using library methods."""
     # Wrap GT harmonium in variational model to use library methods
-    var_model = VariationalPoissonVonMises(hrm=gt_model)
+    var_model = VonMisesPopulationCode(hrm=gt_model)
     zero_rho = jnp.zeros(var_model.rho_man.dim)
     var_params = var_model.join_coords(zero_rho, gt_params)
 
@@ -264,7 +262,7 @@ def compute_gt_conjugation(
 
 def train_model(
     key: Array,
-    model: VariationalPoissonVonMises,
+    model: VonMisesPopulationCode,
     train_data: Array,
     mode: str,
     n_steps: int,
@@ -514,9 +512,9 @@ def train_model(
     print(f"  Reconstruction error: {final_recon_error:.4f}")
 
     # Extract learned parameters
-    learned_weights = model.get_weight_matrix(current_params)
     _, hrm_p = model.split_coords(current_params)
-    learned_baselines, _, _ = model.hrm.split_coords(hrm_p)
+    learned_baselines, learned_int_params, _ = model.hrm.split_coords(hrm_p)
+    learned_weights = learned_int_params.reshape(model.n_neurons, 2 * model.n_latent)
     learned_tuning = extract_tuning_params(model, current_params)
 
     results: ModeResults = {
@@ -589,7 +587,8 @@ def main():
     spike_keys = jax.random.split(spike_key, N_SAMPLES)
 
     def sample_spikes(subkey: Array, z: Array) -> Array:
-        rates = gt_model.observable_rates(gt_params, z)
+        lkl_params = gt_model.likelihood_at(gt_params, z)
+        rates = gt_model.obs_man.to_mean(lkl_params)
         return jax.random.poisson(subkey, rates).astype(jnp.float32)
 
     spike_counts = jax.vmap(sample_spikes)(spike_keys, z_samples)
@@ -610,8 +609,8 @@ def main():
     print(f"  GT ||rho_optimal||: {gt_conjugation['optimal_rho_norm']:.4f}")
 
     # Extract ground truth info
-    gt_weights = gt_model.get_weight_matrix(gt_params)
-    gt_baselines, _, gt_prior = gt_model.split_coords(gt_params)
+    gt_baselines, gt_int_params, gt_prior = gt_model.split_coords(gt_params)
+    gt_weights = gt_int_params.reshape(gt_model.n_neurons, 2 * gt_model.n_latent)
 
     ground_truth: GroundTruth = {
         "weight_matrix": gt_weights.tolist(),
@@ -622,7 +621,7 @@ def main():
     }
 
     # Create variational model for training
-    model = variational_poisson_vonmises(N_NEURONS, N_LATENT)
+    model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(N_NEURONS, N_LATENT))
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
     print(f"  Rho params: {model.rho_man.dim}")

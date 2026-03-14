@@ -1,9 +1,5 @@
 """Harmonium models for probabilistic modeling."""
 
-from .binomial import (
-    get_rectangular_filters,
-    get_vonmises_filters,
-)
 from .lgm import (
     LGM,
     BoltzmannEmbedding,
@@ -17,20 +13,14 @@ from .lgm import (
     PrincipalComponentAnalysis,
 )
 from .mixture import AnalyticMixture, CompleteMixture, Mixture
-from .poisson import (
+from ..base.poisson import CoMPoissons, PopulationLocationEmbedding
+from .population_codes import (
     CoMPoissonMixture,
-    CoMPoissonPopulation,
     PoissonMixture,
-    PoissonPopulation,
     PoissonVonMisesHarmonium,
-    PopulationLocationEmbedding,
-    VariationalPoissonVonMises,
     VonMisesPopulationCode,
     com_poisson_mixture,
     poisson_mixture,
-    poisson_vonmises_harmonium,
-    variational_poisson_vonmises,
-    von_mises_population_code,
 )
 
 __all__ = [
@@ -39,7 +29,7 @@ __all__ = [
     "BoltzmannEmbedding",
     "BoltzmannLGM",
     "CoMPoissonMixture",
-    "CoMPoissonPopulation",
+    "CoMPoissons",
     "CompleteMixture",
     "DifferentiableBoltzmannLGM",
     "FactorAnalysis",
@@ -49,17 +39,11 @@ __all__ = [
     "NormalCovarianceEmbedding",
     "NormalLGM",
     "PoissonMixture",
-    "PoissonPopulation",
     "PoissonVonMisesHarmonium",
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
-    "VariationalPoissonVonMises",
     "VonMisesPopulationCode",
     "com_poisson_mixture",
-    "get_rectangular_filters",
-    "get_vonmises_filters",
     "poisson_mixture",
-    "poisson_vonmises_harmonium",
-    "variational_poisson_vonmises",
-    "von_mises_population_code",
+
 ]

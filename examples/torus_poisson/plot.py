@@ -261,7 +261,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         import jax
         import jax.numpy as jnp
         from scipy.special import i0 as bessel_i0
-        from goal.models import variational_poisson_vonmises
+        from goal.models import PoissonVonMisesHarmonium, VonMisesPopulationCode
 
         config = results["config"]
         models = results["models"]
@@ -278,7 +278,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         else:
             mode_to_use = list(models.keys())[0]
 
-        var_model = variational_poisson_vonmises(n_neurons, n_latent)
+        var_model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, n_latent))
 
         # Get learned parameters
         learned_weights = np.array(models[mode_to_use]["learned_weight_matrix"])
@@ -343,7 +343,8 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
             spike_keys = jax.random.split(spike_key, max_obs)
             observations = []
             for i in range(max_obs):
-                rates = var_model.hrm.observable_rates(hrm_params, z_true)
+                lkl_params = var_model.hrm.likelihood_at(hrm_params, z_true)
+                rates = var_model.hrm.obs_man.to_mean(lkl_params)
                 x = jax.random.poisson(spike_keys[i], rates).astype(jnp.float32)
                 observations.append(x)
 

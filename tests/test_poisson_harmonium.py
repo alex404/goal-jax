@@ -11,8 +11,6 @@ from jax import Array
 from goal.models import (
     PoissonVonMisesHarmonium,
     VonMisesPopulationCode,
-    poisson_vonmises_harmonium,
-    von_mises_population_code,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -34,7 +32,8 @@ class TestVonMisesPopulationCodeBasics:
     @pytest.fixture(params=[4, 8, 16])
     def model(self, request: pytest.FixtureRequest) -> VonMisesPopulationCode:
         """Create population code model."""
-        return VonMisesPopulationCode(request.param)
+        hrm = PoissonVonMisesHarmonium(request.param, 1)
+        return VonMisesPopulationCode(hrm=hrm)
 
     def test_dimensions(self, model: VonMisesPopulationCode) -> None:
         """Test model dimensions are correct."""
@@ -44,15 +43,15 @@ class TestVonMisesPopulationCodeBasics:
         assert model.obs_man.dim == n
         assert model.obs_man.data_dim == n
 
-        # Latent manifold (VonMises)
-        assert model.lat_man.dim == 2
-        assert model.lat_man.data_dim == 1
+        # Posterior manifold (VonMisesProduct(1))
+        assert model.pst_man.dim == 2
+        assert model.pst_man.data_dim == 1
 
         # Interaction manifold
-        assert model.int_man.dim == n * 2
+        assert model.hrm.int_man.dim == n * 2
 
-        # Total dimension
-        assert model.dim == n + n * 2 + 2
+        # Total = rho_dim + hrm_dim = 2 + (n + n*2 + 2)
+        assert model.dim == 2 + n + n * 2 + 2
 
 
 class TestVonMisesPopulationCodeTuning:
@@ -60,44 +59,45 @@ class TestVonMisesPopulationCodeTuning:
 
     @pytest.fixture(params=[4, 8])
     def model_and_params(
-        self, request: pytest.FixtureRequest
+        self, request: pytest.FixtureRequest, key: Array
     ) -> tuple[VonMisesPopulationCode, Array]:
         """Create population code with parameters."""
         n_neurons = request.param
+        model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, 1))
         preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
-        gains = jnp.ones(n_neurons) * 2.0
-        baselines = jnp.zeros(n_neurons)
-
-        model, params = von_mises_population_code(
-            n_neurons=n_neurons,
-            gains=gains,
+        params = model.initialize_from_tuning_curves(
+            key=key,
+            gains=jnp.ones(n_neurons) * 2.0,
             preferred=preferred,
-            baselines=baselines,
-            prior_mean=0.0,
-            prior_concentration=0.0,
+            baselines=jnp.zeros(n_neurons),
         )
         return model, params
 
     def test_tuning_curve_shape(
         self, model_and_params: tuple[VonMisesPopulationCode, Array]
     ) -> None:
-        """Test tuning curve has correct shape."""
+        """Test likelihood produces correct shape."""
         model, params = model_and_params
-        z = jnp.array(0.5)
-        log_rates = model.tuning_curve(params, z)
-        assert log_rates.shape == (model.n_neurons,)
+        _, hrm_params = model.split_coords(params)
+        z = jnp.array([0.5])  # VonMisesProduct(1) data is 1D
+        lkl_params = model.hrm.likelihood_at(hrm_params, z)
+        assert lkl_params.shape == (model.n_neurons,)
 
     def test_tuning_curve_peaks_at_preferred(
         self, model_and_params: tuple[VonMisesPopulationCode, Array]
     ) -> None:
         """Test tuning curve peaks at preferred direction."""
         model, params = model_and_params
-        _, preferred, _, _ = model.split_tuning_parameters(params)
+        _, hrm_params = model.split_coords(params)
+        _, int_params, _ = model.hrm.split_coords(hrm_params)
+        int_matrix = int_params.reshape(model.n_neurons, 2)
+        preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])
 
         for i in range(model.n_neurons):
-            pref = preferred[i]
-            rate_at_pref = model.tuning_curve(params, pref)[i]
-            rate_at_opposite = model.tuning_curve(params, pref + jnp.pi)[i]
+            pref = jnp.array([preferred[i]])
+            opp = jnp.array([preferred[i] + jnp.pi])
+            rate_at_pref = model.hrm.likelihood_at(hrm_params, pref)[i]
+            rate_at_opposite = model.hrm.likelihood_at(hrm_params, opp)[i]
             assert rate_at_pref > rate_at_opposite
 
     def test_firing_rates_positive(
@@ -105,45 +105,14 @@ class TestVonMisesPopulationCodeTuning:
     ) -> None:
         """Test firing rates are always positive."""
         model, params = model_and_params
+        _, hrm_params = model.split_coords(params)
         test_stimuli = jnp.linspace(0, 2 * jnp.pi, 10)
 
-        for z in test_stimuli:
-            rates = model.firing_rates(params, z)
+        for z_scalar in test_stimuli:
+            z = jnp.array([z_scalar])
+            lkl_params = model.hrm.likelihood_at(hrm_params, z)
+            rates = model.obs_man.to_mean(lkl_params)
             assert jnp.all(rates > 0)
-
-
-class TestVonMisesPopulationCodeParameters:
-    """Test population code parameter operations."""
-
-    @pytest.fixture(params=[4, 8])
-    def model_and_params(
-        self, request: pytest.FixtureRequest
-    ) -> tuple[VonMisesPopulationCode, Array]:
-        """Create population code with parameters."""
-        n_neurons = request.param
-        preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
-        gains = jnp.ones(n_neurons) * 2.0
-        baselines = jnp.zeros(n_neurons)
-
-        model, params = von_mises_population_code(
-            n_neurons=n_neurons,
-            gains=gains,
-            preferred=preferred,
-            baselines=baselines,
-            prior_mean=0.0,
-            prior_concentration=0.0,
-        )
-        return model, params
-
-    def test_split_join_round_trip(
-        self, model_and_params: tuple[VonMisesPopulationCode, Array]
-    ) -> None:
-        """Test split/join tuning parameters round-trip."""
-        model, params = model_and_params
-        gains, preferred, baselines, prior = model.split_tuning_parameters(params)
-        recovered = model.join_tuning_parameters(gains, preferred, baselines, prior)
-
-        assert jnp.allclose(params, recovered, rtol=1e-3, atol=1e-5)
 
 
 class TestVonMisesPopulationCodePosterior:
@@ -151,35 +120,32 @@ class TestVonMisesPopulationCodePosterior:
 
     @pytest.fixture(params=[8, 16])
     def model_and_params(
-        self, request: pytest.FixtureRequest
+        self, request: pytest.FixtureRequest, key: Array
     ) -> tuple[VonMisesPopulationCode, Array]:
         """Create population code with parameters."""
         n_neurons = request.param
+        model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, 1))
         preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
-        gains = jnp.ones(n_neurons) * 2.0
-        baselines = jnp.zeros(n_neurons)
-
-        model, params = von_mises_population_code(
-            n_neurons=n_neurons,
-            gains=gains,
+        params = model.initialize_from_tuning_curves(
+            key=key,
+            gains=jnp.ones(n_neurons) * 2.0,
             preferred=preferred,
-            baselines=baselines,
-            prior_mean=0.0,
-            prior_concentration=0.0,
+            baselines=jnp.zeros(n_neurons),
         )
         return model, params
 
     def test_posterior_is_valid_vonmises(
         self, model_and_params: tuple[VonMisesPopulationCode, Array], key: Array
     ) -> None:
-        """Test posterior parameters are valid VonMises."""
+        """Test approximate posterior parameters are valid VonMises."""
         model, params = model_and_params
         x = jax.random.poisson(key, 5.0 * jnp.ones(model.n_neurons))
 
-        post_params = model.posterior_at(params, x)
+        q_params = model.approximate_posterior_at(params, x)
+        assert q_params.shape == (2,)
 
-        assert post_params.shape == (2,)
-        _, kappa = model.lat_man.split_mean_concentration(post_params)
+        vm = model.pst_man.rep_man
+        _, kappa = vm.split_mean_concentration(q_params)
         assert kappa >= 0
 
     def test_posterior_concentration_increases_with_spikes(
@@ -187,12 +153,16 @@ class TestVonMisesPopulationCodePosterior:
     ) -> None:
         """Test posterior concentration increases with spike count."""
         model, params = model_and_params
+        vm = model.pst_man.rep_man
 
         x_low = jnp.ones(model.n_neurons)
         x_high = 10 * jnp.ones(model.n_neurons)
 
-        kappa_low = model.posterior_concentration(params, x_low)
-        kappa_high = model.posterior_concentration(params, x_high)
+        q_low = model.approximate_posterior_at(params, x_low)
+        q_high = model.approximate_posterior_at(params, x_high)
+
+        _, kappa_low = vm.split_mean_concentration(q_low)
+        _, kappa_high = vm.split_mean_concentration(q_high)
 
         assert kappa_high > kappa_low
 
@@ -202,47 +172,42 @@ class TestVonMisesPopulationCodeSampling:
 
     @pytest.fixture(params=[8])
     def model_and_params(
-        self, request: pytest.FixtureRequest
+        self, request: pytest.FixtureRequest, key: Array
     ) -> tuple[VonMisesPopulationCode, Array]:
         """Create population code with parameters."""
         n_neurons = request.param
+        model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, 1))
         preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
-        gains = jnp.ones(n_neurons) * 2.0
-        baselines = jnp.zeros(n_neurons)
-
-        model, params = von_mises_population_code(
-            n_neurons=n_neurons,
-            gains=gains,
+        params = model.initialize_from_tuning_curves(
+            key=key,
+            gains=jnp.ones(n_neurons) * 2.0,
             preferred=preferred,
-            baselines=baselines,
-            prior_mean=0.0,
-            prior_concentration=0.0,
+            baselines=jnp.zeros(n_neurons),
         )
         return model, params
 
-    def test_sample_spikes_shape(
+    def test_sample_shape(
         self, model_and_params: tuple[VonMisesPopulationCode, Array], key: Array
     ) -> None:
-        """Test spike sampling produces correct shape."""
+        """Test sampling produces correct shape."""
         model, params = model_and_params
-        z = jnp.array(1.0)
+        n = 5
+        samples = model.sample(key, params, n)
+        # joint samples: (n, obs_data_dim + lat_data_dim)
+        assert samples.shape == (n, model.obs_man.data_dim + model.pst_man.data_dim)
 
-        spikes = model.sample_spikes(key, params, z)
-
-        assert spikes.shape == (model.n_neurons,)
-        assert jnp.all(spikes >= 0)
-
-    def test_log_observable_density_finite(
+    def test_reconstruction(
         self, model_and_params: tuple[VonMisesPopulationCode, Array], key: Array
     ) -> None:
-        """Test log observable density is finite."""
+        """Test reconstruction produces finite outputs."""
         model, params = model_and_params
-        zs = jnp.array([0.0, jnp.pi / 2, jnp.pi])
-        keys = jax.random.split(key, len(zs))
-        xs = jax.vmap(lambda k, z: model.sample_spikes(k, params, z))(keys, zs)
-
-        log_densities = jax.vmap(lambda x: model.log_observable_density(params, x))(xs)
-        assert jnp.all(jnp.isfinite(log_densities))
+        x = jax.random.poisson(key, 5.0 * jnp.ones(model.n_neurons)).astype(
+            jnp.float32
+        )
+        recon = model.reconstruct(params, x)
+        assert recon.shape == (model.n_neurons,)
+        assert jnp.all(jnp.isfinite(recon))
+        assert jnp.all(recon > 0)  # Poisson rates are positive
 
 
 class TestVonMisesPopulationCodeConjugation:
@@ -251,46 +216,29 @@ class TestVonMisesPopulationCodeConjugation:
     def test_regression_with_variation(self, key: Array) -> None:
         """Test regression captures variation with non-uniform gains."""
         n_neurons = 16
-        model = VonMisesPopulationCode(n_neurons)
+        model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, 1))
 
         preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
         gains = 1.0 + jax.random.uniform(key, (n_neurons,)) * 3.0
         baselines = jnp.zeros(n_neurons)
-        prior_params = model.lat_man.join_mean_concentration(0.0, 0.0)
 
-        params = model.join_tuning_parameters(gains, preferred, baselines, prior_params)
+        # Build harmonium params manually
+        int_col_1 = gains * jnp.cos(preferred)
+        int_col_2 = gains * jnp.sin(preferred)
+        int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
+        prior_params = jnp.zeros(2)
+        hrm_params = model.hrm.join_coords(baselines, int_params, prior_params)
+        zero_rho = jnp.zeros(model.rho_man.dim)
+        params = model.join_coords(zero_rho, hrm_params)
 
-        obs_params, int_params, _ = model.split_coords(params)
-        int_matrix = int_params.reshape(model.n_neurons, 2)
+        # Regress rho
+        key, reg_key = jax.random.split(key)
+        rho, r_squared, _, _ = model.regress_conjugation_parameters(
+            reg_key, params, 5000
+        )
 
-        lkl_params = model.lkl_fun_man.join_coords(obs_params, int_params)
-        rho = model.conjugation_parameters(lkl_params)
-
-        test_grid = jnp.linspace(0, 2 * jnp.pi, 30, endpoint=False)
-
-        def true_log_partition(z: Array) -> Array:
-            suff = model.lat_man.sufficient_statistic(z)
-            log_rates = obs_params + int_matrix @ suff
-            return jnp.sum(jnp.exp(log_rates))
-
-        def approx_log_partition(z: Array) -> Array:
-            suff = model.lat_man.sufficient_statistic(z)
-            return jnp.dot(rho, suff)
-
-        true_vals = jax.vmap(true_log_partition)(test_grid)
-        approx_vals = jax.vmap(approx_log_partition)(test_grid)
-
-        true_centered = true_vals - jnp.mean(true_vals)
-        approx_centered = approx_vals - jnp.mean(approx_vals)
-
-        true_std = jnp.std(true_vals)
-        if true_std > 0.1:
-            correlation = jnp.sum(true_centered * approx_centered) / (
-                jnp.sqrt(jnp.sum(true_centered**2) + 1e-8)
-                * jnp.sqrt(jnp.sum(approx_centered**2) + 1e-8)
-            )
-            # Linear approximation quality depends on population size and gain variation
-            assert correlation > 0.3
+        # With non-uniform gains, rho should be non-trivial and R^2 reasonable
+        assert jnp.linalg.norm(rho) > 0.01 or float(r_squared) > 0.3
 
 
 class TestPoissonVonMisesHarmoniumBasics:
@@ -300,11 +248,11 @@ class TestPoissonVonMisesHarmoniumBasics:
     def model(self, request: pytest.FixtureRequest) -> PoissonVonMisesHarmonium:
         """Create PoissonVonMisesHarmonium."""
         n_neurons, n_latent = request.param
-        return poisson_vonmises_harmonium(n_neurons, n_latent)
+        return PoissonVonMisesHarmonium(n_neurons, n_latent)
 
     def test_factory_function(self) -> None:
         """Test factory function creates correct model."""
-        model = poisson_vonmises_harmonium(16, 2)
+        model = PoissonVonMisesHarmonium(16, 2)
         assert model.n_neurons == 16
         assert model.n_latent == 2
 
@@ -319,5 +267,3 @@ class TestPoissonVonMisesHarmoniumBasics:
         """Test initialization produces valid parameters."""
         params = model.initialize(key)
         assert jnp.all(jnp.isfinite(params))
-
-

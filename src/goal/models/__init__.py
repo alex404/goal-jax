@@ -44,19 +44,14 @@ from .harmonium.lgm import (
     PrincipalComponentAnalysis,
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
-from .harmonium.poisson import (
+from .base.poisson import CoMPoissons, PopulationLocationEmbedding
+from .harmonium.population_codes import (
     CoMPoissonMixture,
-    CoMPoissonPopulation,
     PoissonMixture,
     PoissonVonMisesHarmonium,
-    PopulationLocationEmbedding,
-    VariationalPoissonVonMises,
     VonMisesPopulationCode,
     com_poisson_mixture,
     poisson_mixture,
-    poisson_vonmises_harmonium,
-    variational_poisson_vonmises,
-    von_mises_population_code,
 )
 
 __all__ = [
@@ -73,7 +68,7 @@ __all__ = [
     "Categorical",
     "CoMPoisson",
     "CoMPoissonMixture",
-    "CoMPoissonPopulation",
+    "CoMPoissons",
     "CoMShape",
     "CompleteMixture",
     "CompleteMixtureOfAnalytic",
@@ -102,7 +97,6 @@ __all__ = [
     "StandardNormal",
     "SymmetricHMoG",
     "VariationalHierarchicalMixture",
-    "VariationalPoissonVonMises",
     "VonMises",
     "VonMisesPopulationCode",
     "VonMisesProduct",
@@ -113,9 +107,7 @@ __all__ = [
     "full_normal",
     "isotropic_normal",
     "poisson_mixture",
-    "poisson_vonmises_harmonium",
+
     "standard_normal",
     "symmetric_hmog",
-    "variational_poisson_vonmises",
-    "von_mises_population_code",
 ]
