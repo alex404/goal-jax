@@ -131,6 +131,7 @@ class TestVonMisesPopulationCodePosterior:
             gains=jnp.ones(n_neurons) * 2.0,
             preferred=preferred,
             baselines=jnp.zeros(n_neurons),
+            n_regression_samples=10000,
         )
         return model, params
 
