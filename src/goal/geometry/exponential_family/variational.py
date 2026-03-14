@@ -1,39 +1,9 @@
-"""Variational conjugation for harmoniums.
+"""Variational conjugation for harmoniums: approximate posterior with learnable conjugation correction and ELBO computation.
 
-This module provides the abstract base class for variational inference on harmoniums,
-where the approximate posterior has the same structure as the exact conjugate
-posterior, with learnable conjugation parameters.
-
-Mathematical framework:
-
-We reinterpret the harmonium as a directed generative model:
-
-- The harmonium defines
-  $p(x,z) \\propto \\exp(\\theta_X \\cdot s_X(x) + s_X(x) \\cdot \\Theta_{XZ} \\cdot s_Z(z) + \\theta_Z \\cdot s_Z(z))$
-- We treat $\\theta_Z$ as defining an explicit prior $p(z; \\theta_Z)$
-- The likelihood is $p(x|z)$ with natural parameters $\\theta_X + \\Theta_{XZ} \\cdot s_Z(z)$
-- Note: this is NOT the same as the harmonium marginal
-  $p(z) \\propto \\exp(\\theta_Z \\cdot s_Z(z) + \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z)))$
-
-Approximate posterior:
-$$q(z|x; \\rho) \\propto \\exp\\bigl((\\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)) \\cdot s_Z(z)\\bigr)$$
-
-ELBO:
-$$\\mathcal{L}(x) = \\mathbb{E}_q[\\log p(x|z)] - D_{\\mathrm{KL}}(q(z|x) \\| p(z))$$
-
-Key insight: same form as true conjugate posterior, but $\\rho$ is learned rather than
-computed from conjugation. The conjugation parameters and generative (harmonium)
-parameters together form the complete model parameterization.
-
-All ELBO and diagnostic methods depend only on the abstract EF interface
-(``pst_man.sample()``, ``pst_man.to_mean()``, ``pst_man.relative_entropy()``,
-``obs_man.log_partition_function()``, etc.). They work identically for simple
-posteriors (Bernoullis, VonMises) and mixture posteriors (CompleteMixture)
-because the mixture IS a Differentiable exponential family.
-
-Classes:
-    VariationalConjugated: Base class with ELBO computation and diagnostics
+The approximate posterior has the same structure as the exact conjugate posterior, but with learned conjugation parameters ``\\rho`` replacing the analytically derived ones.
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -58,42 +28,34 @@ class VariationalConjugated[
     Pair[Conjugation, Harmonium[Observable, Posterior]],
     ABC,
 ):
-    """Variational harmonium with learnable conjugation correction and ELBO computation.
+    """Variational harmonium whose full parameter space is ``Pair[rho_params, harmonium_params]``.
 
-    The full parameter space is Pair[rho_params, harmonium_params].
+    Reinterprets a harmonium as a directed generative model with explicit prior
+    $p(z; \\theta_Z)$ and likelihood $p(x|z)$, then approximates the intractable
+    posterior with a learnable member of the conjugate family:
 
-    The rho correction is applied via an embedding that maps Conjugation
-    to Posterior space:
+    $$q(z|x; \\rho) \\propto \\exp\\bigl((\\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)) \\cdot s_Z(z)\\bigr)$$
 
-    $$q(z|x) \\propto \\exp\\bigl((\\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)) \\cdot s_Z(z)\\bigr)$$
-
-    This generalizes:
-    - Simple case: Conjugation = Posterior, embedding = Identity, so q = posterior - rho
-    - Mixture case: Conjugation = BaseLatent, embedding maps to obs_bias of mixture
-
-    ELBO decomposes as:
-    $$\\mathcal{L}_\\beta(x) = \\mathbb{E}_q[\\log p(x|z)] - \\beta \\cdot D_{\\mathrm{KL}}(q \\| p)$$
-
-    Attributes:
-        hrm: The underlying Harmonium model
+    Mathematically, this has the same form as the true conjugate posterior, but
+    $\\rho$ is learned rather than computed from conjugation. The ELBO decomposes as
+    $\\mathcal{L}_\\beta(x) = \\mathbb{E}_q[\\log p(x|z)] - \\beta \\cdot D_{\\mathrm{KL}}(q \\| p)$,
+    where the reconstruction term uses a score-function (REINFORCE) estimator for
+    the intractable $\\mathbb{E}_q[\\psi_X]$ component.
     """
 
-    # Field
+    # Fields
 
     hrm: Harmonium[Observable, Posterior]
     """The underlying harmonium model."""
 
-    # Contract: subclasses provide the embedding
+    # Contract
 
     @property
     @abstractmethod
     def rho_emb(self) -> LinearEmbedding[Conjugation, Posterior]:
-        """Embedding from conjugation manifold to posterior manifold.
+        """Embedding from conjugation manifold to posterior manifold."""
 
-        Defines how rho correction is applied to the posterior parameters.
-        """
-
-    # Pair implementation
+    # Overrides
 
     @property
     def rho_man(self) -> Conjugation:
@@ -103,16 +65,14 @@ class VariationalConjugated[
     @property
     @override
     def fst_man(self) -> Conjugation:
-        """First component: conjugation parameter manifold."""
         return self.rho_man
 
     @property
     @override
     def snd_man(self) -> Harmonium[Observable, Posterior]:
-        """Second component: the harmonium manifold."""
         return self.hrm
 
-    # Convenience properties
+    # Methods
 
     @property
     def obs_man(self) -> Observable:
@@ -124,102 +84,38 @@ class VariationalConjugated[
         """Posterior manifold of the underlying harmonium."""
         return self.hrm.pst_man
 
-    # Parameter access
-
     def conjugation_parameters(self, params: Array) -> Array:
-        """Extract conjugation parameters (rho) from full parameters.
-
-        Args:
-            params: Full model parameters [rho, harmonium_params]
-
-        Returns:
-            Conjugation parameters rho
-        """
+        """Extract conjugation parameters $\\rho$ from full parameters."""
         rho, _ = self.split_coords(params)
         return rho
 
     def generative_params(self, params: Array) -> Array:
-        """Extract harmonium (generative model) parameters from full parameters.
-
-        Args:
-            params: Full model parameters [rho, harmonium_params]
-
-        Returns:
-            Harmonium parameters [theta_X, Theta_XZ, theta_Z]
-        """
+        """Extract harmonium (generative model) parameters from full parameters."""
         _, hrm_params = self.split_coords(params)
         return hrm_params
 
-    # Core methods
-
     def approximate_posterior_at(self, params: Array, x: Array) -> Array:
-        """Compute approximate posterior natural parameters at observation x.
-
-        $$\\eta_q = \\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)$$
-
-        Args:
-            params: Full model parameters [rho, harmonium_params]
-            x: Observation
-
-        Returns:
-            Natural parameters of approximate posterior q(z|x)
-        """
+        """Compute approximate posterior natural parameters $\\eta_q = \\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)$."""
         rho, hrm_params = self.split_coords(params)
         exact_posterior = self.hrm.posterior_at(hrm_params, x)
         return self.rho_emb.translate(exact_posterior, -rho)
 
     def likelihood_at(self, params: Array, z: Array) -> Array:
-        """Compute likelihood natural parameters at latent z.
-
-        Delegates to the underlying harmonium.
-
-        Args:
-            params: Full model parameters
-            z: Latent state
-
-        Returns:
-            Natural parameters of likelihood p(x|z)
-        """
+        """Compute likelihood natural parameters $p(x|z)$ at latent $z$."""
         _, hrm_params = self.split_coords(params)
         return self.hrm.likelihood_at(hrm_params, z)
 
     def prior_params(self, params: Array) -> Array:
-        """Extract prior parameters theta_Z from the harmonium.
-
-        These define the explicit prior $p(z; \\theta_Z)$, NOT the harmonium
-        marginal which also includes the log-partition contribution.
-
-        Args:
-            params: Full model parameters
-
-        Returns:
-            Prior natural parameters theta_Z
-        """
+        """Extract prior parameters $\\theta_Z$ defining $p(z; \\theta_Z)$, NOT the harmonium marginal."""
         _, hrm_params = self.split_coords(params)
         _, _, lat_params = self.hrm.split_coords(hrm_params)
         return lat_params
 
-    # ELBO component: KL divergence (analytic)
-
     def elbo_divergence(self, params: Array, x: Array) -> Array:
-        """Compute KL divergence $D_{\\mathrm{KL}}(q(z|x) \\| p(z))$.
-
-        Uses the Bregman divergence form:
-        $$D_{\\mathrm{KL}} = \\psi(\\theta_p) - \\psi(\\theta_q)
-          + (\\theta_q - \\theta_p) \\cdot \\nabla\\psi(\\theta_q)$$
-
-        Args:
-            params: Full model parameters
-            x: Observation
-
-        Returns:
-            KL divergence (scalar)
-        """
+        """Compute $D_{\\mathrm{KL}}(q(z|x) \\| p(z))$."""
         q_params = self.approximate_posterior_at(params, x)
         p_params = self.prior_params(params)
         return self.pst_man.relative_entropy(q_params, p_params)
-
-    # ELBO component: Expected log-likelihood (analytic + MC + score correction)
 
     def elbo_reconstruction_term(
         self, key: Array, params: Array, x: Array, n_samples: int
@@ -243,17 +139,8 @@ class VariationalConjugated[
 
         The full gradient of $-\\mathbb{E}_q[\\psi_X]$ decomposes by the Leibniz rule into:
 
-        1. Direct: $-\\mathbb{E}_q[\\partial\\psi_X/\\partial\\theta]$ — captured by ``mc_term``
-        2. Score: $-\\mathbb{E}_q[\\psi_X \\cdot \\nabla_\\theta\\log q]$ — captured by ``reinforce``
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            x: Observation
-            n_samples: Number of MC samples
-
-        Returns:
-            Expected log-likelihood (scalar)
+        1. Direct: $-\\mathbb{E}_q[\\partial\\psi_X/\\partial\\theta]$ --- captured by ``mc_term``
+        2. Score: $-\\mathbb{E}_q[\\psi_X \\cdot \\nabla_\\theta\\log q]$ --- captured by ``reinforce``
         """
         s_x = self.obs_man.sufficient_statistic(x)
         _, hrm_params = self.split_coords(params)
@@ -311,8 +198,6 @@ class VariationalConjugated[
 
         return analytic_term - mc_term + self.obs_man.log_base_measure(x) + reinforce
 
-    # ELBO computation
-
     def elbo_at(
         self,
         key: Array,
@@ -321,49 +206,10 @@ class VariationalConjugated[
         n_samples: int,
         kl_weight: float = 1.0,
     ) -> Array:
-        """Compute the ELBO at observation x.
-
-        $$\\mathcal{L}_\\beta(x) = \\mathbb{E}_q[\\log p(x|z)]
-          - \\beta \\cdot D_{\\mathrm{KL}}(q(z|x) \\| p(z))$$
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            x: Observation
-            n_samples: Number of MC samples
-            kl_weight: Weight on KL term (1.0 = standard VAE, <1.0 = beta-VAE)
-
-        Returns:
-            ELBO value (scalar)
-        """
+        """Compute the ELBO $\\mathcal{L}_\\beta(x) = \\mathbb{E}_q[\\log p(x|z)] - \\beta \\cdot D_{\\mathrm{KL}}(q \\| p)$."""
         recon = self.elbo_reconstruction_term(key, params, x, n_samples)
         kl = self.elbo_divergence(params, x)
         return recon - kl_weight * kl
-
-    def elbo_components(
-        self,
-        key: Array,
-        params: Array,
-        x: Array,
-        n_samples: int,
-        kl_weight: float = 1.0,
-    ) -> tuple[Array, Array, Array]:
-        """Compute ELBO and its components for monitoring.
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            x: Observation
-            n_samples: Number of MC samples
-            kl_weight: Weight on KL term (1.0 = standard VAE, <1.0 = beta-VAE)
-
-        Returns:
-            Tuple of (elbo, reconstruction_term, kl_term)
-        """
-        recon = self.elbo_reconstruction_term(key, params, x, n_samples)
-        kl = self.elbo_divergence(params, x)
-        elbo = recon - kl_weight * kl
-        return elbo, recon, kl
 
     def mean_elbo(
         self,
@@ -373,18 +219,7 @@ class VariationalConjugated[
         n_samples: int,
         kl_weight: float = 1.0,
     ) -> Array:
-        """Compute mean ELBO over a batch of observations.
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            xs: Batch of observations (shape: n_obs, obs_dim)
-            n_samples: Number of MC samples per observation
-            kl_weight: Weight on KL term (1.0 = standard VAE, <1.0 = beta-VAE)
-
-        Returns:
-            Mean ELBO (scalar)
-        """
+        """Compute mean ELBO over a batch of observations."""
         batch_size = xs.shape[0]
         keys = jax.random.split(key, batch_size)
 
@@ -394,23 +229,13 @@ class VariationalConjugated[
 
         return jnp.mean(elbos)
 
-    # Conjugation parameter regression
-
     def regress_conjugation_parameters(
         self, key: Array, params: Array, n_samples: int
     ) -> tuple[Array, Array, Array]:
         """Fit conjugation parameters by least-squares regression.
 
-        Solves: $\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\rho \\cdot s_\\rho(z_k)
-        - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            n_samples: Number of samples from prior for regression
-
-        Returns:
-            Tuple of (rho, r_squared, chi) where chi is the intercept
+        Solves $\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\rho \\cdot s_\\rho(z_k) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$.
+        Returns ``(rho, r_squared, chi)`` where ``chi`` is the intercept.
         """
         _, hrm_params = self.split_coords(params)
         p_params = self.prior_params(params)
@@ -445,90 +270,41 @@ class VariationalConjugated[
 
         return rho, r_squared, chi
 
-    # Conjugation error (measures departure from exact conjugation)
-
     def reduced_learning_signal(self, params: Array, z: Array) -> Array:
-        """Compute the reduced learning signal $\\tilde{f}(z)$.
-
-        $$\\tilde{f}(z) = \\rho \\cdot \\pi(s_Z(z)) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))$$
-
-        where $\\pi$ projects sufficient statistics onto the conjugation manifold.
-        For simple models, $\\pi = \\mathrm{id}$ (identity embedding).
-        For hierarchical mixtures, $\\pi$ extracts the base latent component.
+        """Compute the reduced learning signal $\\tilde{f}(z) = \\rho \\cdot \\pi(s_Z(z)) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))$.
 
         For a perfectly conjugate model, $\\tilde{f}(z)$ would be constant.
-
-        Args:
-            params: Full model parameters
-            z: Latent sample
-
-        Returns:
-            Scalar value of reduced learning signal
         """
         rho, hrm_params = self.split_coords(params)
         s_z = self.pst_man.sufficient_statistic(z)
-
-        # Project sufficient statistics to conjugation manifold
         s_rho = self.rho_emb.project(s_z)
-
-        # Linear term: rho . s_rho(z)
         term1 = jnp.dot(rho, s_rho)
-
-        # Log partition of likelihood: psi_X(theta_X + Theta_XZ . s_Z(z))
         lkl_params = self.hrm.likelihood_at(hrm_params, z)
         term2 = self.obs_man.log_partition_function(lkl_params)
-
         return term1 - term2
 
     def conjugation_error(
         self, key: Array, params: Array, n_samples: int = 100
     ) -> Array:
-        """Compute the conjugation error: $\\mathrm{Var}[\\tilde{f}(z)]$ under the prior.
-
-        If perfectly conjugate, $\\tilde{f}(z) = \\mathrm{const}$ and variance = 0.
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            n_samples: Number of samples for variance estimation
-
-        Returns:
-            Conjugation error (variance of f_tilde)
-        """
+        """Compute conjugation error $\\mathrm{Var}[\\tilde{f}(z)]$ under the prior (zero if perfectly conjugate)."""
         p_params = self.prior_params(params)
         z_samples = self.pst_man.sample(key, p_params, n_samples)
-
         f_vals = jax.vmap(lambda z: self.reduced_learning_signal(params, z))(z_samples)
-
         return jnp.var(f_vals)
 
     def conjugation_metrics(
         self, key: Array, params: Array, n_samples: int = 100
     ) -> tuple[Array, Array, Array]:
-        """Compute conjugation quality metrics under the prior.
+        """Compute conjugation quality metrics (variance, std, $R^2$) under the prior.
 
-        Returns variance, standard deviation, and $R^2$ measuring how well
-        the linear correction $\\rho \\cdot s(z)$ approximates $\\psi_X(\\eta(z))$.
-
-        $$R^2 = 1 - \\mathrm{Var}[\\tilde{f}] / \\mathrm{Var}[\\psi_X(\\eta(z))]$$
-
-        - $R^2 = 1$: Perfect conjugation ($\\psi_X$ is exactly linear in $s(z)$)
-        - $R^2 = 0$: Linear correction explains none of the variance
-        - $R^2 < 0$: Linear correction makes things worse
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            n_samples: Number of samples for estimation
-
-        Returns:
-            Tuple of (variance, std, r_squared)
+        $R^2 = 1 - \\mathrm{Var}[\\tilde{f}] / \\mathrm{Var}[\\psi_X(\\eta(z))]$ measures how well
+        the linear correction $\\rho \\cdot s(z)$ approximates $\\psi_X(\\eta(z))$:
+        1 = perfect conjugation, 0 = no explanatory power, <0 = worse than constant.
         """
         rho, hrm_params = self.split_coords(params)
         p_params = self.prior_params(params)
         z_samples = self.pst_man.sample(key, p_params, n_samples)
 
-        # Compute both f_tilde and psi_X in a single vmap (shared likelihood_at)
         def compute_both(z: Array) -> tuple[Array, Array]:
             s_z = self.pst_man.sufficient_statistic(z)
             s_rho = self.rho_emb.project(s_z)
@@ -543,8 +319,6 @@ class VariationalConjugated[
         std_f = jnp.sqrt(var_f)
         var_psi = jnp.var(psi_vals)
 
-        # R^2 = 1 - Var[residual] / Var[target]
-        # Use threshold to avoid numerical instability
         variance_threshold = 1e-6
         raw_r2 = 1.0 - var_f / jnp.maximum(var_psi, variance_threshold)
         r_squared = jnp.where(
@@ -555,33 +329,16 @@ class VariationalConjugated[
 
         return var_f, std_f, r_squared
 
-    # Sampling and log density
-
     def sample(self, key: Array, params: Array, n: int) -> Array:
-        """Sample from the generative model p(x, z).
+        """Sample from the generative model $p(x, z)$ via ancestral sampling.
 
-        Uses ancestral sampling: $z \\sim p(z; \\theta_Z)$, then $x \\sim p(x|z)$.
-        Note: samples from the explicit prior $p(z; \\theta_Z)$, NOT the harmonium
-        marginal $p(z) \\propto \\exp(\\theta_Z \\cdot s(z) + \\psi_X(\\eta(z)))$.
-        Conjugation parameters don't affect the generative model.
-
-        Args:
-            key: JAX random key
-            params: Full model parameters
-            n: Number of samples
-
-        Returns:
-            Samples [x, z] of shape (n, obs_dim + lat_data_dim)
+        Samples from the explicit prior $p(z; \\theta_Z)$, NOT the harmonium
+        marginal. Conjugation parameters don't affect the generative model.
         """
         key1, key2 = jax.random.split(key)
-
-        # Get prior parameters
         p_params = self.prior_params(params)
-
-        # Sample z from prior
         z_samples = self.pst_man.sample(key1, p_params, n)
 
-        # Sample x from likelihood for each z
         def sample_x_given_z(subkey: Array, z: Array) -> Array:
             lkl_params = self.likelihood_at(params, z)
             return self.obs_man.sample(subkey, lkl_params, 1)[0]
@@ -591,44 +348,21 @@ class VariationalConjugated[
 
         return jnp.concatenate([x_samples, z_samples], axis=-1)
 
-    def log_density(self, params: Array, x: Array, z: Array) -> Array:
-        """Compute joint log density log p(x, z) for the directed model.
-
-        $$\\log p(x, z) = \\log p(z) + \\log p(x|z)$$
-
-        Args:
-            params: Full model parameters
-            x: Observation
-            z: Latent state
-
-        Returns:
-            Joint log density (scalar)
-        """
+    def log_density(self, params: Array, xz: Array) -> Array:
+        """Compute joint log density $\\log p(x, z) = \\log p(z) + \\log p(x|z)$ for a joint data point."""
+        x = xz[..., : self.obs_man.data_dim]
+        z = xz[..., self.obs_man.data_dim :]
         hrm_params = self.generative_params(params)
-        prior_params = self.prior_params(params)
-        log_pz = self.pst_man.log_density(prior_params, z)
+        prior_p = self.prior_params(params)
+        log_pz = self.pst_man.log_density(prior_p, z)
         lkl_params = self.hrm.likelihood_at(hrm_params, z)
         log_px_given_z = self.obs_man.log_density(lkl_params, x)
         return log_pz + log_px_given_z
 
-    # Initialization
-
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
-        """Initialize full model parameters (conjugation + harmonium).
-
-        Conjugation parameters are initialized to zeros (so q = exact posterior initially).
-        Harmonium parameters use the standard harmonium initialization.
-
-        Args:
-            key: JAX random key
-            location: Location parameter for initialization
-            shape: Shape parameter for initialization
-
-        Returns:
-            Full model parameters [rho, harmonium_params]
-        """
+        """Initialize full model parameters with zero conjugation correction."""
         rho = jnp.zeros(self.rho_man.dim)
         hrm_params = self.hrm.initialize(key, location, shape)
         return self.join_coords(rho, hrm_params)
@@ -636,20 +370,7 @@ class VariationalConjugated[
     def initialize_from_sample(
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
-        """Initialize parameters using sample data for observable biases.
-
-        Conjugation parameters are initialized to zeros.
-        Harmonium uses sample-based initialization.
-
-        Args:
-            key: JAX random key
-            sample: Sample data for initialization
-            location: Location parameter
-            shape: Shape parameter
-
-        Returns:
-            Full model parameters
-        """
+        """Initialize parameters using sample data for observable biases."""
         rho = jnp.zeros(self.rho_man.dim)
         hrm_params = self.hrm.initialize_from_sample(key, sample, location, shape)
         return self.join_coords(rho, hrm_params)

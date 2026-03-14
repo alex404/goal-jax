@@ -270,7 +270,7 @@ def iwae_bound(
     q_params = model.approximate_posterior_at(params, x)
     z_samples = model.pst_man.sample(key, q_params, n_importance_samples)
 
-    log_joints = jax.vmap(lambda z: model.log_density(params, x, z))(z_samples)
+    log_joints = jax.vmap(lambda z: model.log_density(params, jnp.concatenate([x, z])))(z_samples)
     log_posteriors = jax.vmap(lambda z: model.pst_man.log_density(q_params, z))(
         z_samples
     )
