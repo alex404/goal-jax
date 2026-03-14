@@ -377,12 +377,12 @@ def train_model(  # noqa: C901
     def loss_fn_analytical(
         hrm_params: Array, key: Array, batch: Array, beta: float
     ) -> tuple[Array, tuple[Array, Array, Array]]:
-        key, rho_key, elbo_key, conj_key = jax.random.split(key, 4)
+        key, rho_key, elbo_key = jax.random.split(key, 3)
 
         # Compute analytical rho via regress_conjugation_parameters
         zero_rho = jnp.zeros(model.rho_man.dim)
         dummy_params = model.join_coords(zero_rho, hrm_params)
-        rho_star, _, _ = model.regress_conjugation_parameters(
+        rho_star, _, _, regression_var = model.regress_conjugation_parameters(
             rho_key, dummy_params, n_analytical_samples
         )
 
@@ -403,9 +403,10 @@ def train_model(  # noqa: C901
         all_probs = jax.vmap(get_cluster_probs)(batch)
         posterior_entropy = compute_batch_entropy(all_probs)
 
-        # Conjugation penalty shares beta with KL
+        # Conjugation penalty shares beta with KL — use residual variance
+        # from the regression rather than sampling from the prior again
         if use_conj_penalty:
-            conj_var = model.conjugation_error(conj_key, params_with_rho, N_CONJ_PENALTY_SAMPLES)
+            conj_var = regression_var
             conj_loss = beta * conj_weight * conj_var
         else:
             conj_var = jnp.array(0.0)

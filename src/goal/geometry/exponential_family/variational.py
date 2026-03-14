@@ -231,11 +231,13 @@ class VariationalConjugated[
 
     def regress_conjugation_parameters(
         self, key: Array, params: Array, n_samples: int
-    ) -> tuple[Array, Array, Array]:
+    ) -> tuple[Array, Array, Array, Array]:
         """Fit conjugation parameters by least-squares regression.
 
         Solves $\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\rho \\cdot s_\\rho(z_k) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$.
-        Returns ``(rho, r_squared, chi)`` where ``chi`` is the intercept.
+        Returns ``(rho, r_squared, chi, residual_var)`` where ``chi`` is the
+        intercept and ``residual_var`` is the conjugation error $\\mathrm{Var}[\\tilde{f}]$
+        estimated from the regression samples.
         """
         _, hrm_params = self.split_coords(params)
         p_params = self.prior_params(params)
@@ -268,7 +270,7 @@ class VariationalConjugated[
         ss_tot = jnp.sum((psi_all - jnp.mean(psi_all)) ** 2)
         r_squared = 1.0 - ss_res / jnp.maximum(ss_tot, 1e-8)
 
-        return rho, r_squared, chi
+        return rho, r_squared, chi, jnp.var(residuals)
 
     def reduced_learning_signal(self, params: Array, z: Array) -> Array:
         """Compute the reduced learning signal $\\tilde{f}(z) = \\rho \\cdot \\pi(s_Z(z)) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))$.

@@ -240,7 +240,7 @@ def compute_gt_conjugation(
 
     # Compute optimal rho via regression
     key, reg_key = jax.random.split(key)
-    rho_star, r_squared, _ = var_model.regress_conjugation_parameters(
+    rho_star, r_squared, _, _ = var_model.regress_conjugation_parameters(
         reg_key, var_params, n_samples
     )
 
@@ -339,7 +339,7 @@ def train_model(
 
         # Compute analytical rho via library regression
         dummy_params = model.join_coords(zero_rho, hrm_params)
-        rho_star, _, _ = model.regress_conjugation_parameters(
+        rho_star, _, _, _ = model.regress_conjugation_parameters(
             rho_key, dummy_params, n_analytical_samples
         )
 
@@ -493,7 +493,7 @@ def train_model(
         key, rho_eval_key = jax.random.split(key)
         zero_rho = jnp.zeros(model.rho_man.dim)
         eval_params = model.join_coords(zero_rho, current_hrm_params)
-        rho_final, _, _ = model.regress_conjugation_parameters(
+        rho_final, _, _, _ = model.regress_conjugation_parameters(
             rho_eval_key, eval_params, N_CONJ_SAMPLES * 2
         )
         current_params = model.join_coords(rho_final, current_hrm_params)
