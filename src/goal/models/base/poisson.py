@@ -1,16 +1,4 @@
-"""Poisson distributions as exponential families.
-
-This module provides two count models in the exponential family framework:
-
-1. Base Distributions:
-   - `Poisson`: Standard Poisson distribution for count data
-   - `CoMPoisson`: Conway-Maxwell-Poisson distribution for flexible dispersion
-
-2. Components:
-   - `CoMShape`: Shape component for the COM-Poisson distribution
-
-The Poisson distribution models count data with a single rate parameter, where the mean equals the variance. The Conway-Maxwell-Poisson extends this with a dispersion parameter, allowing for both over- and under-dispersed count data.
-"""
+"""Count distributions as exponential families: Poisson, Conway-Maxwell-Poisson (CoMPoisson), and their components."""
 
 from __future__ import annotations
 
@@ -29,33 +17,23 @@ from ...geometry import (
 )
 from ...geometry.exponential_family.combinators import AnalyticProduct
 
-### Classes ###
-
 
 @dataclass(frozen=True)
 class Poisson(Analytic):
-    """
-    The Poisson distribution models counts and is defined by a single rate parameter $\\eta > 0$. The probability mass function at count $k \\in \\mathbb{N}$ is given by
+    """Standard Poisson distribution for count data with a single rate parameter $\\eta > 0$ where mean equals variance.
 
     As an exponential family:
 
     - Natural parameter: $\\theta = \\log(\\eta)$
-    - Probability mass function: $p(k; \\theta) = e^{\\theta k - \\log(k!)}$
     - Sufficient statistic: $s(x) = x$
     - Base measure: $\\mu(k) = -\\log(k!)$
     - Log-partition function: $\\psi(\\theta) = e^{\\theta}$
     - Negative entropy: $\\phi(\\eta) = \\eta\\log(\\eta) - \\eta$
-
-    Properties:
-
-    - Mean = Variance = $\\eta$
-    - Mode = $\\lfloor \\eta \\rfloor$
     """
 
     @property
     @override
     def dim(self) -> int:
-        """Single rate parameter."""
         return 1
 
     @property
@@ -84,18 +62,7 @@ class Poisson(Analytic):
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         means = self.to_mean(params)
-        rate = means
-
-        # JAX's Poisson sampler expects rate parameter
-        return jax.random.poisson(key, rate, shape=(n,))[..., None]
-
-    # Methods
-
-    def statistical_mean(self, params: Array) -> Array:
-        return self.to_mean(params).reshape([1])
-
-    def statistical_covariance(self, params: Array) -> Array:
-        return self.to_mean(params).reshape([1, 1])
+        return jax.random.poisson(key, means, shape=(n,))[..., None]
 
     @override
     def initialize_from_sample(
@@ -105,42 +72,25 @@ class Poisson(Analytic):
         location: float = 0.0,
         shape: float = 0.1,
     ) -> Array:
-        """Initialize Poisson parameters from sample data.
-
-        Handles the case where some observations are 0 by clipping the mean
-        to a small positive value before converting to natural parameters.
-
-        Args:
-            key: Random key
-            sample: Sample data (count values)
-            location: Mean of noise distribution
-            shape: Std dev of noise distribution
-
-        Returns:
-            Natural parameters (log rate).
-        """
+        """Initialize by clipping mean to a small positive value before converting to log rate."""
         avg_suff = self.average_sufficient_statistic(sample)
-        # Clip mean to small positive value to avoid log(0) = -inf
-        # Use 0.1 as minimum rate (small but not too small)
         clipped_mean = jnp.clip(avg_suff, 0.1, None)
         natural = jnp.log(clipped_mean)
         noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
         return natural + noise
 
+    # Methods
+
+    def statistical_mean(self, params: Array) -> Array:
+        return self.to_mean(params).reshape([1])
+
+    def statistical_covariance(self, params: Array) -> Array:
+        return self.to_mean(params).reshape([1, 1])
+
 
 @dataclass(frozen=True)
 class CoMShape(ExponentialFamily):
-    """Shape component of a CoMPoisson distribution. This represents the dispersion structure with sufficient statistic log(x!). It captures deviations from the standard Poisson variance-mean relationship.
-
-    The dispersion parameter $\\nu$ controls whether the distribution is:
-
-    - Equidispersed ($\\nu = 1$): Variance = Mean (standard Poisson)
-    - Underdispersed ($\\nu > 1$): Variance < Mean
-    - Overdispersed ($\\nu < 1$): Variance > Mean
-    """
-
-    def __init__(self):
-        super().__init__()
+    """Shape component of a CoMPoisson distribution with sufficient statistic $\\log(x!)$, capturing deviations from standard Poisson dispersion."""
 
     @property
     @override
@@ -163,24 +113,11 @@ class CoMShape(ExponentialFamily):
 
 @dataclass(frozen=True)
 class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
-    """The Conway-Maxwell Poisson distribution is a generalization of the Poisson distribution that can model both over- and under-dispersed count data. Its probability mass function is:
+    """Conway-Maxwell-Poisson distribution generalizing Poisson with flexible dispersion.
 
     $$p(x; \\mu, \\nu) = \\frac{\\mu^x}{(x!)^\\nu Z(\\mu, \\nu)}$$
 
-    where:
-
-    - $\\mu > 0$ is related to the mode of the distribution
-    - $\\nu > 0$ is the dispersion parameter (pseudo-precision)
-    - $Z(\\mu, \\nu)$ is the normalizing constant:
-      $$Z(\\mu, \\nu) = \\sum_{j=0}^{\\infty} \\frac{\\mu^j}{(j!)^\\nu}$$
-
-    Special cases:
-
-    - When $\\nu = 1$: Standard Poisson distribution
-    - When $\\nu < 1$: Over-dispersed (variance > mean)
-    - When $\\nu > 1$: Under-dispersed (variance < mean)
-    - When $\\nu \\to \\infty$: Bernoulli distribution
-    - When $\\nu = 0$: Geometric distribution
+    where $\\mu > 0$ is related to the mode, $\\nu > 0$ is the dispersion parameter, and $Z(\\mu, \\nu) = \\sum_{j=0}^{\\infty} \\mu^j / (j!)^\\nu$. Special cases: $\\nu = 1$ (Poisson), $\\nu < 1$ (overdispersed), $\\nu > 1$ (underdispersed), $\\nu \\to \\infty$ (Bernoulli), $\\nu = 0$ (geometric).
 
     As an exponential family:
 
@@ -197,39 +134,20 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
     # Methods
 
     def split_mode_dispersion(self, params: Array) -> tuple[Array, Array]:
-        """Convert from natural parameters to mode-shape parameters.
-
-        The COM-Poisson distribution can be parameterized by either natural parameters $(\\theta_1, \\theta_2)$ or by mode-shape parameters $(\\mu, \\nu)$. The conversion
-        is given by:
-
-        $$\\nu = -\\theta_2$$
-        $$\\mu = \\exp(-\\theta_1/\\theta_2)$$
-        """
+        """Convert natural parameters to mode $\\mu$ and dispersion $\\nu$."""
         theta1, theta2 = params[0], params[1]
         nu = -theta2
         mu = jnp.exp(-theta1 / theta2)
         return mu, nu
 
     def join_mode_dispersion(self, mu: Array, nu: Array) -> Array:
-        """Convert from mode-shape parameters to natural parameters.
-
-        The COM-Poisson distribution can be parameterized by either mode-shape parameters $(\\mu, \\nu)$ or natural parameters $(\\theta_1, \\theta_2)$. The conversion
-        is given by:
-
-        - $\\theta_1 = \\nu\\log(\\mu)$
-        - $\\theta_2 = -\\nu$
-        """
+        """Convert mode $\\mu$ and dispersion $\\nu$ to natural parameters."""
         theta1 = nu * jnp.log(mu)
         theta2 = -nu
         return jnp.array([theta1, theta2]).ravel()
 
     def approximate_mean_variance(self, params: Array) -> tuple[Array, Array]:
-        """Compute approximate mean and variance of COM-Poisson distribution.
-
-        Given mode $\\mu$ and shape $\\nu$ parameters, the approximations are:
-        $E(X) \\approx \\mu + 1/(2\\nu) - 1/2$
-        $\\text{Var}(X) \\approx \\mu / \\nu$
-        """
+        """Approximate mean $E(X) \\approx \\mu + 1/(2\\nu) - 1/2$ and variance $\\text{Var}(X) \\approx \\mu / \\nu$."""
         mu, nu = self.split_mode_dispersion(params)
         approx_mean = mu + 1 / (2 * nu) - 0.5
         approx_var = mu / nu
@@ -239,13 +157,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         self,
         params: Array,
     ) -> tuple[Array, Array]:
-        """Compute mean and variance using numerical integration.
-
-        Uses window-based approach centered on mode to compute:
-        $$E[X] = \\sum_{x=0}^\\infty x p(x)$$
-        $$E[X^2] = \\sum_{x=0}^\\infty x^2 p(x)$$
-        $$\\text{Var}(X) = E[X^2] - E[X]^2$$
-        """
+        """Compute mean and variance using window-based numerical summation centered on the mode."""
         # Get mode for window centering
         mu, _ = self.split_mode_dispersion(params)
 
@@ -278,7 +190,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         _, var = self.numerical_mean_variance(params)
         return var.reshape([1, 1])
 
-    # Override
+    # Overrides
 
     @property
     @override
@@ -296,20 +208,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Compute log partition function using fixed-width window strategy.
-
-        Evaluates:
-        $$\\psi(\\theta) = \\log\\sum_{j=0}^{\\infty} \\exp(\\theta_1 j + \\theta_2 \\log(j!))$$
-
-        using a fixed number of terms centered on the mode.
-
-        Args:
-            params: Array of natural parameters $(\\theta_1, \\theta_2)$
-
-        Returns:
-            Value of log partition function $\\psi(\\theta)$
-        """
-        # Estimate mode and center window around it
+        """Evaluate $\\psi(\\theta) = \\log\\sum_j \\exp(\\theta_1 j + \\theta_2 \\log(j!))$ using a fixed window centered on the mode."""
         # Estimate mode
         mu, _ = self.split_mode_dispersion(params)
 
@@ -332,7 +231,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
     # TODO: Come up with a better scheme than rejection sampling
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Generate random COM-Poisson samples using Algorithm 2 from Benson & Friel (2021)."""
+        """Generate samples using Algorithm 2 from Benson & Friel (2021)."""
         mu, nu = self.split_mode_dispersion(params)
         mode = jnp.floor(mu)
 
@@ -392,11 +291,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
     @override
     def check_natural_parameters(self, params: Array) -> Array:
-        """Check if natural parameters are valid for COM-Poisson.
-
-        For parameters $(\\theta_1, \\theta_2)$, the following conditions must hold:
-        - $\\theta_1$ is finite, $\\theta_2 < 0$
-        """
+        """Check that $\\theta_1$ is finite and $\\theta_2 < 0$."""
         finite = super().check_natural_parameters(params)
         theta2_valid = params[1] < 0
         return finite & theta2_valid
@@ -408,7 +303,6 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         location: float = 0.0,
         shape: float = 0.1,
     ) -> Array:
-        """Initialize COM-Poisson parameters."""
         key_mu, key_nu = jax.random.split(key)
 
         # Ensure mu stays positive by using exp
@@ -423,10 +317,7 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
     def initialize_from_sample(
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
-        """Initialize COM-Poisson parameters from sample.
-
-        Estimates mode and shape parameters using method of moments based on sample mean and variance, with added noise for regularization.
-        """
+        """Initialize by estimating mode and dispersion via method of moments from sample mean and variance."""
         # Compute sample statistics
         mean = jnp.mean(sample)
         var = jnp.var(sample)
@@ -449,30 +340,15 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
 
 
 class Poissons(AnalyticProduct[Poisson]):
-    """Product of n independent Poisson distributions.
-
-    Useful for modeling count data like image pixel intensities.
-    Unlike Binomial, Poisson counts are unbounded (can exceed any fixed value).
-
-    Attributes:
-        n_neurons: Number of independent Poisson units
-    """
+    """Product of $n$ independent Poisson distributions for modeling unbounded count data."""
 
     def __init__(self, n_neurons: int):
-        """Create a product of n independent Poissons.
-
-        Args:
-            n_neurons: Number of units
-        """
         super().__init__(Poisson(), n_neurons)
 
     @property
     def n_neurons(self) -> int:
         """Number of Poisson units."""
         return self.n_reps
-
-
-### Helper Functions ###
 
 
 def _log_factorial(k: Array) -> Array:

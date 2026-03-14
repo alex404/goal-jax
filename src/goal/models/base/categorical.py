@@ -1,10 +1,4 @@
-"""Categorical distributions over finite sets.
-
-This module provides:
-- `Categorical`: Distribution over n states with probabilities summing to 1
-- `Bernoulli`: Special case for binary variables (equivalent to Categorical(2))
-- `Bernoullis`: Product of n independent Bernoulli distributions
-"""
+"""Categorical and Bernoulli distributions as exponential families."""
 
 from __future__ import annotations
 
@@ -23,55 +17,45 @@ from ...geometry.exponential_family.combinators import AnalyticProduct
 class Bernoulli(Analytic):
     """Bernoulli distribution for a single binary variable.
 
-    Mathematically equivalent to Categorical(n_categories=2).
+    Mathematically equivalent to Categorical(n_categories=2). The distribution over binary values $x \\in \\{0, 1\\}$ is:
 
-    The distribution over binary values x in {0, 1} is:
-
-    .. math::
-
-        p(x; \\theta) = \\sigma(\\theta)^x (1 - \\sigma(\\theta))^{1-x}
+    $$p(x; \\theta) = \\sigma(\\theta)^x (1 - \\sigma(\\theta))^{1-x}$$
 
     where $\\sigma(\\theta) = 1/(1 + \\exp(-\\theta))$ is the sigmoid function.
 
     As an exponential family:
-        - Sufficient statistic: s(x) = x (identity)
-        - Base measure: \\mu(x) = 0
-        - Natural parameter: \\theta = log(p/(1-p)) (log odds)
-        - Mean parameter: \\eta = p = P(x=1)
-        - Log partition: \\psi(\\theta) = log(1 + exp(\\theta)) = softplus(\\theta)
-        - Negative entropy: \\phi(\\eta) = \\eta*log(\\eta) + (1-\\eta)*log(1-\\eta)
+        - Sufficient statistic: $s(x) = x$ (identity)
+        - Base measure: $\\mu(x) = 0$
+        - Natural parameter: $\\theta = \\log(p/(1-p))$ (log odds)
+        - Mean parameter: $\\eta = p = P(x=1)$
+        - Log partition: $\\psi(\\theta) = \\log(1 + \\exp(\\theta)) = \\text{softplus}(\\theta)$
+        - Negative entropy: $\\phi(\\eta) = \\eta\\log(\\eta) + (1-\\eta)\\log(1-\\eta)$
     """
 
     @property
     @override
     def dim(self) -> int:
-        """Parameter dimension is 1."""
         return 1
 
     @property
     @override
     def data_dim(self) -> int:
-        """Data dimension is 1 (single binary value)."""
         return 1
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        """Identity sufficient statistic s(x) = x."""
         return jnp.atleast_1d(x).astype(jnp.float32)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        """Base measure is constant (zero in log space)."""
         return jnp.array(0.0)
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Log partition function: log(1 + exp(\\theta)) = softplus(\\theta)."""
         return jax.nn.softplus(params[0])
 
     @override
     def negative_entropy(self, means: Array) -> Array:
-        """Negative entropy: \\eta*log(\\eta) + (1-\\eta)*log(1-\\eta)."""
         p = means[0]
         p0 = 1 - p
         # Add small epsilon for numerical stability
@@ -80,16 +64,6 @@ class Bernoulli(Analytic):
 
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Sample from Bernoulli distribution.
-
-        Args:
-            key: JAX random key
-            params: Natural parameters (log odds)
-            n: Number of samples
-
-        Returns:
-            Array of shape (n, 1) with binary values
-        """
         prob = self.to_mean(params)[0]
         return jax.random.bernoulli(key, prob, shape=(n, 1)).astype(jnp.float32)
 
@@ -101,20 +75,7 @@ class Bernoulli(Analytic):
         location: float = 0.0,
         shape: float = 0.1,
     ) -> Array:
-        """Initialize Bernoulli parameters from sample data.
-
-        Shrinks sample means toward 0.5 to handle boundary cases (exact 0s and 1s),
-        converts to natural parameters (logits), then adds noise in that space.
-
-        Args:
-            key: Random key
-            sample: Sample data (binary values)
-            location: Mean of noise distribution
-            shape: Std dev of noise distribution
-
-        Returns:
-            Natural parameters (log-odds).
-        """
+        """Initialize by shrinking sample means toward 0.5 to handle boundary cases, then converting to logits with noise."""
         avg_suff = self.average_sufficient_statistic(sample)
         # Shrink toward 0.5 to handle exact 0s and 1s smoothly
         shrinkage = 0.01
@@ -124,7 +85,7 @@ class Bernoulli(Analytic):
         noise = jax.random.normal(key, shape=(self.dim,)) * shape + location
         return natural + noise
 
-    # Convenience methods
+    # Methods
 
     def to_prob(self, means: Array) -> Array:
         """Extract P(x=1) from mean parameters."""
@@ -154,19 +115,7 @@ class Categorical(Analytic):
     n_categories: int
     """Number of categories."""
 
-    @property
-    @override
-    def dim(self) -> int:
-        """Dimension $d$ is `n_categories - 1` due to the sum-to-one constraint."""
-        return self.n_categories - 1
-
-    @property
-    @override
-    def data_dim(self) -> int:
-        """Dimension of the data space."""
-        return 1
-
-    # Categorical methods
+    # Methods
 
     def from_probs(self, probs: Array) -> Array:
         """Construct the mean parameters from the complete probabilities, dropping the first element."""
@@ -178,6 +127,17 @@ class Categorical(Analytic):
         return jnp.concatenate([jnp.array([prob0]), means])
 
     # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Dimension $d$ is `n_categories - 1` due to the sum-to-one constraint."""
+        return self.n_categories - 1
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        return 1
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
@@ -215,25 +175,9 @@ class Categorical(Analytic):
 
 
 class Bernoullis(AnalyticProduct[Bernoulli]):
-    """Product of n independent Bernoulli distributions.
-
-    Represents the distribution over n binary random variables where each
-    variable is independent. Commonly used for:
-    - Mean-field approximation of Boltzmann machines
-    - Observable/latent layers in Restricted Boltzmann Machines
-
-    The parameters represent the bias/activation of each binary unit.
-
-    Attributes:
-        n_neurons: Number of binary units
-    """
+    """Product of $n$ independent Bernoulli distributions, commonly used for mean-field approximations in Boltzmann machines."""
 
     def __init__(self, n_neurons: int):
-        """Create a product of n independent Bernoullis.
-
-        Args:
-            n_neurons: Number of binary units
-        """
         super().__init__(Bernoulli(), n_neurons)
 
     @property

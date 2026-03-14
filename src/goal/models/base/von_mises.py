@@ -1,4 +1,4 @@
-"""Von Mises distribution over the circle."""
+"""Von Mises distribution on the circle as an exponential family, with product manifold for multiple independent circular variables."""
 
 from __future__ import annotations
 
@@ -36,29 +36,14 @@ class VonMises(Differentiable):
     # Methods
 
     def split_mean_concentration(self, p: Array) -> tuple[Array, Array]:
-        """Split the natural parameters into mean and concentration parameters.
-
-        Args:
-            p: Natural parameters array
-
-        Returns:
-            Tuple of (mean_angle, concentration)
-        """
+        """Split natural parameters into mean angle and concentration."""
         theta = p
         kappa = jnp.sqrt(jnp.sum(theta**2))
         mu = jnp.arctan2(theta[1], theta[0])
         return mu, kappa
 
     def join_mean_concentration(self, mu0: float, kappa0: float) -> Array:
-        """Join the mean and concentration parameters into natural parameters.
-
-        Args:
-            mu0: Mean angle
-            kappa0: Concentration parameter
-
-        Returns:
-            Natural parameters array
-        """
+        """Join mean angle and concentration into natural parameters."""
         mu = jnp.atleast_1d(mu0)
         kappa = jnp.atleast_1d(kappa0)
         return kappa * jnp.concatenate([jnp.cos(mu), jnp.sin(mu)])
@@ -77,59 +62,22 @@ class VonMises(Differentiable):
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        """Compute sufficient statistics: (cos(x), sin(x)).
-
-        Args:
-            x: Data point
-
-        Returns:
-            Sufficient statistics array
-        """
         return jnp.array([jnp.cos(x), jnp.sin(x)]).ravel()
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        """Log base measure: -log(2\\pi).
-
-        Args:
-            x: Data point
-
-        Returns:
-            Log base measure (scalar)
-        """
         return -jnp.log(2 * jnp.pi)
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Compute log partition function.
-
-        Args:
-            params: Natural parameters
-
-        Returns:
-            Log partition function value (scalar)
-        """
         kappa = jnp.sqrt(jnp.sum(params**2))
-        # Explicitly cast i0e output to Array
         return jnp.log(i0e(kappa)) + kappa
 
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Generate n samples from the Von Mises distribution.
+        """Generate samples using batched rejection sampling with wrapped Cauchy proposal (Devroye, 1986).
 
-        Uses batched rejection sampling with wrapped Cauchy proposal,
-        adapted from NumPyro's implementation (Devroye, 1986).
-
-        For very small concentration (kappa < 0.01), samples uniformly
-        on the circle since the distribution is nearly uniform.
-
-        Args:
-            key: JAX random key
-            params: Natural parameters
-            n: Number of samples
-
-        Returns:
-            Array of n samples with shape (n, 1)
+        For very small concentration ($\\kappa < 0.01$), samples uniformly on the circle.
         """
         mu, kappa = self.split_mean_concentration(params)
 
@@ -156,7 +104,6 @@ class VonMises(Differentiable):
         kappa_broadcast = jnp.broadcast_to(kappa_clamped, shape)
 
         def cond_fn(val: tuple[Array, Array, Array, Array, Array]) -> Array:
-            """Check if all samples done or reached max iterations."""
             i, _, done, _, _ = val
             return jnp.logical_and(i < 100, jnp.logical_not(jnp.all(done)))
 
@@ -214,25 +161,9 @@ class VonMises(Differentiable):
 
 
 class VonMisesProduct(DifferentiableProduct[VonMises]):
-    """Product of n independent Von Mises distributions.
-
-    Useful for modeling multiple circular/angular latent variables.
-    Each component has natural parameters (\\kappa \\cos(\\mu), \\kappa \\sin(\\mu)) where
-    \\mu is the mean direction and \\kappa is the concentration.
-
-    The sufficient statistic for n components is a 2n-dimensional vector:
-        [cos(\\theta_1), sin(\\theta_1), cos(\\theta_2), sin(\\theta_2), ..., cos(\\theta_n), sin(\\theta_n)]
-
-    Attributes:
-        n_components: Number of independent Von Mises variables
-    """
+    """Product of $n$ independent von Mises distributions for modeling multiple circular variables. Each component has natural parameters $(\\kappa \\cos(\\mu), \\kappa \\sin(\\mu))$."""
 
     def __init__(self, n_components: int):
-        """Create a product of n independent Von Mises distributions.
-
-        Args:
-            n_components: Number of Von Mises variables
-        """
         super().__init__(VonMises(), n_components)
 
     @property

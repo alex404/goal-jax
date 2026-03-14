@@ -1,12 +1,4 @@
-"""Boltzmann machines and related distributions for binary random variables.
-
-This module provides:
-- `DiagonalBoltzmann`: Mean-field wrapper with GeneralizedGaussian interface
-- `CouplingMatrix`: Exponential family over moment matrices (x \\otimes x)
-- `Boltzmann`: Full Boltzmann machine with pairwise coupling
-
-Note: `Bernoullis` (product of independent Bernoullis) is in categorical.py.
-"""
+"""Boltzmann machines and related distributions for binary random variables."""
 
 from __future__ import annotations
 
@@ -47,37 +39,31 @@ class DiagonalBoltzmann(
 
     n_neurons: int
 
-    # Properties
+    # Overrides
 
     @property
     @override
     def dim(self) -> int:
-        """Parameter dimension equals number of neurons."""
         return self.n_neurons
 
     @property
     @override
     def data_dim(self) -> int:
-        """Data dimension equals number of neurons."""
         return self.n_neurons
 
     @property
     @override
     def loc_man(self) -> Bernoullis:
-        """Location manifold is Bernoullis."""
         return Bernoullis(self.n_neurons)
 
     @property
     @override
     def shp_man(self) -> Bernoullis:
-        """Shape manifold is Bernoullis (E[x²] = E[x] for binary)."""
+        """E[x²] = E[x] for binary, so shape manifold equals location manifold."""
         return Bernoullis(self.n_neurons)
-
-    # Exponential family - delegate to shp_man
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        """Sufficient statistic: identity for independent binary."""
         return self.shp_man.sufficient_statistic(x)
 
     @override
@@ -86,7 +72,6 @@ class DiagonalBoltzmann(
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Log partition: sum of softplus (O(n) computation)."""
         return self.shp_man.log_partition_function(params)
 
     @override
@@ -95,69 +80,40 @@ class DiagonalBoltzmann(
 
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Sample from independent Bernoullis."""
         return self.shp_man.sample(key, params, n)
-
-    # GeneralizedGaussian interface
 
     @override
     def split_location_precision(self, params: Array) -> tuple[Array, Array]:
-        """Split natural parameters into location and precision.
-
-        Following Boltzmann's pattern: location is absorbed into shape params.
-        Returns zeros for location since it's fully absorbed.
-
-        The scaling by -2 matches the GeneralizedGaussian convention where
-        precision relates to natural params by \\theta_2 = -1/2 \\Sigma^{-1}.
-        """
+        """Location is absorbed into shape; returns zeros for location, $-2\\theta$ for precision."""
         n = self.n_neurons
         return jnp.zeros(n), -2 * params
 
     @override
     def join_location_precision(self, location: Array, precision: Array) -> Array:
-        """Join location and precision with absorption.
-
-        Inverse of split_location_precision. Location is absorbed into
-        the precision (they represent the same thing for independent binary).
-        """
+        """Inverse of split_location_precision with absorption."""
         return -0.5 * precision + location
 
     @override
     def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
-        """Split mean parameters into first and second moments.
-
-        For independent binary variables, E[x_i^2] = E[x_i] since x^2 = x for {0,1}.
-        Both moments are identical - complete redundancy.
-        """
+        """For binary variables $x^2 = x$, so both moments are identical."""
         return means, means
 
     @override
     def join_mean_second_moment(self, mean: Array, second_moment: Array) -> Array:
-        """Join mean and second moment.
-
-        Returns second moment (which equals first moment for independent binary).
-        The mean is redundant information.
-        """
+        """Returns second moment (equals first moment for binary)."""
         return second_moment
 
 
 class CouplingMatrix(SquareMap[Euclidean], Differentiable):
-    """Exponential family over moment matrices.
-
-    Core implementation of Boltzmann machines as exponential family distributions
-    with moment matrix sufficient statistic $x \\otimes x$.
+    """Exponential family over moment matrices $x \\otimes x$ with Symmetric storage.
 
     Distribution: $p(x) \\propto \\exp(\\tr(\\Theta^T(x \\otimes x)))$
-
-    Uses Symmetric matrix representation for efficient storage and operations.
     """
-
-    # Constructor
 
     def __init__(self, n_neurons: int):
         super().__init__(Symmetric(), Euclidean(n_neurons))
 
-    # Properties
+    # Methods
 
     @property
     def n_neurons(self) -> int:
@@ -165,22 +121,21 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         return self.matrix_shape[0]
 
     @property
-    @override
-    def data_dim(self) -> int:
-        """Data dimension equals number of neurons."""
-        return self.n_neurons
-
-    @property
     def states(self) -> Array:
         """All possible binary states via bit manipulation."""
         idx = jnp.arange(1 << self.n_neurons, dtype=jnp.uint32)
         return ((idx[:, None] >> jnp.arange(self.n_neurons)) & 1).astype(jnp.float32)
 
-    # Core exponential family
+    # Overrides
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        return self.n_neurons
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        """Sufficient statistic is $x \\otimes x$ stored as upper triangular."""
+        """$x \\otimes x$ stored as upper triangular."""
         return self.outer_product(x, x)
 
     @override
@@ -189,7 +144,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Exact computation via enumeration."""
+        """Exact computation via enumeration over all $2^n$ states."""
         states = self.states
 
         def energy(state: Array) -> Array:
@@ -205,7 +160,7 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
         """Compute energy difference for unit being 1 vs 0 - O(n) computation.
 
         The energy difference when flipping unit k from 0 to 1 is:
-            \\Delta E = \\theta_kk + sum_{j != k} \\theta_kj * x_j
+            $\\Delta E = \\theta_{kk} + \\sum_{j \\neq k} \\theta_{kj} x_j$
 
         This extracts just the k-th row/column from the upper triangular storage
         rather than computing full O(n²) sufficient statistics.
@@ -311,44 +266,34 @@ class Boltzmann(
     """
 
     # Fields
+
     n_neurons: int
 
-    # Properties
+    # Overrides
 
     @property
     @override
     def dim(self) -> int:
-        """Parameter dimension: triangular matrix (n(n+1)/2 elements)."""
         return self.shp_man.dim
 
     @property
     @override
     def data_dim(self) -> int:
-        """Data dimension equals number of neurons."""
         return self.n_neurons
-
-    @property
-    def states(self) -> Array:
-        """All possible binary states."""
-        return self.shp_man.states
 
     @property
     @override
     def loc_man(self) -> Bernoullis:
-        """Return the Bernoullis location component manifold."""
         return Bernoullis(self.n_neurons)
 
     @property
     @override
     def shp_man(self) -> CouplingMatrix:
-        """Return the coupling matrix shape component manifold."""
         return CouplingMatrix(self.n_neurons)
-
-    # Core exponential family
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        """Sufficient statistic is $x \\otimes x$ stored as upper triangular."""
+        """$x \\otimes x$ stored as upper triangular."""
         return self.shp_man.sufficient_statistic(x)
 
     @override
@@ -357,7 +302,6 @@ class Boltzmann(
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Delegate to CouplingMatrix."""
         return self.shp_man.log_partition_function(params)
 
     @override
@@ -369,26 +313,15 @@ class Boltzmann(
         n_burnin: int = 1000,
         n_thin: int = 10,
     ) -> Array:
-        """Delegate to CouplingMatrix."""
         return self.shp_man.sample(key, params, n, n_burnin, n_thin)
 
     @override
     def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
-        """Delegate to CouplingMatrix gibbs_step."""
         return self.shp_man.gibbs_step(key, params, state)
-
-    # GeneralizedGaussian interface
 
     @override
     def split_location_precision(self, params: Array) -> tuple[Array, Array]:
-        """Split for GeneralizedGaussian interface.
-
-        The scaling by 1/2 for off-diagonal terms ensures that the dot product
-        between natural parameters and triangular sufficient statistics equals
-        the quadratic form $x^T \\Theta x$. Since off-diagonal elements appear twice
-        in the outer product $x\\otimes x$ (as (i,j) and (j,i)), we scale by 1/2 to
-        avoid double-counting in the energy computation.
-        """
+        """Split with off-diagonal scaling to match energy $x^T \\Theta x$."""
         n = self.n_neurons
 
         # Boolean mask for diagonal elements in upper triangular storage
@@ -426,13 +359,7 @@ class Boltzmann(
 
     @override
     def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
-        """Split mean parameters into first and second moments.
-
-        Mean parameters represent expected values of sufficient statistics.
-        The first moment E[x] is extracted from the diagonal of the second
-        moment matrix $E[x\\otimes x]$, since the diagonal contains $E[x_i^2] = E[x_i]$
-        for binary variables.
-        """
+        """Extract first moment $E[x_i]$ from diagonal of $E[x \\otimes x]$ (since $x_i^2 = x_i$ for binary)."""
         n = self.n_neurons
 
         # Find diagonal positions in upper triangular storage
@@ -446,11 +373,12 @@ class Boltzmann(
 
     @override
     def join_mean_second_moment(self, mean: Array, second_moment: Array) -> Array:
-        """Join mean and second moment.
-
-        For mean parameters, the second moment matrix already contains the
-        correct diagonal elements (first moments), so we simply return the
-        second moment as-is. The mean parameter is redundant information
-        extracted from the diagonal.
-        """
+        """Second moment matrix already contains correct diagonal (first moments)."""
         return second_moment
+
+    # Methods
+
+    @property
+    def states(self) -> Array:
+        """All possible binary states."""
+        return self.shp_man.states
