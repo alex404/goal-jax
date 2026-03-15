@@ -41,6 +41,7 @@ from jax import Array
 
 from ...geometry import (
     AnalyticHierarchical,
+    DifferentiableConjugated,
     DifferentiableHierarchical,
     PositiveDefinite,
     SymmetricHierarchical,
@@ -56,15 +57,24 @@ from ..harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 # HMoG Classes
 
 
-class HMoGMethods(ABC):
-    """Mixin providing shared HMoG posterior and whitening methods.
+class _HMoGBase[
+    LowerHarmonium: DifferentiableConjugated[Any, Any, Any],
+    PstUpperHarmonium: CompleteMixture[Any],
+    PrrUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
+](
+    DifferentiableHierarchical[LowerHarmonium, PstUpperHarmonium, PrrUpperHarmonium],
+    ABC,
+):
+    """Abstract base for Hierarchical Mixture of Gaussians models.
 
-    Requires ``pst_upr_hrm`` (a ``CompleteMixture``), ``lwr_hrm``, ``obs_man``,
-    ``split_coords``, ``join_coords``, and ``posterior_at`` — all available on
-    both ``DifferentiableHierarchical`` and ``SymmetricHierarchical``.
+    Provides shared posterior and whitening methods for all HMoG variants.
+    The ``pst_upr_hrm`` is bounded by ``CompleteMixture``, giving access to
+    ``split_mean_mixture``, ``join_mean_mixture``, and ``cmp_man``.
     """
 
-    def whiten_prior(self: Any, means: Array) -> Array:
+    # Methods
+
+    def whiten_prior(self, means: Array) -> Array:
         """Reparameterize the latent Y-space to have zero mean and identity covariance.
 
         Preserves p(x) by updating both:
@@ -93,34 +103,33 @@ class HMoGMethods(ABC):
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)
+        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)  # pyright: ignore[reportAttributeAccessIssue]
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T
-        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)
+        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)  # pyright: ignore[reportAttributeAccessIssue]
 
         return self.join_coords(obs_means, new_lwr_int_means, new_lat_means)
 
-    def posterior_categorical(self: Any, params: Array, x: Array) -> Array:
+    def posterior_categorical(self, params: Array, x: Array) -> Array:
         """Compute posterior categorical distribution p(Z|x) in natural coordinates."""
         return self.pst_upr_hrm.prior(self.posterior_at(params, x))
 
-    def posterior_soft_assignments(self: Any, params: Array, x: Array) -> Array:
+    def posterior_soft_assignments(self, params: Array, x: Array) -> Array:
         """Compute posterior assignment probabilities p(Z|x)."""
         cat_natural = self.posterior_categorical(params, x)
         cat_means = self.pst_upr_hrm.lat_man.to_mean(cat_natural)
         return self.pst_upr_hrm.lat_man.to_probs(cat_means)
 
-    def posterior_hard_assignment(self: Any, params: Array, x: Array) -> Array:
+    def posterior_hard_assignment(self, params: Array, x: Array) -> Array:
         """Compute hard assignment to most probable component."""
         return jnp.argmax(self.posterior_soft_assignments(params, x))
 
 
 @dataclass(frozen=True)
 class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
-    HMoGMethods,
-    DifferentiableHierarchical[
+    _HMoGBase[
         NormalLGM[ObsRep, PstRep],
         AnalyticMixture[Normal[PstRep]],
         Mixture[FullNormal],
@@ -163,7 +172,7 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
 
 class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
-    HMoGMethods,
+    _HMoGBase[NormalAnalyticLGM[ObsRep], Upr, Upr],
     SymmetricHierarchical[NormalAnalyticLGM[ObsRep], Upr],
     ABC,
 ):
