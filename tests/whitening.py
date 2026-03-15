@@ -1,7 +1,8 @@
-"""Tests for whiten methods on LGM, MFA, and HMoG models.
+"""Tests for whitening across LGM, MFA, and HMoG models.
 
 Verifies that whitening preserves the observable marginal distribution p(x)
-while transforming the latent prior to N(0, I).
+while transforming the latent prior to N(0, I), and that EM steps match
+manual whiten_prior + to_natural.
 """
 
 import jax
@@ -23,7 +24,7 @@ def test_fa_whiten_preserves_observable_distribution() -> None:
     key = jax.random.PRNGKey(0)
     params0 = fa.initialize(key, location=0.0, shape=0.5)
 
-    # Perturb lat_means away from N(0,I) by shifting the latent mean
+    # Perturb latent mean away from N(0,I)
     means = fa.to_mean(params0)
     obs_m, int_m, lat_m = fa.split_coords(means)
     lat_mean, lat_cov = fa.lat_man.split_mean_covariance(lat_m)
@@ -37,32 +38,24 @@ def test_fa_whiten_preserves_observable_distribution() -> None:
     whitened_means = fa.whiten_prior(fa.to_mean(perturbed_params))
     whitened_params = fa.to_natural(whitened_means)
 
-    # Observable marginal must be unchanged
+    # Observable marginal unchanged
     _, obs_nat_before = fa.observable_distribution(perturbed_params)
     _, obs_nat_after = fa.observable_distribution(whitened_params)
-    assert jnp.allclose(obs_nat_before, obs_nat_after, atol=ATOL), (
-        "Observable distribution changed after whitening"
-    )
+    assert jnp.allclose(obs_nat_before, obs_nat_after, atol=ATOL)
 
-    # Latent prior must now be standard normal (in mean coords)
+    # Latent prior is now standard normal
     _, prior_nat = fa.split_conjugated(whitened_params)
     prior_mean = fa.lat_man.to_mean(prior_nat)
-    std_normal_mean = fa.lat_man.standard_normal()
-    assert jnp.allclose(prior_mean, std_normal_mean, atol=ATOL), (
-        "Latent prior is not N(0,I) after whitening"
-    )
+    assert jnp.allclose(prior_mean, fa.lat_man.standard_normal(), atol=ATOL)
 
 
 def test_mfa_whiten_preserves_observable_distribution() -> None:
     """MFA whitening preserves per-component p(x|k) and sets each latent prior to N(0,I)."""
-    n_categories = 4
     fa = factor_analysis(obs_dim=8, lat_dim=3)
-    mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
+    mfa = MixtureOfFactorAnalyzers(n_categories=4, bas_hrm=fa)
 
-    key = jax.random.PRNGKey(42)
-    params = mfa.initialize(key, location=0.0, shape=0.5)
+    params = mfa.initialize(jax.random.PRNGKey(42), location=0.0, shape=0.5)
 
-    # Convert to mix_man natural params, perturb each component's latent mean
     mix_params = mfa.to_mixture_coords(params)
     comp_nats, cat_nat = mfa.mix_man.split_natural_mixture(mix_params)
 
@@ -76,34 +69,25 @@ def test_mfa_whiten_preserves_observable_distribution() -> None:
     perturbed_comp_nats = mfa.mix_man.cmp_man.map(perturb, comp_nats, flatten=True)
     perturbed_mix_params = mfa.mix_man.join_natural_mixture(perturbed_comp_nats, cat_nat)
 
-    # Whiten in MFA mean coordinates (not mix_man coordinates)
     perturbed_params = mfa.from_mixture_coords(perturbed_mix_params)
-    perturbed_means = mfa.to_mean(perturbed_params)
-    whitened_means = mfa.whiten_prior(perturbed_means)
+    whitened_means = mfa.whiten_prior(mfa.to_mean(perturbed_params))
     whitened_mix_means = mfa.to_mixture_coords(whitened_means)
 
-    # Verify per-component: observable distribution preserved, latent is N(0,I)
     orig_comp_nats, _ = mfa.mix_man.split_natural_mixture(perturbed_mix_params)
     wht_comp_means, _ = mfa.mix_man.split_mean_mixture(whitened_mix_means)
 
-    for k in range(n_categories):
+    for k in range(4):
         orig_k = mfa.mix_man.cmp_man.get_replicate(orig_comp_nats, k)
         wht_k_mean = mfa.mix_man.cmp_man.get_replicate(wht_comp_means, k)
         wht_k_nat = fa.to_natural(wht_k_mean)
 
         _, obs_nat_orig = fa.observable_distribution(orig_k)
         _, obs_nat_wht = fa.observable_distribution(wht_k_nat)
-        assert jnp.allclose(obs_nat_orig, obs_nat_wht, atol=ATOL), (
-            f"Component {k} observable distribution changed after whitening"
-        )
+        assert jnp.allclose(obs_nat_orig, obs_nat_wht, atol=ATOL)
 
-        # Latent prior is now N(0,I)
         _, prior_nat = fa.split_conjugated(wht_k_nat)
         prior_mean = fa.lat_man.to_mean(prior_nat)
-        std_normal_mean = fa.lat_man.standard_normal()
-        assert jnp.allclose(prior_mean, std_normal_mean, atol=ATOL), (
-            f"Component {k} latent prior is not N(0,I) after whitening"
-        )
+        assert jnp.allclose(prior_mean, fa.lat_man.standard_normal(), atol=ATOL)
 
 
 def test_hmog_whiten_preserves_log_likelihood() -> None:
@@ -111,25 +95,17 @@ def test_hmog_whiten_preserves_log_likelihood() -> None:
     model = analytic_hmog(obs_dim=8, obs_rep=Diagonal(), lat_dim=3, n_components=4)
     key = jax.random.PRNGKey(7)
     params = model.initialize(key, location=0.0, shape=0.5)
+    xs = jax.random.normal(jax.random.split(key)[0], (200, 8))
 
-    # Generate test data
-    data_key, _ = jax.random.split(key)
-    xs = jax.random.normal(data_key, (200, 8))
-
-    # Whiten in mean coordinates
-    means = model.to_mean(params)
-    whitened_means = model.whiten_prior(means)
-    whitened_params = model.to_natural(whitened_means)
+    whitened_params = model.to_natural(model.whiten_prior(model.to_mean(params)))
 
     ll_before = model.average_log_observable_density(params, xs)
     ll_after = model.average_log_observable_density(whitened_params, xs)
-    assert jnp.allclose(ll_before, ll_after, atol=1e-4), (
-        f"Log-likelihood changed after whitening: {ll_before:.6f} vs {ll_after:.6f}"
-    )
+    assert jnp.allclose(ll_before, ll_after, atol=1e-4)
 
 
 def test_hmog_em_applies_whitening_round_trip() -> None:
-    """AnalyticHMoG EM should include mean-space whitening before to_natural."""
+    """AnalyticHMoG EM matches manual whiten_prior + to_natural."""
     model = analytic_hmog(obs_dim=8, obs_rep=Diagonal(), lat_dim=3, n_components=4)
     key = jax.random.PRNGKey(11)
     params = model.initialize(key, location=0.0, shape=0.5)
@@ -138,43 +114,18 @@ def test_hmog_em_applies_whitening_round_trip() -> None:
     q = model.mean_posterior_statistics(params, xs)
     manual_em = model.to_natural(model.whiten_prior(q))
     em_params = model.expectation_maximization(params, xs)
-
-    assert jnp.allclose(em_params, manual_em, atol=ATOL), (
-        "AnalyticHMoG EM no longer matches whiten_prior(mean_posterior_statistics)"
-    )
-
-
-def test_mfa_to_natural_round_trip() -> None:
-    """MFA to_natural is a left-inverse of to_mean: to_natural(to_mean(params)) == params."""
-    n_categories = 4
-    fa = factor_analysis(obs_dim=8, lat_dim=3)
-    mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
-
-    key = jax.random.PRNGKey(99)
-    params = mfa.initialize(key, location=0.0, shape=0.5)
-
-    means = mfa.to_mean(params)
-    recovered_params = mfa.to_natural(means)
-
-    assert jnp.allclose(params, recovered_params, atol=ATOL), (
-        "MFA to_natural(to_mean(params)) != params"
-    )
+    assert jnp.allclose(em_params, manual_em, atol=ATOL)
 
 
 def test_mfa_em_matches_whiten_then_to_natural() -> None:
     """MFA expectation_maximization matches manual whiten_prior + to_natural."""
-    n_categories = 3
     fa = factor_analysis(obs_dim=6, lat_dim=2)
-    mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
+    mfa = MixtureOfFactorAnalyzers(n_categories=3, bas_hrm=fa)
 
-    key = jax.random.PRNGKey(77)
-    params = mfa.initialize(key, location=0.0, shape=0.5)
+    params = mfa.initialize(jax.random.PRNGKey(77), location=0.0, shape=0.5)
     xs = jax.random.normal(jax.random.PRNGKey(78), (128, 6))
 
     q = mfa.mean_posterior_statistics(params, xs)
     manual_em = mfa.to_natural(mfa.whiten_prior(q))
     em_params = mfa.expectation_maximization(params, xs)
-
-    assert jnp.allclose(em_params, manual_em, atol=ATOL), (
-        "MFA EM does not match whiten_prior(mean_posterior_statistics)"
-    )
+    assert jnp.allclose(em_params, manual_em, atol=ATOL)

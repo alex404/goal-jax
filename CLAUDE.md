@@ -31,10 +31,10 @@ This is a **library**, not an application. The dependency policy is:
 ### Testing
 - Run all tests: `python -m pytest tests/`
 - Run specific test files:
-  - `python -m pytest tests/test_lgm.py`
-  - `python -m pytest tests/test_normal.py`
-  - `python -m pytest tests/test_graphical_mixture.py`
-  - `python -m pytest tests/test_matrix.py`
+  - `python -m pytest tests/lgm.py`
+  - `python -m pytest tests/normal.py`
+  - `python -m pytest tests/graphical_mixture.py`
+  - `python -m pytest tests/matrix.py`
 
 ### Code Quality
 - Type checking: `uvx basedpyright` (or `basedpyright` with venv active)
@@ -157,9 +157,44 @@ Use comment headers (`# Fields`, `# Contract`, `# Overrides`, `# Methods`) to se
 - Use `\\\\` (doubled backslash) in docstrings for LaTeX commands (Python string escaping); single `\\` in comments
 - Matplotlib labels use raw strings with `$...$` for LaTeX rendering
 
-## Testing Notes
-- Test files correspond to major components: matrix representations, normal distributions, LGMs, harmoniums, graphical models
-- Tests use pytest fixtures with parametrization for testing across different model configurations
+## Test Design
+
+### File naming
+Test files drop the `test_` prefix (pytest is configured with `python_files = ["*.py"]` in `pyproject.toml`). Each file is named after the source module it tests:
+
+| Test file | Source module(s) |
+|---|---|
+| `matrix.py` | `geometry/manifold/matrix.py` |
+| `normal.py` | `models/base/gaussian/normal.py` |
+| `boltzmann.py` | `models/base/gaussian/boltzmann.py` |
+| `categorical.py` | `models/base/categorical.py` (Categorical, Bernoulli, Bernoullis) |
+| `binomial.py` | `models/base/binomial.py` (Binomial, Binomials) |
+| `poisson.py` | `models/base/poisson.py` |
+| `von_mises.py` | `models/base/von_mises.py` |
+| `lgm.py` | `models/harmonium/lgm.py` |
+| `population_codes.py` | `models/harmonium/population_codes.py` |
+| `graphical_mixture.py` | `models/graphical/mixture.py` |
+| `hmog.py` | `models/graphical/hmog.py` (AnalyticHMoG, DifferentiableHMoG) |
+| `whitening.py` | Cross-cutting: whitening on FA, MFA, HMoG |
+
+### Structure within files
+- Each file starts with both JAX config lines (`jax_platform_name=cpu`, `jax_enable_x64=True`) and a module docstring stating what it tests
+- One test class per model/concept; use `@pytest.mark.parametrize` for variation rather than class-level fixtures
+- Construct models and keys inline (`jax.random.PRNGKey(...)`) rather than through shared fixtures
+
+### Standard test categories for exponential families
+- **Dimensions**: `dim`, `data_dim` match expectations
+- **Sufficient statistic**: correct shape and known values
+- **Density normalization**: pmf sums to 1 (discrete) or density integrates to 1 (continuous)
+- **Parameter conversions**: `to_natural(to_mean(params)) == params` round-trip
+- **Log partition**: matches known closed form (e.g., softplus for Bernoulli)
+- **Sampling**: correct shape, domain constraints, empirical mean close to theoretical
+
+### Tolerances
+- Analytic comparisons: `rtol=1e-5, atol=1e-7` (or `1e-4/1e-6` for less precise models)
+- Sampling comparisons use 50k samples and compare `average_sufficient_statistic(samples)` against `to_mean(params)`:
+  - Simple EFs (Bernoulli, Categorical, Poisson, VonMises): `atol=0.01–0.02`
+  - Normal (includes second moments with higher variance): data-space mean `atol=0.03`, full sufficient stats `atol=0.1`
 
 ## Dependencies
 - **JAX**: Core computation backend for automatic differentiation

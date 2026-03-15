@@ -52,6 +52,12 @@ include =["goal*"]
 [tool.setuptools.package-data]
 goal = ["py.typed"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
 [tool.pyright]
 include = ["src/goal", "examples", "tests"]
 extraPaths = ["src"]
