@@ -9,7 +9,7 @@ import pytest
 from jax import Array
 
 from goal.geometry import Diagonal
-from goal.models import DiagonalNormal, FactorAnalysis, FullNormal
+from goal.models import DiagonalNormal, FullNormal, factor_analysis
 from goal.models.graphical.mixture import (
     CompleteMixtureOfConjugated,
     CompleteMixtureOfSymmetric,
@@ -39,7 +39,7 @@ class TestCompleteMixtureBasics:
     ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
         """Create CompleteMixtureOfSymmetric with FactorAnalysis base."""
         obs_dim, lat_dim, n_cat = request.param
-        base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
+        base_fa = factor_analysis(obs_dim=obs_dim, lat_dim=lat_dim)
         return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )
@@ -101,7 +101,7 @@ class TestCompleteMixtureConjugation:
     ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
         """Create CompleteMixtureOfSymmetric."""
         obs_dim, lat_dim, n_cat = request.param
-        base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
+        base_fa = factor_analysis(obs_dim=obs_dim, lat_dim=lat_dim)
         return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )
@@ -138,7 +138,7 @@ class TestCompleteMixturePosterior:
     ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
         """Create CompleteMixtureOfSymmetric."""
         obs_dim, lat_dim, n_cat = request.param
-        base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
+        base_fa = factor_analysis(obs_dim=obs_dim, lat_dim=lat_dim)
         return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )
@@ -190,7 +190,7 @@ class TestCompleteMixtureInteraction:
     @pytest.fixture
     def model(self) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
         """Create CompleteMixtureOfSymmetric."""
-        base_fa = FactorAnalysis(obs_dim=3, lat_dim=2)
+        base_fa = factor_analysis(obs_dim=3, lat_dim=2)
         return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=2, bas_hrm=base_fa
         )
@@ -222,7 +222,7 @@ class TestCompleteMixtureRepresentation:
     ) -> CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal]:
         """Create CompleteMixtureOfSymmetric."""
         obs_dim, lat_dim, n_cat = request.param
-        base_fa = FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
+        base_fa = factor_analysis(obs_dim=obs_dim, lat_dim=lat_dim)
         return CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_fa
         )

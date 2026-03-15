@@ -18,6 +18,7 @@ from goal.models import (
     FullNormal,
     Normal,
     NormalAnalyticLGM,
+    factor_analysis,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -70,7 +71,7 @@ class TestFactorAnalysisBasics:
     def model(self, request: pytest.FixtureRequest) -> FactorAnalysis:
         """Create FactorAnalysis model."""
         obs_dim, lat_dim = request.param
-        return FactorAnalysis(obs_dim=obs_dim, lat_dim=lat_dim)
+        return factor_analysis(obs_dim=obs_dim, lat_dim=lat_dim)
 
     def test_dimensions(self, model: FactorAnalysis) -> None:
         """Test dimensions are correct."""
@@ -83,8 +84,8 @@ class TestFactorAnalysisBasics:
         means = jnp.array([1.0, 2.0, 3.0])
         diags = jnp.array([0.1, 0.1, 0.1])
 
-        fa = FactorAnalysis(obs_dim=3, lat_dim=2)
-        params = fa.from_loadings(loadings, means, diags)
+        fa = factor_analysis(obs_dim=3, lat_dim=2)
+        params = fa.initialize_from_loadings(loadings, means, diags)
 
         nor_man, nor_params = fa.observable_distribution(params)
         mean, cov = nor_man.split_mean_covariance(nor_man.to_mean(nor_params))

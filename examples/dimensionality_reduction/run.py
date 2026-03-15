@@ -17,7 +17,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from goal.models import FactorAnalysis
+from goal.models import FactorAnalysis, factor_analysis
 
 from ..shared import example_paths, jax_cli
 from .types import TrajectoryResults
@@ -107,7 +107,7 @@ def fit_factor_analysis(
         model: The FA model instance
     """
     obs_dim = observations.shape[1]
-    model = FactorAnalysis(obs_dim, latent_dim)
+    model = factor_analysis(obs_dim, latent_dim)
 
     init_params = model.initialize(key)
 

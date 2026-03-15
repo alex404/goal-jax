@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import Diagonal
-from goal.models import FactorAnalysis, MixtureOfFactorAnalyzers, analytic_hmog
+from goal.models import MixtureOfFactorAnalyzers, analytic_hmog, factor_analysis
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -19,7 +19,7 @@ ATOL = 1e-5
 
 def test_fa_whiten_preserves_observable_distribution() -> None:
     """FA whitening preserves p(x) while setting latent prior to N(0,I)."""
-    fa = FactorAnalysis(obs_dim=8, lat_dim=3)
+    fa = factor_analysis(obs_dim=8, lat_dim=3)
     key = jax.random.PRNGKey(0)
     params0 = fa.initialize(key, location=0.0, shape=0.5)
 
@@ -56,7 +56,7 @@ def test_fa_whiten_preserves_observable_distribution() -> None:
 def test_mfa_whiten_preserves_observable_distribution() -> None:
     """MFA whitening preserves per-component p(x|k) and sets each latent prior to N(0,I)."""
     n_categories = 4
-    fa = FactorAnalysis(obs_dim=8, lat_dim=3)
+    fa = factor_analysis(obs_dim=8, lat_dim=3)
     mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
 
     key = jax.random.PRNGKey(42)
@@ -147,7 +147,7 @@ def test_hmog_em_applies_whitening_round_trip() -> None:
 def test_mfa_to_natural_round_trip() -> None:
     """MFA to_natural is a left-inverse of to_mean: to_natural(to_mean(params)) == params."""
     n_categories = 4
-    fa = FactorAnalysis(obs_dim=8, lat_dim=3)
+    fa = factor_analysis(obs_dim=8, lat_dim=3)
     mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
 
     key = jax.random.PRNGKey(99)
@@ -164,7 +164,7 @@ def test_mfa_to_natural_round_trip() -> None:
 def test_mfa_em_matches_whiten_then_to_natural() -> None:
     """MFA expectation_maximization matches manual whiten_prior + to_natural."""
     n_categories = 3
-    fa = FactorAnalysis(obs_dim=6, lat_dim=2)
+    fa = factor_analysis(obs_dim=6, lat_dim=2)
     mfa = MixtureOfFactorAnalyzers(n_categories=n_categories, bas_hrm=fa)
 
     key = jax.random.PRNGKey(77)

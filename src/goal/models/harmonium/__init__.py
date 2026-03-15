@@ -11,6 +11,8 @@ from .lgm import (
     NormalCovarianceEmbedding,
     NormalLGM,
     PrincipalComponentAnalysis,
+    factor_analysis,
+    principal_component_analysis,
 )
 from .mixture import AnalyticMixture, CompleteMixture, Mixture
 from ..base.poisson import CoMPoissons, PopulationLocationEmbedding
@@ -43,6 +45,8 @@ __all__ = [
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
     "VonMisesPopulationCode",
+    "factor_analysis",
+    "principal_component_analysis",
     "com_poisson_mixture",
     "poisson_mixture",
 

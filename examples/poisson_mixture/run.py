@@ -9,9 +9,9 @@ from jax import Array
 
 from goal.geometry import PositiveDefinite
 from goal.models import (
-    FactorAnalysis,
     Normal,
     com_poisson_mixture,
+    factor_analysis,
     poisson_mixture,
 )
 
@@ -30,7 +30,7 @@ learning_rate = 3e-3
 
 psn_mix = poisson_mixture(n_neurons, n_components)
 com_mix = com_poisson_mixture(n_neurons, n_components)
-fa_man = FactorAnalysis(n_neurons, n_factors)
+fa_man = factor_analysis(n_neurons, n_factors)
 nor_man = Normal(n_neurons, PositiveDefinite())
 
 
@@ -45,7 +45,7 @@ def create_ground_truth_fa() -> Array:
     ).T
     means = jnp.array([5 - (k / 3) for k in range(n_neurons)])
     diags = jnp.array([0.1, 0.1, 0.1, 0.5, 0.5, 0.3, 0.3, 0.3, 0.3, 0.3])
-    return fa_man.from_loadings(loadings, means, diags)
+    return fa_man.initialize_from_loadings(loadings, means, diags)
 
 
 def compute_statistics(mean: Array, covariance: Array) -> CovarianceStatistics:
@@ -71,7 +71,7 @@ def normal_statistics(nor_means: Array) -> CovarianceStatistics:
 
 def fit_fa(key: Array, sample: Array) -> tuple[Array, list[float]]:
     """Fit Factor Analysis via EM."""
-    fa = FactorAnalysis(n_neurons, n_factors)
+    fa = factor_analysis(n_neurons, n_factors)
     params = fa.initialize_from_sample(key, sample)
 
     def em_step(p: Array, _: Any) -> tuple[Array, Array]:

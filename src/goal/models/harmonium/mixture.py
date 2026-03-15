@@ -65,7 +65,49 @@ class Mixture[Observable: Differentiable](
     obs_emb: LinearEmbedding[Manifold, Observable]
     """Observable embedding - determines which observable parameters are mixed."""
 
-    # Template Methods
+    # Overrides
+
+    @property
+    @override
+    def lat_man(self) -> Categorical:
+        return Categorical(self.n_categories)
+
+    @property
+    @override
+    def int_man(self) -> EmbeddedMap[Categorical, Observable]:
+        """Construct interaction matrix from observable embedding.
+
+        Structure is fixed: Rectangular matrix with identity domain embedding.
+        """
+        return EmbeddedMap(
+            Rectangular(),
+            IdentityEmbedding(self.lat_man),
+            self.obs_emb,
+        )
+
+    @override
+    def conjugation_parameters(
+        self,
+        lkl_params: Array,
+    ) -> Array:
+        """Compute conjugation parameters for categorical mixture. In particular,
+
+        $$\\rho_k = \\psi(\\theta_X + \\theta_{XZ,k}) - \\psi(\\theta_X)$$
+        """
+        # Compute base term from observable bias
+        obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
+        rho_0 = self.obs_man.log_partition_function(obs_bias)
+
+        # Convert to 2D matrix and transpose to get columns as rows
+        int_comps = self.int_man.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
+
+        def compute_rho(comp_params: Array) -> Array:
+            adjusted_obs = self.int_man.cod_emb.translate(obs_bias, comp_params)
+            return self.obs_man.log_partition_function(adjusted_obs) - rho_0
+
+        return jax.vmap(compute_rho)(int_comps)  # [n_categories-1]
+
+    # Methods
 
     @property
     def cmp_man(self) -> Product[Observable]:
@@ -108,28 +150,6 @@ class Mixture[Observable: Differentiable](
         int_means = projected_comps.T.ravel()
 
         return self.join_coords(obs_means, int_means, weights)
-
-    # Overrides
-
-    @property
-    @override
-    def lat_man(self) -> Categorical:
-        return Categorical(self.n_categories)
-
-    @property
-    @override
-    def int_man(self) -> EmbeddedMap[Categorical, Observable]:
-        """Construct interaction matrix from observable embedding.
-
-        Structure is fixed: Rectangular matrix with identity domain embedding.
-        """
-        return EmbeddedMap(
-            Rectangular(),
-            IdentityEmbedding(self.lat_man),
-            self.obs_emb,
-        )
-
-    # Methods
 
     def split_natural_mixture(
         self,
@@ -200,30 +220,6 @@ class Mixture[Observable: Differentiable](
         cov -= jnp.outer(mean, mean)
 
         return mean, cov
-
-    # Overrides
-
-    @override
-    def conjugation_parameters(
-        self,
-        lkl_params: Array,
-    ) -> Array:
-        """Compute conjugation parameters for categorical mixture. In particular,
-
-        $$\\rho_k = \\psi(\\theta_X + \\theta_{XZ,k}) - \\psi(\\theta_X)$$
-        """
-        # Compute base term from observable bias
-        obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
-        rho_0 = self.obs_man.log_partition_function(obs_bias)
-
-        # Convert to 2D matrix and transpose to get columns as rows
-        int_comps = self.int_man.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
-
-        def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = self.int_man.cod_emb.translate(obs_bias, comp_params)
-            return self.obs_man.log_partition_function(adjusted_obs) - rho_0
-
-        return jax.vmap(compute_rho)(int_comps)  # [n_categories-1]
 
 
 class CompleteMixture[Observable: Differentiable](

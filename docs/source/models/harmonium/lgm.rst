@@ -58,12 +58,15 @@ Embeddings
 Specializations
 ---------------
 
-.. autoclass:: goal.models.harmonium.lgm.FactorAnalysis
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. data:: goal.models.harmonium.lgm.FactorAnalysis
 
-.. autoclass:: goal.models.harmonium.lgm.PrincipalComponentAnalysis
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   Type alias for ``NormalAnalyticLGM[Diagonal]`` — factor analysis with diagonal observable noise.
+
+.. data:: goal.models.harmonium.lgm.PrincipalComponentAnalysis
+
+   Type alias for ``NormalAnalyticLGM[Scale]`` — PCA with isotropic observable noise.
+
+.. autofunction:: goal.models.harmonium.lgm.factor_analysis
+
+.. autofunction:: goal.models.harmonium.lgm.principal_component_analysis
+

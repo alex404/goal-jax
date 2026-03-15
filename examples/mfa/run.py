@@ -8,7 +8,7 @@ import optax
 from jax import Array
 
 from goal.geometry import Diagonal, Differentiable
-from goal.models import DiagonalNormal, FactorAnalysis, MixtureOfFactorAnalyzers
+from goal.models import DiagonalNormal, MixtureOfFactorAnalyzers, factor_analysis
 from goal.models.graphical.mixture import CompleteMixtureOfConjugated
 from goal.models.harmonium.lgm import NormalLGM
 
@@ -34,10 +34,10 @@ def create_ground_truth(key: Array, sample_size: int) -> tuple[Array, Array, Arr
 
     mixing_probs = jnp.array([0.4, 0.35, 0.25])
 
-    fa = FactorAnalysis(obs_dim, lat_dim)
-    fa1_params = fa.from_loadings(loadings_1, means_1, diags_1)
-    fa2_params = fa.from_loadings(loadings_2, means_2, diags_2)
-    fa3_params = fa.from_loadings(loadings_3, means_3, diags_3)
+    fa = factor_analysis(obs_dim, lat_dim)
+    fa1_params = fa.initialize_from_loadings( loadings_1, means_1, diags_1)
+    fa2_params = fa.initialize_from_loadings( loadings_2, means_2, diags_2)
+    fa3_params = fa.initialize_from_loadings( loadings_3, means_3, diags_3)
 
     key_assign, key_sample = jax.random.split(key)
     components = jax.random.categorical(
@@ -193,7 +193,7 @@ def main():
 
     # Model 1: Mixture of Factor Analyzers — closed-form EM with latent whitening
     mfa_fa = MixtureOfFactorAnalyzers(
-        n_categories=3, bas_hrm=FactorAnalysis(obs_dim=3, lat_dim=2)
+        n_categories=3, bas_hrm=factor_analysis(obs_dim=3, lat_dim=2)
     )
     print("Training FA model (EM)...")
     fa_lls, fa_init, fa_final = fit_mfa_em(key_fa, mfa_fa, samples, 500, name="FA")
@@ -255,10 +255,10 @@ def main():
     )
 
     # Ground truth log-likelihood (construct GT model and evaluate)
-    fa = FactorAnalysis(obs_dim=3, lat_dim=2)
-    fa1_params = fa.from_loadings(loadings_1, means_1, diags_1)
-    fa2_params = fa.from_loadings(loadings_2, means_2, diags_2)
-    fa3_params = fa.from_loadings(loadings_3, means_3, diags_3)
+    fa = factor_analysis(obs_dim=3, lat_dim=2)
+    fa1_params = fa.initialize_from_loadings( loadings_1, means_1, diags_1)
+    fa2_params = fa.initialize_from_loadings( loadings_2, means_2, diags_2)
+    fa3_params = fa.initialize_from_loadings( loadings_3, means_3, diags_3)
 
     # Build ground truth mixture model
     gt_mfa = MixtureOfFactorAnalyzers(n_categories=3, bas_hrm=fa)

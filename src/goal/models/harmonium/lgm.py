@@ -33,7 +33,7 @@ from ..base.gaussian.normal import (
     full_normal,
 )
 
-### Helper Functions ###
+# Helper Functions
 
 
 @dataclass(frozen=True)
@@ -61,43 +61,18 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
 
     @override
     def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Project to Euclidean location component.
+        """Project mean coordinates to Euclidean location component.
 
-        Works on mean coordinates, extracting the location component from the full
-        generalized Gaussian parameterization. If given a data point (size == data_dim),
-        converts it to sufficient statistics (mean coordinates) first.
-
-        Parameters
-        ----------
-        means : Array
-            Mean coordinate parameters or data point in GeneralizedGaussian space.
-
-        Returns
-        -------
-        Array
-            Mean parameters in Euclidean space (location only).
+        Also handles data points (size == data_dim) by converting to sufficient statistics first.
         """
-        # Convert data points to sufficient statistics (mean coordinates)
         if means.size == self.gau_man.data_dim and means.size != self.gau_man.dim:
             means = self.gau_man.sufficient_statistic(means)
-
         loc, _ = self.gau_man.split_mean_second_moment(means)
         return loc
 
     @override
     def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed Euclidean location into GeneralizedGaussian with zero shape.
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters in Euclidean space.
-
-        Returns
-        -------
-        Array
-            Natural parameters in GeneralizedGaussian space.
-        """
+        """Embed Euclidean location into GeneralizedGaussian with zero shape."""
         zero_shape = self.gau_man.shp_man.zeros()
         return self.gau_man.join_location_precision(params, zero_shape)
 
@@ -107,20 +82,7 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
         params: Array,
         delta: Array,
     ) -> Array:
-        """Translate by adding Euclidean offset to location.
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters in GeneralizedGaussian space.
-        delta : Array
-            Euclidean offset to add.
-
-        Returns
-        -------
-        Array
-            Translated natural parameters in GeneralizedGaussian space.
-        """
+        """Translate by adding Euclidean offset to location."""
         loc, shape = self.gau_man.split_location_precision(params)
         new_loc = loc + delta
         return self.gau_man.join_location_precision(new_loc, shape)
@@ -158,34 +120,12 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefini
 
     @override
     def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Project from ambient to sub-manifold representation.
-
-        Parameters
-        ----------
-        means : Array
-            Mean parameters in ambient manifold.
-
-        Returns
-        -------
-        Array
-            Mean parameters in sub-manifold.
-        """
+        """Project from ambient to sub-manifold representation."""
         return self.amb_man.project_rep(self.sub_man, means)
 
     @override
     def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed from sub-manifold to ambient representation.
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters in sub-manifold.
-
-        Returns
-        -------
-        Array
-            Natural parameters in ambient manifold.
-        """
+        """Embed from sub-manifold to ambient representation."""
         return self.sub_man.embed_rep(self.amb_man, params)
 
     @override
@@ -194,20 +134,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefini
         params: Array,
         delta: Array,
     ) -> Array:
-        """Translate by embedding and adding.
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters in ambient manifold.
-        delta : Array
-            Natural parameters in sub-manifold to add.
-
-        Returns
-        -------
-        Array
-            Translated natural parameters in ambient manifold.
-        """
+        """Translate by embedding and adding."""
         embedded_q = self.sub_man.embed_rep(self.amb_man, delta)
         return params + embedded_q
 
@@ -244,35 +171,13 @@ class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, Boltzmann]):
 
     @override
     def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Extract first moment (location) from full Boltzmann means.
-
-        Parameters
-        ----------
-        means : Array
-            Mean parameters in Boltzmann space.
-
-        Returns
-        -------
-        Array
-            Mean parameters in DiagonalBoltzmann space (first moments E[x_i]).
-        """
+        """Extract first moment (location) from full Boltzmann means."""
         loc, _ = self._amb_man.split_mean_second_moment(means)
         return loc
 
     @override
     def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed DiagonalBoltzmann params into full Boltzmann with zero coupling.
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters in DiagonalBoltzmann space (biases).
-
-        Returns
-        -------
-        Array
-            Natural parameters in Boltzmann space (biases on diagonal, zero coupling).
-        """
+        """Embed DiagonalBoltzmann params into full Boltzmann with zero coupling."""
         zero_prec = self._amb_man.shp_man.zeros()
         return self._amb_man.join_location_precision(params, zero_prec)
 
@@ -282,20 +187,7 @@ class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, Boltzmann]):
         params: Array,
         delta: Array,
     ) -> Array:
-        """Add DiagonalBoltzmann delta to Boltzmann params (location/bias only).
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters in Boltzmann space.
-        delta : Array
-            Natural parameters in DiagonalBoltzmann space to add.
-
-        Returns
-        -------
-        Array
-            Translated natural parameters in Boltzmann space.
-        """
+        """Add DiagonalBoltzmann delta to Boltzmann params (location/bias only)."""
         loc, prec = self._amb_man.split_location_precision(params)
         return self._amb_man.join_location_precision(loc + delta, prec)
 
@@ -346,8 +238,6 @@ class LGM[
     obs_rep: ObsRep
     """Covariance structure of the observable variables."""
 
-    ### Methods ###
-
     # Overrides
 
     @property
@@ -379,18 +269,7 @@ class LGM[
         self,
         lkl_params: Array,
     ) -> Array:
-        """Compute conjugation parameters for linear Gaussian model.
-
-        Parameters
-        ----------
-        lkl_params : Array
-            Natural parameters for likelihood function.
-
-        Returns
-        -------
-        Array
-            Natural parameters for conjugation in PriorGaussian space.
-        """
+        """Compute conjugation parameters for linear Gaussian model."""
         # Get parameters
         obs_cov_man = self.obs_man.cov_man
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
@@ -457,18 +336,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         self,
         params: Array,
     ) -> tuple[FullNormal, Array]:  # (Normal, Natural[Normal])
-        """Returns the marginal normal distribution over observable variables.
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters for the linear Gaussian model.
-
-        Returns
-        -------
-        tuple[Normal, Array]
-            The Normal manifold and its natural parameters.
-        """
+        """Returns the marginal normal distribution over observable variables."""
         # Build transposed LGM with full covariance observable variables
         transposed_lgm = NormalAnalyticLGM(
             obs_dim=self.pst_man.data_dim,  # Original latent becomes observable
@@ -517,18 +385,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         return self.join_coords(obs_means, new_int_means, new_lat_means)
 
     def to_normal(self, params: Array) -> Array:
-        """Convert a linear model to a normal model.
-
-        Parameters
-        ----------
-        params : Array
-            Natural parameters for the linear Gaussian model.
-
-        Returns
-        -------
-        Array
-            Natural parameters for the joint Normal distribution.
-        """
+        """Convert to a joint Normal distribution in natural parameters."""
         lat_dim = self.prr_man.data_dim
         new_man: NormalLGM[PositiveDefinite, PositiveDefinite] = NormalLGM(
             obs_dim=self.obs_man.data_dim,
@@ -667,22 +524,45 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         return NormalCovarianceEmbedding(self.pst_man, prior_gau)
 
     @override
+    def expectation_maximization(self, params: Array, xs: Array) -> Array:
+        """EM with latent-prior whitening to resolve Normal identifiability.
+
+        The latent Normal is not identifiable without constraints, so we
+        reparameterize to standard normal prior after the E-step.
+        """
+        q = self.mean_posterior_statistics(params, xs)
+        return self.to_natural(self.whiten_prior(q))
+
+    def initialize_from_loadings(
+        self,
+        loadings: Array,
+        means: Array,
+        noise_cov: Array,
+    ) -> Array:
+        """Create natural parameters from loading model parameterization.
+
+        Converts the generative model $x = Az + \\mu + \\epsilon$ where
+        $\\epsilon \\sim \\mathcal{N}(0, \\Sigma)$ to natural parameters.
+        The noise covariance format matches the observable representation
+        (e.g., diagonal vector for FA, scalar for PCA).
+        """
+        om = self.obs_man
+        obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
+        obs_prs = om.split_location_precision(obs_params)[1]
+        dns_prs = om.cov_man.to_matrix(obs_prs)
+
+        int_mat = self.int_man.from_matrix(dns_prs @ loadings)
+
+        lkl_params = self.lkl_fun_man.join_coords(obs_params, int_mat)
+        z = self.lat_man.to_natural(self.lat_man.standard_normal())
+        return self.join_conjugated(lkl_params, z)
+
+    @override
     def to_natural_likelihood(
         self,
         means: Array,  # Mean[Self]
     ) -> Array:
-        """Convert mean parameters to natural likelihood parameters.
-
-        Parameters
-        ----------
-        means : Array
-            Mean parameters for the analytic linear Gaussian model.
-
-        Returns
-        -------
-        Array
-            Natural parameters for likelihood function.
-        """
+        """Convert mean parameters to natural likelihood parameters."""
         # Get relevant manifolds
         ocm = self.obs_man.cov_man
         lcm = self.lat_man.cov_man
@@ -725,8 +605,6 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
             lat_prs,
         )
         obs_loc0 = ocm(obs_prs, obs_mean)
-        # obs_loc1 = self._int_man_internal(int_params, lat_mean)
-
         obs_loc1 = im.rep.matvec(im.matrix_shape, int_params, lat_mean)
         obs_loc = obs_loc0 - obs_loc1
 
@@ -735,116 +613,24 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         return self.lkl_fun_man.join_coords(obs_params, int_params)
 
 
-@dataclass(frozen=True)
-class FactorAnalysis(NormalAnalyticLGM[Diagonal]):
-    """A factor analysis model with Gaussian latent variables."""
+type FactorAnalysis = NormalAnalyticLGM[Diagonal]
+"""Factor analysis: LGM with diagonal observable noise."""
 
-    def __init__(self, obs_dim: int, lat_dim: int):
-        super().__init__(obs_dim, Diagonal(), lat_dim)
-
-    @override
-    def expectation_maximization(
-        self,
-        params: Array,
-        xs: Array,
-    ) -> Array:
-        """Perform a single iteration of the EM algorithm.
-
-        Without further constraints the latent Normal of FA is not identifiable,
-        and so we hold it fixed at standard normal.
-
-        Parameters
-        ----------
-        params : Array
-            Current natural parameters.
-        xs : Array
-            Observation data.
-
-        Returns
-        -------
-        Array
-            Updated natural parameters.
-        """
-        # E-step: compute mean statistics; whiten to set prior to N(0,I) while
-        # preserving the observable marginal, then convert to natural coordinates.
-        q = self.mean_posterior_statistics(params, xs)
-        return self.to_natural(self.whiten_prior(q))
-
-    def from_loadings(
-        self,
-        loadings: Array,
-        means: Array,
-        diags: Array,
-    ) -> Array:
-        """Convert standard factor analysis parameters to natural parameters.
-
-        Parameters
-        ----------
-        loadings : Array
-            Loading matrix (obs_dim, lat_dim).
-        means : Array
-            Observation means.
-        diags : Array
-            Diagonal noise variances.
-
-        Returns
-        -------
-        Array
-            Natural parameters for the factor analysis model.
-        """
-        # Initialize interaction matrix scaled by precision
-        om = self.obs_man
-        mu = means
-        cov = diags
-        obs_params = om.to_natural(om.join_mean_covariance(mu, cov))
-        obs_prs = om.split_location_precision(obs_params)[1]
-        dns_prs = om.cov_man.to_matrix(obs_prs)
-
-        int_mat = self.int_man.from_matrix(dns_prs @ loadings)
-
-        # Combine parameters
-        lkl_params = self.lkl_fun_man.join_coords(obs_params, int_mat)
-        z = self.lat_man.to_natural(self.lat_man.standard_normal())
-        return self.join_conjugated(lkl_params, z)
+type PrincipalComponentAnalysis = NormalAnalyticLGM[Scale]
+"""Principal component analysis: LGM with isotropic observable noise."""
 
 
-@dataclass(frozen=True)
-class PrincipalComponentAnalysis(NormalAnalyticLGM[Scale]):
-    """A principal component analysis model with Gaussian latent variables."""
-
-    def __init__(self, obs_dim: int, lat_dim: int):
-        super().__init__(obs_dim, Scale(), lat_dim)
-
-    @override
-    def expectation_maximization(
-        self,
-        params: Array,
-        xs: Array,
-    ) -> Array:
-        """Perform a single iteration of the EM algorithm.
-
-        Without further constraints the latent Normal of PCA is not identifiable,
-        and so we hold it fixed at standard normal.
-
-        Parameters
-        ----------
-        params : Array
-            Current natural parameters.
-        xs : Array
-            Observation data.
-
-        Returns
-        -------
-        Array
-            Updated natural parameters.
-        """
-        # E-step: compute mean statistics; whiten to set prior to N(0,I) while
-        # preserving the observable marginal, then convert to natural coordinates.
-        q = self.mean_posterior_statistics(params, xs)
-        return self.to_natural(self.whiten_prior(q))
+def factor_analysis(obs_dim: int, lat_dim: int) -> FactorAnalysis:
+    """Create a factor analysis model."""
+    return NormalAnalyticLGM(obs_dim, Diagonal(), lat_dim)
 
 
-### Helper Functions ###
+def principal_component_analysis(obs_dim: int, lat_dim: int) -> PrincipalComponentAnalysis:
+    """Create a principal component analysis model."""
+    return NormalAnalyticLGM(obs_dim, Scale(), lat_dim)
+
+
+# Helper Functions
 
 
 def _dual_composition(

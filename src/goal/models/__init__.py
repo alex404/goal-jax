@@ -42,6 +42,8 @@ from .harmonium.lgm import (
     NormalCovarianceEmbedding,
     NormalLGM,
     PrincipalComponentAnalysis,
+    factor_analysis,
+    principal_component_analysis,
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 from .base.poisson import CoMPoissons, PopulationLocationEmbedding
@@ -95,6 +97,9 @@ __all__ = [
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
     "StandardNormal",
+    "factor_analysis",
+
+    "principal_component_analysis",
     "SymmetricHMoG",
     "VariationalHierarchicalMixture",
     "VonMises",
