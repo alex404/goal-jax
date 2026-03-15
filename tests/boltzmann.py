@@ -8,7 +8,6 @@ probabilities, and embedding operations.
 import jax
 import jax.numpy as jnp
 import pytest
-from jax import Array
 
 from goal.geometry import Symmetric
 from goal.models import Bernoullis, Boltzmann, BoltzmannEmbedding, DiagonalBoltzmann

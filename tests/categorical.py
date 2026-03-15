@@ -8,7 +8,6 @@ parameter conversions, entropy, and sampling.
 import jax
 import jax.numpy as jnp
 import pytest
-from jax import Array
 
 from goal.models import Bernoulli, Bernoullis, Categorical
 
