@@ -168,40 +168,43 @@ class LatentHarmoniumEmbedding[
         return self.amb_man.join_coords(emb_obs_params, int_params, lat_params)
 
 
-### Hierarchical Harmonium Classes ###
+# Hierarchical Harmonium Classes
 
 
-@dataclass(frozen=True)
 class DifferentiableHierarchical[
     LowerHarmonium: DifferentiableConjugated[Any, Any, Any],
     PstUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
     PrrUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
 ](
     DifferentiableConjugated[Any, PstUpperHarmonium, PrrUpperHarmonium],
+    ABC,
 ):
     """Differentiable hierarchical harmonium with asymmetric posterior/prior structure.
 
-    Composes a lower harmonium (observable \\to middle latent) with an upper harmonium (middle latent \\to top latent). The prior may use a fuller parameterization than the posterior for conjugation.
+    Composes a lower harmonium (observable \\to middle latent) with an upper harmonium
+    (middle latent \\to top latent). The prior may use a fuller parameterization than
+    the posterior for conjugation.
     """
 
-    # Fields
+    # Contract
 
-    lwr_hrm: LowerHarmonium
-    """Lower harmonium: observable \\to middle latent."""
+    @property
+    @abstractmethod
+    def lwr_hrm(self) -> LowerHarmonium:
+        """Lower harmonium: observable \\to middle latent."""
+        ...
 
-    pst_upr_hrm: PstUpperHarmonium
-    """Posterior upper harmonium (possibly restricted)."""
+    @property
+    @abstractmethod
+    def pst_upr_hrm(self) -> PstUpperHarmonium:
+        """Posterior upper harmonium (possibly restricted)."""
+        ...
 
-    prr_upr_hrm: PrrUpperHarmonium
-    """Prior upper harmonium (for conjugation)."""
-
-    def __post_init__(self) -> None:
-        assert self.lwr_hrm.pst_man == self.pst_upr_hrm.obs_man, (
-            "Lower harmonium's posterior must match posterior upper harmonium's observable"
-        )
-        assert self.lwr_hrm.prr_man == self.prr_upr_hrm.obs_man, (
-            "Lower harmonium's prior must match prior upper harmonium's observable"
-        )
+    @property
+    @abstractmethod
+    def prr_upr_hrm(self) -> PrrUpperHarmonium:
+        """Prior upper harmonium (for conjugation)."""
+        ...
 
     # Overrides
 
@@ -216,7 +219,7 @@ class DifferentiableHierarchical[
     @override
     def pst_prr_emb(
         self,
-    ) -> LatentHarmoniumEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
+    ) -> LinearEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
         return LatentHarmoniumEmbedding(
             self.lwr_hrm.pst_prr_emb,
             self.pst_upr_hrm,
@@ -239,17 +242,17 @@ class SymmetricHierarchical[
     UpperHarmonium: DifferentiableConjugated[Any, Any, Any],
 ](
     SymmetricConjugated[Any, UpperHarmonium],
+    DifferentiableHierarchical[LowerHarmonium, UpperHarmonium, UpperHarmonium],
     ABC,
 ):
-    """Symmetric hierarchical harmonium where the lower harmonium has matching posterior and prior manifolds."""
+    """Symmetric hierarchical harmonium where the lower harmonium has matching posterior and prior manifolds.
+
+    Mirrors ``SymmetricConjugated`` at the hierarchical level: collapses the posterior
+    and prior upper harmoniums into a single ``upr_hrm``, providing
+    ``pst_upr_hrm = prr_upr_hrm = upr_hrm``.
+    """
 
     # Contract
-
-    @property
-    @abstractmethod
-    def lwr_hrm(self) -> LowerHarmonium:
-        """Lower harmonium: observable \\to middle latent."""
-        ...
 
     @property
     @abstractmethod
@@ -266,17 +269,13 @@ class SymmetricHierarchical[
 
     @property
     @override
-    def int_man(self) -> Any:
-        return self.lwr_hrm.int_man.prepend_embedding(ObservableEmbedding(self.upr_hrm))
+    def pst_upr_hrm(self) -> UpperHarmonium:
+        return self.upr_hrm
 
+    @property
     @override
-    def extract_likelihood_input(self, prr_sample: Array) -> Array:
-        return prr_sample[:, : self.lwr_hrm.lat_man.data_dim]
-
-    @override
-    def conjugation_parameters(self, lkl_params: Array) -> Array:
-        upr_obs_emb = ObservableEmbedding(self.upr_hrm)
-        return upr_obs_emb.embed(self.lwr_hrm.conjugation_parameters(lkl_params))
+    def prr_upr_hrm(self) -> UpperHarmonium:
+        return self.upr_hrm
 
 
 class AnalyticHierarchical[

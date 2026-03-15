@@ -36,6 +36,4 @@ Factory Functions
 
 .. autofunction:: goal.models.graphical.hmog.differentiable_hmog
 
-.. autofunction:: goal.models.graphical.hmog.symmetric_hmog
-
 .. autofunction:: goal.models.graphical.hmog.analytic_hmog

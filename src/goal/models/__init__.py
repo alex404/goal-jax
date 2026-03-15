@@ -22,11 +22,10 @@ from .graphical.hmog import (
     SymmetricHMoG,
     analytic_hmog,
     differentiable_hmog,
-    symmetric_hmog,
 )
 from .graphical.mixture import (
     CompleteMixtureOfAnalytic,
-    CompleteMixtureOfHarmonium,
+    CompleteMixtureOfHarmoniums,
     MixtureOfFactorAnalyzers,
 )
 from .graphical.variational import (
@@ -74,7 +73,7 @@ __all__ = [
     "CoMShape",
     "CompleteMixture",
     "CompleteMixtureOfAnalytic",
-    "CompleteMixtureOfHarmonium",
+    "CompleteMixtureOfHarmoniums",
     "Covariance",
     "DiagonalBoltzmann",
     "DiagonalNormal",
@@ -114,5 +113,4 @@ __all__ = [
     "poisson_mixture",
 
     "standard_normal",
-    "symmetric_hmog",
 ]

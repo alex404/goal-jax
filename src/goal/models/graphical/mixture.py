@@ -17,6 +17,7 @@ computation for hierarchical models where the upper level is a mixture over harm
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
 from typing import override
 
@@ -29,7 +30,6 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     BlockMap,
-    Conjugated,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
@@ -50,7 +50,7 @@ from ..base.gaussian.normal import FullNormal, Normal
 from ..harmonium.lgm import NormalAnalyticLGM
 from ..harmonium.mixture import AnalyticMixture, CompleteMixture
 
-### Embeddings ###
+# Embeddings
 
 
 @dataclass(frozen=True)
@@ -89,18 +89,7 @@ class RowEmbedding[
 
     @override
     def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed by applying base embedding to each column.
-
-        Parameters
-        ----------
-        params : Array
-            Parameters in LinearMap[Dom, Sub].
-
-        Returns
-        -------
-        Array
-            Parameters in LinearMap[Dom, Amb].
-        """
+        """Embed by applying base embedding to each column."""
         # Reshape to matrix
         matrix = self.sub_man.to_matrix(params)
 
@@ -112,18 +101,7 @@ class RowEmbedding[
 
     @override
     def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Project by applying base projection to each column.
-
-        Parameters
-        ----------
-        means : Array
-            Mean parameters in LinearMap[Dom, Amb].
-
-        Returns
-        -------
-        Array
-            Mean parameters in LinearMap[Dom, Sub].
-        """
+        """Project by applying base projection to each column."""
         # Reshape to matrix
         matrix = self.amb_man.to_matrix(means)
 
@@ -168,18 +146,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
 
     @override
     def embed(self, coords: Array) -> Array:
-        """Embed by applying base embedding to observable and interaction components.
-
-        Parameters
-        ----------
-        coords : Array
-            Parameters in CompleteMixture[Sub].
-
-        Returns
-        -------
-        Array
-            Parameters in CompleteMixture[Ambient].
-        """
+        """Embed by applying base embedding to observable and interaction components."""
         obs_params, int_params, cat_params = self.sub_man.split_coords(coords)
 
         # Embed observable component
@@ -203,18 +170,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
 
     @override
     def project(self, coords: Array) -> Array:
-        """Project by applying base projection to observable and interaction components.
-
-        Parameters
-        ----------
-        coords : Array
-            Mean parameters in CompleteMixture[Ambient].
-
-        Returns
-        -------
-        Array
-            Mean parameters in CompleteMixture[Sub].
-        """
+        """Project by applying base projection to observable and interaction components."""
         obs_means, int_means, cat_means = self.amb_man.split_coords(coords)
 
         # Project observable component
@@ -238,32 +194,20 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
 
     @override
     def translate(self, p_coords: Array, q_coords: Array) -> Array:
-        """Translate by embedding and adding componentwise.
-
-        Parameters
-        ----------
-        p_coords : Array
-            Natural parameters in CompleteMixture[Ambient].
-        q_coords : Array
-            Natural parameters in CompleteMixture[Sub] to add.
-
-        Returns
-        -------
-        Array
-            Translated natural parameters in CompleteMixture[Ambient].
-        """
+        """Translate by embedding and adding componentwise."""
         return p_coords + self.embed(q_coords)
 
 
-### Mixture of Harmoniums ###
+# Mixture of Harmoniums
 
 
 @dataclass(frozen=True)
-class CompleteMixtureOfHarmonium[
+class CompleteMixtureOfHarmoniums[
     Observable: Differentiable,
     Posterior: Differentiable,
 ](
     Harmonium[Observable, CompleteMixture[Posterior]],
+    ABC,
 ):
     """Harmonium with three-block interaction structure X<->Y<->K.
 
@@ -403,7 +347,7 @@ class CompleteMixtureOfHarmonium[
 
         This provides an alternative representation of the mixture model where each
         component is a full harmonium, rather than the shared-base-plus-offsets
-        representation used by CompleteMixtureOfHarmonium.
+        representation used by CompleteMixtureOfHarmoniums.
         """
         return CompleteMixture(self.bas_hrm, self.n_categories)  # pyright: ignore[reportArgumentType]
 
@@ -416,7 +360,9 @@ class CompleteMixtureOfHarmonium[
         """
         x_coords, int_coords, yk_harm_coords = self.split_coords(coords)
         xy_coords, xyk_coords, xk_coords = self.int_man.coord_blocks(int_coords)
-        y_coords, yk_int_coords, k_coords = self.bas_pst_man.split_coords(yk_harm_coords)
+        y_coords, yk_int_coords, k_coords = self.bas_pst_man.split_coords(
+            yk_harm_coords
+        )
 
         base_hrm_coords = self.bas_hrm.join_coords(x_coords, xy_coords, y_coords)
 
@@ -433,7 +379,9 @@ class CompleteMixtureOfHarmonium[
 
         Works identically in both natural and mean coordinates.
         """
-        base_hrm_coords, mix_int_coords, k_coords = self.mix_man.split_coords(mix_coords)
+        base_hrm_coords, mix_int_coords, k_coords = self.mix_man.split_coords(
+            mix_coords
+        )
         x_coords, xy_coords, y_coords = self.bas_hrm.split_coords(base_hrm_coords)
 
         n_cols = self.n_categories - 1
@@ -450,8 +398,7 @@ class CompleteMixtureOfHarmonium[
         return self.join_coords(x_coords, int_coords, yk_harm_coords)
 
 
-
-### Mixture of Conjugated Harmoniums ###
+# Mixture of Conjugated Harmoniums
 
 
 @dataclass(frozen=True)
@@ -460,13 +407,8 @@ class CompleteMixtureOfConjugated[
     PstLatent: Differentiable,
     PrrLatent: Differentiable,
 ](
-    CompleteMixtureOfHarmonium[Observable, PstLatent],
+    CompleteMixtureOfHarmoniums[Observable, PstLatent],
     DifferentiableConjugated[
-        Observable,
-        CompleteMixture[PstLatent],
-        CompleteMixture[PrrLatent],
-    ],
-    Conjugated[
         Observable,
         CompleteMixture[PstLatent],
         CompleteMixture[PrrLatent],
@@ -474,7 +416,7 @@ class CompleteMixtureOfConjugated[
 ):
     """Mixture of conjugated harmoniums.
 
-    Extends CompleteMixtureOfHarmonium with conjugation structure, requiring a
+    Extends CompleteMixtureOfHarmoniums with conjugation structure, requiring a
     DifferentiableConjugated base harmonium with closed-form conjugation_parameters.
 
     **Conjugation parameters**: Computed using the formula:
@@ -581,10 +523,7 @@ class CompleteMixtureOfSymmetric[
     the posterior and prior latent manifolds are identical (pst_man == prr_man).
     This is the common case for models like Factor Analysis.
 
-    Provides convenient access to `lat_man` (the shared latent manifold).
-
-    The base harmonium must be AnalyticConjugated, which combines
-    SymmetricConjugated and DifferentiableConjugated with analytic tractability.
+    Provides convenient access to ``lat_man`` (the shared latent manifold).
     """
 
     n_categories: int
@@ -601,24 +540,21 @@ class CompleteMixtureOfSymmetric[
 
 
 @dataclass(frozen=True)
-class CompleteMixtureOfAnalytic[
+class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues,reportIncompatibleMethodOverride]
     Observable: Differentiable,
     Latent: Analytic,
 ](
     CompleteMixtureOfSymmetric[Observable, Latent],
+    AnalyticConjugated[Observable, AnalyticMixture[Latent]],
 ):
     """Mixture of analytic conjugated harmoniums.
 
-    Extends CompleteMixtureOfSymmetric with a full analytic structure by overriding
-    ``lat_man`` to return an ``AnalyticMixture`` (which has ``to_natural``), and
-    implementing ``to_natural_likelihood`` and ``to_natural``.
-
-    ``AnalyticConjugated`` cannot be added as a formal base because its MRO ordering
-    of ``SymmetricConjugated`` before ``DifferentiableConjugated`` conflicts with the
-    ordering already established by ``CompleteMixtureOfConjugated``. So ``to_natural``
-    is implemented explicitly here, mirroring the ``AnalyticConjugated`` template.
-
-    Requires the base harmonium to be ``AnalyticConjugated``.
+    Extends CompleteMixtureOfSymmetric with full analytic structure via
+    ``AnalyticConjugated``, inheriting ``to_natural``, ``negative_entropy``,
+    and ``expectation_maximization``. The two bases parameterize
+    ``SymmetricConjugated`` with ``CompleteMixture[Latent]`` vs
+    ``AnalyticMixture[Latent]`` respectively — invariant generics make this
+    a type error, but ``lat_man`` returns ``AnalyticMixture`` at runtime.
     """
 
     n_categories: int
@@ -633,6 +569,7 @@ class CompleteMixtureOfAnalytic[
         """The shared latent manifold as an AnalyticMixture (supports to_natural)."""
         return AnalyticMixture(self.bas_hrm.lat_man, self.n_categories)
 
+    @override
     def to_natural_likelihood(self, means: Array) -> Array:
         """Convert mean parameters to natural likelihood parameters.
 
@@ -672,18 +609,6 @@ class CompleteMixtureOfAnalytic[
         int_params = jnp.concatenate([xy_params_0, xyk_coords, xk_coords])
         return self.lkl_fun_man.join_coords(x_params_0, int_params)
 
-    def to_natural(self, means: Array) -> Array:
-        """Convert mean to natural parameters.
-
-        Mirrors ``AnalyticConjugated.to_natural``: uses ``to_natural_likelihood``
-        for the likelihood part, then ``lat_man.to_natural`` (``AnalyticMixture``)
-        for the latent part.
-        """
-        lkl_params = self.to_natural_likelihood(means)
-        mean_lat = self.split_coords(means)[2]
-        nat_lat = self.lat_man.to_natural(mean_lat)
-        return self.join_conjugated(lkl_params, nat_lat)
-
 
 @dataclass(frozen=True)
 class MixtureOfFactorAnalyzers(
@@ -703,6 +628,7 @@ class MixtureOfFactorAnalyzers(
     bas_hrm: NormalAnalyticLGM[Diagonal]
     """Base factor analysis harmonium (lower level)."""
 
+    @override
     def expectation_maximization(self, params: Array, xs: Array) -> Array:
         """Perform a single EM iteration with latent-prior whitening.
 
@@ -714,7 +640,7 @@ class MixtureOfFactorAnalyzers(
         return self.to_natural(self.whiten_prior(q))
 
     def whiten_prior(self, means: Array) -> Array:
-        """Whiten MFA priors in CompleteMixtureOfHarmonium mean coordinates.
+        """Whiten MFA priors in CompleteMixtureOfHarmoniums mean coordinates.
 
         The input/output are mean parameters on ``MixtureOfFactorAnalyzers`` itself.
         Internally, we convert to ``mix_man`` means, whiten each FA component, then
@@ -727,5 +653,7 @@ class MixtureOfFactorAnalyzers(
             comp_means,
             flatten=True,
         )
-        whitened_mix_means = self.mix_man.join_mean_mixture(whitened_comp_means, cat_means)
+        whitened_mix_means = self.mix_man.join_mean_mixture(
+            whitened_comp_means, cat_means
+        )
         return self.from_mixture_coords(whitened_mix_means)

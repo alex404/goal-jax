@@ -302,49 +302,6 @@ class Conjugated[
         return jnp.concatenate([x_sample, z_sample], axis=-1)
 
 
-class SymmetricConjugated[
-    Observable: Differentiable,
-    Latent: Generative,
-](
-    Conjugated[Observable, Latent, Latent],
-    ABC,
-):
-    """A conjugated harmonium where the posterior and prior share the same latent manifold (``pst_man == prr_man``)."""
-
-    # Contract
-
-    @property
-    @abstractmethod
-    def lat_man(self) -> Latent:
-        """Manifold of latent biases."""
-
-    # Overrides
-
-    @property
-    @override
-    def pst_prr_emb(self) -> LinearEmbedding[Latent, Latent]:
-        return IdentityEmbedding(self.lat_man)
-
-    @property
-    @override
-    def pst_man(self) -> Latent:
-        return self.lat_man
-
-    @property
-    @override
-    def prr_man(self) -> Latent:
-        return self.lat_man
-
-    # Methods
-
-    def join_conjugated(self, lkl_params: Array, prior_params: Array) -> Array:
-        """Join likelihood and prior natural parameters into harmonium natural parameters."""
-        rho = self.conjugation_parameters(lkl_params)
-        lat_params = prior_params - rho
-        obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
-        return self.join_coords(obs_params, int_params, lat_params)
-
-
 class DifferentiableConjugated[
     Observable: Differentiable,
     Posterior: Differentiable,
@@ -425,12 +382,54 @@ class DifferentiableConjugated[
         return batched_mean(infer_missing_expectations, xs, batch_size)
 
 
+class SymmetricConjugated[
+    Observable: Differentiable,
+    Latent: Differentiable,
+](
+    DifferentiableConjugated[Observable, Latent, Latent],
+    ABC,
+):
+    """A conjugated harmonium where the posterior and prior share the same latent manifold (``pst_man == prr_man``)."""
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def lat_man(self) -> Latent:
+        """Manifold of latent biases."""
+
+    # Overrides
+
+    @property
+    @override
+    def pst_prr_emb(self) -> LinearEmbedding[Latent, Latent]:
+        return IdentityEmbedding(self.lat_man)
+
+    @property
+    @override
+    def pst_man(self) -> Latent:
+        return self.lat_man
+
+    @property
+    @override
+    def prr_man(self) -> Latent:
+        return self.lat_man
+
+    # Methods
+
+    def join_conjugated(self, lkl_params: Array, prior_params: Array) -> Array:
+        """Join likelihood and prior natural parameters into harmonium natural parameters."""
+        rho = self.conjugation_parameters(lkl_params)
+        lat_params = prior_params - rho
+        obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
+        return self.join_coords(obs_params, int_params, lat_params)
+
+
 class AnalyticConjugated[
     Observable: Differentiable,
     Latent: Analytic,
 ](
     SymmetricConjugated[Observable, Latent],
-    DifferentiableConjugated[Observable, Latent, Latent],
     Analytic,
     ABC,
 ):

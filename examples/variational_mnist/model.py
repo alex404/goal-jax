@@ -2,7 +2,7 @@
 
 This module provides:
 - ConcreteHarmonium: concrete harmonium for arbitrary observable/latent pairs
-- VariationalFullMixture: fully connected X<->Y<->K via CompleteMixtureOfHarmonium
+- VariationalFullMixture: fully connected X<->Y<->K via CompleteMixtureOfHarmoniums
 - Model creation with good defaults (hierarchical or full interaction)
 - Reconstruction and error utilities
 - Conjugation quality metrics (R², Std[residual], ||rho||)
@@ -34,7 +34,7 @@ from goal.models import (
     Bernoullis,
     Binomials,
     CompleteMixture,
-    CompleteMixtureOfHarmonium,
+    CompleteMixtureOfHarmoniums,
     Poissons,
     VariationalHierarchicalMixture,
 )
@@ -72,6 +72,18 @@ class ConcreteHarmonium[
         return self._int_man
 
 
+### Concrete mixture of harmoniums ###
+
+
+@dataclass(frozen=True)
+class ConcreteCompleteMixtureOfHarmoniums[
+    Observable: Differentiable, Posterior: Differentiable
+](CompleteMixtureOfHarmoniums[Observable, Posterior]):
+    """Concrete instantiation of CompleteMixtureOfHarmoniums."""
+
+    pass
+
+
 ### Variational full mixture ###
 
 
@@ -83,14 +95,14 @@ class VariationalFullMixture[
         Observable, CompleteMixture[BaseLatent], BaseLatent
     ],
 ):
-    """Fully connected X<->Y<->K via CompleteMixtureOfHarmonium.
+    """Fully connected X<->Y<->K via CompleteMixtureOfHarmoniums.
 
     Rho corrects only the BaseLatent (observable) component of the
     CompleteMixture posterior via ObservableEmbedding.  Cluster-specific
     structure is forced through the three-block interaction (xy, xyk, xk).
     """
 
-    hrm: CompleteMixtureOfHarmonium[Observable, BaseLatent]
+    hrm: CompleteMixtureOfHarmoniums[Observable, BaseLatent]
 
     @property
     @override
@@ -197,7 +209,7 @@ def create_model(
 
     if interaction == "full":
         bas_hrm = _full_base_harmonium(obs_man, base_lat_man)
-        hrm = CompleteMixtureOfHarmonium(n_categories=n_clusters, bas_hrm=bas_hrm)
+        hrm = ConcreteCompleteMixtureOfHarmoniums(n_categories=n_clusters, bas_hrm=bas_hrm)
         return VariationalFullMixture(hrm=hrm)
     else:
         hrm = _hierarchical_harmonium(obs_man, base_lat_man, n_clusters)

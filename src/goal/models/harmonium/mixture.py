@@ -19,7 +19,6 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     Differentiable,
-    DifferentiableConjugated,
     EmbeddedMap,
     IdentityEmbedding,
     LinearEmbedding,
@@ -37,7 +36,6 @@ from ..base.categorical import (
 @dataclass(frozen=True)
 class Mixture[Observable: Differentiable](
     SymmetricConjugated[Observable, Categorical],
-    DifferentiableConjugated[Observable, Categorical, Categorical],
 ):
     """Mixture models with exponential family observations.
 
