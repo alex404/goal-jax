@@ -14,7 +14,14 @@ from .base.gaussian.normal import (
     isotropic_normal,
     standard_normal,
 )
-from .base.poisson import CoMPoisson, CoMShape, Poisson, Poissons
+from .base.poisson import (
+    CoMPoisson,
+    CoMPoissons,
+    CoMShape,
+    Poisson,
+    Poissons,
+    PopulationLocationEmbedding,
+)
 from .base.von_mises import VonMises, VonMisesProduct
 from .graphical.hmog import (
     AnalyticHMoG,
@@ -26,6 +33,7 @@ from .graphical.hmog import (
 from .graphical.mixture import (
     CompleteMixtureOfAnalytic,
     CompleteMixtureOfHarmoniums,
+    CompleteMixtureOfSymmetric,
     MixtureOfFactorAnalyzers,
 )
 from .graphical.variational import (
@@ -45,7 +53,6 @@ from .harmonium.lgm import (
     principal_component_analysis,
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
-from .base.poisson import CoMPoissons, PopulationLocationEmbedding
 from .harmonium.population_codes import (
     CoMPoissonMixture,
     PoissonMixture,
@@ -74,6 +81,7 @@ __all__ = [
     "CompleteMixture",
     "CompleteMixtureOfAnalytic",
     "CompleteMixtureOfHarmoniums",
+    "CompleteMixtureOfSymmetric",
     "Covariance",
     "DiagonalBoltzmann",
     "DiagonalNormal",
@@ -96,9 +104,6 @@ __all__ = [
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
     "StandardNormal",
-    "factor_analysis",
-
-    "principal_component_analysis",
     "SymmetricHMoG",
     "VariationalHierarchicalMixture",
     "VonMises",
@@ -108,9 +113,10 @@ __all__ = [
     "com_poisson_mixture",
     "diagonal_normal",
     "differentiable_hmog",
+    "factor_analysis",
     "full_normal",
     "isotropic_normal",
     "poisson_mixture",
-
+    "principal_component_analysis",
     "standard_normal",
 ]

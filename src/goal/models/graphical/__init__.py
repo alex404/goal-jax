@@ -8,8 +8,11 @@ from .hmog import (
     differentiable_hmog,
 )
 from .mixture import (
+    CompleteMixtureOfAnalytic,
     CompleteMixtureOfConjugated,
     CompleteMixtureOfHarmoniums,
+    CompleteMixtureOfSymmetric,
+    MixtureOfFactorAnalyzers,
     RowEmbedding,
 )
 from .variational import (
@@ -18,9 +21,12 @@ from .variational import (
 
 __all__ = [
     "AnalyticHMoG",
+    "CompleteMixtureOfAnalytic",
     "CompleteMixtureOfConjugated",
     "CompleteMixtureOfHarmoniums",
+    "CompleteMixtureOfSymmetric",
     "DifferentiableHMoG",
+    "MixtureOfFactorAnalyzers",
     "RowEmbedding",
     "SymmetricHMoG",
     "VariationalHierarchicalMixture",
