@@ -217,14 +217,14 @@ def scatter_samples(ax: Axes, x: Any, y: Any, **kwargs: Any) -> None:
     """Plot sample points with standard styling."""
     defaults = {"alpha": 0.3, "s": 10}
     defaults.update(kwargs)
-    ax.scatter(x, y, **defaults)  # pyright: ignore[reportArgumentType,reportCallIssue]
+    ax.scatter(x, y, **defaults)  # pyright: ignore[reportArgumentType]
 
 
 def scatter_points(ax: Axes, x: Any, y: Any, **kwargs: Any) -> None:
     """Plot emphasized points with standard styling."""
     defaults = {"alpha": 0.8, "s": 50, "edgecolors": "white", "linewidths": 0.5}
     defaults.update(kwargs)
-    ax.scatter(x, y, **defaults)  # pyright: ignore[reportArgumentType,reportCallIssue]
+    ax.scatter(x, y, **defaults)  # pyright: ignore[reportArgumentType]
 
 
 def plot_image_grid(

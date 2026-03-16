@@ -196,6 +196,34 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
   - Simple EFs (Bernoulli, Categorical, Poisson, VonMises): `atol=0.01–0.02`
   - Normal (includes second moments with higher variance): data-space mean `atol=0.03`, full sufficient stats `atol=0.1`
 
+## Examples Design
+
+Each example lives in `examples/<name>/` with a standard structure:
+
+### File layout
+- `run.py` — computation: generates data, fits models, saves `analysis.json` via `paths.save_analysis()`
+- `plot.py` — visualization: loads `analysis.json`, produces `plot.png` via `paths.save_plot()`
+- `types.py` — typed dataclass(es) defining the JSON schema exchanged between run and plot
+
+### run.py conventions
+- **Entry point**: `main()` with shape `jax_cli()` → `paths = example_paths(__file__)` → `key` → compute → `paths.save_analysis(results)`
+- **No module-level state**: all models, hyperparameters, and configuration live inside `main()` as local variables
+- **JAX-idiomatic loops**: use `jax.lax.scan` for training loops, not Python for-loops. For loops needing periodic expensive metrics, use a chunked pattern (outer Python loop, inner `jax.lax.scan`)
+- **No direct file I/O**: always use `paths.save_analysis()` / `paths.load_analysis()`, never raw `json.dump`
+
+### plot.py conventions
+- **Style**: call `apply_style(paths)` once; do not override `fontsize`, `grid`, or `tight_layout` — `default.mplstyle` handles these
+- **Colors**: use `colors["ground_truth"]`, `model_color(i)`, `metric_color(name)` from `shared.py`
+- **Figure sizes**: use `figure_size("small"|"medium"|"large"|"wide"|"tall")` from `shared.py`
+- **Scatter helpers**: use `scatter_samples()` / `scatter_points()` for consistent styling
+- **GridSpec**: pass `figure=fig` when using `gridspec.GridSpec` (required for `constrained_layout`)
+
+### Shared infrastructure (`examples/shared.py`)
+- `ExamplePaths` — manages result/plot paths and serialization
+- `example_paths(module_path)` — factory from `__file__`
+- `jax_cli()` — parses `--gpu` and `--no-jit` flags
+- Grid, bounds, density contour, and training history plot helpers
+
 ## Dependencies
 - **JAX**: Core computation backend for automatic differentiation
 - **Optax**: Optimization algorithms compatible with JAX

@@ -25,6 +25,7 @@ Usage:
 
 import argparse
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 import jax
@@ -158,8 +159,12 @@ def parse_args() -> argparse.Namespace:
 
 def load_mnist_sklearn() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
     """Load MNIST using scikit-learn's fetch_openml."""
+    # Store data in project .data/ directory to avoid cluttering home directory
+    data_home = str(Path(__file__).parents[2] / ".data")
     try:
-        mnist = fetch_openml("mnist_784", version=1, as_frame=False, parser="auto")
+        mnist = fetch_openml(
+            "mnist_784", version=1, as_frame=False, parser="auto", data_home=data_home
+        )
     except ImportError as e:
         raise ImportError(
             "scikit-learn is required. Install with: pip install scikit-learn"
