@@ -46,6 +46,7 @@ ENV/
 # Test outputs
 *.png
 *.json
+!docs/source/_static/*.png
 examples/.cache
 
 # Jupyter Notebook
