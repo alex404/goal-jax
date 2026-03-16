@@ -121,20 +121,17 @@ The :doc:`models package <models/index>` builds concrete distributions on this f
        - $x \otimes x$
        - $0$
 
-- :doc:`models/harmonium/index` --- Conjugate latent-variable models (harmoniums): mixtures, linear Gaussian models, and Poisson mixtures.
+- :doc:`models/harmonium/index` --- Conjugate latent-variable models where observed and latent variables form a joint exponential family:
 
-- :doc:`models/graphical/index` --- Multi-level hierarchical models composing harmoniums, e.g. mixture of factor analyzers.
+  - **Mixture models** --- EM-based clustering over any base distribution, with analytic E-steps from conjugate structure
+  - **Linear Gaussian models** --- factor analysis and PCA, recovering low-rank covariance structure from high-dimensional observations
+  - **Population codes** --- neural population models for circular stimulus decoding from Poisson spike data
 
-Mathematical Foundation
------------------------
+- :doc:`models/graphical/index` --- Hierarchical models that compose multiple harmoniums into deeper structures. A top-level mixture selects among components, each of which is itself a latent-variable model:
 
-An exponential family is a collection of distributions with densities of the form
-
-.. math::
-
-   p(x; \theta) = \mu(x)\exp(\theta \cdot \mathbf{s}(x) - \psi(\theta))
-
-where $\theta$ are the natural parameters, $\mathbf{s}(x)$ the sufficient statistic, $\mu(x)$ the base measure, and $\psi(\theta)$ the log-partition function. These families carry a dually flat Riemannian structure: the natural parameters $\theta$ and mean parameters $\eta = \nabla\psi(\theta)$ form dual coordinate systems connected by Legendre duality.
+  - **Mixture of factor analyzers** --- per-component low-rank structure with shared dimensionality reduction
+  - **Hierarchical mixture of Gaussians** --- hierarchical combination of LGMs
+    and mixture models
 
 .. toctree::
    :maxdepth: 1

@@ -3,7 +3,13 @@ Exponential Family Subpackage
 
 Abstract exponential family structure: base classes with increasing capabilities, combinators for location-shape families, harmonium (latent variable) models, and hierarchical graphical models.
 
-Exponential families are parameterized families of probability distributions with special computational properties: they have natural and mean parameter coordinate systems connected by Legendre duality, and operations like maximum likelihood estimation, KL divergence, and Bayesian updating have clean closed-form or gradient-based implementations.
+An exponential family is a collection of distributions with densities of the form
+
+.. math::
+
+   p(x; \theta) = \mu(x)\exp(\theta \cdot \mathbf{s}(x) - \psi(\theta))
+
+where $\theta$ are the natural parameters, $\mathbf{s}(x)$ the sufficient statistic, $\mu(x)$ the base measure, and $\psi(\theta)$ the log-partition function. These families carry a dually flat Riemannian structure: the natural parameters $\theta$ and mean parameters $\eta = \nabla\psi(\theta)$ form dual coordinate systems connected by Legendre duality. This structure gives operations like maximum likelihood estimation, KL divergence, and Bayesian updating clean closed-form or gradient-based implementations.
 
 The capability hierarchy controls what operations are available for a given model:
 
