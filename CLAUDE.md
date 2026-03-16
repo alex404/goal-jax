@@ -8,11 +8,7 @@ goal-jax is a JAX implementation of information geometric algorithms and exponen
 
 ## Development Environment
 
-This project uses `uv` for Python environment and dependency management. Always activate the virtual environment:
-
-```bash
-source .venv/bin/activate
-```
+This project uses `uv` for Python environment and dependency management. Use `uv run` to execute commands within the project environment — do not manually activate the venv.
 
 ### Package management strategy
 
@@ -29,15 +25,15 @@ This is a **library**, not an application. The dependency policy is:
 ## Development Commands
 
 ### Testing
-- Run all tests: `python -m pytest tests/`
+- Run all tests: `uv run python -m pytest tests/`
 - Run specific test files:
-  - `python -m pytest tests/lgm.py`
-  - `python -m pytest tests/normal.py`
-  - `python -m pytest tests/graphical_mixture.py`
-  - `python -m pytest tests/matrix.py`
+  - `uv run python -m pytest tests/lgm.py`
+  - `uv run python -m pytest tests/normal.py`
+  - `uv run python -m pytest tests/graphical_mixture.py`
+  - `uv run python -m pytest tests/matrix.py`
 
 ### Code Quality
-- Type checking: `uvx basedpyright` (or `basedpyright` with venv active)
+- Type checking: `uvx basedpyright`
 
 ### Syncing the environment
 - Sync all extras (recommended after pulling): `uv sync --all-extras`
@@ -45,12 +41,12 @@ This is a **library**, not an application. The dependency policy is:
 
 ### Examples
 Examples are located in the `examples/` directory and organized by topic:
-- Run example: `python -m examples.bivariate_normal.run`
-- Generate plots: `python -m examples.bivariate_normal.plot`
+- Run example: `uv run python -m examples.bivariate_normal.run`
+- Generate plots: `uv run python -m examples.bivariate_normal.plot`
 - Available examples: bivariate_normal, boltzmann, boltzmann_lgm, boltzmann_lgm_cd, dimensionality_reduction, hmog, mfa, mixture_of_gaussians, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
 
 ### Documentation
-- Build documentation: `sphinx-build docs/source docs/build` or `cd docs/ && make html`
+- Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`
 - Live documentation: https://goal-jax.readthedocs.io/
 
 ## Architecture
