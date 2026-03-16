@@ -16,28 +16,45 @@ from ..shared import example_paths, jax_cli
 from .types import MFAResults
 
 
-def create_ground_truth(key: Array, sample_size: int) -> tuple[Array, Array, Array]:
-    """Create ground truth samples from a known 3-component MFA."""
+def create_ground_truth(
+    key: Array, sample_size: int
+) -> tuple[
+    Array,
+    Array,
+    Array,
+    list[tuple[Array, Array, Array]],
+]:
+    """Create ground truth samples from a known 3-component MFA.
+
+    Returns samples, component assignments, mixing probabilities, and
+    the GT component parameters (loadings, means, diags) for each component.
+    """
     obs_dim, lat_dim = 3, 2
 
-    loadings_1 = jnp.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
-    means_1 = jnp.array([2.0, 1.0, 2.0])
-    diags_1 = jnp.array([0.3, 0.3, 0.3])
-
-    loadings_2 = jnp.array([[-1.0, 0.0], [0.5, -0.5], [0.0, -1.0]])
-    means_2 = jnp.array([-2.0, -1.0, -2.0])
-    diags_2 = jnp.array([0.3, 0.3, 0.3])
-
-    loadings_3 = jnp.array([[0.0, 1.0], [-0.5, 0.5], [1.0, 0.0]])
-    means_3 = jnp.array([0.0, 3.0, -3.0])
-    diags_3 = jnp.array([0.3, 0.3, 0.3])
-
+    gt_components = [
+        (
+            jnp.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]]),
+            jnp.array([2.0, 1.0, 2.0]),
+            jnp.array([0.3, 0.3, 0.3]),
+        ),
+        (
+            jnp.array([[-1.0, 0.0], [0.5, -0.5], [0.0, -1.0]]),
+            jnp.array([-2.0, -1.0, -2.0]),
+            jnp.array([0.3, 0.3, 0.3]),
+        ),
+        (
+            jnp.array([[0.0, 1.0], [-0.5, 0.5], [1.0, 0.0]]),
+            jnp.array([0.0, 3.0, -3.0]),
+            jnp.array([0.3, 0.3, 0.3]),
+        ),
+    ]
     mixing_probs = jnp.array([0.4, 0.35, 0.25])
 
     fa = factor_analysis(obs_dim, lat_dim)
-    fa1_params = fa.initialize_from_loadings( loadings_1, means_1, diags_1)
-    fa2_params = fa.initialize_from_loadings( loadings_2, means_2, diags_2)
-    fa3_params = fa.initialize_from_loadings( loadings_3, means_3, diags_3)
+    fa_params = [
+        fa.initialize_from_loadings(loadings, means, diags)
+        for loadings, means, diags in gt_components
+    ]
 
     key_assign, key_sample = jax.random.split(key)
     components = jax.random.categorical(
@@ -46,13 +63,13 @@ def create_ground_truth(key: Array, sample_size: int) -> tuple[Array, Array, Arr
     keys = jax.random.split(key_sample, sample_size)
 
     def sample_one(k: Array, c: Array) -> Array:
-        s0 = fa.observable_sample(k, fa1_params, 1)[0]
-        s1 = fa.observable_sample(k, fa2_params, 1)[0]
-        s2 = fa.observable_sample(k, fa3_params, 1)[0]
+        s0 = fa.observable_sample(k, fa_params[0], 1)[0]
+        s1 = fa.observable_sample(k, fa_params[1], 1)[0]
+        s2 = fa.observable_sample(k, fa_params[2], 1)[0]
         return jnp.where(c == 0, s0, jnp.where(c == 1, s1, s2))
 
     samples = jax.vmap(sample_one)(keys, components)
-    return samples, components, mixing_probs
+    return samples, components, mixing_probs, gt_components
 
 
 def compute_marginal_2d(
@@ -94,7 +111,7 @@ def compute_mfa_marginal_2d[Pst: Differentiable, Prr: Differentiable](
 ) -> Array:
     """Compute 2D marginal by numerical integration."""
     grid_2d = jnp.stack(jnp.meshgrid(x_range, x_range), axis=-1).reshape(-1, 2)
-    marg_range = jnp.linspace(-10, 10, 50)
+    marg_range = jnp.linspace(-10, 10, 30)
     dmarg = marg_range[1] - marg_range[0]
 
     def point_marginal(pt: Array) -> Array:
@@ -120,28 +137,16 @@ def fit_mfa_em(
     mfa: MixtureOfFactorAnalyzers,
     sample: Array,
     n_steps: int,
-    name: str = "Model",
 ) -> tuple[Array, Array, Array]:
     """Fit MFA via closed-form expectation maximization with latent whitening."""
     init_params = mfa.initialize_from_sample(key, sample)
 
-    @jax.jit
-    def em_step(params: Array) -> Array:
-        return mfa.expectation_maximization(params, sample)
+    def em_step(params: Array, _: Any) -> tuple[Array, Array]:
+        ll = mfa.average_log_observable_density(params, sample)
+        return mfa.expectation_maximization(params, sample), ll
 
-    params = init_params
-    lls = []
-    for step_i in range(n_steps):
-        ll = float(mfa.average_log_observable_density(params, sample))
-        lls.append(ll)
-        if jnp.isnan(ll):
-            print(f"{name}: NaN at step {step_i}")
-            break
-        if step_i % 50 == 0:
-            print(f"{name} step {step_i}: LL = {ll:.4f}")
-        params = em_step(params)
-
-    return jnp.array(lls), init_params, params
+    final_params, lls = jax.lax.scan(em_step, init_params, None, length=n_steps)
+    return lls, init_params, final_params
 
 
 def fit_mfa_gd[Pst: Differentiable, Prr: Differentiable](
@@ -150,7 +155,6 @@ def fit_mfa_gd[Pst: Differentiable, Prr: Differentiable](
     sample: Array,
     n_steps: int,
     learning_rate: float = 1e-3,
-    name: str = "Model",
 ) -> tuple[Array, Array, Array]:
     """Fit MFA via gradient descent."""
     init_params = mfa.initialize_from_sample(key, sample)
@@ -160,26 +164,19 @@ def fit_mfa_gd[Pst: Differentiable, Prr: Differentiable](
     def loss_fn(params: Array) -> Array:
         return -mfa.average_log_observable_density(params, sample)
 
-    @jax.jit
-    def train_step(opt_state: Any, params: Any) -> tuple[Any, Any, Array]:
+    def train_step(
+        state: tuple[Any, Any], _: Any
+    ) -> tuple[tuple[Any, Any], Array]:
+        opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
-        return opt_state, params, loss
+        return (opt_state, params), -loss
 
-    params = init_params
-    lls = []
-    for step_i in range(n_steps):
-        opt_state, params, loss = train_step(opt_state, params)
-        ll = -float(loss)
-        lls.append(ll)
-        if jnp.isnan(loss):
-            print(f"{name}: NaN at step {step_i}")
-            break
-        if step_i % 500 == 0:
-            print(f"{name} step {step_i}: LL = {ll:.4f}")
-
-    return jnp.array(lls), init_params, params
+    (_, final_params), lls = jax.lax.scan(
+        train_step, (opt_state, init_params), None, length=n_steps
+    )
+    return lls, init_params, final_params
 
 
 def main():
@@ -189,43 +186,25 @@ def main():
     key_data, key_fa, key_diag = jax.random.split(key, 3)
 
     # Data
-    samples, gt_assignments, mixing = create_ground_truth(key_data, 1000)
+    samples, gt_assignments, mixing, gt_components = create_ground_truth(key_data, 1000)
 
     # Model 1: Mixture of Factor Analyzers — closed-form EM with latent whitening
     mfa_fa = MixtureOfFactorAnalyzers(
         n_categories=3, bas_hrm=factor_analysis(obs_dim=3, lat_dim=2)
     )
     print("Training FA model (EM)...")
-    fa_lls, fa_init, fa_final = fit_mfa_em(key_fa, mfa_fa, samples, 500, name="FA")
+    fa_lls, fa_init, fa_final = fit_mfa_em(key_fa, mfa_fa, samples, 500)
 
     # Model 2: NormalLGM with diagonal latent covariance — gradient descent
     diag_lgm = NormalLGM(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, pst_rep=Diagonal())
     mfa_diag = CompleteMixtureOfConjugated(n_categories=3, bas_hrm=diag_lgm)
     print("\nTraining Diag model (GD)...")
     diag_lls, diag_init, diag_final = fit_mfa_gd(
-        key_diag, mfa_diag, samples, 5000, name="Diag"
+        key_diag, mfa_diag, samples, 2000
     )
 
     # Ground truth marginals (analytic)
     x_range = jnp.linspace(-5.0, 5.0, 50)
-    loadings_1 = jnp.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
-    loadings_2 = jnp.array([[-1.0, 0.0], [0.5, -0.5], [0.0, -1.0]])
-    loadings_3 = jnp.array([[0.0, 1.0], [-0.5, 0.5], [1.0, 0.0]])
-    means_1, means_2, means_3 = (
-        jnp.array([2.0, 1.0, 2.0]),
-        jnp.array([-2.0, -1.0, -2.0]),
-        jnp.array([0.0, 3.0, -3.0]),
-    )
-    diags_1, diags_2, diags_3 = (
-        jnp.array([0.3, 0.3, 0.3]),
-        jnp.array([0.3, 0.3, 0.3]),
-        jnp.array([0.3, 0.3, 0.3]),
-    )
-    gt_components = [
-        (loadings_1, means_1, diags_1),
-        (loadings_2, means_2, diags_2),
-        (loadings_3, means_3, diags_3),
-    ]
 
     # Compute all marginals
     def compute_all_marginals(mfa: Any, params: Array) -> tuple[Array, Array, Array]:
@@ -256,13 +235,14 @@ def main():
 
     # Ground truth log-likelihood (construct GT model and evaluate)
     fa = factor_analysis(obs_dim=3, lat_dim=2)
-    fa1_params = fa.initialize_from_loadings( loadings_1, means_1, diags_1)
-    fa2_params = fa.initialize_from_loadings( loadings_2, means_2, diags_2)
-    fa3_params = fa.initialize_from_loadings( loadings_3, means_3, diags_3)
+    fa_params_list = [
+        fa.initialize_from_loadings(loadings, means, diags)
+        for loadings, means, diags in gt_components
+    ]
 
     # Build ground truth mixture model
     gt_mfa = MixtureOfFactorAnalyzers(n_categories=3, bas_hrm=fa)
-    gt_comp_params = jnp.concatenate([fa1_params, fa2_params, fa3_params])
+    gt_comp_params = jnp.concatenate(fa_params_list)
     gt_cat_params = gt_mfa.pst_man.lat_man.to_natural(
         gt_mfa.pst_man.lat_man.from_probs(mixing)
     )

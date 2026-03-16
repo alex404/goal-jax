@@ -3,7 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..shared import apply_style, colors, example_paths, get_pi_ticks, model_colors
+from ..shared import apply_style, colors, example_paths, get_pi_ticks, model_color
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
 
     # Sort neurons by preferred direction for consistent coloring
     neuron_order = np.argsort(preferred)
-    neuron_colors = [model_colors[i % len(model_colors)] for i in range(n_neurons)]
+    neuron_colors = [model_color(i) for i in range(n_neurons)]
 
     fig = plt.figure(figsize=(10, 8))
 
@@ -80,7 +80,7 @@ def main():
         label=r"$\rho$ fit",
     )
     ax_reg.set_ylabel("Sum of Rates")
-    ax_reg.legend(loc="upper right", fontsize=8)
+    ax_reg.legend(loc="upper right")
     ax_cart.set_title("Tuning Curves & Conjugation Fit")
 
     # Set y-axis limits with clearance
@@ -163,7 +163,7 @@ def main():
     ax_infer.set_xlim(0, 2 * np.pi)
     ax_infer.set_ylim(0, 2 * np.pi)
     ax_infer.set_aspect("equal")
-    ax_infer.legend(loc="upper left", fontsize=8)
+    ax_infer.legend(loc="upper left")
 
     # Add error annotation
     ax_infer.text(
@@ -171,12 +171,10 @@ def main():
         f"Mean error: {np.degrees(mean_error):.1f}°",
         transform=ax_infer.transAxes,
         ha="right", va="bottom",
-        fontsize=9,
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
     )
 
-    fig.suptitle("Von Mises Population Code", fontsize=12, fontweight="bold")
-    plt.tight_layout()
+    fig.suptitle("Von Mises Population Code", fontweight="bold")
     paths.save_plot(fig)
     print(f"Plot saved to {paths.plot_path}")
 

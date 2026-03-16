@@ -18,24 +18,9 @@ from goal.models import DifferentiableBoltzmannLGM
 from ..shared import example_paths, jax_cli
 from .types import BoltzmannCDResults
 
-# Model configuration - small scale for exact comparison
-n_latents = 8  # Small enough for exact 2^n computation
-obs_dim = 2
-n_obs = 500
-learning_rate = 1e-2
-n_epochs = 200
-n_steps_per_epoch = 50
-
-# Data: simple mixture of Gaussians
-n_clusters = 3
-cluster_std = 0.5
-
-# Density grid
-plot_range = (-3.5, 3.5)
-plot_res = 80
-
-
-def generate_data(key: Array) -> Array:
+def generate_data(
+    key: Array, obs_dim: int, n_obs: int, n_clusters: int, cluster_std: float
+) -> Array:
     """Generate samples from a mixture of Gaussians."""
     keys = jax.random.split(key, 2)
 
@@ -67,12 +52,16 @@ def generate_data(key: Array) -> Array:
 
 
 def train_exact(
-    model: DifferentiableBoltzmannLGM[PositiveDefinite], data: Array, init_params: Array
+    model: DifferentiableBoltzmannLGM[PositiveDefinite],
+    data: Array,
+    init_params: Array,
+    learning_rate: float,
+    n_epochs: int,
+    n_steps_per_epoch: int,
 ) -> tuple[Array, Array]:
     """Train with exact log-likelihood gradients, tracking NLL."""
-    params = init_params
     optimizer = optax.adamw(learning_rate=learning_rate)
-    opt_state = optimizer.init(params)
+    opt_state = optimizer.init(init_params)
 
     def loss_fn(p: Array) -> Array:
         return -model.average_log_observable_density(p, data)
@@ -86,7 +75,7 @@ def train_exact(
 
     total_steps = n_epochs * n_steps_per_epoch
     (_, final_params), nlls = jax.lax.scan(
-        step, (opt_state, params), None, length=total_steps
+        step, (opt_state, init_params), None, length=total_steps
     )
 
     # Epoch averages
@@ -99,12 +88,14 @@ def train_cd(
     model: DifferentiableBoltzmannLGM[PositiveDefinite],
     data: Array,
     init_params: Array,
+    learning_rate: float,
+    n_epochs: int,
+    n_steps_per_epoch: int,
     cd_steps: int = 1,
 ) -> tuple[Array, Array]:
     """Train with contrastive divergence, tracking exact NLL for comparison."""
-    params = init_params
     optimizer = optax.adamw(learning_rate=learning_rate)
-    opt_state = optimizer.init(params)
+    opt_state = optimizer.init(init_params)
 
     def step(
         state: tuple[Any, Any, Array], _: Any
@@ -126,7 +117,7 @@ def train_cd(
 
     total_steps = n_epochs * n_steps_per_epoch
     (_, final_params, _), nlls = jax.lax.scan(
-        step, (opt_state, params, key), None, length=total_steps
+        step, (opt_state, init_params, key), None, length=total_steps
     )
 
     # Epoch averages
@@ -135,7 +126,10 @@ def train_cd(
 
 
 def compute_density_grid(
-    model: DifferentiableBoltzmannLGM[PositiveDefinite], params: Array
+    model: DifferentiableBoltzmannLGM[PositiveDefinite],
+    params: Array,
+    plot_range: tuple[float, float],
+    plot_res: int,
 ) -> tuple[Array, Array, Array]:
     """Compute density on a grid."""
     x_range = jnp.linspace(*plot_range, plot_res)
@@ -153,11 +147,24 @@ def compute_density_grid(
 def main():
     jax_cli()
     paths = example_paths(__file__)
+
+    # Configuration
+    n_latents = 8
+    obs_dim = 2
+    n_obs = 500
+    learning_rate = 1e-2
+    n_epochs = 200
+    n_steps_per_epoch = 50
+    n_clusters = 3
+    cluster_std = 0.5
+    plot_range = (-3.5, 3.5)
+    plot_res = 80
+
     key = jax.random.PRNGKey(42)
     key_data, key_init, _, key_cd = jax.random.split(key, 4)
 
     # Generate data
-    data = generate_data(key_data)
+    data = generate_data(key_data, obs_dim, n_obs, n_clusters, cluster_std)
     print(f"Generated {len(data)} observations")
 
     # Create model
@@ -172,24 +179,31 @@ def main():
     print(f"Initial NLL: {init_nll:.4f}")
 
     # Compute initial density
-    x_range, y_range, init_density = compute_density_grid(model, init_params)
+    x_range, y_range, init_density = compute_density_grid(
+        model, init_params, plot_range, plot_res
+    )
 
     # Train with exact gradients
     print(f"\nTraining with exact gradients ({n_epochs} epochs)...")
-    params_exact, nlls_exact = train_exact(model, data, init_params)
+    params_exact, nlls_exact = train_exact(
+        model, data, init_params, learning_rate, n_epochs, n_steps_per_epoch
+    )
     print(f"  Final NLL: {nlls_exact[-1]:.4f}")
 
     # Compute exact-trained density
-    _, _, exact_density = compute_density_grid(model, params_exact)
+    _, _, exact_density = compute_density_grid(model, params_exact, plot_range, plot_res)
 
     # Train with CD
     cd_k = 1
     print(f"\nTraining with CD-{cd_k} ({n_epochs} epochs)...")
-    params_cd, nlls_cd = train_cd(key_cd, model, data, init_params, cd_steps=cd_k)
+    params_cd, nlls_cd = train_cd(
+        key_cd, model, data, init_params, learning_rate, n_epochs, n_steps_per_epoch,
+        cd_steps=cd_k,
+    )
     print(f"  Final NLL: {nlls_cd[-1]:.4f}")
 
     # Compute CD-trained density
-    _, _, cd_density = compute_density_grid(model, params_cd)
+    _, _, cd_density = compute_density_grid(model, params_cd, plot_range, plot_res)
 
     # Save results
     results: BoltzmannCDResults = {

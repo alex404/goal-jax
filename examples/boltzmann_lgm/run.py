@@ -13,23 +13,14 @@ from goal.models import BoltzmannLGM
 from ..shared import example_paths, jax_cli
 from .types import GaussianBoltzmannResults
 
-# Model configuration
-n_latents = 8
-obs_dim = 2
-radii = [0.3, 1.5, 3.0]
-noise_stds = [0.15, 0.2, 0.25]
-n_obs = 1000
-ratios = [0.1, 0.3, 0.6]
-learning_rate = 3e-3
-n_steps_per_epoch = 200
-n_epochs = 1000
-plot_range = (-5.0, 5.0)
-plot_res = 100
-
-
-def generate_data(key: Array) -> Array:
+def generate_data(
+    key: Array,
+    obs_dim: int,
+    radii: list[float],
+    noise_stds: list[float],
+    n_per_circle: list[int],
+) -> Array:
     """Generate samples from concentric noisy circles."""
-    n_per_circle = [int(ratio * n_obs) for ratio in ratios]
     keys = jax.random.split(key, len(radii))
     circles = []
     for k, r, std, n in zip(keys, radii, noise_stds, n_per_circle):
@@ -41,7 +32,12 @@ def generate_data(key: Array) -> Array:
 
 
 def train_model(
-    key: Array, model: BoltzmannLGM[PositiveDefinite], data: Array
+    key: Array,
+    model: BoltzmannLGM[PositiveDefinite],
+    data: Array,
+    learning_rate: float,
+    n_epochs: int,
+    n_steps_per_epoch: int,
 ) -> tuple[Array, Array]:
     """Train Boltzmann-Gaussian model."""
     params = model.initialize(key, location=0.0, shape=1.0)
@@ -104,13 +100,30 @@ def compute_ellipse(
 def main():
     jax_cli()
     paths = example_paths(__file__)
+
+    # Configuration
+    n_latents = 8
+    obs_dim = 2
+    radii = [0.3, 1.5, 3.0]
+    noise_stds = [0.15, 0.2, 0.25]
+    n_obs = 1000
+    ratios = [0.1, 0.3, 0.6]
+    learning_rate = 3e-3
+    n_steps_per_epoch = 200
+    n_epochs = 200
+    plot_range = (-5.0, 5.0)
+    plot_res = 100
+
     key = jax.random.PRNGKey(42)
     key_data, key_train = jax.random.split(key)
 
-    data = generate_data(key_data)
+    n_per_circle = [int(ratio * n_obs) for ratio in ratios]
+    data = generate_data(key_data, obs_dim, radii, noise_stds, n_per_circle)
     model = BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=n_latents)
 
-    final_params, lls = train_model(key_train, model, data)
+    final_params, lls = train_model(
+        key_train, model, data, learning_rate, n_epochs, n_steps_per_epoch
+    )
 
     # Grid densities
     x_range = jnp.linspace(*plot_range, plot_res)

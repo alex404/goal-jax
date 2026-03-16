@@ -70,8 +70,6 @@ def main():
         sample,
     )
     axes[1, 1].set_title("Scale Fit")
-
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

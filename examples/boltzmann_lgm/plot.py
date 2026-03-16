@@ -8,7 +8,7 @@ from matplotlib import gridspec
 from matplotlib.patches import Rectangle
 from numpy.typing import NDArray
 
-from ..shared import apply_style, example_paths, model_colors
+from ..shared import apply_style, example_paths, model_color
 from .types import GaussianBoltzmannResults
 
 
@@ -30,7 +30,7 @@ def main():
     results = cast(GaussianBoltzmannResults, paths.load_analysis())
 
     fig = plt.figure(figsize=(9, 7.5))
-    outer_grid = gridspec.GridSpec(2, 2, wspace=0.3, hspace=0.3)
+    outer_grid = gridspec.GridSpec(2, 2, wspace=0.3, hspace=0.3, figure=fig)
 
     # Likelihood (confidence ellipses)
     ax_lkl = fig.add_subplot(outer_grid[0, 0])
@@ -42,7 +42,7 @@ def main():
     ax_lkl.set_xlabel(r"$x_1$")
     ax_lkl.set_ylabel(r"$x_2$")
     ax_lkl.set_title("Likelihood")
-    ax_lkl.legend(fontsize="small", ncol=2)
+    ax_lkl.legend(ncol=2)
 
     # Prior correlation
     ax_prior = fig.add_subplot(outer_grid[0, 1])
@@ -68,7 +68,7 @@ def main():
     xx, yy = np.meshgrid(plot_xs, plot_ys)
     heatmap = ax_dens.contourf(xx, yy, density, levels=100, cmap="viridis")
     for i, (obs_x, obs_y) in enumerate(posterior_obs):
-        ax_dens.scatter(obs_x, obs_y, color=model_colors[i], s=100, edgecolors="white", linewidths=2, zorder=10)
+        ax_dens.scatter(obs_x, obs_y, color=model_color(i), s=100, edgecolors="white", linewidths=2, zorder=10)
     ax_dens.set_xlabel(r"$x_1$")
     ax_dens.set_ylabel(r"$x_2$")
     ax_dens.set_title("Observable Density")
@@ -85,14 +85,14 @@ def main():
         im = inner_ax.imshow(np.array(matrix), cmap="viridis", interpolation="nearest", vmin=0, vmax=1)
         inner_ax.set_xticks([])
         inner_ax.set_yticks([])
-        rect = Rectangle((0, 0), 1, 1, linewidth=5, edgecolor=model_colors[i], facecolor="none", transform=inner_ax.transAxes)
+        rect = Rectangle((0, 0), 1, 1, linewidth=5, edgecolor=model_color(i), facecolor="none", transform=inner_ax.transAxes)
         inner_ax.add_patch(rect)
 
-    fig.text(0.745, 0.475, "Posterior Moments", ha="center", va="top", fontsize=12)
+    fig.text(0.745, 0.475, "Posterior Moments", ha="center", va="top")
     if im is not None:
         plt.colorbar(im, ax=posterior_axes, fraction=0.046, pad=0.04, label="Moment")
 
-    fig.suptitle("Gaussian-Boltzmann Distribution", fontsize=16, fontweight="bold")
+    fig.suptitle("Gaussian-Boltzmann Distribution", fontweight="bold")
     paths.save_plot(fig)
 
 

@@ -15,7 +15,7 @@ from typing import cast
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..shared import FIGURE_SIZES, apply_style, colors, example_paths
+from ..shared import apply_style, colors, example_paths, figure_size
 from .types import TrajectoryResults
 
 
@@ -37,7 +37,7 @@ def main():
     # Color by position along trajectory
     trajectory_colors = np.linspace(0, 1, n_points)
 
-    fig, axes = plt.subplots(2, 2, figsize=FIGURE_SIZES["medium"])
+    fig, axes = plt.subplots(2, 2, figsize=figure_size("medium"))
 
     # Panel 1: True latent trajectory (colored by position)
     ax = axes[0, 0]
@@ -54,7 +54,6 @@ def main():
     ax.set_ylabel("$z_2$")
     ax.set_title("True Latent (colored by position)")
     ax.set_aspect("equal")
-    ax.grid(True)
 
     # Panel 2: Recovered latent trajectory (colored by position, like panel 1)
     ax = axes[0, 1]
@@ -70,7 +69,6 @@ def main():
     ax.set_ylabel("$z_2$")
     ax.set_title("Recovered Latent (Procrustes-aligned)")
     ax.set_aspect("equal")
-    ax.grid(True)
 
     # Compute alignment RMSE for annotation
     alignment_rmse = np.sqrt(np.mean(np.sum((aligned_latents - true_latents) ** 2, axis=1)))
@@ -79,7 +77,6 @@ def main():
         0.95,
         f"RMSE: {alignment_rmse:.3f}",
         transform=ax.transAxes,
-        fontsize=9,
         verticalalignment="top",
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
     )
@@ -90,7 +87,6 @@ def main():
     ax.set_xlabel("EM Iteration")
     ax.set_ylabel("Log-Likelihood")
     ax.set_title("Training History")
-    ax.grid(True)
 
     # Panel 4: Reconstruction error by trajectory segment (color-coded)
     ax = axes[1, 1]
@@ -119,15 +115,12 @@ def main():
     ax.set_ylabel("Reconstruction Error")
     ax.set_title("Error by Trajectory Segment")
     ax.legend(loc="upper right")
-    ax.grid(True, axis="y")
     ax.set_xticks([])  # Remove numeric ticks - color tells the story
 
     fig.suptitle(
         f"Factor Analysis: {obs_dim}D to 2D (noise std={noise_std})",
-        fontsize=12,
     )
 
-    plt.tight_layout()
     paths.save_plot(fig)
     print(f"Plot saved to {paths.plot_path}")
 

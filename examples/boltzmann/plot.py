@@ -5,7 +5,7 @@ from typing import cast
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..shared import apply_style, colors, example_paths, model_colors
+from ..shared import apply_style, colors, example_paths, model_color
 from .types import BoltzmannPatternResults
 
 
@@ -31,14 +31,12 @@ def main():
     axes[0, 0].set_xticks(x)
     axes[0, 0].set_xticklabels(results["state_labels"], rotation=45, ha="right")
     axes[0, 0].legend()
-    axes[0, 0].grid(True)
 
     # Training loss
     axes[0, 1].plot(results["training_losses"], color=colors["initial"])
     axes[0, 1].set_xlabel("Step")
     axes[0, 1].set_ylabel("Cross-Entropy Loss")
     axes[0, 1].set_title("Training History")
-    axes[0, 1].grid(True)
 
     # Convergence by samples
     sample_sizes = results["sampling_sizes"]
@@ -47,7 +45,7 @@ def main():
 
     for j, thin in enumerate(thin_levels):
         errors_for_thin = [errors[i][j] for i in range(len(sample_sizes))]
-        axes[1, 0].loglog(sample_sizes, errors_for_thin, "o-", color=model_colors[j], label=f"thin={thin}")
+        axes[1, 0].loglog(sample_sizes, errors_for_thin, "o-", color=model_color(j), label=f"thin={thin}")
 
     # Theoretical 1/sqrt(n) line
     theoretical = np.array(sample_sizes) ** (-0.5)
@@ -57,22 +55,19 @@ def main():
     axes[1, 0].set_ylabel("L2 Error")
     axes[1, 0].set_title("Convergence vs Samples")
     axes[1, 0].legend()
-    axes[1, 0].grid(True)
 
     # Convergence by computation
     n_burnin = 50
     for j, thin in enumerate(thin_levels):
         errors_for_thin = [errors[i][j] for i in range(len(sample_sizes))]
         total_steps = [n_burnin + (n * thin) for n in sample_sizes]
-        axes[1, 1].loglog(total_steps, errors_for_thin, "o-", color=model_colors[j], label=f"thin={thin}")
+        axes[1, 1].loglog(total_steps, errors_for_thin, "o-", color=model_color(j), label=f"thin={thin}")
 
     axes[1, 1].set_xlabel("Total Gibbs Steps")
     axes[1, 1].set_ylabel("L2 Error")
     axes[1, 1].set_title("Convergence vs Computation")
     axes[1, 1].legend()
-    axes[1, 1].grid(True)
 
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

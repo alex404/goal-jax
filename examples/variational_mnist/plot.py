@@ -11,15 +11,15 @@ from numpy.typing import NDArray
 from ..shared import (
     apply_style,
     example_paths,
-    metric_colors,
-    model_colors,
+    metric_color,
+    model_color,
     plot_image_grid,
 )
 
 # Colors for training modes
 COLORS = {
-    "gradient": model_colors[0],  # Blue
-    "analytical": model_colors[1],  # Red
+    "gradient": model_color(0),  # Blue
+    "analytical": model_color(1),  # Red
 }
 
 LABELS = {
@@ -42,7 +42,7 @@ def plot_training_elbos(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_ylabel("ELBO")
     ax.set_title("Training ELBO")
     ax.legend()
-    ax.grid(True)
+
 
 
 def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
@@ -59,7 +59,7 @@ def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_ylabel("Var[f_tilde]")
     ax.set_title("Conjugation Error (Variance)")
     ax.legend()
-    ax.grid(True)
+
     ax.set_yscale("log")
 
 
@@ -77,7 +77,7 @@ def plot_conjugation_std(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_ylabel("Std[f_tilde]")
     ax.set_title("Conjugation Error (Std)")
     ax.legend()
-    ax.grid(True)
+
 
 
 def plot_conjugation_r2(ax: Axes, models: dict[str, Any]) -> None:
@@ -94,7 +94,7 @@ def plot_conjugation_r2(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_ylabel("R^2")
     ax.set_title("Conjugation R^2 (higher = better linear fit)")
     ax.legend()
-    ax.grid(True)
+
     ax.set_ylim(-0.1, 1.1)
     ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5)
     ax.axhline(y=1, color="gray", linestyle="--", alpha=0.5)
@@ -114,7 +114,7 @@ def plot_rho_norm(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_ylabel("||rho||")
     ax.set_title("Rho Norm Over Time")
     ax.legend()
-    ax.grid(True)
+
 
 
 def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
@@ -126,12 +126,12 @@ def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
     # Purity bars
     purity_vals = [models[m]["cluster_purity"] * 100 for m in modes]
     bars1 = ax.bar(
-        x - width, purity_vals, width, label="Purity (%)", color=metric_colors["purity"]
+        x - width, purity_vals, width, label="Purity (%)", color=metric_color("purity")
     )
 
     # NMI bars
     nmi_vals = [models[m]["nmi"] * 100 for m in modes]
-    bars2 = ax.bar(x, nmi_vals, width, label="NMI (%)", color=metric_colors["nmi"])
+    bars2 = ax.bar(x, nmi_vals, width, label="NMI (%)", color=metric_color("nmi"))
 
     # Accuracy bars
     acc_vals = [models[m]["cluster_accuracy"] * 100 for m in modes]
@@ -140,7 +140,7 @@ def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
         acc_vals,
         width,
         label="Accuracy (%)",
-        color=metric_colors["accuracy"],
+        color=metric_color("accuracy"),
     )
 
     ax.set_xticks(x)
@@ -163,7 +163,7 @@ def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
                 )
 
     ax.axhline(y=10, color="gray", linestyle="--", alpha=0.5, label="Random baseline")
-    ax.grid(True, axis="y")
+    ax.set_axisbelow(True)
 
 
 def create_samples_and_prototypes_figure(
@@ -217,8 +217,8 @@ def create_samples_and_prototypes_figure(
             axes[i, 1].set_title(f"Cluster Prototypes ({label})")
             axes[i, 1].axis("off")
 
-    fig.suptitle("Samples and Prototypes (All Models)", fontsize=12)
-    plt.tight_layout()
+    fig.suptitle("Samples and Prototypes (All Models)")
+
     return fig
 
 
@@ -264,11 +264,10 @@ def main():
 
     fig1.suptitle(
         f"Variational MNIST Training (Best by NMI: {best_label}, NMI={best_nmi:.3f})",
-        fontsize=12,
         y=0.99,
     )
 
-    plt.tight_layout()
+
     paths.save_plot(fig1)
     print(f"Main plot saved to {paths.plot_path}")
 

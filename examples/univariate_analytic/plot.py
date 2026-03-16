@@ -7,7 +7,7 @@ import numpy as np
 from scipy import stats
 from scipy.special import factorial
 
-from ..shared import apply_style, colors, example_paths, model_colors
+from ..shared import apply_style, colors, example_paths, model_color
 from .types import UnivariateResults
 
 
@@ -42,8 +42,8 @@ def main():
 
     sample_freqs = np.bincount(sample, minlength=n_categories) / len(sample)
     axes[1].bar(categories, sample_freqs, width=1.0, alpha=0.2, label="Sample")
-    axes[1].bar(categories - width/2, c["true_probs"], width, color=model_colors[0], alpha=0.6, label="True")
-    axes[1].bar(categories + width/2, c["estimated_probs"], width, color=model_colors[1], alpha=0.6, label="MLE")
+    axes[1].bar(categories - width/2, c["true_probs"], width, color=model_color(0), alpha=0.6, label="True")
+    axes[1].bar(categories + width/2, c["estimated_probs"], width, color=model_color(1), alpha=0.6, label="MLE")
     axes[1].set_title("Categorical")
     axes[1].set_xlabel("Category")
     axes[1].set_ylabel("Probability")
@@ -63,8 +63,6 @@ def main():
     axes[2].set_xlabel("k")
     axes[2].set_ylabel("Probability")
     axes[2].legend()
-
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

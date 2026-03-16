@@ -8,7 +8,7 @@ import numpy as np
 from ..shared import (
     apply_style,
     example_paths,
-    model_colors,
+    model_color,
     plot_density_contours,
     plot_training_history,
 )
@@ -58,7 +58,7 @@ def main():
         [pd_init, dia_init, iso_init],
         ["Pos. Def.", "Diagonal", "Isotropic"],
         sample,
-        model_colors[:3],
+        [model_color(0), model_color(1), model_color(2)],
     )
     ax_init.set_title("Initial Densities")
 
@@ -81,8 +81,6 @@ def main():
         ax_pd, xs, ys, [gt_dens, pd_final], ["Ground Truth", "Pos. Def."], sample
     )
     ax_pd.set_title("Positive Definite Fit")
-
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

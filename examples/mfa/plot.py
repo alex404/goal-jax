@@ -41,8 +41,7 @@ def main():
     ax_train.set_ylabel("Log-Likelihood")
     ax_train.set_title("Training")
     ax_train.set_xlim(0, n_steps)
-    ax_train.legend(loc="lower right", fontsize=9)
-    ax_train.grid(True)
+    ax_train.legend(loc="lower right")
 
     # Remaining plots: Marginal density comparisons
     marginal_configs = [
@@ -103,13 +102,10 @@ def main():
         ax.set_xlabel(f"X{dim1 + 1}")
         ax.set_ylabel(f"X{dim2 + 1}")
         ax.set_title(title)
-        ax.grid(True)
 
     fig.suptitle(
         "Mixture of Factor Analyzers: FA vs Diagonal Latent Covariance",
-        fontsize=14,
     )
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

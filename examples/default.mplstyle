@@ -10,10 +10,13 @@ font.size : 12
 #### * AXES *
 axes.titlesize : 12
 axes.titlepad : 6
+axes.labelsize : 12
 axes.linewidth : 1
 axes.spines.right: False
 axes.spines.top: False
 axes.unicode_minus : True    ## use Unicode for the minus symbol
+axes.grid : True
+axes.grid.axis : both
 
 #### * TICKS *
 xtick.major.width: 0.8
@@ -39,6 +42,7 @@ legend.fontsize: 9
 figure.dpi: 200    # figure dots per inch
 figure.facecolor: white
 figure.figsize: 6,4
+figure.constrained_layout.use: true
 
 #### * IMAGES *
 image.cmap: viridis             ## A colormap name, gray etc...

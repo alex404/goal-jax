@@ -26,7 +26,6 @@ def main():
     ax.set_ylabel("Negative Log-Likelihood")
     ax.set_title("Training Comparison")
     ax.legend()
-    ax.grid(True)
 
     # Initial density
     ax = axes[0, 1]
@@ -63,7 +62,6 @@ def main():
     ax.set_aspect("equal")
     plt.colorbar(heatmap, ax=ax)
 
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

@@ -9,7 +9,7 @@ from ..shared import (
     apply_style,
     colors,
     example_paths,
-    model_colors,
+    model_color,
     plot_density_contours,
 )
 from .types import HMoGResults
@@ -72,13 +72,12 @@ def main():
     ax_dia_init.set_title("Diagonal Initial")
 
     # Training history
-    ax_ll.plot(iso_lls, label="Isotropic", color=model_colors[0])
-    ax_ll.plot(dia_lls, label="Diagonal", color=model_colors[1])
+    ax_ll.plot(iso_lls, label="Isotropic", color=model_color(0))
+    ax_ll.plot(dia_lls, label="Diagonal", color=model_color(1))
     ax_ll.set_xlabel("EM Step")
     ax_ll.set_ylabel("Log Likelihood")
     ax_ll.set_title("Training History")
     ax_ll.legend()
-    ax_ll.grid(True)
 
     # Final fits
     plot_density_contours(
@@ -92,7 +91,7 @@ def main():
     ax_dia_final.set_title("Diagonal Final")
 
     # Latent densities
-    lat_colors = [colors["ground_truth"], model_colors[0], model_colors[1]]
+    lat_colors = [colors["ground_truth"], model_color(0), model_color(1)]
     ax_lat_init.plot(ys, true_mix, color=lat_colors[0], label="True")
     ax_lat_init.plot(ys, iso_init_mix, color=lat_colors[1], label="Isotropic")
     ax_lat_init.plot(ys, dia_init_mix, color=lat_colors[2], label="Diagonal")
@@ -100,7 +99,6 @@ def main():
     ax_lat_init.set_ylabel("Density")
     ax_lat_init.set_title("Initial Latent Distributions")
     ax_lat_init.legend()
-    ax_lat_init.grid(True)
 
     ax_lat_final.plot(ys, true_mix, color=lat_colors[0], label="True")
     ax_lat_final.plot(ys, iso_final_mix, color=lat_colors[1], label="Isotropic")
@@ -109,9 +107,7 @@ def main():
     ax_lat_final.set_ylabel("Density")
     ax_lat_final.set_title("Final Latent Distributions")
     ax_lat_final.legend()
-    ax_lat_final.grid(True)
 
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

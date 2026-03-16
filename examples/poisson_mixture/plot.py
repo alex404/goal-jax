@@ -7,7 +7,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
 
-from ..shared import apply_style, example_paths, model_colors, plot_training_history
+from ..shared import apply_style, example_paths, model_color, plot_training_history
 from .types import PoissonAnalysisResults
 
 
@@ -78,9 +78,9 @@ def main():
 
     # Means comparison
     models = [
-        ("FA", results["fan_stats"], model_colors[0]),
-        ("Poisson", results["psn_stats"], model_colors[1]),
-        ("COM-Poisson", results["com_stats"], model_colors[2]),
+        ("FA", results["fan_stats"], model_color(0)),
+        ("Poisson", results["psn_stats"], model_color(1)),
+        ("COM-Poisson", results["com_stats"], model_color(2)),
     ]
     sample_means = np.array(results["sample_stats"]["means"])
     for name, stats, color in models:
@@ -116,7 +116,6 @@ def main():
     for ax, im in [(ax_fa, im_fa), (ax_psn, im_psn), (ax_com, im_com)]:
         plt.colorbar(im, ax=ax)
 
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

@@ -57,8 +57,6 @@ def main():
     axes[1, 1].set_xlabel("Step")
     axes[1, 1].set_ylabel("Cross Entropy Loss")
     axes[1, 1].set_yscale("log")
-
-    plt.tight_layout()
     paths.save_plot(fig)
 
 

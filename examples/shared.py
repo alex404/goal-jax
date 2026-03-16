@@ -28,23 +28,38 @@ colors = {
 }
 
 # Sequential colors for multiple models/components
-model_colors = ["#348ABD", "#E24A33", "#988ED5", "#8EBA42", "#FBC15E", "#777777"]
+_model_colors = ["#348ABD", "#E24A33", "#988ED5", "#8EBA42", "#FBC15E", "#777777"]
 
 # Colors for metric comparison charts
-metric_colors = {
+_metric_colors = {
     "purity": "#4682B4",  # steelblue
     "nmi": "#FF7F50",  # coral
     "accuracy": "#228B22",  # forestgreen
 }
 
 # Standard figure sizes for consistent layouts
-FIGURE_SIZES = {
+_figure_sizes = {
     "small": (6, 4),  # Single panel
     "medium": (10, 8),  # 2x2 grid
     "large": (12, 7.5),  # 2x3 grid
     "wide": (14, 6),  # Wide format
     "tall": (10, 12),  # Tall format
 }
+
+
+def figure_size(name: str) -> tuple[float, float]:
+    """Get a standard figure size by name."""
+    return _figure_sizes[name]
+
+
+def model_color(index: int) -> str:
+    """Get a sequential color for model/component at given index."""
+    return _model_colors[index % len(_model_colors)]
+
+
+def metric_color(name: str) -> str:
+    """Get a color for a named metric."""
+    return _metric_colors[name]
 
 
 @dataclass(frozen=True)
@@ -73,7 +88,7 @@ class ExamplePaths:
             return json.load(f)
 
     def save_plot(self, fig: Figure) -> None:
-        fig.savefig(self.plot_path, bbox_inches="tight")
+        fig.savefig(self.plot_path)
         plt.close(fig)
 
 
@@ -163,7 +178,7 @@ def plot_density_contours(
         plot_colors = [colors["ground_truth"], colors["fitted"]]
 
     if sample is not None:
-        ax.scatter(sample[:, 0], sample[:, 1], alpha=0.3, s=10, label="Samples")
+        scatter_samples(ax, sample[:, 0], sample[:, 1], label="Samples")
 
     for density, label, color in zip(densities, labels, plot_colors):
         ax.contour(xs, ys, density, levels=6, colors=color, alpha=0.6)
@@ -183,13 +198,12 @@ def plot_training_history(
     ylabel: str = "Log Likelihood",
 ) -> None:
     """Plot training histories for one or more models."""
-    for (name, history), color in zip(histories.items(), model_colors):
-        ax.plot(history, label=name, color=color)
+    for i, (name, history) in enumerate(histories.items()):
+        ax.plot(history, label=name, color=model_color(i))
 
     ax.set_xlabel("Step")
     ax.set_ylabel(ylabel)
     ax.legend()
-    ax.grid(True)
 
 
 def get_pi_ticks() -> tuple[list[float], list[str]]:
@@ -197,6 +211,20 @@ def get_pi_ticks() -> tuple[list[float], list[str]]:
     ticks = [0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi]
     labels = ["0", r"$\pi/2$", r"$\pi$", r"$3\pi/2$", r"$2\pi$"]
     return ticks, labels
+
+
+def scatter_samples(ax: Axes, x: Any, y: Any, **kwargs: Any) -> None:
+    """Plot sample points with standard styling."""
+    defaults = {"alpha": 0.3, "s": 10}
+    defaults.update(kwargs)
+    ax.scatter(x, y, **defaults)  # pyright: ignore[reportArgumentType,reportCallIssue]
+
+
+def scatter_points(ax: Axes, x: Any, y: Any, **kwargs: Any) -> None:
+    """Plot emphasized points with standard styling."""
+    defaults = {"alpha": 0.8, "s": 50, "edgecolors": "white", "linewidths": 0.5}
+    defaults.update(kwargs)
+    ax.scatter(x, y, **defaults)  # pyright: ignore[reportArgumentType,reportCallIssue]
 
 
 def plot_image_grid(
@@ -236,5 +264,5 @@ def plot_image_grid(
         grid[y_start : y_start + img_size, x_start : x_start + img_size] = img
 
     ax.imshow(grid, cmap="gray", vmin=0, vmax=vmax)
-    ax.set_title(title, fontsize=10)
+    ax.set_title(title)
     ax.axis("off")

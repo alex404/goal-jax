@@ -18,35 +18,6 @@ from goal.models import (
 from ..shared import example_paths, jax_cli
 from .types import CovarianceStatistics, PoissonAnalysisResults
 
-# Model configuration
-n_neurons = 10
-n_factors = 3
-sample_size = 1000
-n_em_steps = 200
-sgd_factor = 100
-n_sgd_steps = n_em_steps * sgd_factor
-n_components = 10
-learning_rate = 3e-3
-
-psn_mix = poisson_mixture(n_neurons, n_components)
-com_mix = com_poisson_mixture(n_neurons, n_components)
-fa_man = factor_analysis(n_neurons, n_factors)
-nor_man = Normal(n_neurons, PositiveDefinite())
-
-
-def create_ground_truth_fa() -> Array:
-    """Create ground truth factor analysis model."""
-    loadings = jnp.array(
-        [
-            [0.9, -0.1, 0.1, 0.4, -0.8, -0.5, -0.2, 0.3, 0.2, -0.6],
-            [0.1, 0.8, -0.1, -0.4, 0.3, 0.2, 0.5, -0.4, 0.2, 0.7],
-            [0.1, 0.1, 0.7, -0.2, 0.8, 0.3, -0.3, 0.3, -0.6, 0.4],
-        ]
-    ).T
-    means = jnp.array([5 - (k / 3) for k in range(n_neurons)])
-    diags = jnp.array([0.1, 0.1, 0.1, 0.5, 0.5, 0.3, 0.3, 0.3, 0.3, 0.3])
-    return fa_man.initialize_from_loadings(loadings, means, diags)
-
 
 def compute_statistics(mean: Array, covariance: Array) -> CovarianceStatistics:
     """Compute statistics from mean and covariance."""
@@ -63,66 +34,44 @@ def compute_statistics(mean: Array, covariance: Array) -> CovarianceStatistics:
     )
 
 
-def normal_statistics(nor_means: Array) -> CovarianceStatistics:
-    """Compute statistics from Normal mean parameters."""
-    mean, cov = nor_man.split_mean_covariance(nor_means)
-    return compute_statistics(mean, nor_man.cov_man.to_matrix(cov))
-
-
-def fit_fa(key: Array, sample: Array) -> tuple[Array, list[float]]:
-    """Fit Factor Analysis via EM."""
-    fa = factor_analysis(n_neurons, n_factors)
-    params = fa.initialize_from_sample(key, sample)
-
-    def em_step(p: Array, _: Any) -> tuple[Array, Array]:
-        ll = fa.average_log_observable_density(p, sample)
-        return fa.expectation_maximization(p, sample), ll
-
-    final, lls = jax.lax.scan(em_step, params, None, length=n_em_steps)
-    return final, lls.tolist()
-
-
-def fit_poisson(key: Array, sample: Array) -> tuple[Array, list[float]]:
-    """Fit Poisson mixture via EM."""
-    params = psn_mix.initialize_from_sample(key, sample)
-
-    def em_step(p: Array, _: Any) -> tuple[Array, Array]:
-        ll = psn_mix.average_log_observable_density(p, sample)
-        return psn_mix.expectation_maximization(p, sample), ll
-
-    final, lls = jax.lax.scan(em_step, params, None, length=n_em_steps)
-    return final, lls.tolist()
-
-
-def fit_com(key: Array, sample: Array) -> tuple[Array, list[float]]:
-    """Fit COM-Poisson mixture via gradient descent."""
-    params = com_mix.initialize_from_sample(key, sample)
-    optimizer = optax.adamw(learning_rate=learning_rate)
-    opt_state = optimizer.init(params)
-
-    def loss_fn(p: Array) -> Array:
-        return -com_mix.average_log_observable_density(p, sample)
-
-    def step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
-        opt_state, p = state
-        loss, grads = jax.value_and_grad(loss_fn)(p)
-        updates, opt_state = optimizer.update(grads, opt_state, p)
-        p = optax.apply_updates(p, updates)
-        return (opt_state, p), -loss
-
-    (_, final), lls = jax.lax.scan(step, (opt_state, params), None, length=n_sgd_steps)
-    return final, lls[::sgd_factor].tolist()
-
-
 def main():
     jax_cli()
     paths = example_paths(__file__)
 
+    # Configuration
+    n_neurons = 10
+    n_factors = 3
+    sample_size = 1000
+    n_em_steps = 200
+    sgd_factor = 50
+    n_sgd_steps = n_em_steps * sgd_factor
+    n_components = 10
+    learning_rate = 3e-3
+
     key = jax.random.PRNGKey(42)
     key_sample, key_fa, key_psn, key_com = jax.random.split(key, 4)
 
+    # Models
+    psn_mix = poisson_mixture(n_neurons, n_components)
+    com_mix = com_poisson_mixture(n_neurons, n_components)
+    fa_man = factor_analysis(n_neurons, n_factors)
+    nor_man = Normal(n_neurons, PositiveDefinite())
+
+    def normal_statistics(nor_means: Array) -> CovarianceStatistics:
+        mean, cov = nor_man.split_mean_covariance(nor_means)
+        return compute_statistics(mean, nor_man.cov_man.to_matrix(cov))
+
     # Ground truth
-    gt_params = create_ground_truth_fa()
+    loadings = jnp.array(
+        [
+            [0.9, -0.1, 0.1, 0.4, -0.8, -0.5, -0.2, 0.3, 0.2, -0.6],
+            [0.1, 0.8, -0.1, -0.4, 0.3, 0.2, 0.5, -0.4, 0.2, 0.7],
+            [0.1, 0.1, 0.7, -0.2, 0.8, 0.3, -0.3, 0.3, -0.6, 0.4],
+        ]
+    ).T
+    means = jnp.array([5 - (k / 3) for k in range(n_neurons)])
+    diags = jnp.array([0.1, 0.1, 0.1, 0.5, 0.5, 0.3, 0.3, 0.3, 0.3, 0.3])
+    gt_params = fa_man.initialize_from_loadings(loadings, means, diags)
     _, gt_obs = fa_man.observable_distribution(gt_params)
     gt_stats = normal_statistics(nor_man.to_mean(gt_obs))
 
@@ -131,16 +80,47 @@ def main():
     discrete = jnp.round(jnp.maximum(0, sample))
     sample_stats = normal_statistics(nor_man.average_sufficient_statistic(discrete))
 
-    # Fit models
-    fa_final, fa_lls = fit_fa(key_fa, discrete)
+    # Fit Factor Analysis via EM
+    fa = factor_analysis(n_neurons, n_factors)
+    fa_init = fa.initialize_from_sample(key_fa, discrete)
+
+    def fa_em_step(p: Array, _: Any) -> tuple[Array, Array]:
+        ll = fa.average_log_observable_density(p, discrete)
+        return fa.expectation_maximization(p, discrete), ll
+
+    fa_final, fa_lls = jax.lax.scan(fa_em_step, fa_init, None, length=n_em_steps)
     _, fa_obs = fa_man.observable_distribution(fa_final)
     fa_stats = normal_statistics(nor_man.to_mean(fa_obs))
 
-    psn_final, psn_lls = fit_poisson(key_psn, discrete)
+    # Fit Poisson mixture via EM
+    psn_init = psn_mix.initialize_from_sample(key_psn, discrete)
+
+    def psn_em_step(p: Array, _: Any) -> tuple[Array, Array]:
+        ll = psn_mix.average_log_observable_density(p, discrete)
+        return psn_mix.expectation_maximization(p, discrete), ll
+
+    psn_final, psn_lls = jax.lax.scan(psn_em_step, psn_init, None, length=n_em_steps)
     psn_mean, psn_cov = psn_mix.observable_mean_covariance(psn_final)
     psn_stats = compute_statistics(psn_mean, psn_cov)
 
-    com_final, com_lls = fit_com(key_com, discrete)
+    # Fit COM-Poisson mixture via gradient descent
+    com_init = com_mix.initialize_from_sample(key_com, discrete)
+    optimizer = optax.adamw(learning_rate=learning_rate)
+    opt_state = optimizer.init(com_init)
+
+    def com_loss_fn(p: Array) -> Array:
+        return -com_mix.average_log_observable_density(p, discrete)
+
+    def com_step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
+        opt_state, p = state
+        loss, grads = jax.value_and_grad(com_loss_fn)(p)
+        updates, opt_state = optimizer.update(grads, opt_state, p)
+        p = optax.apply_updates(p, updates)
+        return (opt_state, p), -loss
+
+    (_, com_final), com_lls_full = jax.lax.scan(
+        com_step, (opt_state, com_init), None, length=n_sgd_steps
+    )
     com_mean, com_cov = com_mix.observable_mean_covariance(com_final)
     com_stats = compute_statistics(com_mean, com_cov)
 
@@ -150,9 +130,9 @@ def main():
         fan_stats=fa_stats,
         psn_stats=psn_stats,
         com_stats=com_stats,
-        com_lls=com_lls,
-        psn_lls=psn_lls,
-        fan_lls=fa_lls,
+        com_lls=com_lls_full[::sgd_factor].tolist(),
+        psn_lls=psn_lls.tolist(),
+        fan_lls=fa_lls.tolist(),
     )
     paths.save_analysis(results)
 
