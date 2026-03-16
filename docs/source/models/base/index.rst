@@ -1,7 +1,7 @@
 Base Distributions Subpackage
 =============================
 
-Fundamental probability distributions implemented as exponential families: Categorical, Poisson, von Mises, and Normal with various covariance structures.
+Fundamental probability distributions implemented as exponential families: Categorical, Poisson, Binomial, von Mises, and Normal with various covariance structures. These are the building blocks for composed models such as mixtures, factor models, and hierarchical graphical models.
 
 .. toctree::
    :maxdepth: 1
@@ -9,5 +9,6 @@ Fundamental probability distributions implemented as exponential families: Categ
 
    categorical
    poisson
+   binomial
    von_mises
-   normal
+   gaussian/index

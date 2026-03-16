@@ -34,3 +34,24 @@ Conway-Maxwell-Poisson
    :members:
    :undoc-members:
    :show-inheritance:
+
+Product Types
+-------------
+
+.. autoclass:: goal.models.base.poisson.Poissons
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.models.base.poisson.CoMPoissons
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Population Embedding
+--------------------
+
+.. autoclass:: goal.models.base.poisson.PopulationLocationEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:

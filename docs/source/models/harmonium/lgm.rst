@@ -70,3 +70,7 @@ Specializations
 
 .. autofunction:: goal.models.harmonium.lgm.principal_component_analysis
 
+.. seealso::
+
+   :doc:`/examples` --- **dimensionality_reduction**: Factor analysis recovering a latent curve from 20D observations; **mfa**: Mixture of factor analyzers.
+

@@ -30,3 +30,7 @@ Core Classes
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. seealso::
+
+   :doc:`/examples` --- **mixture_of_gaussians**: EM for Gaussian mixtures compared against sklearn.

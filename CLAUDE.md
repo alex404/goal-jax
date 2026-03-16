@@ -51,7 +51,6 @@ Examples are located in the `examples/` directory and organized by topic:
 
 ### Documentation
 - Build documentation: `sphinx-build docs/source docs/build` or `cd docs/ && make html`
-- Documentation is also configured for MkDocs: `mkdocs serve` (uses mkdocs.yml)
 - Live documentation: https://goal-jax.readthedocs.io/
 
 ## Architecture
@@ -151,6 +150,17 @@ Within each class, order members as follows:
 4. **Methods** --- new concrete functionality specific to this class
 
 Use comment headers (`# Fields`, `# Contract`, `# Overrides`, `# Methods`) to separate sections. Omit headers when the class is small enough that the structure is obvious. Within each section, properties naturally precede methods.
+
+### RST file convention
+
+RST files live under `docs/source/` and mirror the Python package hierarchy under `src/goal/`:
+
+- **1:1 mapping**: each source module gets one RST file; RST paths mirror Python package paths (e.g., `models/base/poisson.py` → `docs/source/models/base/poisson.rst`)
+- **RST filenames must match Python module filenames** (e.g., `population_codes.rst` for `population_codes.py`)
+- **Leaf RST template**: title, `automodule` (docstring only, `:noindex: :no-members:`), optional `inheritance-diagram`, `autoclass` sections, optional factory functions
+- **Index RST template**: title, one-line description, `toctree` listing child modules
+- **Each class is documented in the RST of its defining module** --- no cross-module duplication
+- **Internal utilities** (e.g., `manifold/util.py`) may be skipped
 
 ### Style
 - No Unicode math in docstrings or comments --- use LaTeX notation throughout (`\\theta`, `\\mathcal M`, etc.)

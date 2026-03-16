@@ -27,12 +27,13 @@ class VariationalHierarchicalMixture[
     the rho correction only affects the BaseLatent (observable) component
     of the mixture, leaving interaction and categorical unchanged.
 
-    Model structure:
+    Model structure::
+
         Observable (X) <-> Base Latent (Y) <-> Categorical (K)
            |                    |                    |
         e.g., Binomials     Bernoullis        Mixture component
 
-    Joint distribution: p(x, y, k) = p(k) * p(y|k) * p(x|y)
+    Joint distribution: ``p(x, y, k) = p(k) * p(y|k) * p(x|y)``
 
     The posterior is a CompleteMixture[BaseLatent], and the rho correction
     is applied only to the observable (BaseLatent) bias, not to the

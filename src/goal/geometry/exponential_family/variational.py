@@ -122,11 +122,14 @@ class VariationalConjugated[
     ) -> Array:
         """Compute $\\mathbb{E}_q[\\log p(x|z)]$ via analytic/MC split with score correction.
 
-        Decomposes as:
-        $$\\mathbb{E}_q[\\log p(x|z)] =
-          \\underbrace{s_X(x) \\cdot (\\theta_X + \\Theta_{XZ} \\cdot \\mathbb{E}_q[s_Z(z)])}_{\\text{analytic}}
-          - \\underbrace{\\mathbb{E}_q[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))]}_{\\text{MC}}
-          + \\log h_X(x)$$
+        Decomposes as
+
+        .. math::
+
+            \\mathbb{E}_q[\\log p(x|z)] =
+            \\underbrace{s_X(x) \\cdot (\\theta_X + \\Theta_{XZ} \\cdot \\mathbb{E}_q[s_Z(z)])}_{\\text{analytic}}
+            - \\underbrace{\\mathbb{E}_q[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))]}_{\\text{MC}}
+            + \\log h_X(x)
 
         The analytic term computes $\\mathbb{E}_q[s_Z]$ exactly via ``to_mean()``,
         so its gradients are exact (no MC, no score correction needed).
@@ -234,7 +237,7 @@ class VariationalConjugated[
     ) -> tuple[Array, Array, Array, Array]:
         """Fit conjugation parameters by least-squares regression.
 
-        Solves $\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\rho \\cdot s_\\rho(z_k) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$.
+        Solves :math:`\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\rho \\cdot s_\\rho(z_k) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2`.
         Returns ``(rho, r_squared, chi, residual_var)`` where ``chi`` is the
         intercept and ``residual_var`` is the conjugation error $\\mathrm{Var}[\\tilde{f}]$
         estimated from the regression samples.

@@ -8,18 +8,58 @@ A JAX framework for statistical modeling grounded in information geometry and ex
 Overview
 --------
 
-Goal provides machine learning algorithms that operate on statistical manifolds --- spaces where every point is a probability distribution. By embedding the mathematics of information geometry directly into its type system, Goal ensures that operations respect geometric constraints and enables efficient, composable algorithms for inference, learning, and model evaluation.
+Goal provides machine learning algorithms based on the theory of statistical manifolds --- mathematical spaces where every point is a probability distribution. In Goal we implement statistical manifolds as lightweight, stateless objects that define operations on flat JAX arrays. This design allows us to define high-level algorithms for inference, learning, and model evaluation, and deploy them in complex latent variable models.
 
-Mathematical Foundation
------------------------
+Installation
+------------
 
-An exponential family is a collection of distributions with densities of the form
+Install from PyPI::
 
-.. math::
+   pip install goal-jax
 
-   p(x; \theta) = \mu(x)\exp(\theta \cdot \mathbf{s}(x) - \psi(\theta))
+For development::
 
-where $\theta$ are the natural parameters, $\mathbf{s}(x)$ the sufficient statistic, $\mu(x)$ the base measure, and $\psi(\theta)$ the log-partition function. These families carry a dually flat Riemannian structure: the natural parameters $\theta$ and mean parameters $\eta = \nabla\psi(\theta)$ form dual coordinate systems connected by Legendre duality.
+   git clone https://github.com/alex404/goal-jax.git
+   cd goal-jax
+   uv sync --all-extras
+
+Quick Start
+-----------
+
+Fit a 3-component Gaussian mixture model via expectation-maximization:
+
+.. code-block:: python
+
+   import jax
+   import jax.numpy as jnp
+   from goal.geometry import PositiveDefinite
+   from goal.models import AnalyticMixture, Normal
+
+   # 3-component 2D Gaussian mixture with full covariance
+   model = AnalyticMixture(Normal(2, PositiveDefinite()), n_components=3)
+
+   # Generate synthetic data from a known mixture
+   key = jax.random.PRNGKey(0)
+   ground_truth = model.initialize(key)
+   sample = model.observable_sample(key, ground_truth, n=500)
+
+   # Fit via expectation-maximization
+   key, subkey = jax.random.split(key)
+   params = model.initialize(subkey)
+
+   def em_step(params, _):
+       return model.expectation_maximization(params, sample), None
+
+   params, _ = jax.lax.scan(em_step, params, None, length=50)
+
+   # Evaluate fit
+   ll = model.average_log_observable_density(params, sample)
+
+The full example compares full, diagonal, and isotropic covariance across EM iterations --- see :doc:`examples`:
+
+.. image:: _static/mixture_of_gaussians.png
+   :alt: Mixture of Gaussians example
+   :align: center
 
 Library Structure
 -----------------
@@ -85,10 +125,22 @@ The :doc:`models package <models/index>` builds concrete distributions on this f
 
 - :doc:`models/graphical/index` --- Multi-level hierarchical models composing harmoniums, e.g. mixture of factor analyzers.
 
+Mathematical Foundation
+-----------------------
+
+An exponential family is a collection of distributions with densities of the form
+
+.. math::
+
+   p(x; \theta) = \mu(x)\exp(\theta \cdot \mathbf{s}(x) - \psi(\theta))
+
+where $\theta$ are the natural parameters, $\mathbf{s}(x)$ the sufficient statistic, $\mu(x)$ the base measure, and $\psi(\theta)$ the log-partition function. These families carry a dually flat Riemannian structure: the natural parameters $\theta$ and mean parameters $\eta = \nabla\psi(\theta)$ form dual coordinate systems connected by Legendre duality.
+
 .. toctree::
    :maxdepth: 1
-   :caption: API Reference:
+   :caption: Contents:
    :hidden:
 
    geometry/index
    models/index
+   examples

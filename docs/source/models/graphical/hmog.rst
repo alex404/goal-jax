@@ -37,3 +37,7 @@ Factory Functions
 .. autofunction:: goal.models.graphical.hmog.differentiable_hmog
 
 .. autofunction:: goal.models.graphical.hmog.analytic_hmog
+
+.. seealso::
+
+   :doc:`/examples` --- **hmog**: Hierarchical mixture of Gaussians with nested harmonium structure; **mfa**: Mixture of factor analyzers.
