@@ -180,6 +180,11 @@ class Differentiable(Generative, ABC):
         psi_q = self.log_partition_function(q_params)
         return psi_q - psi_p + jnp.dot(p_means, p_params - q_params)
 
+    def dual_potential(self, params: Array) -> Array:
+        """Compute the dual potential (negative entropy) from natural parameters via $\\phi(\\eta(\\theta)) = \\eta(\\theta) \\cdot \\theta - \\psi(\\theta)$."""
+        means = self.to_mean(params)
+        return jnp.dot(means, params) - self.log_partition_function(params)
+
     def average_log_density(
         self, params: Array, xs: Array, batch_size: int = 2048
     ) -> Array:

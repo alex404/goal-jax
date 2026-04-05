@@ -98,6 +98,18 @@ class TestCategorical:
         expected = -jnp.log(4.0)
         assert jnp.allclose(neg_ent_uniform, expected, rtol=RTOL, atol=ATOL)
 
+    @pytest.mark.parametrize("n", [3, 5])
+    def test_dual_potential_matches_negative_entropy(self, n: int) -> None:
+        model = Categorical(n_categories=n)
+        params = model.initialize(jax.random.PRNGKey(42))
+        means = model.to_mean(params)
+        assert jnp.allclose(
+            model.negative_entropy(means),
+            model.dual_potential(params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+
     def test_initialized_params_valid(self) -> None:
         model = Categorical(n_categories=5)
         params = model.initialize(jax.random.PRNGKey(42))
@@ -156,6 +168,18 @@ class TestBernoulli:
             recovered = model.to_natural(model.to_mean(params))
             assert jnp.allclose(params, recovered, rtol=RTOL, atol=ATOL)
 
+    def test_dual_potential_matches_negative_entropy(self) -> None:
+        model = Bernoulli()
+        for theta in [-2.0, 0.0, 2.0]:
+            params = jnp.array([theta])
+            means = model.to_mean(params)
+            assert jnp.allclose(
+                model.negative_entropy(means),
+                model.dual_potential(params),
+                rtol=RTOL,
+                atol=ATOL,
+            )
+
     def test_negative_entropy_at_half(self) -> None:
         """At p=0.5 (theta=0), negative entropy equals -log(2)."""
         model = Bernoulli()
@@ -205,6 +229,17 @@ class TestBernoullis:
         params = jax.random.normal(jax.random.PRNGKey(42), (3,))
         recovered = model.to_natural(model.to_mean(params))
         assert jnp.allclose(params, recovered, rtol=RTOL, atol=ATOL)
+
+    def test_dual_potential_matches_negative_entropy(self) -> None:
+        model = Bernoullis(3)
+        params = jax.random.normal(jax.random.PRNGKey(42), (3,))
+        means = model.to_mean(params)
+        assert jnp.allclose(
+            model.negative_entropy(means),
+            model.dual_potential(params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
 
     def test_sampling(self) -> None:
         """Samples are binary with empirical sufficient statistics matching to_mean."""
