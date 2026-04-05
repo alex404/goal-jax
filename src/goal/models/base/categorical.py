@@ -58,9 +58,7 @@ class Bernoulli(Analytic):
     def negative_entropy(self, means: Array) -> Array:
         p = means[0]
         p0 = 1 - p
-        # Add small epsilon for numerical stability
-        eps = 1e-10
-        return p * jnp.log(p + eps) + p0 * jnp.log(p0 + eps)
+        return jax.scipy.special.xlogy(p, p) + jax.scipy.special.xlogy(p0, p0)
 
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
@@ -156,7 +154,7 @@ class Categorical(Analytic):
     @override
     def negative_entropy(self, means: Array) -> Array:
         probs = self.to_probs(means)
-        return jnp.sum(probs * jnp.log(probs))
+        return jnp.sum(jax.scipy.special.xlogy(probs, probs))
 
     @override
     def sample(
