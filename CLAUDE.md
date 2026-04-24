@@ -41,9 +41,9 @@ This is a **library**, not an application. The dependency policy is:
 
 ### Examples
 Examples are located in the `examples/` directory and organized by topic:
-- Run example: `uv run python -m examples.bivariate_normal.run`
-- Generate plots: `uv run python -m examples.bivariate_normal.plot`
-- Available examples: bivariate_normal, boltzmann, boltzmann_lgm, boltzmann_lgm_cd, dimensionality_reduction, hmog, mfa, mixture_of_gaussians, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
+- Run example: `uv run python -m examples.multivariate.run`
+- Generate plots: `uv run python -m examples.multivariate.plot`
+- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, dimensionality_reduction, hmog, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
 
 ### Documentation
 - Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`

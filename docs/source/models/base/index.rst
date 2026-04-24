@@ -8,6 +8,7 @@ Fundamental probability distributions implemented as exponential families: Categ
    :caption: Modules:
 
    categorical
+   dirichlet
    poisson
    binomial
    von_mises

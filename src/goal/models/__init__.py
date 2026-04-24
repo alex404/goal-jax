@@ -1,5 +1,6 @@
 from .base.binomial import Binomial, Binomials
 from .base.categorical import Bernoulli, Bernoullis, Categorical
+from .base.dirichlet import Dirichlet
 from .base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
 from .base.gaussian.generalized import Euclidean
 from .base.gaussian.normal import (
@@ -87,6 +88,7 @@ __all__ = [
     "DiagonalNormal",
     "DifferentiableBoltzmannLGM",
     "DifferentiableHMoG",
+    "Dirichlet",
     "Euclidean",
     "FactorAnalysis",
     "FullNormal",

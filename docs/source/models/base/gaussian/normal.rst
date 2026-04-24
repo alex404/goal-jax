@@ -94,4 +94,4 @@ Covariance Types
 
 .. seealso::
 
-   :doc:`/examples` --- **bivariate_normal**: Density fitting with full, diagonal, and isotropic covariance; **univariate_analytic**: Closed-form MLE for Normal distributions.
+   :doc:`/examples` --- **multivariate**: 2D Normal density fitting via source and natural parameterizations; **univariate_analytic**: Closed-form MLE for Normal distributions.

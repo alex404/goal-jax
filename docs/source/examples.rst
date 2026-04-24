@@ -20,7 +20,7 @@ Basic exponential family fitting and covariance representations.
 
 - **univariate_analytic** --- Closed-form MLE for :class:`~goal.models.base.gaussian.normal.Normal`, :class:`~goal.models.base.categorical.Categorical`, and :class:`~goal.models.base.poisson.Poisson`.
 - **univariate_differentiable** --- Gradient-based fitting for :class:`~goal.models.base.von_mises.VonMises` and :class:`~goal.models.base.poisson.CoMPoisson`.
-- **bivariate_normal** --- Density fitting with full, diagonal, and isotropic :class:`~goal.models.base.gaussian.normal.Normal` covariance.
+- **multivariate** --- Side-by-side benchmark: analytic 2D :class:`~goal.models.base.gaussian.normal.Normal` fit via source and natural parameterizations, plus gradient-based fitting of a :class:`~goal.models.base.dirichlet.Dirichlet` on a 3-simplex.
 
 Boltzmann Machines
 ------------------
