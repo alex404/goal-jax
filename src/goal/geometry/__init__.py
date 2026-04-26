@@ -52,13 +52,16 @@ from .manifold.embedding import (
     TrivialEmbedding,
     TupleEmbedding,
 )
-from .manifold.linear import (
+from .manifold.map import (
     AffineMap,
     AmbientMap,
     BlockMap,
     EmbeddedMap,
     LinearMap,
+    MLPMap,
+    Map,
     SquareMap,
+    StatefulMap,
 )
 from .manifold.matrix import (
     Diagonal,
@@ -101,7 +104,9 @@ __all__ = [
     "LinearEmbedding",
     "LinearMap",
     "LocationShape",
+    "MLPMap",
     "Manifold",
+    "Map",
     "MatrixRep",
     "Null",
     "ObservableEmbedding",
@@ -114,6 +119,7 @@ __all__ = [
     "Scale",
     "Square",
     "SquareMap",
+    "StatefulMap",
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",

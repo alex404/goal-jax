@@ -1,6 +1,6 @@
-"""Linear and affine maps between manifolds.
+"""Maps between manifolds: a generic ``Map`` and the linear/affine specializations.
 
-A ``LinearMap`` is itself a ``Manifold`` whose points are the parameters of the map. The main concrete implementation is ``EmbeddedMap``, which combines a ``MatrixRep`` (from ``matrix.py``) with domain/codomain embeddings to handle the project-multiply-embed pipeline. ``BlockMap`` sums several such maps for heterogeneous block structure, and ``AffineMap`` adds a bias term.
+A ``Map`` is itself a ``Manifold`` whose points are the parameters of a function from a domain manifold to a codomain manifold. Subclasses define the structure of the function: ``LinearMap`` for linear transformations (with matrix-rep specializations like ``EmbeddedMap``, ``BlockMap``, ``SquareMap``), ``AffineMap`` for affine maps, and beyond that any parameterized differentiable map (e.g. an MLP).
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import override
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -18,16 +19,16 @@ from .combinators import Pair
 from .embedding import IdentityEmbedding, LinearComposedEmbedding, LinearEmbedding
 from .matrix import MatrixRep, Square
 
-### Linear Maps ###
+### Maps ###
 
 
 @dataclass(frozen=True)
-class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
-    """A linear transformation between manifolds, which is itself a manifold (its points are the map's parameters).
+class Map[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
+    """A parameterized function between manifolds, itself a ``Manifold`` whose points are the function's parameters.
 
-    The key pattern: a ``LinearMap`` knows its domain, codomain, and how to apply itself, transpose itself, and compute outer products. Concrete implementations choose how to store and execute the map.
+    The contract is just enough to apply the function: a domain manifold, a codomain manifold, and ``__call__`` that takes parameters and a domain point and returns a codomain point. ``dim`` (inherited from ``Manifold``) is the number of parameters.
 
-    Mathematically, a linear map $L: V \\to W$ satisfies $L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$.
+    Subclasses specialize the structure: ``LinearMap`` for linear transformations with matrix representations, and (in later phases) ``MLPMap`` for feedforward networks. ``StatefulMap`` is a sibling abstraction with a different application signature for stateful maps (RNNs).
     """
 
     # Contract
@@ -42,14 +43,29 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
     def cod_man(self) -> Codomain:
         """The codomain manifold."""
 
+    @abstractmethod
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        """Apply the map: takes map parameters and a domain point, returns a codomain point."""
+
+
+### Linear Maps ###
+
+
+@dataclass(frozen=True)
+class LinearMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain], ABC):
+    """A linear transformation between manifolds.
+
+    Adds linear-specific operations to ``Map``: transpose, outer product, and embedding manipulation. Concrete implementations choose how to store and execute the matrix.
+
+    Mathematically, a linear map $L: V \\to W$ satisfies $L(\\alpha x + \\beta y) = \\alpha L(x) + \\beta L(y)$.
+    """
+
+    # Contract
+
     @property
     @abstractmethod
     def trn_man(self) -> LinearMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
-
-    @abstractmethod
-    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        """Apply the map: takes map parameters and a domain point, returns a codomain point."""
 
     @abstractmethod
     def transpose(self, f_coords: Array) -> Array:
@@ -427,3 +443,130 @@ class AffineMap[
         """Apply the affine map: $L(v) + b$."""
         bias, linear = self.split_coords(f_coords)
         return bias + self.snd_man(linear, v_coords)
+
+
+### Stateful Maps ###
+
+
+@dataclass(frozen=True)
+class StatefulMap[
+    Domain: Manifold,
+    Codomain: Manifold,
+    State: Manifold,
+](Manifold, ABC):
+    """A parameterized map that carries a hidden state across applications.
+
+    Sibling to ``Map`` with a different application signature: each call takes a state in addition to the input and produces a new state along with the output. Used for recurrent dynamics (RNNs, GRUs, LSTMs) where the map's output depends on a running summary of past inputs.
+
+    Like ``Map``, ``StatefulMap`` is itself a ``Manifold`` whose points are the function's parameters; the state is a separate array that flows between calls.
+    """
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def dom_man(self) -> Domain:
+        """The domain manifold."""
+
+    @property
+    @abstractmethod
+    def cod_man(self) -> Codomain:
+        """The codomain manifold."""
+
+    @property
+    @abstractmethod
+    def state_man(self) -> State:
+        """The state manifold."""
+
+    @abstractmethod
+    def init_state(self, key: Array) -> Array:
+        """Initialize a state array."""
+
+    @abstractmethod
+    def __call__(
+        self, f_coords: Array, v_coords: Array, state: Array
+    ) -> tuple[Array, Array]:
+        """Apply the map: takes parameters, a domain point, and a state; returns (codomain point, new state)."""
+
+
+### Multi-Layer Perceptron ###
+
+
+@dataclass(frozen=True)
+class MLPMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain]):
+    """A feedforward MLP between manifolds.
+
+    Outputs ``cod_man.dim`` raw values via configurable hidden layers and a fixed activation. For codomains with parameter constraints (e.g. positive-definite precision matrices), constraint-respecting outputs are the responsibility of a wrapping layer or a specialized subclass — this base class emits raw vectors.
+
+    Parameters are flattened concatenations of per-layer ``(W, b)`` pairs, with ``W`` stored in row-major (codomain-first) order.
+    """
+
+    # Fields
+
+    _dom_man: Domain
+    """The domain manifold."""
+
+    _cod_man: Codomain
+    """The codomain manifold."""
+
+    hidden_dims: tuple[int, ...] = ()
+    """Widths of hidden layers; empty for a linear MLP (single weight matrix)."""
+
+    activation: Callable[[Array], Array] = jax.nn.relu
+    """Activation applied after each hidden layer; not applied to the output."""
+
+    # Overrides
+
+    @property
+    @override
+    def dom_man(self) -> Domain:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Codomain:
+        return self._cod_man
+
+    @property
+    @override
+    def dim(self) -> int:
+        return sum(
+            in_d * out_d + out_d
+            for in_d, out_d in zip(self.layer_dims[:-1], self.layer_dims[1:])
+        )
+
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        h = v_coords
+        offset = 0
+        layers = list(zip(self.layer_dims[:-1], self.layer_dims[1:]))
+        last_idx = len(layers) - 1
+        for i, (in_d, out_d) in enumerate(layers):
+            w_size = in_d * out_d
+            w = f_coords[offset : offset + w_size].reshape(out_d, in_d)
+            offset += w_size
+            b = f_coords[offset : offset + out_d]
+            offset += out_d
+            h = w @ h + b
+            if i < last_idx:
+                h = self.activation(h)
+        return h
+
+    # Methods
+
+    @property
+    def layer_dims(self) -> tuple[int, ...]:
+        """Sequence of layer widths: domain, hidden layers, codomain."""
+        return (self.dom_man.dim, *self.hidden_dims, self.cod_man.dim)
+
+    def glorot_initialize(self, key: Array) -> Array:
+        """Glorot uniform initialization: weights from $U(-\\sqrt{6/(d_{in} + d_{out})}, +\\sqrt{6/(d_{in} + d_{out})})$, biases zero."""
+        keys = jax.random.split(key, len(self.layer_dims) - 1)
+        chunks: list[Array] = []
+        for k, in_d, out_d in zip(keys, self.layer_dims[:-1], self.layer_dims[1:]):
+            bound = jnp.sqrt(6.0 / (in_d + out_d))
+            w = jax.random.uniform(k, (out_d, in_d), minval=-bound, maxval=bound)
+            b = jnp.zeros(out_d)
+            chunks.append(w.reshape(-1))
+            chunks.append(b)
+        return jnp.concatenate(chunks)

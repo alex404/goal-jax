@@ -15,7 +15,7 @@ from jax import Array
 
 from ..manifold.combinators import Triple
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
-from ..manifold.linear import AffineMap, LinearMap
+from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
 from .base import (
     Analytic,

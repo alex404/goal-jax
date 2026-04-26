@@ -30,3 +30,4 @@ Harmoniums are the key composed structure: latent-variable models where conjugat
    variational
    harmonium
    graphical
+   dynamical

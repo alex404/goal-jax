@@ -12,5 +12,5 @@ Users of existing models rarely need to interact with this layer directly --- th
    base
    combinators
    embedding
-   linear
+   map
    matrix

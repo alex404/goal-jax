@@ -12,7 +12,7 @@ from typing import Any, override
 from jax import Array
 
 from ..manifold.embedding import LinearEmbedding, TupleEmbedding
-from ..manifold.linear import LinearMap
+from ..manifold.map import LinearMap
 from .base import Gibbs
 from .harmonium import (
     AnalyticConjugated,

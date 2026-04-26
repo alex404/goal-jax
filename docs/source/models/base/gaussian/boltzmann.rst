@@ -10,7 +10,7 @@ Class Hierarchy
 
 .. inheritance-diagram:: goal.models.base.gaussian.boltzmann
    :parts: 2
-   :top-classes: goal.geometry.exponential_family.combinators.LocationShape, goal.geometry.manifold.linear.SquareMap, goal.geometry.exponential_family.base.Differentiable, goal.geometry.exponential_family.base.ExponentialFamily
+   :top-classes: goal.geometry.exponential_family.combinators.LocationShape, goal.geometry.manifold.map.SquareMap, goal.geometry.exponential_family.base.Differentiable, goal.geometry.exponential_family.base.ExponentialFamily
 
 \
 

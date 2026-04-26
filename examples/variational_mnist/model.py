@@ -29,7 +29,7 @@ from goal.geometry import (
 )
 from goal.geometry.exponential_family.variational import VariationalConjugated
 from goal.geometry.manifold.embedding import LinearEmbedding
-from goal.geometry.manifold.linear import LinearMap
+from goal.geometry.manifold.map import LinearMap
 from goal.models import (
     Bernoullis,
     Binomials,

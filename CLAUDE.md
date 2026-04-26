@@ -43,7 +43,7 @@ This is a **library**, not an application. The dependency policy is:
 Examples are located in the `examples/` directory and organized by topic:
 - Run example: `uv run python -m examples.multivariate.run`
 - Generate plots: `uv run python -m examples.multivariate.plot`
-- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, dimensionality_reduction, hmog, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
+- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
 
 ### Documentation
 - Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`
@@ -62,6 +62,7 @@ The library is organized into three main modules under `src/goal/`:
    - `base/`: Fundamental distributions (Normal, Categorical, Poisson, Von Mises)
    - `harmonium/`: Bipartite models (Mixtures, Linear Gaussian Models)
    - `graphical/`: Complex graphical models (Hierarchical MoG)
+   - `dynamical/`: State-space and Markov-process models (Kalman filter, HMM, MLP-based hybrid filter, homogeneous Gaussian Markov chain)
 
 ### Key Abstractions
 
@@ -83,14 +84,17 @@ The library is organized into three main modules under `src/goal/`:
 2. **Harmoniums**: Conjugate relationship modeling between latent and observed variables
    - `SymmetricConjugated`: Posterior and prior use the same manifold (`pst_man == prr_man`)
    - `DifferentiableConjugated[Obs, Pst, Prr]`: Supports asymmetric cases where posterior embeds into prior (`pst_man ⊂ prr_man` via `pst_prr_emb`)
-3. **Combinators**: Composable building blocks for complex models (Product, Pair, Replicated)
-4. **Embeddings**: Flexible transformations between manifolds (e.g., `NormalCovarianceEmbedding` embeds `DiagonalNormal` into `FullNormal`)
+3. **Maps**: `Map[D, C]` is the generic ABC for parameterized functions between manifolds; `LinearMap[D, C]` (with matrix-rep specializations like `EmbeddedMap`, `SquareMap`, `AffineMap`) and `MLPMap[D, C]` are concrete leaves. `StatefulMap[D, C, S]` is a sibling for stateful (RNN-style) maps.
+4. **Transitions and LatentProcess**: `Transition[L]` is a predict map on belief natural parameters used by the BPTT-friendly filter scan. `AnalyticTransition[L]` wraps a `SymmetricConjugated[L, L]` kernel to enable smoothing and exact EM. `LatentProcess[O, L]` composes (prior, conjugated emission, transition) into a Triple; `AnalyticLatentProcess[O, L]` adds joint sampling, smoothing, and EM.
+5. **Combinators**: Composable building blocks for complex models (Product, Pair, Replicated)
+6. **Embeddings**: Flexible transformations between manifolds (e.g., `NormalCovarianceEmbedding` embeds `DiagonalNormal` into `FullNormal`)
 
 ### Key Model Classes
 - **Normal distributions**: `Normal[Rep]` parameterized by covariance representation
 - **Linear Gaussian Models**: `NormalLGM[ObsRep, PstRep]`, `FactorAnalysis`, `PrincipalComponentAnalysis`
 - **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
 - **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
+- **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`, `MLPTransition`, `HomogeneousGaussianMarkovChain`
 
 ## Typing Strategy
 
@@ -171,6 +175,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | Test file | Source module(s) |
 |---|---|
 | `matrix.py` | `geometry/manifold/matrix.py` |
+| `map.py` | `geometry/manifold/map.py` (LinearMap rename regression + MLPMap) |
 | `normal.py` | `models/base/gaussian/normal.py` |
 | `boltzmann.py` | `models/base/gaussian/boltzmann.py` |
 | `categorical.py` | `models/base/categorical.py` (Categorical, Bernoulli, Bernoullis) |
@@ -181,6 +186,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `population_codes.py` | `models/harmonium/population_codes.py` |
 | `graphical_mixture.py` | `models/graphical/mixture.py` |
 | `hmog.py` | `models/graphical/hmog.py` (AnalyticHMoG, DifferentiableHMoG) |
+| `dynamical.py` | `geometry/exponential_family/dynamical.py` and `models/dynamical/` (HomogeneousMarkovProcess, transitions, KalmanFilter, HiddenMarkovModel, MLPTransition) |
 | `whitening.py` | Cross-cutting: whitening on FA, MFA, HMoG |
 
 ### Structure within files
