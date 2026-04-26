@@ -1,12 +1,11 @@
-"""Dynamical model leaves: typed wrappers for state-space and Markov-process models.
+"""Dynamical model leaves: typed wrappers for state-space models.
 
 This module exports:
 
 - ``LinearGaussianTransition`` --- analytic Gaussian transition with predict, smoothing-ready.
 - ``CategoricalKernel`` / ``CategoricalTransition`` --- the Cat-Cat conjugated harmonium and its Transition wrapper for HMMs.
 - ``CategoricalEmission`` / ``NormalEmission`` --- emission harmoniums (kernels only; not Transitions).
-- ``MLPTransition`` --- a stateless MLP-based transition for hybrid filters.
-- ``HomogeneousGaussianMarkovChain`` --- a fully observed homogeneous Gaussian Markov chain.
+- ``MLPTransition`` --- an MLP-based transition for hybrid filters.
 - ``KalmanFilter`` --- linear Gaussian state-space model.
 - ``HiddenMarkovModel`` --- discrete state-space model.
 """
@@ -28,7 +27,6 @@ from ...geometry import (
 )
 from ...geometry.exponential_family.base import Differentiable
 from ...geometry.exponential_family.dynamical import (
-    AnalyticHomogeneousMarkovProcess,
     AnalyticLatentProcess,
     AnalyticTransition,
     Transition,
@@ -36,6 +34,13 @@ from ...geometry.exponential_family.dynamical import (
 from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, full_normal
 from ..harmonium.lgm import NormalAnalyticLGM
+
+# =============================================================================
+# Type aliases
+# =============================================================================
+
+NormalEmission = NormalAnalyticLGM[PositiveDefinite]
+"""Linear Gaussian emission $p(x_t \\mid z_t) = N(C z_t, R)$ for a Kalman filter. ``obs_dim`` and ``lat_dim`` may differ."""
 
 
 # =============================================================================
@@ -62,45 +67,44 @@ def create_linear_gaussian_transition(lat_dim: int) -> LinearGaussianTransition:
 
 
 # =============================================================================
-# Categorical Kernel / Transition / Emission
+# Categorical Conjugated Harmonium
 # =============================================================================
 
 
 @dataclass(frozen=True)
-class CategoricalKernel(AnalyticConjugated[Categorical, Categorical]):
-    """Cat-Cat conjugated harmonium kernel: $p(z_t \\mid z_{t-1})$ with both states ``Categorical(n_{\\rm states})``.
+class _CategoricalConjugated(AnalyticConjugated[Categorical, Categorical]):
+    """Conjugated harmonium between two Categoricals, parameterized by a ``LinearMap`` over the categoricals' natural-parameter spaces.
 
-    The interaction matrix encodes log transition probabilities. Conjugation parameters are $\\rho_k = \\Psi(\\theta_x + W_k) - \\Psi(\\theta_x)$ where $\\Psi$ is the Categorical log-partition.
+    The interaction matrix encodes log conditional probabilities. Conjugation parameters are $\\rho_k = \\Psi(\\theta_x + W_k) - \\Psi(\\theta_x)$ where $\\Psi$ is the Categorical log-partition. ``CategoricalKernel`` and ``CategoricalEmission`` are thin wrappers that fix the shape (square vs rectangular).
     """
 
-    n_states: int
+    _obs_man: Categorical
+    _lat_man: Categorical
 
     @property
     @override
     def lat_man(self) -> Categorical:
-        return Categorical(self.n_states)
+        return self._lat_man
 
     @property
     @override
     def obs_man(self) -> Categorical:
-        return Categorical(self.n_states)
+        return self._obs_man
 
     @property
     @override
     def int_man(self) -> EmbeddedMap[Categorical, Categorical]:
         return EmbeddedMap(
             Rectangular(),
-            IdentityEmbedding(self.lat_man),
-            IdentityEmbedding(self.obs_man),
+            IdentityEmbedding(self._lat_man),
+            IdentityEmbedding(self._obs_man),
         )
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
         psi_base = self.obs_man.log_partition_function(obs_bias)
-        obs_dim = self.obs_man.dim
-        lat_dim = self.lat_man.dim
-        int_matrix = int_mat.reshape((obs_dim, lat_dim))
+        int_matrix = int_mat.reshape((self.obs_man.dim, self.lat_man.dim))
 
         def compute_rho_k(col_k: Array) -> Array:
             return self.obs_man.log_partition_function(obs_bias + col_k) - psi_base
@@ -112,11 +116,11 @@ class CategoricalKernel(AnalyticConjugated[Categorical, Categorical]):
         obs_means, int_means, lat_means = self.split_coords(means)
         obs_probs = self.obs_man.to_probs(obs_means)
         lat_probs = self.lat_man.to_probs(lat_means)
-        obs_dim = self.obs_man.dim
-        lat_dim = self.lat_man.dim
-        int_matrix = int_means.reshape((obs_dim, lat_dim))
+        n_obs = self.obs_man.n_categories
+        n_states = self.lat_man.n_categories
+        int_matrix = int_means.reshape((self.obs_man.dim, self.lat_man.dim))
 
-        joint_probs = jnp.zeros((self.n_states, self.n_states))
+        joint_probs = jnp.zeros((n_obs, n_states))
         joint_probs = joint_probs.at[1:, 1:].set(int_matrix)
         col0_nonref = obs_probs[1:] - jnp.sum(int_matrix, axis=1)
         joint_probs = joint_probs.at[1:, 0].set(col0_nonref)
@@ -137,10 +141,23 @@ class CategoricalKernel(AnalyticConjugated[Categorical, Categorical]):
             return nat_j - obs_nat
 
         int_nat = jnp.stack(
-            [compute_int_col(j) for j in range(1, self.n_states)], axis=1
+            [compute_int_col(j) for j in range(1, n_states)], axis=1
         )
 
         return self.lkl_fun_man.join_coords(obs_nat, int_nat.reshape(-1))
+
+
+@dataclass(frozen=True)
+class CategoricalKernel(_CategoricalConjugated):
+    """Symmetric Cat-Cat conjugated harmonium kernel: $p(z_t \\mid z_{t-1})$ with both states ``Categorical(n_{\\rm states})``."""
+
+    def __init__(self, n_states: int):
+        cat = Categorical(n_states)
+        super().__init__(_obs_man=cat, _lat_man=cat)
+
+    @property
+    def n_states(self) -> int:
+        return self._lat_man.n_categories
 
 
 @dataclass(frozen=True)
@@ -156,81 +173,24 @@ def create_categorical_transition(n_states: int) -> CategoricalTransition:
 
 
 @dataclass(frozen=True)
-class CategoricalEmission(AnalyticConjugated[Categorical, Categorical]):
+class CategoricalEmission(_CategoricalConjugated):
     """HMM emission harmonium: $p(x_t \\mid z_t)$ with ``Categorical(n_{\\rm obs})`` observations and ``Categorical(n_{\\rm states})`` states.
 
     Asymmetric: the number of observation categories and latent states can differ. This is a kernel only; not a ``Transition``.
     """
 
-    n_obs: int
-    n_states: int
-
-    @property
-    @override
-    def lat_man(self) -> Categorical:
-        return Categorical(self.n_states)
-
-    @property
-    @override
-    def obs_man(self) -> Categorical:
-        return Categorical(self.n_obs)
-
-    @property
-    @override
-    def int_man(self) -> EmbeddedMap[Categorical, Categorical]:
-        return EmbeddedMap(
-            Rectangular(),
-            IdentityEmbedding(self.lat_man),
-            IdentityEmbedding(self.obs_man),
+    def __init__(self, n_obs: int, n_states: int):
+        super().__init__(
+            _obs_man=Categorical(n_obs), _lat_man=Categorical(n_states)
         )
 
-    @override
-    def conjugation_parameters(self, lkl_params: Array) -> Array:
-        obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
-        psi_base = self.obs_man.log_partition_function(obs_bias)
-        obs_dim = self.obs_man.dim
-        lat_dim = self.lat_man.dim
-        int_matrix = int_mat.reshape((obs_dim, lat_dim))
+    @property
+    def n_obs(self) -> int:
+        return self._obs_man.n_categories
 
-        def compute_rho_k(col_k: Array) -> Array:
-            return self.obs_man.log_partition_function(obs_bias + col_k) - psi_base
-
-        return jax.vmap(compute_rho_k)(int_matrix.T)
-
-    @override
-    def to_natural_likelihood(self, means: Array) -> Array:
-        obs_means, int_means, lat_means = self.split_coords(means)
-        obs_probs = self.obs_man.to_probs(obs_means)
-        lat_probs = self.lat_man.to_probs(lat_means)
-        obs_dim = self.obs_man.dim
-        lat_dim = self.lat_man.dim
-        int_matrix = int_means.reshape((obs_dim, lat_dim))
-
-        joint_probs = jnp.zeros((self.n_obs, self.n_states))
-        joint_probs = joint_probs.at[1:, 1:].set(int_matrix)
-        col0_nonref = obs_probs[1:] - jnp.sum(int_matrix, axis=1)
-        joint_probs = joint_probs.at[1:, 0].set(col0_nonref)
-        joint_probs = joint_probs.at[0, 1:].set(
-            lat_probs[1:] - jnp.sum(int_matrix, axis=0)
-        )
-        joint_probs = joint_probs.at[0, 0].set(lat_probs[0] - jnp.sum(col0_nonref))
-
-        eps = 1e-10
-        cond_probs = joint_probs / (lat_probs[None, :] + eps)
-
-        cond_given_lat0 = cond_probs[:, 0]
-        obs_nat = jnp.log(cond_given_lat0[1:] + eps) - jnp.log(cond_given_lat0[0] + eps)
-
-        def compute_int_col(j: int) -> Array:
-            cond_j = cond_probs[:, j]
-            nat_j = jnp.log(cond_j[1:] + eps) - jnp.log(cond_j[0] + eps)
-            return nat_j - obs_nat
-
-        int_nat = jnp.stack(
-            [compute_int_col(j) for j in range(1, self.n_states)], axis=1
-        )
-
-        return self.lkl_fun_man.join_coords(obs_nat, int_nat.reshape(-1))
+    @property
+    def n_states(self) -> int:
+        return self._lat_man.n_categories
 
 
 # =============================================================================
@@ -240,11 +200,9 @@ class CategoricalEmission(AnalyticConjugated[Categorical, Categorical]):
 
 @dataclass(frozen=True)
 class MLPTransition[L: Differentiable](Transition[L]):
-    """A stateless MLP-based transition: belief natural params $\\to$ predicted natural params via a feedforward network.
+    """An MLP-based transition: belief natural params $\\to$ predicted natural params via a feedforward network.
 
-    The transition's parameters are exactly the wrapped MLP's parameters; ``init_aux`` returns an empty array.
-
-    For codomains with parameter constraints (e.g. positive-definite Gaussian precision), use a constraint-respecting ``MLPMap`` subclass to avoid emitting invalid natural parameters.
+    The transition's parameters are exactly the wrapped MLP's parameters. For codomains with parameter constraints (e.g. positive-definite Gaussian precision), use a constraint-respecting ``MLPMap`` subclass to avoid emitting invalid natural parameters.
     """
 
     mlp: MLPMap[L, L]
@@ -260,59 +218,8 @@ class MLPTransition[L: Differentiable](Transition[L]):
         return self.mlp.dim
 
     @override
-    def init_aux(self, key: Array) -> Array:
-        return jnp.zeros(0)
-
-    @override
-    def predict(
-        self, params: Array, belief: Array, aux: Array
-    ) -> tuple[Array, Array]:
-        return self.mlp(params, belief), aux
-
-
-# =============================================================================
-# Homogeneous Gaussian Markov Chain
-# =============================================================================
-
-
-@dataclass(frozen=True)
-class HomogeneousGaussianMarkovChain(AnalyticHomogeneousMarkovProcess[FullNormal]):
-    """Homogeneous fully-observed Gaussian Markov chain: each edge is a symmetric Gaussian harmonium kernel."""
-
-    trns_hrm: NormalAnalyticLGM[PositiveDefinite]
-
-
-def create_homogeneous_gaussian_markov_chain(
-    lat_dim: int, n_steps: int
-) -> HomogeneousGaussianMarkovChain:
-    """Create a homogeneous fully-observed Gaussian Markov chain.
-
-    Args:
-        lat_dim: Dimension of each Gaussian state.
-        n_steps: Number of transitions; the chain has ``n_steps + 1`` states.
-    """
-    return HomogeneousGaussianMarkovChain(
-        n_steps=n_steps,
-        trns_hrm=NormalAnalyticLGM(
-            obs_dim=lat_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim
-        ),
-    )
-
-
-# =============================================================================
-# Normal Emission
-# =============================================================================
-
-
-@dataclass(frozen=True)
-class NormalEmission(NormalAnalyticLGM[PositiveDefinite]):
-    """Linear Gaussian emission $p(x_t \\mid z_t) = N(C z_t, R)$ for a Kalman filter.
-
-    Asymmetric: ``obs_dim`` and ``lat_dim`` may differ. A typed convenience over ``NormalAnalyticLGM[PositiveDefinite]``.
-    """
-
-    def __init__(self, obs_dim: int, lat_dim: int):
-        super().__init__(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
+    def predict(self, params: Array, belief: Array) -> Array:
+        return self.mlp(params, belief)
 
 
 # =============================================================================
@@ -352,7 +259,9 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
     @property
     @override
     def emsn_hrm(self) -> NormalEmission:
-        return NormalEmission(obs_dim=self.obs_dim, lat_dim=self._lat_dim)
+        return NormalAnalyticLGM(
+            obs_dim=self.obs_dim, obs_rep=PositiveDefinite(), lat_dim=self._lat_dim
+        )
 
     @property
     @override
@@ -481,14 +390,12 @@ __all__ = [
     "CategoricalKernel",
     "CategoricalTransition",
     "HiddenMarkovModel",
-    "HomogeneousGaussianMarkovChain",
     "KalmanFilter",
     "LinearGaussianTransition",
     "MLPTransition",
     "NormalEmission",
     "create_categorical_transition",
     "create_hidden_markov_model",
-    "create_homogeneous_gaussian_markov_chain",
     "create_kalman_filter",
     "create_linear_gaussian_transition",
 ]

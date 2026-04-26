@@ -13,19 +13,6 @@ Class Hierarchy
 
 \
 
-Homogeneous Markov Processes
-----------------------------
-
-.. autoclass:: goal.geometry.exponential_family.dynamical.HomogeneousMarkovProcess
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.exponential_family.dynamical.AnalyticHomogeneousMarkovProcess
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Transitions
 -----------
 

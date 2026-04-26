@@ -1,5 +1,5 @@
-Transitions, Emissions, and Markov Chains
-=========================================
+Transitions and Emissions
+=========================
 
 .. automodule:: goal.models.dynamical
    :noindex:
@@ -47,13 +47,3 @@ MLP
    :members:
    :undoc-members:
    :show-inheritance:
-
-Homogeneous Markov Chains
--------------------------
-
-.. autoclass:: goal.models.dynamical.HomogeneousGaussianMarkovChain
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autofunction:: goal.models.dynamical.create_homogeneous_gaussian_markov_chain

@@ -1,7 +1,7 @@
 Dynamical Subpackage
 ====================
 
-State-space and Markov-process models. The ``Transition`` ladder lets the same ``LatentProcess`` carry an analytic Gaussian or categorical kernel, or a feedforward / recurrent map for hybrid filters with BPTT through alternating predict and conjugate update.
+State-space models. The ``Transition`` ladder lets the same ``LatentProcess`` carry an analytic Gaussian or categorical kernel, or a feedforward / recurrent map for hybrid filters with BPTT through alternating predict and conjugate update.
 
 .. toctree::
    :maxdepth: 1

@@ -21,14 +21,6 @@ Maps
    :undoc-members:
    :show-inheritance:
 
-Stateful Maps
--------------
-
-.. autoclass:: goal.geometry.manifold.map.StatefulMap
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Multi-Layer Perceptron
 ----------------------
 

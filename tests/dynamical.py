@@ -1,11 +1,9 @@
 """Tests for geometry/exponential_family/dynamical.py and models/dynamical/.
 
 Covers:
-- HomogeneousMarkovProcess (flat-EF fully observed Markov chain) via HomogeneousGaussianMarkovChain.
 - Transition / AnalyticTransition predict shape and round-trip for LinearGaussianTransition and CategoricalTransition.
 - MLPTransition shape, gradient flow.
-
-Concrete state-space leaves (KalmanFilter, HiddenMarkovModel) are tested in later phases.
+- KalmanFilter and HiddenMarkovModel end-to-end (sample, filter, smooth, EM).
 """
 
 import jax
@@ -17,12 +15,10 @@ from goal.geometry import MLPMap
 from goal.models import (
     Categorical,
     HiddenMarkovModel,
-    HomogeneousGaussianMarkovChain,
     KalmanFilter,
     MLPTransition,
     create_categorical_transition,
     create_hidden_markov_model,
-    create_homogeneous_gaussian_markov_chain,
     create_kalman_filter,
     create_linear_gaussian_transition,
 )
@@ -34,93 +30,8 @@ RTOL = 1e-4
 ATOL = 1e-4
 
 
-@pytest.fixture
-def chain_2d_3steps() -> tuple[HomogeneousGaussianMarkovChain, Array]:
-    """A 2D Gaussian chain with 3 transitions (4 states), random natural params."""
-    chain = create_homogeneous_gaussian_markov_chain(lat_dim=2, n_steps=3)
-    params = chain.initialize(jax.random.PRNGKey(0), location=0.0, shape=0.05)
-    return chain, params
-
-
-class TestHomogeneousGaussianMarkovChain:
-    """Sanity checks for the flat-EF Gaussian Markov chain."""
-
-    def test_dim_matches_transition(
-        self, chain_2d_3steps: tuple[HomogeneousGaussianMarkovChain, Array]
-    ) -> None:
-        """A homogeneous chain has the same number of params as one transition."""
-        chain, _ = chain_2d_3steps
-        assert chain.dim == chain.trns_hrm.dim
-
-    def test_data_dim(
-        self, chain_2d_3steps: tuple[HomogeneousGaussianMarkovChain, Array]
-    ) -> None:
-        """data_dim = (n_steps + 1) * state_data_dim."""
-        chain, _ = chain_2d_3steps
-        assert chain.data_dim == (chain.n_steps + 1) * chain.state_man.data_dim
-
-    def test_sample_shape(
-        self, chain_2d_3steps: tuple[HomogeneousGaussianMarkovChain, Array]
-    ) -> None:
-        """sample(n=K) returns (K, data_dim)."""
-        chain, params = chain_2d_3steps
-        samples = chain.sample(jax.random.PRNGKey(1), params, n=8)
-        assert samples.shape == (8, chain.data_dim)
-
-    def test_log_partition_finite(
-        self, chain_2d_3steps: tuple[HomogeneousGaussianMarkovChain, Array]
-    ) -> None:
-        chain, params = chain_2d_3steps
-        psi = chain.log_partition_function(params)
-        assert jnp.isfinite(psi)
-
-    def test_to_natural_round_trip(
-        self, chain_2d_3steps: tuple[HomogeneousGaussianMarkovChain, Array]
-    ) -> None:
-        """to_natural(to_mean(params)) recovers the original natural params."""
-        chain, params = chain_2d_3steps
-        means = chain.to_mean(params)
-        recovered = chain.to_natural(means)
-        assert jnp.allclose(recovered, params, rtol=RTOL, atol=ATOL)
-
-    def test_sufficient_statistic_shape(
-        self, chain_2d_3steps: tuple[HomogeneousGaussianMarkovChain, Array]
-    ) -> None:
-        """The sufficient statistic of a trajectory has shape (dim,)."""
-        chain, params = chain_2d_3steps
-        samples = chain.sample(jax.random.PRNGKey(2), params, n=1)
-        suff = chain.sufficient_statistic(samples[0])
-        assert suff.shape == (chain.dim,)
-
-    def test_empirical_mean_matches_to_mean(
-        self, chain_2d_3steps: tuple[HomogeneousGaussianMarkovChain, Array]
-    ) -> None:
-        """E[s(x)] under the model matches to_mean(params), via large-n sampling."""
-        chain, params = chain_2d_3steps
-        samples = chain.sample(jax.random.PRNGKey(3), params, n=20_000)
-        empirical = jax.vmap(chain.sufficient_statistic)(samples).mean(axis=0)
-        analytic = chain.to_mean(params)
-        # Loose tolerance --- 20k samples + a 4-state chain has nontrivial variance
-        assert jnp.allclose(empirical, analytic, atol=0.1)
-
-    @pytest.mark.parametrize("n_steps", [1, 2, 3, 5])
-    def test_n_steps_variants(self, n_steps: int) -> None:
-        """The chain is well-formed for various n_steps."""
-        chain = create_homogeneous_gaussian_markov_chain(lat_dim=2, n_steps=n_steps)
-        params = chain.initialize(jax.random.PRNGKey(0), shape=0.05)
-        samples = chain.sample(jax.random.PRNGKey(1), params, n=4)
-        assert samples.shape == (4, (n_steps + 1) * 2)
-        psi = chain.log_partition_function(params)
-        assert jnp.isfinite(psi)
-
-    def test_n_steps_zero_raises(self) -> None:
-        """n_steps < 1 is rejected."""
-        with pytest.raises(ValueError):
-            create_homogeneous_gaussian_markov_chain(lat_dim=2, n_steps=0)
-
-
 class TestLinearGaussianTransition:
-    """Predict, kernel access, init_aux for LinearGaussianTransition."""
+    """Predict and kernel access for LinearGaussianTransition."""
 
     def test_dim_matches_kernel(self) -> None:
         trans = create_linear_gaussian_transition(lat_dim=2)
@@ -130,31 +41,22 @@ class TestLinearGaussianTransition:
         trans = create_linear_gaussian_transition(lat_dim=3)
         assert trans.lat_man.data_dim == trans.kernel.lat_man.data_dim
 
-    def test_init_aux_empty(self) -> None:
-        trans = create_linear_gaussian_transition(lat_dim=2)
-        aux = trans.init_aux(jax.random.PRNGKey(0))
-        assert aux.shape == (0,)
-
     def test_predict_shape(self) -> None:
-        """predict returns (predicted, aux) with predicted in lat_man's natural-param space."""
+        """predict returns natural params in lat_man's space."""
         trans = create_linear_gaussian_transition(lat_dim=2)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.05)
         belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.05)
-        aux = trans.init_aux(jax.random.PRNGKey(2))
-        predicted, new_aux = trans.predict(params, belief, aux)
+        predicted = trans.predict(params, belief)
         assert predicted.shape == (trans.lat_man.dim,)
-        assert new_aux.shape == aux.shape
 
     def test_predict_differentiable(self) -> None:
         """jax.grad of a scalar of predict's output is finite (BPTT-friendly)."""
         trans = create_linear_gaussian_transition(lat_dim=2)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.05)
         belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.05)
-        aux = trans.init_aux(jax.random.PRNGKey(2))
 
         def loss(p: Array) -> Array:
-            pred, _ = trans.predict(p, belief, aux)
-            return jnp.sum(pred**2)
+            return jnp.sum(trans.predict(p, belief) ** 2)
 
         grads = jax.grad(loss)(params)
         assert grads.shape == params.shape
@@ -172,8 +74,7 @@ class TestCategoricalTransition:
         trans = create_categorical_transition(n_states=4)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.1)
         belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.1)
-        aux = trans.init_aux(jax.random.PRNGKey(2))
-        predicted, _ = trans.predict(params, belief, aux)
+        predicted = trans.predict(params, belief)
         assert predicted.shape == (trans.lat_man.dim,)
 
     def test_predict_differentiable(self) -> None:
@@ -181,11 +82,9 @@ class TestCategoricalTransition:
         trans = create_categorical_transition(n_states=3)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.1)
         belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.1)
-        aux = trans.init_aux(jax.random.PRNGKey(2))
 
         def loss(p: Array) -> Array:
-            pred, _ = trans.predict(p, belief, aux)
-            return jnp.sum(pred**2)
+            return jnp.sum(trans.predict(p, belief) ** 2)
 
         grads = jax.grad(loss)(params)
         assert jnp.all(jnp.isfinite(grads))
@@ -212,8 +111,7 @@ class TestMLPTransition:
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
         belief = jnp.zeros(lat.dim)
-        aux = trans.init_aux(jax.random.PRNGKey(1))
-        predicted, _ = trans.predict(params, belief, aux)
+        predicted = trans.predict(params, belief)
         assert predicted.shape == (lat.dim,)
 
     def test_bptt_smoke(self) -> None:
@@ -223,11 +121,10 @@ class TestMLPTransition:
         mlp = MLPMap(lat, lat, hidden_dims=(4,))
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
-        aux = trans.init_aux(jax.random.PRNGKey(1))
 
         def total(p: Array) -> Array:
             def step(belief: Array, _scan_input: None) -> tuple[Array, Array]:
-                predicted, _new_aux = trans.predict(p, belief, aux)
+                predicted = trans.predict(p, belief)
                 # Dummy "update": shift by a fixed observation embedding
                 updated = predicted + 0.1
                 return updated, updated
@@ -521,12 +418,11 @@ class TestMLPBPTTGradientDescent:
         mlp = MLPMap(lat, lat, hidden_dims=(8,))
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
-        aux = trans.init_aux(jax.random.PRNGKey(1))
         target = jnp.array([0.3, 0.5])  # arbitrary target in lat_man's nat space
 
         def loss(p: Array) -> Array:
             belief = jnp.zeros(lat.dim)
-            predicted, _ = trans.predict(p, belief, aux)
+            predicted = trans.predict(p, belief)
             return jnp.sum((predicted - target) ** 2)
 
         initial_loss = loss(params)

@@ -61,7 +61,6 @@ from .manifold.map import (
     MLPMap,
     Map,
     SquareMap,
-    StatefulMap,
 )
 from .manifold.matrix import (
     Diagonal,
@@ -119,7 +118,6 @@ __all__ = [
     "Scale",
     "Square",
     "SquareMap",
-    "StatefulMap",
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",

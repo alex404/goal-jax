@@ -29,8 +29,6 @@ jobs:
           echo "backend: Agg" > matplotlibrc
       - name: Run examples
         run: |
-          python -m examples.bivariate_normal.run
-          python -m examples.bivariate_normal.plot
           python -m examples.boltzmann.run
           python -m examples.boltzmann.plot
           python -m examples.boltzmann_lgm.run
@@ -39,12 +37,18 @@ jobs:
           python -m examples.boltzmann_lgm_cd.plot
           python -m examples.dimensionality_reduction.run
           python -m examples.dimensionality_reduction.plot
+          python -m examples.hmm.run
+          python -m examples.hmm.plot
           python -m examples.hmog.run
           python -m examples.hmog.plot
+          python -m examples.kalman_filter.run
+          python -m examples.kalman_filter.plot
           python -m examples.mfa.run
           python -m examples.mfa.plot
           python -m examples.mixture_of_gaussians.run
           python -m examples.mixture_of_gaussians.plot
+          python -m examples.multivariate.run
+          python -m examples.multivariate.plot
           python -m examples.poisson_mixture.run
           python -m examples.poisson_mixture.plot
           python -m examples.population_codes.run

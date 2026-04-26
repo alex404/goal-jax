@@ -28,7 +28,7 @@ class Map[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
 
     The contract is just enough to apply the function: a domain manifold, a codomain manifold, and ``__call__`` that takes parameters and a domain point and returns a codomain point. ``dim`` (inherited from ``Manifold``) is the number of parameters.
 
-    Subclasses specialize the structure: ``LinearMap`` for linear transformations with matrix representations, and (in later phases) ``MLPMap`` for feedforward networks. ``StatefulMap`` is a sibling abstraction with a different application signature for stateful maps (RNNs).
+    Subclasses specialize the structure: ``LinearMap`` for linear transformations with matrix representations, and ``MLPMap`` for feedforward networks.
     """
 
     # Contract
@@ -443,50 +443,6 @@ class AffineMap[
         """Apply the affine map: $L(v) + b$."""
         bias, linear = self.split_coords(f_coords)
         return bias + self.snd_man(linear, v_coords)
-
-
-### Stateful Maps ###
-
-
-@dataclass(frozen=True)
-class StatefulMap[
-    Domain: Manifold,
-    Codomain: Manifold,
-    State: Manifold,
-](Manifold, ABC):
-    """A parameterized map that carries a hidden state across applications.
-
-    Sibling to ``Map`` with a different application signature: each call takes a state in addition to the input and produces a new state along with the output. Used for recurrent dynamics (RNNs, GRUs, LSTMs) where the map's output depends on a running summary of past inputs.
-
-    Like ``Map``, ``StatefulMap`` is itself a ``Manifold`` whose points are the function's parameters; the state is a separate array that flows between calls.
-    """
-
-    # Contract
-
-    @property
-    @abstractmethod
-    def dom_man(self) -> Domain:
-        """The domain manifold."""
-
-    @property
-    @abstractmethod
-    def cod_man(self) -> Codomain:
-        """The codomain manifold."""
-
-    @property
-    @abstractmethod
-    def state_man(self) -> State:
-        """The state manifold."""
-
-    @abstractmethod
-    def init_state(self, key: Array) -> Array:
-        """Initialize a state array."""
-
-    @abstractmethod
-    def __call__(
-        self, f_coords: Array, v_coords: Array, state: Array
-    ) -> tuple[Array, Array]:
-        """Apply the map: takes parameters, a domain point, and a state; returns (codomain point, new state)."""
 
 
 ### Multi-Layer Perceptron ###

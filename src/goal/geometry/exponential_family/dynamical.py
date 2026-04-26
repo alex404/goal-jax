@@ -1,12 +1,10 @@
-"""Dynamical exponential families: homogeneous Markov chains and transition abstractions.
+"""Dynamical exponential families: transition abstractions and latent processes.
 
 This module contains:
 
-- ``HomogeneousMarkovProcess[L]`` / ``AnalyticHomogeneousMarkovProcess[L]`` --- fully observed Markov chains on a path graph, as flat exponential families.
 - ``Transition[L]`` --- a parameterized predict map on belief natural parameters, the headline primitive for filtering. Stateless or stateful; gradient-friendly for BPTT.
 - ``AnalyticTransition[L]`` --- a Transition backed by a ``SymmetricConjugated`` harmonium kernel, so the predict step is derived analytically and the same parameters support smoothing and exact EM in later phases.
-
-State-space models with hidden latents (Kalman filter, HMM, hybrid filters) compose a ``DifferentiableConjugated`` emission with a ``Transition`` and live in later phases.
+- ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition.
 """
 
 from __future__ import annotations
@@ -29,196 +27,10 @@ from .harmonium import (
 
 
 @dataclass(frozen=True)
-class HomogeneousMarkovProcess[L: Differentiable](Differentiable, ABC):
-    """Homogeneous fully-observed Markov chain as a flat exponential family.
-
-    The chain models an undirected Markov random field on a path graph with ``n_steps`` edges and ``n_steps + 1`` nodes, parameterized by a single one-step transition harmonium ``trns_hrm``. Natural parameters are a single copy of the harmonium's parameters ``[obs_params, int_params, lat_params]``, and the sufficient statistic of a trajectory is the sum of the per-edge transition sufficient statistics.
-
-    In the transition harmonium's convention, ``obs`` is the left node and ``lat`` is the right node of each edge. The leftmost node receives only ``obs_params`` bias, interior nodes receive ``obs_params + lat_params``, and the rightmost node receives only ``lat_params``.
-
-    All operations use ``jax.lax.scan`` / ``jax.vmap`` rather than Python recursion, giving constant Python overhead in ``n_steps``.
-    """
-
-    # Fields
-
-    n_steps: int
-    trns_hrm: SymmetricConjugated[L, L]
-
-    def __post_init__(self) -> None:
-        if self.n_steps < 1:
-            raise ValueError("HomogeneousMarkovProcess requires n_steps >= 1.")
-
-    # Methods
-
-    @property
-    def state_man(self) -> L:
-        """State manifold (same as ``trns_hrm.obs_man`` and ``trns_hrm.lat_man``)."""
-        return self.trns_hrm.obs_man
-
-    def reshape_trajectory(self, trajectory: Array) -> Array:
-        """Reshape a flat trajectory to ``(n_steps + 1, state_data_dim)``."""
-        return trajectory.reshape(self.n_steps + 1, self.state_man.data_dim)
-
-    # Overrides
-
-    @override
-    def initialize(
-        self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Array:
-        """Delegate to the transition harmonium's initialization."""
-        return self.trns_hrm.initialize(key, location, shape)
-
-    @property
-    @override
-    def dim(self) -> int:
-        return self.trns_hrm.dim
-
-    @property
-    @override
-    def data_dim(self) -> int:
-        return (self.n_steps + 1) * self.state_man.data_dim
-
-    @override
-    def sufficient_statistic(self, x: Array) -> Array:
-        """Sum of pairwise transition sufficient statistics via ``jax.vmap``."""
-        states = self.reshape_trajectory(x)
-        pairs = jnp.concatenate([states[:-1], states[1:]], axis=-1)
-        pair_stats = jax.vmap(self.trns_hrm.sufficient_statistic)(pairs)
-        return jnp.sum(pair_stats, axis=0)
-
-    @override
-    def log_base_measure(self, x: Array) -> Array:
-        """Sum of per-state base measures."""
-        states = self.reshape_trajectory(x)
-        return jnp.sum(jax.vmap(self.state_man.log_base_measure)(states))
-
-    @override
-    def log_partition_function(self, params: Array) -> Array:
-        """Compute log partition via forward scan (transfer-matrix method).
-
-        Integrates states left-to-right using conjugation parameters. The leftmost state has bias ``obs_params``, interior states accumulate ``obs_params + lat_params + rho``, and the rightmost state gets ``lat_params + rho``.
-        """
-        obs_params, int_params, lat_params = self.trns_hrm.split_coords(params)
-        lkl_fun_man = self.trns_hrm.lkl_fun_man
-
-        def compute_rho(f: Array) -> Array:
-            lkl = lkl_fun_man.join_coords(f, int_params)
-            return self.trns_hrm.conjugation_parameters(lkl)
-
-        def interior_step(f: Array, _: None) -> tuple[Array, Array]:
-            rho = compute_rho(f)
-            psi = self.state_man.log_partition_function(f)
-            f_next = obs_params + lat_params + rho
-            return f_next, psi
-
-        f_init = obs_params
-        f_last, psi_terms = jax.lax.scan(
-            interior_step, f_init, None, length=self.n_steps - 1
-        )
-
-        rho_final = compute_rho(f_last)
-        psi_last = self.state_man.log_partition_function(f_last)
-        psi_final = self.state_man.log_partition_function(lat_params + rho_final)
-
-        return jnp.sum(psi_terms) + psi_last + psi_final
-
-    @override
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Sample trajectories via forward-filtering backward-sampling.
-
-        Computes forward messages (marginal natural params for each state), then samples backward from the rightmost to leftmost node.
-        """
-        obs_params, int_params, lat_params = self.trns_hrm.split_coords(params)
-        lkl_fun_man = self.trns_hrm.lkl_fun_man
-
-        def compute_rho(f: Array) -> Array:
-            lkl = lkl_fun_man.join_coords(f, int_params)
-            return self.trns_hrm.conjugation_parameters(lkl)
-
-        def fwd_step(f: Array, _: None) -> tuple[Array, Array]:
-            rho = compute_rho(f)
-            f_next = obs_params + lat_params + rho
-            return f_next, f
-
-        f_init = obs_params
-        f_last, f_interior = jax.lax.scan(
-            fwd_step, f_init, None, length=self.n_steps - 1
-        )
-
-        rho_final = compute_rho(f_last)
-        f_rightmost = lat_params + rho_final
-
-        # Forward messages ordered left-to-right: shape (n_steps + 1, dim)
-        all_f = jnp.concatenate([f_interior, f_last[None], f_rightmost[None]])
-
-        def sample_one(key: Array) -> Array:
-            key_last, key_rest = jax.random.split(key)
-            x_last = self.state_man.sample(key_last, all_f[-1], n=1)[0]
-
-            def bwd_step(
-                x_right: Array, carry: tuple[Array, Array]
-            ) -> tuple[Array, Array]:
-                f_k, key_k = carry
-                s_right = self.state_man.sufficient_statistic(x_right)
-                cond_params = f_k + self.trns_hrm.int_man(int_params, s_right)
-                x_k = self.state_man.sample(key_k, cond_params, n=1)[0]
-                return x_k, x_k
-
-            keys_bwd = jax.random.split(key_rest, self.n_steps)
-            f_reversed = all_f[:-1][::-1]
-            keys_reversed = keys_bwd[::-1]
-
-            _, states_reversed = jax.lax.scan(
-                bwd_step, x_last, (f_reversed, keys_reversed)
-            )
-            states_fwd = states_reversed[::-1]
-            return jnp.concatenate([states_fwd.reshape(-1), x_last])
-
-        keys = jax.random.split(key, n)
-        return jax.vmap(sample_one)(keys)
-
-
-@dataclass(frozen=True)
-class AnalyticHomogeneousMarkovProcess[L: Analytic](
-    HomogeneousMarkovProcess[L], Analytic, ABC
-):
-    """Homogeneous Markov chain with analytic mean-to-natural conversion.
-
-    Adds ``to_natural`` (via Newton iteration on the log-partition Hessian) and ``negative_entropy``, enabling closed-form EM.
-    """
-
-    trns_hrm: AnalyticConjugated[L, L]
-
-    @override
-    def to_natural(self, means: Array) -> Array:
-        """Invert ``to_mean`` via Newton-Raphson on the log-partition function.
-
-        Uses the transition harmonium's ``to_natural`` as an initial guess (exact for ``n_steps == 1``) and refines with Newton steps.
-        """
-        init = self.trns_hrm.to_natural(means)
-
-        def newton_step(params: Array, _: None) -> tuple[Array, None]:
-            residual = self.to_mean(params) - means
-            hessian = jax.hessian(self.log_partition_function)(params)
-            delta = jnp.linalg.solve(hessian, residual)
-            return params - delta, None
-
-        result, _ = jax.lax.scan(newton_step, init, None, length=10)
-        return result
-
-    @override
-    def negative_entropy(self, means: Array) -> Array:
-        params = self.to_natural(means)
-        return jnp.dot(params, means) - self.log_partition_function(params)
-
-
-@dataclass(frozen=True)
 class Transition[L: Differentiable](Manifold, ABC):
     """A parameterized predict map on a latent manifold's natural parameters.
 
-    Given the natural parameters of the current belief and an auxiliary state, returns the natural parameters of the predicted belief and the next auxiliary state. Supports both stateless maps (``init_aux`` returns an empty array) and stateful maps (an RNN's hidden state).
-
-    The contract is just enough to drive the filter scan: the LatentProcess does ``predicted, aux = transition.predict(params, belief, aux)`` and feeds ``predicted`` into a conjugate observation update. Subclasses choose how to parameterize the predict map; ``AnalyticTransition`` derives it from a harmonium kernel, while ``MLPTransition`` (defined in the model layer) wraps a feedforward network.
+    Given the natural parameters of the current belief, returns the natural parameters of the predicted belief. The contract is just enough to drive the filter scan: the LatentProcess does ``predicted = transition.predict(params, belief)`` and feeds ``predicted`` into a conjugate observation update. Subclasses choose how to parameterize the predict map; ``AnalyticTransition`` derives it from a harmonium kernel, while ``MLPTransition`` (defined in the model layer) wraps a feedforward network.
     """
 
     # Contract
@@ -229,24 +41,28 @@ class Transition[L: Differentiable](Manifold, ABC):
         """The latent manifold whose natural parameters we predict."""
 
     @abstractmethod
-    def init_aux(self, key: Array) -> Array:
-        """Initialize the auxiliary state. Returns ``jnp.zeros(0)`` for stateless transitions."""
+    def predict(self, params: Array, belief: Array) -> Array:
+        """Predict next belief from current belief."""
 
-    @abstractmethod
-    def predict(
-        self, params: Array, belief: Array, aux: Array
-    ) -> tuple[Array, Array]:
-        """Predict next belief from current belief and auxiliary state.
 
-        Returns ``(predicted_belief_natural_params, new_aux)``.
-        """
+def transpose_harmonium[L: Differentiable](
+    hrm: SymmetricConjugated[L, L],
+    params: Array,
+) -> Array:
+    """Transpose a symmetric harmonium: swap observable/latent roles.
+
+    For a symmetric conjugated harmonium over $(L, L)$, returns parameters for the same harmonium with the obs and lat slots swapped and the interaction matrix transposed. Used for the backward step of smoothing.
+    """
+    obs_params, int_params, lat_params = hrm.split_coords(params)
+    int_params_t = hrm.int_man.transpose(int_params)
+    return hrm.join_coords(lat_params, int_params_t, obs_params)
 
 
 @dataclass(frozen=True)
 class AnalyticTransition[L: Analytic](Transition[L]):
     """A ``Transition`` backed by an ``AnalyticConjugated`` harmonium kernel.
 
-    The transition's parameters are exactly the kernel harmonium's natural parameters; ``predict`` is implemented via the kernel's ``split_conjugated`` / ``join_conjugated`` and the interaction matrix's ``transpose``. Stateless: ``init_aux`` returns an empty array.
+    The transition's parameters are exactly the kernel harmonium's natural parameters; ``predict`` is implemented via the kernel's ``split_conjugated`` / ``join_conjugated`` and the interaction matrix's ``transpose``.
 
     Composition (kernel as a field) rather than multiple inheritance keeps the class hierarchy clean for both the symmetric-Gaussian case (kernel is a ``NormalAnalyticLGM``) and the categorical case (kernel is a custom ``AnalyticConjugated[Categorical, Categorical]``). Subclasses may narrow the ``kernel`` field type.
 
@@ -266,34 +82,13 @@ class AnalyticTransition[L: Analytic](Transition[L]):
         return self.kernel.dim
 
     @override
-    def init_aux(self, key: Array) -> Array:
-        return jnp.zeros(0)
-
-    @override
-    def predict(
-        self, params: Array, belief: Array, aux: Array
-    ) -> tuple[Array, Array]:
+    def predict(self, params: Array, belief: Array) -> Array:
         kernel = self.kernel
         lkl_params, _ = kernel.split_conjugated(params)
         joined = kernel.join_conjugated(lkl_params, belief)
-        obs_p, int_p, lat_p = kernel.split_coords(joined)
-        int_p_t = kernel.int_man.transpose(int_p)
-        transposed = kernel.join_coords(lat_p, int_p_t, obs_p)
+        transposed = transpose_harmonium(kernel, joined)
         _, predicted = kernel.split_conjugated(transposed)
-        return predicted, aux
-
-
-def transpose_harmonium[L: Differentiable](
-    hrm: SymmetricConjugated[L, L],
-    params: Array,
-) -> Array:
-    """Transpose a symmetric harmonium: swap observable/latent roles.
-
-    For a symmetric conjugated harmonium over $(L, L)$, returns parameters for the same harmonium with the obs and lat slots swapped and the interaction matrix transposed. Used for the backward step of smoothing.
-    """
-    obs_params, int_params, lat_params = hrm.split_coords(params)
-    int_params_t = hrm.int_man.transpose(int_params)
-    return hrm.join_coords(lat_params, int_params_t, obs_params)
+        return predicted
 
 
 @dataclass(frozen=True)
@@ -347,51 +142,36 @@ class LatentProcess[
 
     # Methods
 
-    def filter(
-        self,
-        params: Array,
-        observations: Array,
-        aux_init: Array | None = None,
-    ) -> tuple[Array, Array]:
+    def filter(self, params: Array, observations: Array) -> tuple[Array, Array]:
         """Forward filter: returns ``(beliefs, log_likelihood)``.
 
         Iterates ``predict`` then conjugate-update over the observations sequence. Differentiable end-to-end: ``jax.grad`` of ``-log_likelihood`` w.r.t. (prior, emission, transition) params is BPTT through the scan.
-
-        ``aux_init`` defaults to ``transition.init_aux(jax.random.PRNGKey(0))`` for stateless transitions; pass an explicit value for stateful transitions where the initial state matters.
         """
         prior_params, emsn_params, trns_params = self.split_coords(params)
         emsn_hrm = self.emsn_hrm
         transition = self.transition
         emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
 
-        if aux_init is None:
-            aux_init = transition.init_aux(jax.random.PRNGKey(0))
-
         def step(
-            carry: tuple[Array, Array, Array], obs: Array
-        ) -> tuple[tuple[Array, Array, Array], Array]:
-            belief, aux, total_ll = carry
-            predicted, new_aux = transition.predict(trns_params, belief, aux)
+            carry: tuple[Array, Array], obs: Array
+        ) -> tuple[tuple[Array, Array], Array]:
+            belief, total_ll = carry
+            predicted = transition.predict(trns_params, belief)
             emsn_with_pred = emsn_hrm.join_conjugated(emsn_lkl_params, predicted)
             posterior = emsn_hrm.posterior_at(emsn_with_pred, obs)
             log_lik = emsn_hrm.log_observable_density(emsn_with_pred, obs)
-            return (posterior, new_aux, total_ll + log_lik), posterior
+            return (posterior, total_ll + log_lik), posterior
 
-        (_, _, log_likelihood), beliefs = jax.lax.scan(
+        (_, log_likelihood), beliefs = jax.lax.scan(
             step,
-            (prior_params, aux_init, jnp.array(0.0)),
+            (prior_params, jnp.array(0.0)),
             observations,
         )
         return beliefs, log_likelihood
 
-    def log_observable_density(
-        self,
-        params: Array,
-        observations: Array,
-        aux_init: Array | None = None,
-    ) -> Array:
+    def log_observable_density(self, params: Array, observations: Array) -> Array:
         """Log marginal $\\log p(x_{1:T})$ via forward filtering."""
-        _, log_likelihood = self.filter(params, observations, aux_init)
+        _, log_likelihood = self.filter(params, observations)
         return log_likelihood
 
 
