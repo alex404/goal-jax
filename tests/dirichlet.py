@@ -7,6 +7,7 @@ sampling.
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from jax.scipy.special import digamma
 
@@ -33,11 +34,13 @@ class TestDirichlet:
         x = jnp.array([0.1, 0.2, 0.3, 0.4])
         assert jnp.allclose(model.sufficient_statistic(x), jnp.log(x))
 
-    def test_log_partition_matches_lgamma_identity(self) -> None:
-        """psi(alpha) = sum(lgamma(alpha_i)) - lgamma(sum(alpha))."""
+    def test_log_partition_matches_scipy_gammaln(self) -> None:
+        """psi(alpha) = sum(gammaln(alpha_i)) - gammaln(sum(alpha)), checked against scipy."""
+        from scipy.special import gammaln
+
         model = Dirichlet(n_categories=3)
         alpha = jnp.array([3.0, 7.0, 5.0])
-        expected = jnp.sum(jax.lax.lgamma(alpha)) - jax.lax.lgamma(jnp.sum(alpha))
+        expected = float(gammaln(np.asarray(alpha)).sum() - gammaln(float(alpha.sum())))
         assert jnp.allclose(
             model.log_partition_function(alpha), expected, rtol=RTOL, atol=ATOL
         )
