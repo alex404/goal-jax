@@ -35,10 +35,10 @@ Hand-review checklist for the new code introduced in `944da5d` (Dirichlet) and `
 
 ### Module rename: `linear.py` → `map.py`
 
-- [ ] **`src/goal/geometry/manifold/map.py`** — generalized from `linear.py`. Adds `Map[D, C]` ABC and `MLPMap[D, C]` (Glorot init, configurable `hidden_dims` + `activation`). All previous `LinearMap` / `EmbeddedMap` / `BlockMap` / `AmbientMap` / `SquareMap` / `AffineMap` semantics preserved.
-- [ ] **`src/goal/geometry/__init__.py`** — exports `Map` and `MLPMap`.
-- [ ] **`docs/source/geometry/manifold/map.rst`** (renamed from `linear.rst`).
-- [ ] **`examples/variational_mnist/model.py`** — single-line import path update (`linear` → `map`).
+- [x] **`src/goal/geometry/manifold/map.py`** — generalized from `linear.py`. Adds `Map[D, C]` ABC and `MultilayerPerceptron[D, C]` (Glorot init, configurable `hidden_dims` + `activation`). All previous `LinearMap` / `EmbeddedMap` / `BlockMap` / `AmbientMap` / `SquareMap` / `AffineMap` semantics preserved. (Renamed `MLPMap` → `MultilayerPerceptron`; removed defaults on `hidden_dims` and `activation`; CLAUDE.md updated with no-defaults policy. `MLPTransition` not yet renamed for consistency.)
+- [x] **`src/goal/geometry/__init__.py`** — exports `Map` and `MultilayerPerceptron`.
+- [x] **`docs/source/geometry/manifold/map.rst`** (renamed from `linear.rst`).
+- [x] **`examples/variational_mnist/model.py`** — single-line import path update (`linear` → `map`).
 
 ### New geometry layer: `dynamical.py`
 
@@ -59,7 +59,7 @@ Hand-review checklist for the new code introduced in `944da5d` (Dirichlet) and `
 - [ ] **`CategoricalKernel(n_states)`** — square `_CategoricalConjugated` (obs = lat = `Categorical(n_states)`).
 - [ ] **`CategoricalEmission(n_obs, n_states)`** — rectangular `_CategoricalConjugated`.
 - [ ] **`CategoricalTransition(AnalyticTransition[Categorical])`** — wraps `CategoricalKernel`. Factory: `create_categorical_transition(n_states)`.
-- [ ] **`MLPTransition[L]`** — wraps `MLPMap[L, L]`; `predict` is one-line passthrough.
+- [ ] **`MLPTransition[L]`** — wraps `MultilayerPerceptron[L, L]`; `predict` is one-line passthrough.
 - [ ] **`KalmanFilter`** — `obs_dim` + `_lat_dim` fields with public `lat_dim` property. `from_standard(A, Q, C, R, μ₀, Σ₀)` builds via precision-weighted-interaction encoding. Factory: `create_kalman_filter(obs_dim, lat_dim)`. Verify `_build_harmonium` correctly composes emission/transition.
 - [ ] **`HiddenMarkovModel`** — `n_obs` + `_n_states` fields with public `n_states` property. Factory: `create_hidden_markov_model(n_obs, n_states)`.
 - [ ] **`src/goal/models/__init__.py`** — re-exports the above.
@@ -75,7 +75,7 @@ Hand-review checklist for the new code introduced in `944da5d` (Dirichlet) and `
   - `TestKalmanFilterCorrectness::test_em_monotone` — EM monotonicity over 5 iterations.
   - `TestHMMCorrectness::test_filter_matches_manual_forward` — strongest single test: decodes `(π, A, B)` from natural params and compares filter LL against a manual forward algorithm.
   - `TestMLPBPTTGradientDescent` — gradient descent reduces loss.
-- [ ] **`tests/map.py`** — LinearMap rename regression + MLPMap dim/call/Glorot tests.
+- [x] **`tests/map.py`** — LinearMap rename regression + MultilayerPerceptron dim/call/Glorot tests.
 
 ### Examples
 

@@ -24,7 +24,7 @@ Maps
 Multi-Layer Perceptron
 ----------------------
 
-.. autoclass:: goal.geometry.manifold.map.MLPMap
+.. autoclass:: goal.geometry.manifold.map.MultilayerPerceptron
    :members:
    :undoc-members:
    :show-inheritance:

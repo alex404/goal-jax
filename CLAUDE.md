@@ -84,7 +84,7 @@ The library is organized into three main modules under `src/goal/`:
 2. **Harmoniums**: Conjugate relationship modeling between latent and observed variables
    - `SymmetricConjugated`: Posterior and prior use the same manifold (`pst_man == prr_man`)
    - `DifferentiableConjugated[Obs, Pst, Prr]`: Supports asymmetric cases where posterior embeds into prior (`pst_man ⊂ prr_man` via `pst_prr_emb`)
-3. **Maps**: `Map[D, C]` is the generic ABC for parameterized functions between manifolds; `LinearMap[D, C]` (with matrix-rep specializations like `EmbeddedMap`, `SquareMap`, `AffineMap`) and `MLPMap[D, C]` are concrete leaves. `StatefulMap[D, C, S]` is a sibling for stateful (RNN-style) maps.
+3. **Maps**: `Map[D, C]` is the generic ABC for parameterized functions between manifolds; `LinearMap[D, C]` (with matrix-rep specializations like `EmbeddedMap`, `SquareMap`, `AffineMap`) and `MultilayerPerceptron[D, C]` are concrete leaves. `StatefulMap[D, C, S]` is a sibling for stateful (RNN-style) maps.
 4. **Transitions and LatentProcess**: `Transition[L]` is a predict map on belief natural parameters used by the BPTT-friendly filter scan. `AnalyticTransition[L]` wraps a `SymmetricConjugated[L, L]` kernel to enable smoothing and exact EM. `LatentProcess[O, L]` composes (prior, conjugated emission, transition) into a Triple; `AnalyticLatentProcess[O, L]` adds joint sampling, smoothing, and EM.
 5. **Combinators**: Composable building blocks for complex models (Product, Pair, Replicated)
 6. **Embeddings**: Flexible transformations between manifolds (e.g., `NormalCovarianceEmbedding` embeds `DiagonalNormal` into `FullNormal`)
@@ -104,7 +104,7 @@ This codebase uses Python 3.12+ modern generic syntax with a pragmatic approach 
 - **Pragmatic over purist**: Accept type system limitations rather than fight them when the code is functionally correct
 
 ### Dataclass field defaults
-Dataclass fields generally do **not** have default values. Modeling and architectural choices (e.g. `Binomial.n_trials`, `MLPMap.hidden_dims`, `MLPMap.activation`) must be made explicitly at every call site — defaults silently encode design decisions and tend to mask the degenerate case that callers shouldn't actually want (e.g. `Binomial(n_trials=1) == Bernoulli`). The narrow exception is **numerical/implementation details that callers shouldn't need to reason about** (e.g. `CoMPoisson.window_size = 200`, a truncation bound for an infinite series). When in doubt, omit the default.
+Dataclass fields generally do **not** have default values. Modeling and architectural choices (e.g. `Binomial.n_trials`, `MultilayerPerceptron.hidden_dims`, `MultilayerPerceptron.activation`) must be made explicitly at every call site — defaults silently encode design decisions and tend to mask the degenerate case that callers shouldn't actually want (e.g. `Binomial(n_trials=1) == Bernoulli`). The narrow exception is **numerical/implementation details that callers shouldn't need to reason about** (e.g. `CoMPoisson.window_size = 200`, a truncation bound for an infinite series). When in doubt, omit the default.
 
 ### Type Aliases
 The codebase defines convenient type aliases for common parameterized types:
@@ -178,7 +178,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | Test file | Source module(s) |
 |---|---|
 | `matrix.py` | `geometry/manifold/matrix.py` |
-| `map.py` | `geometry/manifold/map.py` (LinearMap rename regression + MLPMap) |
+| `map.py` | `geometry/manifold/map.py` (LinearMap rename regression + MultilayerPerceptron) |
 | `normal.py` | `models/base/gaussian/normal.py` |
 | `boltzmann.py` | `models/base/gaussian/boltzmann.py` |
 | `categorical.py` | `models/base/categorical.py` (Categorical, Bernoulli, Bernoullis) |

@@ -12,9 +12,6 @@ from .exponential_family.combinators import (
     LocationShape,
     Product,
 )
-from .exponential_family.protocols import (
-    StatisticalMoments,
-)
 from .exponential_family.graphical import (
     AnalyticHierarchical,
     DifferentiableHierarchical,
@@ -30,6 +27,9 @@ from .exponential_family.harmonium import (
     DifferentiableConjugated,
     Harmonium,
     SymmetricConjugated,
+)
+from .exponential_family.protocols import (
+    StatisticalMoments,
 )
 from .exponential_family.variational import (
     VariationalConjugated,
@@ -58,8 +58,8 @@ from .manifold.map import (
     BlockMap,
     EmbeddedMap,
     LinearMap,
-    MLPMap,
     Map,
+    MultilayerPerceptron,
     SquareMap,
 )
 from .manifold.matrix import (
@@ -103,10 +103,10 @@ __all__ = [
     "LinearEmbedding",
     "LinearMap",
     "LocationShape",
-    "MLPMap",
     "Manifold",
     "Map",
     "MatrixRep",
+    "MultilayerPerceptron",
     "Null",
     "ObservableEmbedding",
     "Pair",

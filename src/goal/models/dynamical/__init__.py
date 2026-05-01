@@ -21,7 +21,7 @@ from ...geometry import (
     AnalyticConjugated,
     EmbeddedMap,
     IdentityEmbedding,
-    MLPMap,
+    MultilayerPerceptron,
     PositiveDefinite,
     Rectangular,
 )
@@ -140,9 +140,7 @@ class _CategoricalConjugated(AnalyticConjugated[Categorical, Categorical]):
             nat_j = jnp.log(cond_j[1:] + eps) - jnp.log(cond_j[0] + eps)
             return nat_j - obs_nat
 
-        int_nat = jnp.stack(
-            [compute_int_col(j) for j in range(1, n_states)], axis=1
-        )
+        int_nat = jnp.stack([compute_int_col(j) for j in range(1, n_states)], axis=1)
 
         return self.lkl_fun_man.join_coords(obs_nat, int_nat.reshape(-1))
 
@@ -180,9 +178,7 @@ class CategoricalEmission(_CategoricalConjugated):
     """
 
     def __init__(self, n_obs: int, n_states: int):
-        super().__init__(
-            _obs_man=Categorical(n_obs), _lat_man=Categorical(n_states)
-        )
+        super().__init__(_obs_man=Categorical(n_obs), _lat_man=Categorical(n_states))
 
     @property
     def n_obs(self) -> int:
@@ -202,10 +198,10 @@ class CategoricalEmission(_CategoricalConjugated):
 class MLPTransition[L: Differentiable](Transition[L]):
     """An MLP-based transition: belief natural params $\\to$ predicted natural params via a feedforward network.
 
-    The transition's parameters are exactly the wrapped MLP's parameters. For codomains with parameter constraints (e.g. positive-definite Gaussian precision), use a constraint-respecting ``MLPMap`` subclass to avoid emitting invalid natural parameters.
+    The transition's parameters are exactly the wrapped MLP's parameters. For codomains with parameter constraints (e.g. positive-definite Gaussian precision), use a constraint-respecting ``MultilayerPerceptron`` subclass to avoid emitting invalid natural parameters.
     """
 
-    mlp: MLPMap[L, L]
+    mlp: MultilayerPerceptron[L, L]
 
     @property
     @override

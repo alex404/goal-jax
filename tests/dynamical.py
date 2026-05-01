@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import MLPMap
+from goal.geometry import MultilayerPerceptron
 from goal.models import (
     Categorical,
     HiddenMarkovModel,
@@ -95,19 +95,19 @@ class TestMLPTransition:
 
     def test_dim_matches_mlp(self) -> None:
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
+        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         assert trans.dim == mlp.dim
 
     def test_lat_man_is_mlp_dom_man(self) -> None:
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
+        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         assert trans.lat_man.dim == lat.dim
 
     def test_predict_shape(self) -> None:
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
+        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
         belief = jnp.zeros(lat.dim)
@@ -118,7 +118,7 @@ class TestMLPTransition:
         """Gradient w.r.t. transition params flows through a multi-step scan
         (BPTT through alternating predict + dummy update)."""
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
+        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
 
@@ -207,9 +207,7 @@ class TestKalmanFilter:
         kf, params = kf_2d_3d
         # Build a small batch: shape (n_seqs, n_steps, obs_dim)
         keys = jax.random.split(jax.random.PRNGKey(2), 3)
-        obs_batch = jnp.stack(
-            [kf.sample(k, params, n_steps=5)[0] for k in keys]
-        )
+        obs_batch = jnp.stack([kf.sample(k, params, n_steps=5)[0] for k in keys])
         new_params = kf.expectation_maximization(params, obs_batch)
         assert new_params.shape == params.shape
         assert jnp.all(jnp.isfinite(new_params))
@@ -262,9 +260,7 @@ class TestHiddenMarkovModel:
     def test_em_step_finite(self, hmm_4_3: tuple[HiddenMarkovModel, Array]) -> None:
         hmm, params = hmm_4_3
         keys = jax.random.split(jax.random.PRNGKey(2), 3)
-        obs_batch = jnp.stack(
-            [hmm.sample(k, params, n_steps=5)[0] for k in keys]
-        )
+        obs_batch = jnp.stack([hmm.sample(k, params, n_steps=5)[0] for k in keys])
         new_params = hmm.expectation_maximization(params, obs_batch)
         assert new_params.shape == params.shape
         assert jnp.all(jnp.isfinite(new_params))
@@ -285,9 +281,7 @@ class TestKalmanFilterCorrectness:
         true_params = kf.initialize(jax.random.PRNGKey(0), shape=0.1)
         # Sample a batch of trajectories
         keys = jax.random.split(jax.random.PRNGKey(1), 8)
-        obs_batch = jnp.stack(
-            [kf.sample(k, true_params, n_steps=15)[0] for k in keys]
-        )
+        obs_batch = jnp.stack([kf.sample(k, true_params, n_steps=15)[0] for k in keys])
 
         def avg_ll(p: Array) -> Array:
             return jnp.mean(
@@ -329,9 +323,9 @@ class TestHMMCorrectness:
         # alpha_pred[t, k] = P(z_t=k, x_{1:t-1})  (predicted, before update)
         # alpha[t, k] = P(z_t=k, x_{1:t})  (filtered)
 
-        def step(carry: tuple[Array, Array], obs: Array) -> tuple[
-            tuple[Array, Array], Array
-        ]:
+        def step(
+            carry: tuple[Array, Array], obs: Array
+        ) -> tuple[tuple[Array, Array], Array]:
             alpha_prev, log_lik = carry
             # Predict: alpha_pred[k] = sum_j alpha_prev[j] * A[j, k]
             alpha_pred = alpha_prev @ A
@@ -382,9 +376,7 @@ class TestHMMCorrectness:
             z_data = jnp.array([j], dtype=jnp.float64)
             s_z = hmm.emsn_hrm.pst_man.sufficient_statistic(z_data)
             x_nat = hmm.emsn_hrm.lkl_fun_man(emsn_lkl, s_z)
-            return hmm.emsn_hrm.obs_man.to_probs(
-                hmm.emsn_hrm.obs_man.to_mean(x_nat)
-            )
+            return hmm.emsn_hrm.obs_man.to_probs(hmm.emsn_hrm.obs_man.to_mean(x_nat))
 
         B_decoded = jnp.stack([emission_row(j) for j in range(n_states)])
 
@@ -415,7 +407,7 @@ class TestMLPBPTTGradientDescent:
     def test_grad_descent_reduces_loss(self) -> None:
         """A few SGD steps on a synthetic problem should reduce the loss."""
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(8,), activation=jax.nn.relu)
+        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(8,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
         target = jnp.array([0.3, 0.5])  # arbitrary target in lat_man's nat space

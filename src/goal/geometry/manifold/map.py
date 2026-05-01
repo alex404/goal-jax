@@ -28,7 +28,7 @@ class Map[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
 
     The contract is just enough to apply the function: a domain manifold, a codomain manifold, and ``__call__`` that takes parameters and a domain point and returns a codomain point. ``dim`` (inherited from ``Manifold``) is the number of parameters.
 
-    Subclasses specialize the structure: ``LinearMap`` for linear transformations with matrix representations, and ``MLPMap`` for feedforward networks.
+    Subclasses specialize the structure: ``LinearMap`` for linear transformations with matrix representations, and ``MultilayerPerceptron`` for feedforward networks.
     """
 
     # Contract
@@ -449,7 +449,7 @@ class AffineMap[
 
 
 @dataclass(frozen=True)
-class MLPMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain]):
+class MultilayerPerceptron[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain]):
     """A feedforward MLP between manifolds.
 
     Outputs ``cod_man.dim`` raw values via configurable hidden layers and a fixed activation. For codomains with parameter constraints (e.g. positive-definite precision matrices), constraint-respecting outputs are the responsibility of a wrapping layer or a specialized subclass — this base class emits raw vectors.
