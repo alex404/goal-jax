@@ -81,7 +81,7 @@ class TestMLPMap:
         self, dom_dim: int, cod_dim: int, hidden: tuple[int, ...]
     ) -> None:
         """``dim`` matches sum of per-layer (in*out + out)."""
-        m = MLPMap(_DimManifold(dom_dim), _DimManifold(cod_dim), hidden_dims=hidden)
+        m = MLPMap(_DimManifold(dom_dim), _DimManifold(cod_dim), hidden_dims=hidden, activation=jax.nn.relu)
         layer_dims = (dom_dim, *hidden, cod_dim)
         expected = sum(
             in_d * out_d + out_d
@@ -101,19 +101,19 @@ class TestMLPMap:
         self, dom_dim: int, cod_dim: int, hidden: tuple[int, ...]
     ) -> None:
         """``__call__`` produces a codomain-shaped output."""
-        m = MLPMap(_DimManifold(dom_dim), _DimManifold(cod_dim), hidden_dims=hidden)
+        m = MLPMap(_DimManifold(dom_dim), _DimManifold(cod_dim), hidden_dims=hidden, activation=jax.nn.relu)
         params = m.glorot_initialize(jax.random.PRNGKey(0))
         y = m(params, jnp.zeros(dom_dim))
         assert y.shape == (cod_dim,)
 
     def test_glorot_initialize_param_count(self) -> None:
-        m = MLPMap(_DimManifold(3), _DimManifold(2), hidden_dims=(4,))
+        m = MLPMap(_DimManifold(3), _DimManifold(2), hidden_dims=(4,), activation=jax.nn.relu)
         params = m.glorot_initialize(jax.random.PRNGKey(0))
         assert params.shape == (m.dim,)
 
     def test_no_hidden_matches_matmul(self) -> None:
         """With no hidden layers and zero biases, MLPMap reduces to ``W @ x``."""
-        m = MLPMap(_DimManifold(3), _DimManifold(2), hidden_dims=())
+        m = MLPMap(_DimManifold(3), _DimManifold(2), hidden_dims=(), activation=jax.nn.relu)
         w = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         b = jnp.zeros(2)
         params = jnp.concatenate([w.reshape(-1), b])
@@ -123,7 +123,7 @@ class TestMLPMap:
 
     def test_no_activation_on_output(self) -> None:
         """Activation is not applied to the output layer."""
-        m = MLPMap(_DimManifold(2), _DimManifold(2), hidden_dims=())
+        m = MLPMap(_DimManifold(2), _DimManifold(2), hidden_dims=(), activation=jax.nn.relu)
         w = jnp.eye(2)
         b = jnp.zeros(2)
         params = jnp.concatenate([w.reshape(-1), b])
@@ -133,7 +133,7 @@ class TestMLPMap:
 
     def test_glorot_within_bounds(self) -> None:
         """Glorot weights respect $\\sqrt{6/(d_{in} + d_{out})}$ bounds; biases zero."""
-        m = MLPMap(_DimManifold(10), _DimManifold(10), hidden_dims=())
+        m = MLPMap(_DimManifold(10), _DimManifold(10), hidden_dims=(), activation=jax.nn.relu)
         params = m.glorot_initialize(jax.random.PRNGKey(0))
         weights = params[:100]
         biases = params[100:]

@@ -465,10 +465,10 @@ class MLPMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain]):
     _cod_man: Codomain
     """The codomain manifold."""
 
-    hidden_dims: tuple[int, ...] = ()
+    hidden_dims: tuple[int, ...]
     """Widths of hidden layers; empty for a linear MLP (single weight matrix)."""
 
-    activation: Callable[[Array], Array] = jax.nn.relu
+    activation: Callable[[Array], Array]
     """Activation applied after each hidden layer; not applied to the output."""
 
     # Overrides

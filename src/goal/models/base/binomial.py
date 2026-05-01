@@ -31,7 +31,7 @@ class Binomial(Analytic):
         - Negative entropy: $n(p\\log p + (1-p)\\log(1-p))$
     """
 
-    n_trials: int = 1
+    n_trials: int
     """Number of trials (fixed)."""
 
     @property

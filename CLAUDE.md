@@ -103,6 +103,9 @@ This codebase uses Python 3.12+ modern generic syntax with a pragmatic approach 
 ### Philosophy
 - **Pragmatic over purist**: Accept type system limitations rather than fight them when the code is functionally correct
 
+### Dataclass field defaults
+Dataclass fields generally do **not** have default values. Modeling and architectural choices (e.g. `Binomial.n_trials`, `MLPMap.hidden_dims`, `MLPMap.activation`) must be made explicitly at every call site — defaults silently encode design decisions and tend to mask the degenerate case that callers shouldn't actually want (e.g. `Binomial(n_trials=1) == Bernoulli`). The narrow exception is **numerical/implementation details that callers shouldn't need to reason about** (e.g. `CoMPoisson.window_size = 200`, a truncation bound for an infinite series). When in doubt, omit the default.
+
 ### Type Aliases
 The codebase defines convenient type aliases for common parameterized types:
 - `FullNormal = Normal[PositiveDefinite]` - Full covariance normal

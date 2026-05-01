@@ -95,19 +95,19 @@ class TestMLPTransition:
 
     def test_dim_matches_mlp(self) -> None:
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,))
+        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         assert trans.dim == mlp.dim
 
     def test_lat_man_is_mlp_dom_man(self) -> None:
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,))
+        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         assert trans.lat_man.dim == lat.dim
 
     def test_predict_shape(self) -> None:
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,))
+        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
         belief = jnp.zeros(lat.dim)
@@ -118,7 +118,7 @@ class TestMLPTransition:
         """Gradient w.r.t. transition params flows through a multi-step scan
         (BPTT through alternating predict + dummy update)."""
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(4,))
+        mlp = MLPMap(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
 
@@ -415,7 +415,7 @@ class TestMLPBPTTGradientDescent:
     def test_grad_descent_reduces_loss(self) -> None:
         """A few SGD steps on a synthetic problem should reduce the loss."""
         lat = Categorical(3)
-        mlp = MLPMap(lat, lat, hidden_dims=(8,))
+        mlp = MLPMap(lat, lat, hidden_dims=(8,), activation=jax.nn.relu)
         trans = MLPTransition(mlp=mlp)
         params = mlp.glorot_initialize(jax.random.PRNGKey(0))
         target = jnp.array([0.3, 0.5])  # arbitrary target in lat_man's nat space
