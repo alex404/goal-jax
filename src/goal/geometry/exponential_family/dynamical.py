@@ -2,8 +2,8 @@
 
 This module contains:
 
-- ``Transition[L]`` --- a parameterized predict map on belief natural parameters, the headline primitive for filtering. Stateless or stateful; gradient-friendly for BPTT.
-- ``AnalyticTransition[L]`` --- a Transition backed by a ``SymmetricConjugated`` harmonium kernel, so the predict step is derived analytically and the same parameters support smoothing and exact EM in later phases.
+- ``Transition[L]`` --- a type alias for ``Map[L, L]``: any parameterized map from a latent manifold's natural parameters to itself qualifies as a transition. The ``LatentProcess`` filter scan calls it as ``predicted = transition(params, belief)`` and feeds the result into a conjugate observation update.
+- ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM in later phases.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition.
 """
 
@@ -17,32 +17,16 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.base import Manifold
 from ..manifold.combinators import Triple
-from .base import Analytic, Differentiable
+from ..manifold.map import Map
+from .base import Analytic, Differentiable, ExponentialFamily
 from .harmonium import (
     AnalyticConjugated,
     SymmetricConjugated,
 )
 
-
-@dataclass(frozen=True)
-class Transition[L: Differentiable](Manifold, ABC):
-    """A parameterized predict map on a latent manifold's natural parameters.
-
-    Given the natural parameters of the current belief, returns the natural parameters of the predicted belief. The contract is just enough to drive the filter scan: the LatentProcess does ``predicted = transition.predict(params, belief)`` and feeds ``predicted`` into a conjugate observation update. Subclasses choose how to parameterize the predict map; ``AnalyticTransition`` derives it from a harmonium kernel, while ``MLPTransition`` (defined in the model layer) wraps a feedforward network.
-    """
-
-    # Contract
-
-    @property
-    @abstractmethod
-    def lat_man(self) -> L:
-        """The latent manifold whose natural parameters we predict."""
-
-    @abstractmethod
-    def predict(self, params: Array, belief: Array) -> Array:
-        """Predict next belief from current belief."""
+type Transition[L: ExponentialFamily] = Map[L, L]
+"""The transition slot of a state-space model: any ``Map[L, L]`` on the latent manifold's natural parameters. ``AnalyticTransition`` is the analytic specialization; a ``MultilayerPerceptron[L, L]`` works directly for hybrid filters."""
 
 
 def transpose_harmonium[L: Differentiable](
@@ -59,10 +43,10 @@ def transpose_harmonium[L: Differentiable](
 
 
 @dataclass(frozen=True)
-class AnalyticTransition[L: Analytic](Transition[L]):
-    """A ``Transition`` backed by an ``AnalyticConjugated`` harmonium kernel.
+class AnalyticTransition[L: Analytic](Map[L, L]):
+    """A ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel.
 
-    The transition's parameters are exactly the kernel harmonium's natural parameters; ``predict`` is implemented via the kernel's ``split_conjugated`` / ``join_conjugated`` and the interaction matrix's ``transpose``.
+    The transition's parameters are exactly the kernel harmonium's natural parameters; ``__call__`` is implemented via the kernel's ``split_conjugated`` / ``join_conjugated`` and the interaction matrix's ``transpose``.
 
     Composition (kernel as a field) rather than multiple inheritance keeps the class hierarchy clean for both the symmetric-Gaussian case (kernel is a ``NormalAnalyticLGM``) and the categorical case (kernel is a custom ``AnalyticConjugated[Categorical, Categorical]``). Subclasses may narrow the ``kernel`` field type.
 
@@ -73,7 +57,12 @@ class AnalyticTransition[L: Analytic](Transition[L]):
 
     @property
     @override
-    def lat_man(self) -> L:
+    def dom_man(self) -> L:
+        return self.kernel.lat_man
+
+    @property
+    @override
+    def cod_man(self) -> L:
         return self.kernel.lat_man
 
     @property
@@ -82,10 +71,10 @@ class AnalyticTransition[L: Analytic](Transition[L]):
         return self.kernel.dim
 
     @override
-    def predict(self, params: Array, belief: Array) -> Array:
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         kernel = self.kernel
-        lkl_params, _ = kernel.split_conjugated(params)
-        joined = kernel.join_conjugated(lkl_params, belief)
+        lkl_params, _ = kernel.split_conjugated(f_coords)
+        joined = kernel.join_conjugated(lkl_params, v_coords)
         transposed = transpose_harmonium(kernel, joined)
         _, predicted = kernel.split_conjugated(transposed)
         return predicted
@@ -156,7 +145,7 @@ class LatentProcess[
             carry: tuple[Array, Array], obs: Array
         ) -> tuple[tuple[Array, Array], Array]:
             belief, total_ll = carry
-            predicted = transition.predict(trns_params, belief)
+            predicted = transition(trns_params, belief)
             emsn_with_pred = emsn_hrm.join_conjugated(emsn_lkl_params, predicted)
             posterior = emsn_hrm.posterior_at(emsn_with_pred, obs)
             log_lik = emsn_hrm.log_observable_density(emsn_with_pred, obs)

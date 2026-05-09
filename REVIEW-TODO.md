@@ -43,13 +43,13 @@ Hand-review checklist for the new code introduced in `944da5d` (Dirichlet) and `
 ### New geometry layer: `dynamical.py`
 
 - [ ] **`src/goal/geometry/exponential_family/dynamical.py`**:
-  - `Transition[L]` ABC: `lat_man` property + `predict(params, belief) -> Array`.
-  - `transpose_harmonium` helper — used by both `AnalyticTransition.predict` and `AnalyticLatentProcess.smooth`.
-  - `AnalyticTransition[L]` — wraps `AnalyticConjugated[L, L]` kernel; `predict` derives obs-marginal of swapped harmonium.
+  - `Transition[L]` is now `type Transition[L: ExponentialFamily] = Map[L, L]` (was an ABC with redundant `lat_man`/`predict` members; collapsed since `Map[L, L]` is structurally identical). _[done in this review pass]_
+  - `transpose_harmonium` helper — used by both `AnalyticTransition.__call__` and `AnalyticLatentProcess.smooth`.
+  - `AnalyticTransition[L]` — wraps `AnalyticConjugated[L, L]` kernel; extends `Map[L, L]` directly (`dom_man == cod_man == kernel.lat_man`); `__call__` derives obs-marginal of swapped harmonium. _[done in this review pass]_
   - `LatentProcess[O, L]` — `Triple[L, SymmetricConjugated[O, L], Transition[L]]` with `filter` (BPTT-friendly scan) and `log_observable_density`.
   - `AnalyticLatentProcess[O, L]` — adds `sample` (joint), `log_density` (joint), `smooth` (forward-backward), `posterior_statistics`, `mean_posterior_statistics`, `to_natural` (per-component delegation), `expectation_maximization`.
   - **Verify**: `posterior_statistics` zips `observations[t]` with `smoothed[t]` (T-length), with `prior_means` from `smoothed_z0`. Joints come from `smooth`'s mean-coordinate output of `kernel.to_mean`.
-- [ ] **`docs/source/geometry/exponential_family/dynamical.rst`**.
+- [ ] **`docs/source/geometry/exponential_family/dynamical.rst`** — `Transition` autoclass replaced with prose now that it's a type alias; otherwise still pending review.
 
 ### New models layer: `models/dynamical/__init__.py`
 
@@ -59,7 +59,7 @@ Hand-review checklist for the new code introduced in `944da5d` (Dirichlet) and `
 - [ ] **`CategoricalKernel(n_states)`** — square `_CategoricalConjugated` (obs = lat = `Categorical(n_states)`).
 - [ ] **`CategoricalEmission(n_obs, n_states)`** — rectangular `_CategoricalConjugated`.
 - [ ] **`CategoricalTransition(AnalyticTransition[Categorical])`** — wraps `CategoricalKernel`. Factory: `create_categorical_transition(n_states)`.
-- [ ] **`MLPTransition[L]`** — wraps `MultilayerPerceptron[L, L]`; `predict` is one-line passthrough.
+- [x] **`MLPTransition[L]`** — DELETED. The wrapper was pure rename boilerplate around `MultilayerPerceptron[L, L]`, which already satisfies the `Transition[L]` alias (`Map[L, L]`). Users plug an MLP into a `LatentProcess` directly.
 - [ ] **`KalmanFilter`** — `obs_dim` + `_lat_dim` fields with public `lat_dim` property. `from_standard(A, Q, C, R, μ₀, Σ₀)` builds via precision-weighted-interaction encoding. Factory: `create_kalman_filter(obs_dim, lat_dim)`. Verify `_build_harmonium` correctly composes emission/transition.
 - [ ] **`HiddenMarkovModel`** — `n_obs` + `_n_states` fields with public `n_states` property. Factory: `create_hidden_markov_model(n_obs, n_states)`.
 - [ ] **`src/goal/models/__init__.py`** — re-exports the above.

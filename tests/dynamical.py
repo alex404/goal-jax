@@ -1,8 +1,8 @@
 """Tests for geometry/exponential_family/dynamical.py and models/dynamical/.
 
 Covers:
-- Transition / AnalyticTransition predict shape and round-trip for LinearGaussianTransition and CategoricalTransition.
-- MLPTransition shape, gradient flow.
+- AnalyticTransition predict shape and round-trip for LinearGaussianTransition and CategoricalTransition.
+- MultilayerPerceptron[L, L] used directly as a Transition (BPTT gradient descent).
 - KalmanFilter and HiddenMarkovModel end-to-end (sample, filter, smooth, EM).
 """
 
@@ -16,7 +16,6 @@ from goal.models import (
     Categorical,
     HiddenMarkovModel,
     KalmanFilter,
-    MLPTransition,
     create_categorical_transition,
     create_hidden_markov_model,
     create_kalman_filter,
@@ -37,26 +36,27 @@ class TestLinearGaussianTransition:
         trans = create_linear_gaussian_transition(lat_dim=2)
         assert trans.dim == trans.kernel.dim
 
-    def test_lat_man_is_kernel_lat_man(self) -> None:
+    def test_dom_man_is_kernel_lat_man(self) -> None:
         trans = create_linear_gaussian_transition(lat_dim=3)
-        assert trans.lat_man.data_dim == trans.kernel.lat_man.data_dim
+        assert trans.dom_man.data_dim == trans.kernel.lat_man.data_dim
+        assert trans.cod_man.data_dim == trans.kernel.lat_man.data_dim
 
     def test_predict_shape(self) -> None:
-        """predict returns natural params in lat_man's space."""
+        """The transition returns natural params in dom_man's space."""
         trans = create_linear_gaussian_transition(lat_dim=2)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.05)
-        belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.05)
-        predicted = trans.predict(params, belief)
-        assert predicted.shape == (trans.lat_man.dim,)
+        belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.05)
+        predicted = trans(params, belief)
+        assert predicted.shape == (trans.dom_man.dim,)
 
     def test_predict_differentiable(self) -> None:
-        """jax.grad of a scalar of predict's output is finite (BPTT-friendly)."""
+        """jax.grad of a scalar of the transition's output is finite (BPTT-friendly)."""
         trans = create_linear_gaussian_transition(lat_dim=2)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.05)
-        belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.05)
+        belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.05)
 
         def loss(p: Array) -> Array:
-            return jnp.sum(trans.predict(p, belief) ** 2)
+            return jnp.sum(trans(p, belief) ** 2)
 
         grads = jax.grad(loss)(params)
         assert grads.shape == params.shape
@@ -73,68 +73,20 @@ class TestCategoricalTransition:
     def test_predict_shape(self) -> None:
         trans = create_categorical_transition(n_states=4)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.1)
-        belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.1)
-        predicted = trans.predict(params, belief)
-        assert predicted.shape == (trans.lat_man.dim,)
+        belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.1)
+        predicted = trans(params, belief)
+        assert predicted.shape == (trans.dom_man.dim,)
 
     def test_predict_differentiable(self) -> None:
         """Gradient flows through the categorical predict step."""
         trans = create_categorical_transition(n_states=3)
         params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.1)
-        belief = trans.lat_man.initialize(jax.random.PRNGKey(1), shape=0.1)
+        belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.1)
 
         def loss(p: Array) -> Array:
-            return jnp.sum(trans.predict(p, belief) ** 2)
+            return jnp.sum(trans(p, belief) ** 2)
 
         grads = jax.grad(loss)(params)
-        assert jnp.all(jnp.isfinite(grads))
-
-
-class TestMLPTransition:
-    """MLPTransition shape, gradient flow, and lat_man passthrough."""
-
-    def test_dim_matches_mlp(self) -> None:
-        lat = Categorical(3)
-        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
-        trans = MLPTransition(mlp=mlp)
-        assert trans.dim == mlp.dim
-
-    def test_lat_man_is_mlp_dom_man(self) -> None:
-        lat = Categorical(3)
-        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
-        trans = MLPTransition(mlp=mlp)
-        assert trans.lat_man.dim == lat.dim
-
-    def test_predict_shape(self) -> None:
-        lat = Categorical(3)
-        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
-        trans = MLPTransition(mlp=mlp)
-        params = mlp.glorot_initialize(jax.random.PRNGKey(0))
-        belief = jnp.zeros(lat.dim)
-        predicted = trans.predict(params, belief)
-        assert predicted.shape == (lat.dim,)
-
-    def test_bptt_smoke(self) -> None:
-        """Gradient w.r.t. transition params flows through a multi-step scan
-        (BPTT through alternating predict + dummy update)."""
-        lat = Categorical(3)
-        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(4,), activation=jax.nn.relu)
-        trans = MLPTransition(mlp=mlp)
-        params = mlp.glorot_initialize(jax.random.PRNGKey(0))
-
-        def total(p: Array) -> Array:
-            def step(belief: Array, _scan_input: None) -> tuple[Array, Array]:
-                predicted = trans.predict(p, belief)
-                # Dummy "update": shift by a fixed observation embedding
-                updated = predicted + 0.1
-                return updated, updated
-
-            init = jnp.zeros(lat.dim)
-            final, _trajectory = jax.lax.scan(step, init, None, length=5)
-            return jnp.sum(final**2)
-
-        grads = jax.grad(total)(params)
-        assert grads.shape == params.shape
         assert jnp.all(jnp.isfinite(grads))
 
 
@@ -402,19 +354,20 @@ class TestHMMCorrectness:
 
 
 class TestMLPBPTTGradientDescent:
-    """MLP transition gradient descent reduces loss on a synthetic problem."""
+    """An MLP plugged directly into the Transition[L] alias drives SGD loss down."""
 
     def test_grad_descent_reduces_loss(self) -> None:
         """A few SGD steps on a synthetic problem should reduce the loss."""
         lat = Categorical(3)
-        mlp = MultilayerPerceptron(lat, lat, hidden_dims=(8,), activation=jax.nn.relu)
-        trans = MLPTransition(mlp=mlp)
-        params = mlp.glorot_initialize(jax.random.PRNGKey(0))
-        target = jnp.array([0.3, 0.5])  # arbitrary target in lat_man's nat space
+        trans: MultilayerPerceptron[Categorical, Categorical] = MultilayerPerceptron(
+            lat, lat, hidden_dims=(8,), activation=jax.nn.relu
+        )
+        params = trans.glorot_initialize(jax.random.PRNGKey(0))
+        target = jnp.array([0.3, 0.5])  # arbitrary target in lat's nat space
 
         def loss(p: Array) -> Array:
             belief = jnp.zeros(lat.dim)
-            predicted = trans.predict(p, belief)
+            predicted = trans(p, belief)
             return jnp.sum((predicted - target) ** 2)
 
         initial_loss = loss(params)

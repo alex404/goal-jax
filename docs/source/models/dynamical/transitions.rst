@@ -43,7 +43,4 @@ Categorical
 MLP
 ---
 
-.. autoclass:: goal.models.dynamical.MLPTransition
-   :members:
-   :undoc-members:
-   :show-inheritance:
+For a hybrid filter, use a :class:`~goal.geometry.manifold.map.MultilayerPerceptron` with matching domain and codomain (``MultilayerPerceptron[L, L]``) directly as the transition slot of a ``LatentProcess``; no dedicated wrapper class is needed.

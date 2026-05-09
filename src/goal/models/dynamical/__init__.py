@@ -2,12 +2,13 @@
 
 This module exports:
 
-- ``LinearGaussianTransition`` --- analytic Gaussian transition with predict, smoothing-ready.
-- ``CategoricalKernel`` / ``CategoricalTransition`` --- the Cat-Cat conjugated harmonium and its Transition wrapper for HMMs.
-- ``CategoricalEmission`` / ``NormalEmission`` --- emission harmoniums (kernels only; not Transitions).
-- ``MLPTransition`` --- an MLP-based transition for hybrid filters.
+- ``LinearGaussianTransition`` --- analytic Gaussian transition, smoothing-ready.
+- ``CategoricalKernel`` / ``CategoricalTransition`` --- the Cat-Cat conjugated harmonium and its analytic transition for HMMs.
+- ``CategoricalEmission`` / ``NormalEmission`` --- emission harmoniums (kernels only; not transitions).
 - ``KalmanFilter`` --- linear Gaussian state-space model.
 - ``HiddenMarkovModel`` --- discrete state-space model.
+
+For an MLP-based hybrid filter, plug a ``MultilayerPerceptron[L, L]`` directly into a ``LatentProcess`` --- it satisfies the ``Transition[L]`` alias (``Map[L, L]``) without further wrapping.
 """
 
 from dataclasses import dataclass
@@ -21,15 +22,12 @@ from ...geometry import (
     AnalyticConjugated,
     EmbeddedMap,
     IdentityEmbedding,
-    MultilayerPerceptron,
     PositiveDefinite,
     Rectangular,
 )
-from ...geometry.exponential_family.base import Differentiable
 from ...geometry.exponential_family.dynamical import (
     AnalyticLatentProcess,
     AnalyticTransition,
-    Transition,
 )
 from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, full_normal
@@ -52,7 +50,7 @@ NormalEmission = NormalAnalyticLGM[PositiveDefinite]
 class LinearGaussianTransition(AnalyticTransition[FullNormal]):
     """Linear Gaussian transition $p(z_t \\mid z_{t-1})$ on a single ``FullNormal`` state.
 
-    Composes a ``NormalAnalyticLGM[PositiveDefinite]`` as its kernel (when ``obs_dim == lat_dim``, the LGM's observable side ``Normal[PositiveDefinite]`` and latent side ``FullNormal`` are the same manifold). ``AnalyticTransition.predict`` derives the predict map from the kernel.
+    Composes a ``NormalAnalyticLGM[PositiveDefinite]`` as its kernel (when ``obs_dim == lat_dim``, the LGM's observable side ``Normal[PositiveDefinite]`` and latent side ``FullNormal`` are the same manifold). ``AnalyticTransition.__call__`` derives the predict map from the kernel.
     """
 
     kernel: NormalAnalyticLGM[PositiveDefinite]
@@ -160,7 +158,7 @@ class CategoricalKernel(_CategoricalConjugated):
 
 @dataclass(frozen=True)
 class CategoricalTransition(AnalyticTransition[Categorical]):
-    """HMM transition: a ``CategoricalKernel`` plus the ``Transition`` predict interface."""
+    """HMM transition: a ``CategoricalKernel`` lifted into a ``Map[Categorical, Categorical]``."""
 
     kernel: CategoricalKernel
 
@@ -187,35 +185,6 @@ class CategoricalEmission(_CategoricalConjugated):
     @property
     def n_states(self) -> int:
         return self._lat_man.n_categories
-
-
-# =============================================================================
-# MLP Transition
-# =============================================================================
-
-
-@dataclass(frozen=True)
-class MLPTransition[L: Differentiable](Transition[L]):
-    """An MLP-based transition: belief natural params $\\to$ predicted natural params via a feedforward network.
-
-    The transition's parameters are exactly the wrapped MLP's parameters. For codomains with parameter constraints (e.g. positive-definite Gaussian precision), use a constraint-respecting ``MultilayerPerceptron`` subclass to avoid emitting invalid natural parameters.
-    """
-
-    mlp: MultilayerPerceptron[L, L]
-
-    @property
-    @override
-    def lat_man(self) -> L:
-        return self.mlp.dom_man
-
-    @property
-    @override
-    def dim(self) -> int:
-        return self.mlp.dim
-
-    @override
-    def predict(self, params: Array, belief: Array) -> Array:
-        return self.mlp(params, belief)
 
 
 # =============================================================================
@@ -388,7 +357,6 @@ __all__ = [
     "HiddenMarkovModel",
     "KalmanFilter",
     "LinearGaussianTransition",
-    "MLPTransition",
     "NormalEmission",
     "create_categorical_transition",
     "create_hidden_markov_model",
