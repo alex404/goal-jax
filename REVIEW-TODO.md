@@ -42,14 +42,16 @@ Hand-review checklist for the new code introduced in `944da5d` (Dirichlet) and `
 
 ### New geometry layer: `dynamical.py`
 
-- [ ] **`src/goal/geometry/exponential_family/dynamical.py`**:
-  - `Transition[L]` is now `type Transition[L: ExponentialFamily] = Map[L, L]` (was an ABC with redundant `lat_man`/`predict` members; collapsed since `Map[L, L]` is structurally identical). _[done in this review pass]_
+- [x] **`src/goal/geometry/exponential_family/dynamical.py`**:
+  - `Transition[L]` alias removed; `Map[L, L]` used directly at all use sites (alias was pure indirection over `Map[L, L]`). _[done in this review pass]_
+  - Renamed `transition` property → `trn_map` and `emsn_hrm` → `ems_hrm` (and `emsn_*` locals → `ems_*`) to match the three-char pattern of `obs_man`/`lat_man`/`int_man`/etc. _[done in this review pass]_
   - `transpose_harmonium` helper — used by both `AnalyticTransition.__call__` and `AnalyticLatentProcess.smooth`.
   - `AnalyticTransition[L]` — wraps `AnalyticConjugated[L, L]` kernel; extends `Map[L, L]` directly (`dom_man == cod_man == kernel.lat_man`); `__call__` derives obs-marginal of swapped harmonium. _[done in this review pass]_
-  - `LatentProcess[O, L]` — `Triple[L, SymmetricConjugated[O, L], Transition[L]]` with `filter` (BPTT-friendly scan) and `log_observable_density`.
+  - `LatentProcess[O, L]` — `Triple[L, AffineMap[L, O], Map[L, L]]` with `filter` (BPTT-friendly scan) and `log_observable_density`.
   - `AnalyticLatentProcess[O, L]` — adds `sample` (joint), `log_density` (joint), `smooth` (forward-backward), `posterior_statistics`, `mean_posterior_statistics`, `to_natural` (per-component delegation), `expectation_maximization`.
+  - `smooth` refactored: forward step calls `self.trn_map(...)` directly (matches `LatentProcess.filter`); $z_0$ boundary case folded into a single backward scan by prepending the prior to `filtered_seq`, eliminating ~10 lines of duplicated boundary computation. _[done in this review pass]_
   - **Verify**: `posterior_statistics` zips `observations[t]` with `smoothed[t]` (T-length), with `prior_means` from `smoothed_z0`. Joints come from `smooth`'s mean-coordinate output of `kernel.to_mean`.
-- [ ] **`docs/source/geometry/exponential_family/dynamical.rst`** — `Transition` autoclass replaced with prose now that it's a type alias; otherwise still pending review.
+- [x] **`docs/source/geometry/exponential_family/dynamical.rst`** — prose updated to describe the transition slot as any `Map[L, L]` (alias removed in this pass), uses `trn_map(params, belief)` in the example call. Follows the leaf RST template; sphinx-build is clean.
 
 ### New models layer: `models/dynamical/__init__.py`
 
@@ -94,7 +96,7 @@ Hand-review checklist for the new code introduced in `944da5d` (Dirichlet) and `
 
 ## Known follow-ups (not blockers)
 
-- [ ] Property accessors in `KalmanFilter` / `HiddenMarkovModel` construct fresh frozen dataclasses on every access (`lat_man`, `emsn_hrm`, `transition`). Doesn't cause re-tracing but inflates Python-side trace work. Caching via `cached_property` or post-init field assignment would reduce JIT compile time on small problems (see `examples/kalman_filter/` profiling: ~6s compile + 25ms run per warm EM step at LAT_DIM=2).
+- [ ] Property accessors in `KalmanFilter` / `HiddenMarkovModel` construct fresh frozen dataclasses on every access (`lat_man`, `ems_hrm`, `trn_map`). Doesn't cause re-tracing but inflates Python-side trace work. Caching via `cached_property` or post-init field assignment would reduce JIT compile time on small problems (see `examples/kalman_filter/` profiling: ~6s compile + 25ms run per warm EM step at LAT_DIM=2).
 - [ ] No correctness test for KF smoothing against an external reference (only EM monotonicity). HMM has the manual-forward-algorithm cross-check; consider an analogous RTS-smoother check for KF.
 - [ ] The `eps = 1e-10` floor inside `_CategoricalConjugated.to_natural_likelihood` silently regularizes near-zero probabilities. Document or guard.
 - [ ] Pre-existing (unrelated to these commits): `graphical.py` type errors from Harmonium bounds change; `examples/variational_mnist/model.py` import drift; deleted classes still referenced in some legacy test files (per `MEMORY.md`).
