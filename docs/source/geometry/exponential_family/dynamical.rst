@@ -16,7 +16,7 @@ Class Hierarchy
 Transitions
 -----------
 
-``Transition[L]`` is a type alias for :class:`~goal.geometry.manifold.map.Map` parameterized as ``Map[L, L]``: any parameterized map from a latent manifold's natural parameters back to itself qualifies as a transition. The ``LatentProcess`` filter scan calls it as ``predicted = transition(params, belief)``. ``AnalyticTransition`` is the analytic specialization backed by a conjugated harmonium kernel; for a hybrid filter, use a :class:`~goal.geometry.manifold.map.MultilayerPerceptron` with matching domain and codomain.
+The transition slot of a ``LatentProcess`` is any :class:`~goal.geometry.manifold.map.Map` of the form ``Map[L, L]``: any parameterized map from a latent manifold's natural parameters back to itself. The filter scan calls it as ``predicted = trn_map(params, belief)``. ``AnalyticTransition`` is the analytic specialization backed by a conjugated harmonium kernel; for a hybrid filter, use a :class:`~goal.geometry.manifold.map.MultilayerPerceptron` with matching domain and codomain.
 
 .. autoclass:: goal.geometry.exponential_family.dynamical.AnalyticTransition
    :members:

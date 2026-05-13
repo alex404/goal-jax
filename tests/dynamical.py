@@ -2,7 +2,7 @@
 
 Covers:
 - AnalyticTransition predict shape and round-trip for LinearGaussianTransition and CategoricalTransition.
-- MultilayerPerceptron[L, L] used directly as a Transition (BPTT gradient descent).
+- MultilayerPerceptron[L, L] used directly as a transition map (BPTT gradient descent).
 - KalmanFilter and HiddenMarkovModel end-to-end (sample, filter, smooth, EM).
 """
 
@@ -121,11 +121,16 @@ class TestKalmanFilter:
 
     def test_dim_breakdown(self, kf_2d_3d: tuple[KalmanFilter, Array]) -> None:
         kf, _ = kf_2d_3d
-        # Triple slots: prior (lat_man.dim), emission (emsn_hrm.dim), transition
-        # (kernel.lkl_fun_man.dim — likelihood only, no redundant prior block).
-        expected = kf.lat_man.dim + kf.emsn_hrm.dim + kf.transition.dim
+        # Triple slots: prior (lat_man.dim), emission likelihood
+        # (ems_hrm.lkl_fun_man.dim), transition (kernel.lkl_fun_man.dim).
+        # Both compound slots are likelihood-only; redundant kernel-prior blocks
+        # are not stored.
+        expected = (
+            kf.lat_man.dim + kf.ems_hrm.lkl_fun_man.dim + kf.trn_map.dim
+        )
         assert kf.dim == expected
-        assert kf.transition.dim == kf.transition.kernel.lkl_fun_man.dim
+        assert kf.ems_hrm.lkl_fun_man.dim < kf.ems_hrm.dim
+        assert kf.trn_map.dim == kf.trn_map.kernel.lkl_fun_man.dim
 
     def test_sample_shape(self, kf_2d_3d: tuple[KalmanFilter, Array]) -> None:
         kf, params = kf_2d_3d
@@ -149,7 +154,7 @@ class TestKalmanFilter:
         assert z0_smoothed.shape == (kf.lat_man.dim,)
         assert smoothed_seq.shape == (6, kf.lat_man.dim)
         # joints are mean-params of the kernel harmonium
-        assert joints.shape == (6, kf.transition.kernel.dim)
+        assert joints.shape == (6, kf.trn_map.kernel.dim)
 
     def test_log_observable_density_matches_filter(
         self, kf_2d_3d: tuple[KalmanFilter, Array]
@@ -191,15 +196,18 @@ class TestHiddenMarkovModel:
 
     def test_dim_breakdown(self, hmm_4_3: tuple[HiddenMarkovModel, Array]) -> None:
         hmm, _ = hmm_4_3
-        expected = hmm.lat_man.dim + hmm.emsn_hrm.dim + hmm.transition.dim
+        expected = (
+            hmm.lat_man.dim + hmm.ems_hrm.lkl_fun_man.dim + hmm.trn_map.dim
+        )
         assert hmm.dim == expected
-        assert hmm.transition.dim == hmm.transition.kernel.lkl_fun_man.dim
+        assert hmm.ems_hrm.lkl_fun_man.dim < hmm.ems_hrm.dim
+        assert hmm.trn_map.dim == hmm.trn_map.kernel.lkl_fun_man.dim
 
     def test_sample_shape(self, hmm_4_3: tuple[HiddenMarkovModel, Array]) -> None:
         hmm, params = hmm_4_3
         n_steps = 10
         observations, latents = hmm.sample(jax.random.PRNGKey(1), params, n_steps)
-        assert observations.shape == (n_steps, hmm.emsn_hrm.obs_man.data_dim)
+        assert observations.shape == (n_steps, hmm.ems_hrm.obs_man.data_dim)
         assert latents.shape == (n_steps + 1, hmm.lat_man.data_dim)
 
     def test_filter_finite(self, hmm_4_3: tuple[HiddenMarkovModel, Array]) -> None:
@@ -215,7 +223,7 @@ class TestHiddenMarkovModel:
         z0_smoothed, smoothed_seq, joints = hmm.smooth(params, observations)
         assert z0_smoothed.shape == (hmm.lat_man.dim,)
         assert smoothed_seq.shape == (5, hmm.lat_man.dim)
-        assert joints.shape == (5, hmm.transition.kernel.dim)
+        assert joints.shape == (5, hmm.trn_map.kernel.dim)
 
     def test_em_step_finite(self, hmm_4_3: tuple[HiddenMarkovModel, Array]) -> None:
         hmm, params = hmm_4_3
@@ -313,12 +321,12 @@ class TestHMMCorrectness:
         params = hmm.initialize(jax.random.PRNGKey(0), shape=0.5)
 
         # Decode (pi, A, B) from hmm's natural params.
-        prior_p, emsn_p, trns_p = hmm.split_coords(params)
+        prior_p, ems_p, trns_p = hmm.split_coords(params)
         pi_decoded = hmm.lat_man.to_probs(hmm.lat_man.to_mean(prior_p))
 
         # For A (transition), each previous state z_{t-1} = j gives a conditional
         # over z_t. Loop over j. trns_p is already likelihood-only natural params.
-        kernel = hmm.transition.kernel
+        kernel = hmm.trn_map.kernel
         trns_lkl = trns_p
 
         # Categorical's data_dim is 1 (a scalar category index).
@@ -330,13 +338,13 @@ class TestHMMCorrectness:
 
         A_decoded = jnp.stack([transition_row(j) for j in range(n_states)])
 
-        emsn_lkl, _ = hmm.emsn_hrm.split_conjugated(emsn_p)
+        ems_lkl = ems_p
 
         def emission_row(j: int) -> Array:
             z_data = jnp.array([j], dtype=jnp.float64)
-            s_z = hmm.emsn_hrm.pst_man.sufficient_statistic(z_data)
-            x_nat = hmm.emsn_hrm.lkl_fun_man(emsn_lkl, s_z)
-            return hmm.emsn_hrm.obs_man.to_probs(hmm.emsn_hrm.obs_man.to_mean(x_nat))
+            s_z = hmm.ems_hrm.pst_man.sufficient_statistic(z_data)
+            x_nat = hmm.ems_hrm.lkl_fun_man(ems_lkl, s_z)
+            return hmm.ems_hrm.obs_man.to_probs(hmm.ems_hrm.obs_man.to_mean(x_nat))
 
         B_decoded = jnp.stack([emission_row(j) for j in range(n_states)])
 
@@ -362,7 +370,7 @@ class TestHMMCorrectness:
 
 
 class TestMLPBPTTGradientDescent:
-    """An MLP plugged directly into the Transition[L] alias drives SGD loss down."""
+    """An MLP plugged directly into a LatentProcess's Map[L, L] transition slot drives SGD loss down."""
 
     def test_grad_descent_reduces_loss(self) -> None:
         """A few SGD steps on a synthetic problem should reduce the loss."""

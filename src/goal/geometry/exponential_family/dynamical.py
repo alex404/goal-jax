@@ -2,9 +2,8 @@
 
 This module contains:
 
-- ``Transition[L]`` --- a type alias for ``Map[L, L]``: any parameterized map from a latent manifold's natural parameters to itself qualifies as a transition. The ``LatentProcess`` filter scan calls it as ``predicted = transition(params, belief)`` and feeds the result into a conjugate observation update.
 - ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM in later phases.
-- ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition.
+- ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
 """
 
 from __future__ import annotations
@@ -18,15 +17,12 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.combinators import Triple
-from ..manifold.map import Map
-from .base import Analytic, Differentiable, ExponentialFamily
+from ..manifold.map import AffineMap, Map
+from .base import Analytic, Differentiable
 from .harmonium import (
     AnalyticConjugated,
     SymmetricConjugated,
 )
-
-type Transition[L: ExponentialFamily] = Map[L, L]
-"""The transition slot of a state-space model: any ``Map[L, L]`` on the latent manifold's natural parameters. ``AnalyticTransition`` is the analytic specialization; a ``MultilayerPerceptron[L, L]`` works directly for hybrid filters."""
 
 
 def transpose_harmonium[L: Differentiable](
@@ -94,14 +90,14 @@ class LatentProcess[
     O: Differentiable,
     L: Differentiable,
 ](
-    Triple[L, SymmetricConjugated[O, L], Transition[L]],
+    Triple[L, AffineMap[L, O], Map[L, L]],
     ABC,
 ):
     """A state-space model: prior over $z_0$, conjugated emission, and predict transition.
 
-    Parameters are a ``Triple`` layout ``[prior_params, emission_params, transition_params]``. The base class supports BPTT-friendly filtering and observation-marginal log-density --- both work for any ``Transition`` (linear, MLP, RNN). Subclasses with an ``AnalyticTransition`` (i.e. ``AnalyticLatentProcess``) gain joint sampling, smoothing, and exact EM.
+    Parameters are a ``Triple`` layout ``[prior_params, emission_likelihood_params, transition_params]``. Both compound slots store only the conditional (likelihood) natural parameters --- ``ems_hrm.lkl_fun_man.dim`` for the emission and (for ``AnalyticTransition``) ``kernel.lkl_fun_man.dim`` for the transition --- so the parameter vector matches the model's actual degrees of freedom; structurally redundant prior blocks of the underlying harmoniums are not stored. The base class supports BPTT-friendly filtering and observation-marginal log-density --- both work for any ``Map[L, L]`` (linear, MLP, RNN). Subclasses with an ``AnalyticTransition`` (i.e. ``AnalyticLatentProcess``) gain joint sampling, smoothing, and exact EM.
 
-    Concrete subclasses narrow ``emsn_hrm`` and ``transition`` return types covariantly.
+    Concrete subclasses narrow ``ems_hrm`` and ``trn_map`` return types covariantly.
     """
 
     # Contract
@@ -113,12 +109,15 @@ class LatentProcess[
 
     @property
     @abstractmethod
-    def emsn_hrm(self) -> SymmetricConjugated[O, L]:
-        """The emission harmonium $p(x_t \\mid z_t)$."""
+    def ems_hrm(self) -> SymmetricConjugated[O, L]:
+        """The emission harmonium $p(x_t \\mid z_t)$.
+
+        Returns the full symmetric conjugated harmonium used by forward methods (``join_conjugated``, ``posterior_at``, ``log_observable_density``) and by EM. The stored slot is just its ``lkl_fun_man`` --- see ``snd_man``.
+        """
 
     @property
     @abstractmethod
-    def transition(self) -> Transition[L]:
+    def trn_map(self) -> Map[L, L]:
         """The transition operator $z_{t-1} \\mapsto z_t$ (predict map)."""
 
     # Triple slots
@@ -130,13 +129,14 @@ class LatentProcess[
 
     @property
     @override
-    def snd_man(self) -> SymmetricConjugated[O, L]:
-        return self.emsn_hrm
+    def snd_man(self) -> AffineMap[L, O]:
+        """The emission *likelihood* manifold (``ems_hrm.lkl_fun_man``), sized to the bias + interaction parameters only."""
+        return self.ems_hrm.lkl_fun_man
 
     @property
     @override
-    def trd_man(self) -> Transition[L]:
-        return self.transition
+    def trd_man(self) -> Map[L, L]:
+        return self.trn_map
 
     # Methods
 
@@ -145,19 +145,18 @@ class LatentProcess[
 
         Iterates ``predict`` then conjugate-update over the observations sequence. Differentiable end-to-end: ``jax.grad`` of ``-log_likelihood`` w.r.t. (prior, emission, transition) params is BPTT through the scan.
         """
-        prior_params, emsn_params, trns_params = self.split_coords(params)
-        emsn_hrm = self.emsn_hrm
-        transition = self.transition
-        emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
+        prior_params, ems_lkl_params, trns_params = self.split_coords(params)
+        ems_hrm = self.ems_hrm
+        trn_map = self.trn_map
 
         def step(
             carry: tuple[Array, Array], obs: Array
         ) -> tuple[tuple[Array, Array], Array]:
             belief, total_ll = carry
-            predicted = transition(trns_params, belief)
-            emsn_with_pred = emsn_hrm.join_conjugated(emsn_lkl_params, predicted)
-            posterior = emsn_hrm.posterior_at(emsn_with_pred, obs)
-            log_lik = emsn_hrm.log_observable_density(emsn_with_pred, obs)
+            predicted = trn_map(trns_params, belief)
+            ems_with_pred = ems_hrm.join_conjugated(ems_lkl_params, predicted)
+            posterior = ems_hrm.posterior_at(ems_with_pred, obs)
+            log_lik = ems_hrm.log_observable_density(ems_with_pred, obs)
             return (posterior, total_ll + log_lik), posterior
 
         (_, log_likelihood), beliefs = jax.lax.scan(
@@ -189,28 +188,25 @@ class AnalyticLatentProcess[
     @property
     @abstractmethod
     @override
-    def emsn_hrm(self) -> AnalyticConjugated[O, L]:
+    def ems_hrm(self) -> AnalyticConjugated[O, L]:
         """Emission harmonium with analytic mean-to-natural conversion."""
 
     @property
     @abstractmethod
     @override
-    def transition(self) -> AnalyticTransition[L]:
+    def trn_map(self) -> AnalyticTransition[L]:
         """Transition with an analytic harmonium kernel for smoothing/EM."""
 
     # Methods
 
-    def sample(
-        self, key: Array, params: Array, n_steps: int
-    ) -> tuple[Array, Array]:
+    def sample(self, key: Array, params: Array, n_steps: int) -> tuple[Array, Array]:
         """Sample a trajectory $(x_{1:T}, z_{0:T})$ from the joint.
 
         Returns ``(observations, latents)`` of shapes ``(n_steps, obs_data_dim)`` and ``(n_steps + 1, lat_data_dim)`` respectively. Latents include $z_0$.
         """
-        prior_params, emsn_params, trns_lkl_params = self.split_coords(params)
-        kernel = self.transition.kernel
-        emsn_hrm = self.emsn_hrm
-        emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
+        prior_params, ems_lkl_params, trns_lkl_params = self.split_coords(params)
+        kernel = self.trn_map.kernel
+        ems_hrm = self.ems_hrm
 
         key_init, key_seq = jax.random.split(key)
         z_0 = self.lat_man.sample(key_init, prior_params, n=1)[0]
@@ -225,9 +221,9 @@ class AnalyticLatentProcess[
             z_t_params = kernel.lkl_fun_man(trns_lkl_params, s_z_prev)
             z_t = kernel.obs_man.sample(key_trans, z_t_params, n=1)[0]
 
-            s_z_t = emsn_hrm.pst_man.sufficient_statistic(z_t)
-            x_t_params = emsn_hrm.lkl_fun_man(emsn_lkl_params, s_z_t)
-            x_t = emsn_hrm.obs_man.sample(key_emit, x_t_params, n=1)[0]
+            s_z_t = ems_hrm.pst_man.sufficient_statistic(z_t)
+            x_t_params = ems_hrm.lkl_fun_man(ems_lkl_params, s_z_t)
+            x_t = ems_hrm.obs_man.sample(key_emit, x_t_params, n=1)[0]
 
             return (z_t, key_next), (x_t, z_t)
 
@@ -237,41 +233,31 @@ class AnalyticLatentProcess[
         latents = jnp.concatenate([z_0[None, :], latents_after_0], axis=0)
         return observations, latents
 
-    def log_density(
-        self, params: Array, observations: Array, latents: Array
-    ) -> Array:
+    def log_density(self, params: Array, observations: Array, latents: Array) -> Array:
         """Log joint density $\\log p(x_{1:T}, z_{0:T})$."""
-        prior_params, emsn_params, trns_lkl_params = self.split_coords(params)
-        kernel = self.transition.kernel
-        emsn_hrm = self.emsn_hrm
+        prior_params, ems_lkl_params, trns_lkl_params = self.split_coords(params)
+        kernel = self.trn_map.kernel
+        ems_hrm = self.ems_hrm
         lat_man = self.lat_man
 
         log_prior = lat_man.log_density(prior_params, latents[0])
-
-        emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
 
         def log_transition(z_prev: Array, z_curr: Array) -> Array:
             s_z_prev = kernel.lat_man.sufficient_statistic(z_prev)
             z_params = kernel.lkl_fun_man(trns_lkl_params, s_z_prev)
             return kernel.obs_man.log_density(z_params, z_curr)
 
-        log_transitions = jnp.sum(
-            jax.vmap(log_transition)(latents[:-1], latents[1:])
-        )
+        log_transitions = jnp.sum(jax.vmap(log_transition)(latents[:-1], latents[1:]))
 
         def log_emission(z: Array, x: Array) -> Array:
-            s_z = emsn_hrm.pst_man.sufficient_statistic(z)
-            x_params = emsn_hrm.lkl_fun_man(emsn_lkl_params, s_z)
-            return emsn_hrm.obs_man.log_density(x_params, x)
+            s_z = ems_hrm.pst_man.sufficient_statistic(z)
+            x_params = ems_hrm.lkl_fun_man(ems_lkl_params, s_z)
+            return ems_hrm.obs_man.log_density(x_params, x)
 
-        log_emissions = jnp.sum(
-            jax.vmap(log_emission)(latents[1:], observations)
-        )
+        log_emissions = jnp.sum(jax.vmap(log_emission)(latents[1:], observations))
         return log_prior + log_transitions + log_emissions
 
-    def smooth(
-        self, params: Array, observations: Array
-    ) -> tuple[Array, Array, Array]:
+    def smooth(self, params: Array, observations: Array) -> tuple[Array, Array, Array]:
         """Forward-backward smoothing.
 
         Returns ``(smoothed_z0, smoothed_seq, joints)``:
@@ -280,19 +266,17 @@ class AnalyticLatentProcess[
         - ``smoothed_seq`` (T, lat_dim): natural params of $p(z_t \\mid x_{1:T})$ for $t=1,\\ldots,T$.
         - ``joints`` (T, joint_dim): mean params of $p(z_{t-1}, z_t \\mid x_{1:T})$ for $t=1,\\ldots,T$.
         """
-        prior_params, emsn_params, trns_lkl_params = self.split_coords(params)
-        kernel = self.transition.kernel
-        emsn_hrm = self.emsn_hrm
-
-        emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
+        prior_params, ems_lkl_params, trns_lkl_params = self.split_coords(params)
+        kernel = self.trn_map.kernel
+        ems_hrm = self.ems_hrm
 
         def forward_step(prior: Array, obs: Array) -> tuple[Array, Array]:
             predicted = kernel.join_conjugated(trns_lkl_params, prior)
             transposed_pred = transpose_harmonium(kernel, predicted)
             _, predicted_prior = kernel.split_conjugated(transposed_pred)
 
-            emsn_with_pred = emsn_hrm.join_conjugated(emsn_lkl_params, predicted_prior)
-            filtered = emsn_hrm.posterior_at(emsn_with_pred, obs)
+            ems_with_pred = ems_hrm.join_conjugated(ems_lkl_params, predicted_prior)
+            filtered = ems_hrm.posterior_at(ems_with_pred, obs)
             return filtered, filtered
 
         _, filtered_seq = jax.lax.scan(forward_step, prior_params, observations)
@@ -319,9 +303,7 @@ class AnalyticLatentProcess[
             reverse=True,
         )
 
-        smoothed_seq = jnp.concatenate(
-            [smoothed_rest, last_filtered[None, :]], axis=0
-        )
+        smoothed_seq = jnp.concatenate([smoothed_rest, last_filtered[None, :]], axis=0)
 
         joint_hrm_0 = kernel.join_conjugated(trns_lkl_params, prior_params)
         transposed_0 = transpose_harmonium(kernel, joint_hrm_0)
@@ -339,31 +321,27 @@ class AnalyticLatentProcess[
 
         return smoothed_z0, smoothed_seq, joints
 
-    def posterior_statistics(
-        self, params: Array, observations: Array
-    ) -> Array:
+    def posterior_statistics(self, params: Array, observations: Array) -> Array:
         """E-step for a single trajectory: expected sufficient statistics in mean coordinates.
 
-        Layout is ``[prior_means(lat_man.dim) | emsn_means(emsn_hrm.dim) | trns_means(kernel.dim)]``. The transition slot holds the **full joint** mean of the kernel harmonium $(z_{t-1}, z_t)$ --- not the likelihood-only natural-parameter layout --- because the M-step's ``to_natural_likelihood`` requires the joint sufficient statistics. ``to_natural`` consumes this layout and produces the smaller natural-parameter vector.
+        Layout is ``[prior_means(lat_man.dim) | ems_means(ems_hrm.dim) | trns_means(kernel.dim)]``. Both compound slots hold the **full harmonium** mean (emission joint over $(x_t, z_t)$ and transition joint over $(z_{t-1}, z_t)$) --- not the likelihood-only natural-parameter layout --- because each M-step ``to_natural_likelihood`` requires the joint sufficient statistics. ``to_natural`` consumes this layout and produces the smaller natural-parameter vector.
         """
         smoothed_z0, smoothed, joints = self.smooth(params, observations)
         lat_man = self.lat_man
-        emsn_hrm = self.emsn_hrm
+        ems_hrm = self.ems_hrm
 
         prior_means = lat_man.to_mean(smoothed_z0)
 
         def emission_stats(x: Array, z_nat: Array) -> Array:
-            obs_stats = emsn_hrm.obs_man.sufficient_statistic(x)
+            obs_stats = ems_hrm.obs_man.sufficient_statistic(x)
             lat_means = lat_man.to_mean(z_nat)
-            int_means = emsn_hrm.int_man.outer_product(obs_stats, lat_means)
-            return emsn_hrm.join_coords(obs_stats, int_means, lat_means)
+            int_means = ems_hrm.int_man.outer_product(obs_stats, lat_means)
+            return ems_hrm.join_coords(obs_stats, int_means, lat_means)
 
-        emsn_means = jnp.mean(
-            jax.vmap(emission_stats)(observations, smoothed), axis=0
-        )
+        ems_means = jnp.mean(jax.vmap(emission_stats)(observations, smoothed), axis=0)
 
         trns_means = jnp.mean(joints, axis=0)
-        return jnp.concatenate([prior_means, emsn_means, trns_means])
+        return jnp.concatenate([prior_means, ems_means, trns_means])
 
     def mean_posterior_statistics(
         self, params: Array, observations_batch: Array
@@ -372,25 +350,25 @@ class AnalyticLatentProcess[
 
         Output uses the same full-joint transition layout as ``posterior_statistics`` --- average first, then call ``to_natural`` to invert. Averaging *after* the nonlinear M-step would not correspond to a valid EM update.
         """
-        all_stats = jax.vmap(
-            lambda obs: self.posterior_statistics(params, obs)
-        )(observations_batch)
+        all_stats = jax.vmap(lambda obs: self.posterior_statistics(params, obs))(
+            observations_batch
+        )
         return jnp.mean(all_stats, axis=0)
 
     def to_natural(self, means: Array) -> Array:
         """M-step: convert expected sufficient statistics to natural parameters.
 
-        ``means`` follows the ``posterior_statistics`` layout (full joint mean in the transition slot); the result follows the model's natural-parameter layout (likelihood-only transition slot, sized ``kernel.lkl_fun_man.dim``). The prior and emission slots are converted via the standard ``to_natural``; the transition uses ``kernel.to_natural_likelihood`` since the kernel's prior block isn't stored.
+        ``means`` follows the ``posterior_statistics`` layout (full harmonium mean in both the emission and transition slots); the result follows the model's natural-parameter layout (likelihood-only slots, sized ``ems_hrm.lkl_fun_man.dim`` and ``kernel.lkl_fun_man.dim``). The prior slot uses the standard ``to_natural``; the emission and transition both use ``to_natural_likelihood`` since their kernel prior blocks aren't stored.
         """
         lat_dim = self.lat_man.dim
-        emsn_dim = self.emsn_hrm.dim
+        ems_dim = self.ems_hrm.dim
         prior_means = means[:lat_dim]
-        emsn_means = means[lat_dim : lat_dim + emsn_dim]
-        trns_means = means[lat_dim + emsn_dim :]
+        ems_means = means[lat_dim : lat_dim + ems_dim]
+        trns_means = means[lat_dim + ems_dim :]
         return self.join_coords(
             self.lat_man.to_natural(prior_means),
-            self.emsn_hrm.to_natural(emsn_means),
-            self.transition.kernel.to_natural_likelihood(trns_means),
+            self.ems_hrm.to_natural_likelihood(ems_means),
+            self.trn_map.kernel.to_natural_likelihood(trns_means),
         )
 
     def expectation_maximization(

@@ -8,7 +8,7 @@ This module exports:
 - ``KalmanFilter`` --- linear Gaussian state-space model.
 - ``HiddenMarkovModel`` --- discrete state-space model.
 
-For an MLP-based hybrid filter, plug a ``MultilayerPerceptron[L, L]`` directly into a ``LatentProcess`` --- it satisfies the ``Transition[L]`` alias (``Map[L, L]``) without further wrapping.
+For an MLP-based hybrid filter, plug a ``MultilayerPerceptron[L, L]`` directly into a ``LatentProcess`` --- any ``Map[L, L]`` is accepted as the transition slot, no dedicated wrapper required.
 """
 
 from dataclasses import dataclass
@@ -223,14 +223,14 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
 
     @property
     @override
-    def emsn_hrm(self) -> NormalEmission:
+    def ems_hrm(self) -> NormalEmission:
         return NormalAnalyticLGM(
             obs_dim=self.obs_dim, obs_rep=PositiveDefinite(), lat_dim=self._lat_dim
         )
 
     @property
     @override
-    def transition(self) -> LinearGaussianTransition:
+    def trn_map(self) -> LinearGaussianTransition:
         return create_linear_gaussian_transition(self._lat_dim)
 
     def initialize(
@@ -239,9 +239,10 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
         """Initialize prior, emission, and transition parameters with small random noise."""
         keys = jax.random.split(key, 3)
         prior_params = self.lat_man.initialize(keys[0], location, shape)
-        emsn_params = self.emsn_hrm.initialize(keys[1], location, shape)
-        trns_params = self.transition.initialize(keys[2], location, shape)
-        return self.join_coords(prior_params, emsn_params, trns_params)
+        ems_full = self.ems_hrm.initialize(keys[1], location, shape)
+        ems_params = self.ems_hrm.likelihood_function(ems_full)
+        trns_params = self.trn_map.initialize(keys[2], location, shape)
+        return self.join_coords(prior_params, ems_params, trns_params)
 
     def from_standard(
         self,
@@ -273,18 +274,11 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
             int_mat = hrm.int_man.from_matrix(dns_prec @ weight_matrix)
             return hrm.lkl_fun_man.join_coords(obs_params, int_mat)
 
-        emsn_lkl = _build_likelihood(
-            self.emsn_hrm, emission_matrix, observation_noise
+        ems_params = _build_likelihood(
+            self.ems_hrm, emission_matrix, observation_noise
         )
-        # Emission slot still stores a full harmonium; pair the likelihood with a
-        # standard-normal prior block.
-        z_standard = self.emsn_hrm.lat_man.to_natural(
-            self.emsn_hrm.lat_man.standard_normal()
-        )
-        emsn_params = self.emsn_hrm.join_conjugated(emsn_lkl, z_standard)
-        # Transition slot stores only the likelihood.
         trns_params = _build_likelihood(
-            self.transition.kernel, transition_matrix, process_noise
+            self.trn_map.kernel, transition_matrix, process_noise
         )
 
         lm = self.lat_man
@@ -292,7 +286,7 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
         prior_params = lm.to_natural(
             lm.join_mean_covariance(prior_mean, prior_cov_coords)
         )
-        return self.join_coords(prior_params, emsn_params, trns_params)
+        return self.join_coords(prior_params, ems_params, trns_params)
 
 
 def create_kalman_filter(obs_dim: int, lat_dim: int) -> KalmanFilter:
@@ -333,12 +327,12 @@ class HiddenMarkovModel(AnalyticLatentProcess[Categorical, Categorical]):
 
     @property
     @override
-    def emsn_hrm(self) -> CategoricalEmission:
+    def ems_hrm(self) -> CategoricalEmission:
         return CategoricalEmission(n_obs=self.n_obs, n_states=self._n_states)
 
     @property
     @override
-    def transition(self) -> CategoricalTransition:
+    def trn_map(self) -> CategoricalTransition:
         return create_categorical_transition(self._n_states)
 
     def initialize(
@@ -347,9 +341,10 @@ class HiddenMarkovModel(AnalyticLatentProcess[Categorical, Categorical]):
         """Initialize prior, emission, and transition parameters with small random noise."""
         keys = jax.random.split(key, 3)
         prior_params = self.lat_man.initialize(keys[0], location, shape)
-        emsn_params = self.emsn_hrm.initialize(keys[1], location, shape)
-        trns_params = self.transition.initialize(keys[2], location, shape)
-        return self.join_coords(prior_params, emsn_params, trns_params)
+        ems_full = self.ems_hrm.initialize(keys[1], location, shape)
+        ems_params = self.ems_hrm.likelihood_function(ems_full)
+        trns_params = self.trn_map.initialize(keys[2], location, shape)
+        return self.join_coords(prior_params, ems_params, trns_params)
 
 
 def create_hidden_markov_model(n_obs: int, n_states: int) -> HiddenMarkovModel:
