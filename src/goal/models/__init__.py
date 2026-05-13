@@ -1,17 +1,4 @@
 from .base.binomial import Binomial, Binomials
-from .dynamical import (
-    CategoricalEmission,
-    CategoricalKernel,
-    CategoricalTransition,
-    HiddenMarkovModel,
-    KalmanFilter,
-    LinearGaussianTransition,
-    NormalEmission,
-    create_categorical_transition,
-    create_hidden_markov_model,
-    create_kalman_filter,
-    create_linear_gaussian_transition,
-)
 from .base.categorical import Bernoulli, Bernoullis, Categorical
 from .base.dirichlet import Dirichlet
 from .base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
@@ -37,6 +24,21 @@ from .base.poisson import (
     PopulationLocationEmbedding,
 )
 from .base.von_mises import VonMises, VonMisesProduct
+from .dynamical.hmm import (
+    CategoricalEmission,
+    CategoricalKernel,
+    CategoricalTransition,
+    HiddenMarkovModel,
+    create_categorical_transition,
+    create_hidden_markov_model,
+)
+from .dynamical.kalman_filter import (
+    KalmanFilter,
+    LinearGaussianTransition,
+    NormalEmission,
+    create_kalman_filter,
+    create_linear_gaussian_transition,
+)
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
