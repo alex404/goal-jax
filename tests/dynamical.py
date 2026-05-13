@@ -32,9 +32,11 @@ ATOL = 1e-4
 class TestLinearGaussianTransition:
     """Predict and kernel access for LinearGaussianTransition."""
 
-    def test_dim_matches_kernel(self) -> None:
+    def test_dim_is_kernel_likelihood(self) -> None:
+        """``dim`` equals the kernel's likelihood-only dimension, not the full harmonium."""
         trans = create_linear_gaussian_transition(lat_dim=2)
-        assert trans.dim == trans.kernel.dim
+        assert trans.dim == trans.kernel.lkl_fun_man.dim
+        assert trans.dim < trans.kernel.dim  # kernel's lat block isn't stored
 
     def test_dom_man_is_kernel_lat_man(self) -> None:
         trans = create_linear_gaussian_transition(lat_dim=3)
@@ -44,15 +46,16 @@ class TestLinearGaussianTransition:
     def test_predict_shape(self) -> None:
         """The transition returns natural params in dom_man's space."""
         trans = create_linear_gaussian_transition(lat_dim=2)
-        params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.05)
+        params = trans.initialize(jax.random.PRNGKey(0), shape=0.05)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.05)
         predicted = trans(params, belief)
+        assert params.shape == (trans.dim,)
         assert predicted.shape == (trans.dom_man.dim,)
 
     def test_predict_differentiable(self) -> None:
         """jax.grad of a scalar of the transition's output is finite (BPTT-friendly)."""
         trans = create_linear_gaussian_transition(lat_dim=2)
-        params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.05)
+        params = trans.initialize(jax.random.PRNGKey(0), shape=0.05)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.05)
 
         def loss(p: Array) -> Array:
@@ -66,21 +69,23 @@ class TestLinearGaussianTransition:
 class TestCategoricalTransition:
     """Predict and kernel access for CategoricalTransition."""
 
-    def test_dim_matches_kernel(self) -> None:
+    def test_dim_is_kernel_likelihood(self) -> None:
         trans = create_categorical_transition(n_states=4)
-        assert trans.dim == trans.kernel.dim
+        assert trans.dim == trans.kernel.lkl_fun_man.dim
+        assert trans.dim < trans.kernel.dim
 
     def test_predict_shape(self) -> None:
         trans = create_categorical_transition(n_states=4)
-        params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.1)
+        params = trans.initialize(jax.random.PRNGKey(0), shape=0.1)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.1)
         predicted = trans(params, belief)
+        assert params.shape == (trans.dim,)
         assert predicted.shape == (trans.dom_man.dim,)
 
     def test_predict_differentiable(self) -> None:
         """Gradient flows through the categorical predict step."""
         trans = create_categorical_transition(n_states=3)
-        params = trans.kernel.initialize(jax.random.PRNGKey(0), shape=0.1)
+        params = trans.initialize(jax.random.PRNGKey(0), shape=0.1)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.1)
 
         def loss(p: Array) -> Array:
@@ -116,9 +121,11 @@ class TestKalmanFilter:
 
     def test_dim_breakdown(self, kf_2d_3d: tuple[KalmanFilter, Array]) -> None:
         kf, _ = kf_2d_3d
-        # Triple slots: prior (lat_man.dim), emission (emsn_hrm.dim), transition (kernel.dim)
-        expected = kf.lat_man.dim + kf.emsn_hrm.dim + kf.transition.kernel.dim
+        # Triple slots: prior (lat_man.dim), emission (emsn_hrm.dim), transition
+        # (kernel.lkl_fun_man.dim — likelihood only, no redundant prior block).
+        expected = kf.lat_man.dim + kf.emsn_hrm.dim + kf.transition.dim
         assert kf.dim == expected
+        assert kf.transition.dim == kf.transition.kernel.lkl_fun_man.dim
 
     def test_sample_shape(self, kf_2d_3d: tuple[KalmanFilter, Array]) -> None:
         kf, params = kf_2d_3d
@@ -184,8 +191,9 @@ class TestHiddenMarkovModel:
 
     def test_dim_breakdown(self, hmm_4_3: tuple[HiddenMarkovModel, Array]) -> None:
         hmm, _ = hmm_4_3
-        expected = hmm.lat_man.dim + hmm.emsn_hrm.dim + hmm.transition.kernel.dim
+        expected = hmm.lat_man.dim + hmm.emsn_hrm.dim + hmm.transition.dim
         assert hmm.dim == expected
+        assert hmm.transition.dim == hmm.transition.kernel.lkl_fun_man.dim
 
     def test_sample_shape(self, hmm_4_3: tuple[HiddenMarkovModel, Array]) -> None:
         hmm, params = hmm_4_3
@@ -309,9 +317,9 @@ class TestHMMCorrectness:
         pi_decoded = hmm.lat_man.to_probs(hmm.lat_man.to_mean(prior_p))
 
         # For A (transition), each previous state z_{t-1} = j gives a conditional
-        # over z_t. Loop over j:
+        # over z_t. Loop over j. trns_p is already likelihood-only natural params.
         kernel = hmm.transition.kernel
-        trns_lkl, _ = kernel.split_conjugated(trns_p)
+        trns_lkl = trns_p
 
         # Categorical's data_dim is 1 (a scalar category index).
         def transition_row(j: int) -> Array:

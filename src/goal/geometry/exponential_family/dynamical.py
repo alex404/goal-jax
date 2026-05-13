@@ -46,11 +46,11 @@ def transpose_harmonium[L: Differentiable](
 class AnalyticTransition[L: Analytic](Map[L, L]):
     """A ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel.
 
-    The transition's parameters are exactly the kernel harmonium's natural parameters; ``__call__`` is implemented via the kernel's ``split_conjugated`` / ``join_conjugated`` and the interaction matrix's ``transpose``.
+    The transition's parameters are the kernel's *likelihood* natural parameters (``kernel.lkl_fun_man.dim`` = ``obs_man.dim + int_man.dim``), not the full harmonium. The kernel's own latent-prior block is structurally redundant for a transition --- the conjugate predict step always supplies the prior from the incoming belief --- so it is omitted from storage. ``__call__`` rebuilds a joint harmonium on the fly via ``join_conjugated`` to apply the transpose-and-marginalize update.
 
     Composition (kernel as a field) rather than multiple inheritance keeps the class hierarchy clean for both the symmetric-Gaussian case (kernel is a ``NormalAnalyticLGM``) and the categorical case (kernel is a custom ``AnalyticConjugated[Categorical, Categorical]``). Subclasses may narrow the ``kernel`` field type.
 
-    Because the kernel is the underlying joint distribution over $(z_{t-1}, z_t)$, smoothing and exact EM are available in later phases without any additional storage.
+    Because the kernel encodes the joint distribution over $(z_{t-1}, z_t)$ when paired with a belief, smoothing and exact EM are available without any additional storage; the M-step uses ``kernel.to_natural_likelihood`` so the result lands in this likelihood-only parameter space.
     """
 
     kernel: AnalyticConjugated[L, L]
@@ -68,16 +68,25 @@ class AnalyticTransition[L: Analytic](Map[L, L]):
     @property
     @override
     def dim(self) -> int:
-        return self.kernel.dim
+        return self.kernel.lkl_fun_man.dim
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         kernel = self.kernel
-        lkl_params, _ = kernel.split_conjugated(f_coords)
-        joined = kernel.join_conjugated(lkl_params, v_coords)
+        joined = kernel.join_conjugated(f_coords, v_coords)
         transposed = transpose_harmonium(kernel, joined)
         _, predicted = kernel.split_conjugated(transposed)
         return predicted
+
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        """Initialize the transition's likelihood natural parameters.
+
+        Generates a full kernel harmonium initialization and extracts its likelihood part, so the obs-bias / interaction-matrix scaling conventions of ``Harmonium.initialize`` are inherited verbatim.
+        """
+        full_params = self.kernel.initialize(key, location, shape)
+        return self.kernel.likelihood_function(full_params)
 
 
 @dataclass(frozen=True)
@@ -198,10 +207,9 @@ class AnalyticLatentProcess[
 
         Returns ``(observations, latents)`` of shapes ``(n_steps, obs_data_dim)`` and ``(n_steps + 1, lat_data_dim)`` respectively. Latents include $z_0$.
         """
-        prior_params, emsn_params, trns_params = self.split_coords(params)
+        prior_params, emsn_params, trns_lkl_params = self.split_coords(params)
         kernel = self.transition.kernel
         emsn_hrm = self.emsn_hrm
-        trns_lkl_params, _ = kernel.split_conjugated(trns_params)
         emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
 
         key_init, key_seq = jax.random.split(key)
@@ -233,14 +241,13 @@ class AnalyticLatentProcess[
         self, params: Array, observations: Array, latents: Array
     ) -> Array:
         """Log joint density $\\log p(x_{1:T}, z_{0:T})$."""
-        prior_params, emsn_params, trns_params = self.split_coords(params)
+        prior_params, emsn_params, trns_lkl_params = self.split_coords(params)
         kernel = self.transition.kernel
         emsn_hrm = self.emsn_hrm
         lat_man = self.lat_man
 
         log_prior = lat_man.log_density(prior_params, latents[0])
 
-        trns_lkl_params, _ = kernel.split_conjugated(trns_params)
         emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
 
         def log_transition(z_prev: Array, z_curr: Array) -> Array:
@@ -273,11 +280,10 @@ class AnalyticLatentProcess[
         - ``smoothed_seq`` (T, lat_dim): natural params of $p(z_t \\mid x_{1:T})$ for $t=1,\\ldots,T$.
         - ``joints`` (T, joint_dim): mean params of $p(z_{t-1}, z_t \\mid x_{1:T})$ for $t=1,\\ldots,T$.
         """
-        prior_params, emsn_params, trns_params = self.split_coords(params)
+        prior_params, emsn_params, trns_lkl_params = self.split_coords(params)
         kernel = self.transition.kernel
         emsn_hrm = self.emsn_hrm
 
-        trns_lkl_params, _ = kernel.split_conjugated(trns_params)
         emsn_lkl_params, _ = emsn_hrm.split_conjugated(emsn_params)
 
         def forward_step(prior: Array, obs: Array) -> tuple[Array, Array]:
@@ -336,7 +342,10 @@ class AnalyticLatentProcess[
     def posterior_statistics(
         self, params: Array, observations: Array
     ) -> Array:
-        """E-step for a single trajectory: expected sufficient statistics in mean coordinates."""
+        """E-step for a single trajectory: expected sufficient statistics in mean coordinates.
+
+        Layout is ``[prior_means(lat_man.dim) | emsn_means(emsn_hrm.dim) | trns_means(kernel.dim)]``. The transition slot holds the **full joint** mean of the kernel harmonium $(z_{t-1}, z_t)$ --- not the likelihood-only natural-parameter layout --- because the M-step's ``to_natural_likelihood`` requires the joint sufficient statistics. ``to_natural`` consumes this layout and produces the smaller natural-parameter vector.
+        """
         smoothed_z0, smoothed, joints = self.smooth(params, observations)
         lat_man = self.lat_man
         emsn_hrm = self.emsn_hrm
@@ -354,27 +363,34 @@ class AnalyticLatentProcess[
         )
 
         trns_means = jnp.mean(joints, axis=0)
-        return self.join_coords(prior_means, emsn_means, trns_means)
+        return jnp.concatenate([prior_means, emsn_means, trns_means])
 
     def mean_posterior_statistics(
         self, params: Array, observations_batch: Array
     ) -> Array:
-        """Batched E-step: averaged expected sufficient statistics over trajectories."""
+        """Batched E-step: averaged expected sufficient statistics over trajectories.
+
+        Output uses the same full-joint transition layout as ``posterior_statistics`` --- average first, then call ``to_natural`` to invert. Averaging *after* the nonlinear M-step would not correspond to a valid EM update.
+        """
         all_stats = jax.vmap(
             lambda obs: self.posterior_statistics(params, obs)
         )(observations_batch)
         return jnp.mean(all_stats, axis=0)
 
     def to_natural(self, means: Array) -> Array:
-        """Convert mean parameters to natural parameters.
+        """M-step: convert expected sufficient statistics to natural parameters.
 
-        Delegates to each component (prior, emission, transition kernel) independently.
+        ``means`` follows the ``posterior_statistics`` layout (full joint mean in the transition slot); the result follows the model's natural-parameter layout (likelihood-only transition slot, sized ``kernel.lkl_fun_man.dim``). The prior and emission slots are converted via the standard ``to_natural``; the transition uses ``kernel.to_natural_likelihood`` since the kernel's prior block isn't stored.
         """
-        prior_means, emsn_means, trns_means = self.split_coords(means)
+        lat_dim = self.lat_man.dim
+        emsn_dim = self.emsn_hrm.dim
+        prior_means = means[:lat_dim]
+        emsn_means = means[lat_dim : lat_dim + emsn_dim]
+        trns_means = means[lat_dim + emsn_dim :]
         return self.join_coords(
             self.lat_man.to_natural(prior_means),
             self.emsn_hrm.to_natural(emsn_means),
-            self.transition.kernel.to_natural(trns_means),
+            self.transition.kernel.to_natural_likelihood(trns_means),
         )
 
     def expectation_maximization(

@@ -236,11 +236,11 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
-        """Initialize prior, emission, and transition-kernel parameters with small random noise."""
+        """Initialize prior, emission, and transition parameters with small random noise."""
         keys = jax.random.split(key, 3)
         prior_params = self.lat_man.initialize(keys[0], location, shape)
         emsn_params = self.emsn_hrm.initialize(keys[1], location, shape)
-        trns_params = self.transition.kernel.initialize(keys[2], location, shape)
+        trns_params = self.transition.initialize(keys[2], location, shape)
         return self.join_coords(prior_params, emsn_params, trns_params)
 
     def from_standard(
@@ -257,11 +257,12 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
         Builds the emission and transition harmoniums via the precision-weighted-interaction encoding, then composes them with the prior into a ``KalmanFilter`` Triple.
         """
 
-        def _build_harmonium(
+        def _build_likelihood(
             hrm: NormalAnalyticLGM[PositiveDefinite],
             weight_matrix: Array,
             noise_covariance: Array,
         ) -> Array:
+            """Build the harmonium likelihood (obs bias + interaction) from $(C, R)$."""
             om = hrm.obs_man
             zero_mean = jnp.zeros(om.data_dim)
             cov_coords = om.cov_man.from_matrix(noise_covariance)
@@ -270,15 +271,21 @@ class KalmanFilter(AnalyticLatentProcess[FullNormal, FullNormal]):
             dns_prec = om.cov_man.to_matrix(obs_prec)
 
             int_mat = hrm.int_man.from_matrix(dns_prec @ weight_matrix)
-            lkl_params = hrm.lkl_fun_man.join_coords(obs_params, int_mat)
-            z_standard = hrm.lat_man.to_natural(hrm.lat_man.standard_normal())
-            return hrm.join_conjugated(lkl_params, z_standard)
+            return hrm.lkl_fun_man.join_coords(obs_params, int_mat)
 
-        emsn_params = _build_harmonium(
+        emsn_lkl = _build_likelihood(
             self.emsn_hrm, emission_matrix, observation_noise
         )
-        trns_kernel = self.transition.kernel
-        trns_params = _build_harmonium(trns_kernel, transition_matrix, process_noise)
+        # Emission slot still stores a full harmonium; pair the likelihood with a
+        # standard-normal prior block.
+        z_standard = self.emsn_hrm.lat_man.to_natural(
+            self.emsn_hrm.lat_man.standard_normal()
+        )
+        emsn_params = self.emsn_hrm.join_conjugated(emsn_lkl, z_standard)
+        # Transition slot stores only the likelihood.
+        trns_params = _build_likelihood(
+            self.transition.kernel, transition_matrix, process_noise
+        )
 
         lm = self.lat_man
         prior_cov_coords = lm.cov_man.from_matrix(prior_covariance)
@@ -337,11 +344,11 @@ class HiddenMarkovModel(AnalyticLatentProcess[Categorical, Categorical]):
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
-        """Initialize prior, emission, and transition-kernel parameters with small random noise."""
+        """Initialize prior, emission, and transition parameters with small random noise."""
         keys = jax.random.split(key, 3)
         prior_params = self.lat_man.initialize(keys[0], location, shape)
         emsn_params = self.emsn_hrm.initialize(keys[1], location, shape)
-        trns_params = self.transition.kernel.initialize(keys[2], location, shape)
+        trns_params = self.transition.initialize(keys[2], location, shape)
         return self.join_coords(prior_params, emsn_params, trns_params)
 
 
