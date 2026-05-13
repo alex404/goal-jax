@@ -267,17 +267,12 @@ class AnalyticLatentProcess[
         - ``joints`` (T, joint_dim): mean params of $p(z_{t-1}, z_t \\mid x_{1:T})$ for $t=1,\\ldots,T$.
         """
         prior_params, ems_lkl_params, trns_lkl_params = self.split_coords(params)
-        kernel = self.trn_map.kernel
+        trn_map = self.trn_map
+        kernel = trn_map.kernel
         ems_hrm = self.ems_hrm
 
-        def predict_transpose(prior: Array) -> tuple[Array, Array]:
-            """Returns ``(transposed_transition_likelihood, predicted_next_prior)``."""
-            joined = kernel.join_conjugated(trns_lkl_params, prior)
-            transposed = transpose_harmonium(kernel, joined)
-            return kernel.split_conjugated(transposed)
-
         def forward_step(prior: Array, obs: Array) -> tuple[Array, Array]:
-            _, predicted_prior = predict_transpose(prior)
+            predicted_prior = trn_map(trns_lkl_params, prior)
             ems_with_pred = ems_hrm.join_conjugated(ems_lkl_params, predicted_prior)
             filtered = ems_hrm.posterior_at(ems_with_pred, obs)
             return filtered, filtered
@@ -293,9 +288,13 @@ class AnalyticLatentProcess[
         def backward_step(
             smoothed_next: Array, filtered: Array
         ) -> tuple[Array, tuple[Array, Array]]:
-            trns_t_lkl, _ = predict_transpose(filtered)
-            backward_joint = kernel.join_conjugated(trns_t_lkl, smoothed_next)
-            backward_hrm = transpose_harmonium(kernel, backward_joint)
+            # Smoothing kernel: build p(z_t | z_{t+1}) reweighted by the filter at t.
+            fwd_joint = kernel.join_conjugated(trns_lkl_params, filtered)
+            trns_t_lkl, _ = kernel.split_conjugated(transpose_harmonium(kernel, fwd_joint))
+
+            # Marginalize the smoothing kernel against the smoothed belief at t+1.
+            bwd_joint = kernel.join_conjugated(trns_t_lkl, smoothed_next)
+            backward_hrm = transpose_harmonium(kernel, bwd_joint)
             _, smoothed_curr = kernel.split_conjugated(backward_hrm)
             return smoothed_curr, (smoothed_curr, backward_hrm)
 
