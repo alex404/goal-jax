@@ -270,54 +270,50 @@ class AnalyticLatentProcess[
         kernel = self.trn_map.kernel
         ems_hrm = self.ems_hrm
 
-        def forward_step(prior: Array, obs: Array) -> tuple[Array, Array]:
-            predicted = kernel.join_conjugated(trns_lkl_params, prior)
-            transposed_pred = transpose_harmonium(kernel, predicted)
-            _, predicted_prior = kernel.split_conjugated(transposed_pred)
+        def predict_transpose(prior: Array) -> tuple[Array, Array]:
+            """Returns ``(transposed_transition_likelihood, predicted_next_prior)``."""
+            joined = kernel.join_conjugated(trns_lkl_params, prior)
+            transposed = transpose_harmonium(kernel, joined)
+            return kernel.split_conjugated(transposed)
 
+        def forward_step(prior: Array, obs: Array) -> tuple[Array, Array]:
+            _, predicted_prior = predict_transpose(prior)
             ems_with_pred = ems_hrm.join_conjugated(ems_lkl_params, predicted_prior)
             filtered = ems_hrm.posterior_at(ems_with_pred, obs)
             return filtered, filtered
 
         _, filtered_seq = jax.lax.scan(forward_step, prior_params, observations)
 
+        # Treat z_0's "filtered" belief as the prior itself (no observation), so the
+        # backward scan covers z_0 -> z_T uniformly with no boundary special-case.
+        filtered_with_prior = jnp.concatenate(
+            [prior_params[None, :], filtered_seq], axis=0
+        )
+
         def backward_step(
             smoothed_next: Array, filtered: Array
         ) -> tuple[Array, tuple[Array, Array]]:
-            joint_hrm_params = kernel.join_conjugated(trns_lkl_params, filtered)
-            transposed = transpose_harmonium(kernel, joint_hrm_params)
-            trns_t_lkl, _ = kernel.split_conjugated(transposed)
-
+            trns_t_lkl, _ = predict_transpose(filtered)
             backward_joint = kernel.join_conjugated(trns_t_lkl, smoothed_next)
             backward_hrm = transpose_harmonium(kernel, backward_joint)
             _, smoothed_curr = kernel.split_conjugated(backward_hrm)
-
             return smoothed_curr, (smoothed_curr, backward_hrm)
 
-        last_filtered = filtered_seq[-1]
+        last_filtered = filtered_with_prior[-1]
 
         _, (smoothed_rest, backward_hrms) = jax.lax.scan(
             backward_step,
             last_filtered,
-            filtered_seq[:-1],
+            filtered_with_prior[:-1],
             reverse=True,
         )
 
-        smoothed_seq = jnp.concatenate([smoothed_rest, last_filtered[None, :]], axis=0)
-
-        joint_hrm_0 = kernel.join_conjugated(trns_lkl_params, prior_params)
-        transposed_0 = transpose_harmonium(kernel, joint_hrm_0)
-        trns_t_lkl_0, _ = kernel.split_conjugated(transposed_0)
-
-        backward_joint_0 = kernel.join_conjugated(trns_t_lkl_0, smoothed_seq[0])
-        backward_hrm_0 = transpose_harmonium(kernel, backward_joint_0)
-        _, smoothed_z0 = kernel.split_conjugated(backward_hrm_0)
-
-        all_backward_hrms = jnp.concatenate(
-            [backward_hrm_0[None, :], backward_hrms], axis=0
+        smoothed_full = jnp.concatenate(
+            [smoothed_rest, last_filtered[None, :]], axis=0
         )
-
-        joints = jax.vmap(kernel.to_mean)(all_backward_hrms)
+        smoothed_z0 = smoothed_full[0]
+        smoothed_seq = smoothed_full[1:]
+        joints = jax.vmap(kernel.to_mean)(backward_hrms)
 
         return smoothed_z0, smoothed_seq, joints
 
