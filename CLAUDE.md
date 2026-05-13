@@ -94,7 +94,7 @@ The library is organized into three main modules under `src/goal/`:
 - **Linear Gaussian Models**: `NormalLGM[ObsRep, PstRep]`, `FactorAnalysis`, `PrincipalComponentAnalysis`
 - **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
 - **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
-- **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`, `MLPTransition`
+- **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`
 
 ## Typing Strategy
 
@@ -189,7 +189,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `population_codes.py` | `models/harmonium/population_codes.py` |
 | `graphical_mixture.py` | `models/graphical/mixture.py` |
 | `hmog.py` | `models/graphical/hmog.py` (AnalyticHMoG, DifferentiableHMoG) |
-| `dynamical.py` | `geometry/exponential_family/dynamical.py` and `models/dynamical/` (transitions, KalmanFilter, HiddenMarkovModel, MLPTransition) |
+| `dynamical.py` | `geometry/exponential_family/dynamical.py` and `models/dynamical/` (`AnalyticTransition` over both kernel types, `KalmanFilter`, `HiddenMarkovModel`, and `MultilayerPerceptron[L, L]` as a transition map) |
 | `whitening.py` | Cross-cutting: whitening on FA, MFA, HMoG |
 
 ### Structure within files
