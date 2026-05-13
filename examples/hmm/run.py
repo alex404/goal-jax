@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from goal.models import HiddenMarkovModel, create_hidden_markov_model
+from goal.models import HiddenMarkovModel
 
 from ..shared import example_paths, jax_cli
 from .types import HMMResults
@@ -113,7 +113,7 @@ def main() -> None:
 
     # Build a ground-truth HMM by random initialization with larger noise so
     # that the sampled trajectories are non-trivial.
-    model = create_hidden_markov_model(n_obs=N_OBS, n_states=N_STATES)
+    model = HiddenMarkovModel(n_obs=N_OBS, n_states=N_STATES)
     true_params = model.initialize(key_model, shape=0.8)
 
     # Sample training trajectories

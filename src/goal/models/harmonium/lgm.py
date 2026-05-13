@@ -533,27 +533,31 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         q = self.mean_posterior_statistics(params, xs)
         return self.to_natural(self.whiten_prior(q))
 
+    def likelihood_from_loadings(
+        self,
+        loadings: Array,
+        means: Array,
+        noise_cov: Array,
+    ) -> Array:
+        """Build likelihood natural parameters from the loading-model parameterization $x = Az + \\mu + \\epsilon$, $\\epsilon \\sim \\mathcal{N}(0, \\Sigma)$.
+
+        The noise covariance is in observable ``cov_man`` storage (e.g., diagonal vector for FA, scalar for PCA), not a dense matrix.
+        """
+        om = self.obs_man
+        obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
+        obs_prs = om.split_location_precision(obs_params)[1]
+        dns_prs = om.cov_man.to_matrix(obs_prs)
+        int_mat = self.int_man.from_matrix(dns_prs @ loadings)
+        return self.lkl_fun_man.join_coords(obs_params, int_mat)
+
     def initialize_from_loadings(
         self,
         loadings: Array,
         means: Array,
         noise_cov: Array,
     ) -> Array:
-        """Create natural parameters from loading model parameterization.
-
-        Converts the generative model $x = Az + \\mu + \\epsilon$ where
-        $\\epsilon \\sim \\mathcal{N}(0, \\Sigma)$ to natural parameters.
-        The noise covariance format matches the observable representation
-        (e.g., diagonal vector for FA, scalar for PCA).
-        """
-        om = self.obs_man
-        obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
-        obs_prs = om.split_location_precision(obs_params)[1]
-        dns_prs = om.cov_man.to_matrix(obs_prs)
-
-        int_mat = self.int_man.from_matrix(dns_prs @ loadings)
-
-        lkl_params = self.lkl_fun_man.join_coords(obs_params, int_mat)
+        """Full harmonium natural parameters from the loading-model parameterization, with a standard-normal latent prior."""
+        lkl_params = self.likelihood_from_loadings(loadings, means, noise_cov)
         z = self.lat_man.to_natural(self.lat_man.standard_normal())
         return self.join_conjugated(lkl_params, z)
 

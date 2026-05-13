@@ -1,7 +1,7 @@
 """Tests for geometry/exponential_family/dynamical.py and models/dynamical/.
 
 Covers:
-- AnalyticTransition predict shape and round-trip for LinearGaussianTransition and CategoricalTransition.
+- AnalyticTransition predict shape and BPTT gradient for both a Gaussian-LGM kernel and a Categorical-mixture kernel.
 - MultilayerPerceptron[L, L] used directly as a transition map (BPTT gradient descent).
 - KalmanFilter and HiddenMarkovModel end-to-end (sample, filter, smooth, EM).
 """
@@ -11,15 +11,15 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import MultilayerPerceptron
+from goal.geometry import MultilayerPerceptron, PositiveDefinite
+from goal.geometry.exponential_family.dynamical import AnalyticTransition
 from goal.models import (
+    AnalyticMixture,
     Categorical,
+    FullNormal,
     HiddenMarkovModel,
     KalmanFilter,
-    create_categorical_transition,
-    create_hidden_markov_model,
-    create_kalman_filter,
-    create_linear_gaussian_transition,
+    NormalAnalyticLGM,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -29,23 +29,33 @@ RTOL = 1e-4
 ATOL = 1e-4
 
 
-class TestLinearGaussianTransition:
-    """Predict and kernel access for LinearGaussianTransition."""
+def _gaussian_transition(lat_dim: int) -> AnalyticTransition[FullNormal]:
+    kernel = NormalAnalyticLGM(
+        obs_dim=lat_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim
+    )
+    return AnalyticTransition(kernel=kernel)
+
+
+def _categorical_transition(n_states: int) -> AnalyticTransition[Categorical]:
+    return AnalyticTransition(kernel=AnalyticMixture(Categorical(n_states), n_states))
+
+
+class TestAnalyticTransitionGaussian:
+    """AnalyticTransition wrapping a NormalAnalyticLGM kernel."""
 
     def test_dim_is_kernel_likelihood(self) -> None:
         """``dim`` equals the kernel's likelihood-only dimension, not the full harmonium."""
-        trans = create_linear_gaussian_transition(lat_dim=2)
+        trans = _gaussian_transition(lat_dim=2)
         assert trans.dim == trans.kernel.lkl_fun_man.dim
         assert trans.dim < trans.kernel.dim  # kernel's lat block isn't stored
 
     def test_dom_man_is_kernel_lat_man(self) -> None:
-        trans = create_linear_gaussian_transition(lat_dim=3)
+        trans = _gaussian_transition(lat_dim=3)
         assert trans.dom_man.data_dim == trans.kernel.lat_man.data_dim
         assert trans.cod_man.data_dim == trans.kernel.lat_man.data_dim
 
     def test_predict_shape(self) -> None:
-        """The transition returns natural params in dom_man's space."""
-        trans = create_linear_gaussian_transition(lat_dim=2)
+        trans = _gaussian_transition(lat_dim=2)
         params = trans.initialize(jax.random.PRNGKey(0), shape=0.05)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.05)
         predicted = trans(params, belief)
@@ -54,7 +64,7 @@ class TestLinearGaussianTransition:
 
     def test_predict_differentiable(self) -> None:
         """jax.grad of a scalar of the transition's output is finite (BPTT-friendly)."""
-        trans = create_linear_gaussian_transition(lat_dim=2)
+        trans = _gaussian_transition(lat_dim=2)
         params = trans.initialize(jax.random.PRNGKey(0), shape=0.05)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.05)
 
@@ -66,16 +76,16 @@ class TestLinearGaussianTransition:
         assert jnp.all(jnp.isfinite(grads))
 
 
-class TestCategoricalTransition:
-    """Predict and kernel access for CategoricalTransition."""
+class TestAnalyticTransitionCategorical:
+    """AnalyticTransition wrapping an AnalyticMixture[Categorical] kernel."""
 
     def test_dim_is_kernel_likelihood(self) -> None:
-        trans = create_categorical_transition(n_states=4)
+        trans = _categorical_transition(n_states=4)
         assert trans.dim == trans.kernel.lkl_fun_man.dim
         assert trans.dim < trans.kernel.dim
 
     def test_predict_shape(self) -> None:
-        trans = create_categorical_transition(n_states=4)
+        trans = _categorical_transition(n_states=4)
         params = trans.initialize(jax.random.PRNGKey(0), shape=0.1)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.1)
         predicted = trans(params, belief)
@@ -83,8 +93,7 @@ class TestCategoricalTransition:
         assert predicted.shape == (trans.dom_man.dim,)
 
     def test_predict_differentiable(self) -> None:
-        """Gradient flows through the categorical predict step."""
-        trans = create_categorical_transition(n_states=3)
+        trans = _categorical_transition(n_states=3)
         params = trans.initialize(jax.random.PRNGKey(0), shape=0.1)
         belief = trans.dom_man.initialize(jax.random.PRNGKey(1), shape=0.1)
 
@@ -96,14 +105,14 @@ class TestCategoricalTransition:
 
 
 # =============================================================================
-# Phase 6: KalmanFilter and HiddenMarkovModel
+# KalmanFilter and HiddenMarkovModel end-to-end
 # =============================================================================
 
 
 @pytest.fixture
 def kf_2d_3d() -> tuple[KalmanFilter, Array]:
     """A KF with 2D observations and 3D latent state, randomly initialized."""
-    kf = create_kalman_filter(obs_dim=2, lat_dim=3)
+    kf = KalmanFilter(obs_dim=2, lat_dim=3)
     params = kf.initialize(jax.random.PRNGKey(0), shape=0.05)
     return kf, params
 
@@ -111,7 +120,7 @@ def kf_2d_3d() -> tuple[KalmanFilter, Array]:
 @pytest.fixture
 def hmm_4_3() -> tuple[HiddenMarkovModel, Array]:
     """An HMM with 4 obs categories and 3 latent states."""
-    hmm = create_hidden_markov_model(n_obs=4, n_states=3)
+    hmm = HiddenMarkovModel(n_obs=4, n_states=3)
     params = hmm.initialize(jax.random.PRNGKey(0), shape=0.1)
     return hmm, params
 
@@ -121,10 +130,6 @@ class TestKalmanFilter:
 
     def test_dim_breakdown(self, kf_2d_3d: tuple[KalmanFilter, Array]) -> None:
         kf, _ = kf_2d_3d
-        # Triple slots: prior (lat_man.dim), emission likelihood
-        # (ems_hrm.lkl_fun_man.dim), transition (kernel.lkl_fun_man.dim).
-        # Both compound slots are likelihood-only; redundant kernel-prior blocks
-        # are not stored.
         expected = (
             kf.lat_man.dim + kf.ems_hrm.lkl_fun_man.dim + kf.trn_map.dim
         )
@@ -153,7 +158,6 @@ class TestKalmanFilter:
         z0_smoothed, smoothed_seq, joints = kf.smooth(params, observations)
         assert z0_smoothed.shape == (kf.lat_man.dim,)
         assert smoothed_seq.shape == (6, kf.lat_man.dim)
-        # joints are mean-params of the kernel harmonium
         assert joints.shape == (6, kf.trn_map.kernel.dim)
 
     def test_log_observable_density_matches_filter(
@@ -169,7 +173,6 @@ class TestKalmanFilter:
     def test_em_step_finite(self, kf_2d_3d: tuple[KalmanFilter, Array]) -> None:
         """One EM step produces finite parameters."""
         kf, params = kf_2d_3d
-        # Build a small batch: shape (n_seqs, n_steps, obs_dim)
         keys = jax.random.split(jax.random.PRNGKey(2), 3)
         obs_batch = jnp.stack([kf.sample(k, params, n_steps=5)[0] for k in keys])
         new_params = kf.expectation_maximization(params, obs_batch)
@@ -178,7 +181,7 @@ class TestKalmanFilter:
 
     def test_from_standard_round_trip(self) -> None:
         """from_standard produces filterable parameters."""
-        kf = create_kalman_filter(obs_dim=2, lat_dim=2)
+        kf = KalmanFilter(obs_dim=2, lat_dim=2)
         A = jnp.array([[0.9, 0.1], [-0.1, 0.9]])
         Q = jnp.eye(2) * 0.05
         C = jnp.array([[1.0, 0.0], [0.0, 1.0]])
@@ -235,7 +238,7 @@ class TestHiddenMarkovModel:
 
 
 # =============================================================================
-# Phase 7: Correctness tests
+# Correctness tests
 # =============================================================================
 
 
@@ -245,9 +248,8 @@ class TestKalmanFilterCorrectness:
     def test_em_monotone(self) -> None:
         """A few EM iterations on data sampled from the true model should not
         decrease the average log-likelihood."""
-        kf = create_kalman_filter(obs_dim=2, lat_dim=2)
+        kf = KalmanFilter(obs_dim=2, lat_dim=2)
         true_params = kf.initialize(jax.random.PRNGKey(0), shape=0.1)
-        # Sample a batch of trajectories
         keys = jax.random.split(jax.random.PRNGKey(1), 8)
         obs_batch = jnp.stack([kf.sample(k, true_params, n_steps=15)[0] for k in keys])
 
@@ -256,14 +258,12 @@ class TestKalmanFilterCorrectness:
                 jax.vmap(lambda obs: kf.log_observable_density(p, obs))(obs_batch)
             )
 
-        # Start from a perturbed initialization; run EM and check non-decreasing LL.
         params = kf.initialize(jax.random.PRNGKey(2), shape=0.1)
         ll_history = [avg_ll(params)]
         for _ in range(5):
             params = kf.expectation_maximization(params, obs_batch)
             ll_history.append(avg_ll(params))
         ll_history = jnp.array(ll_history)
-        # EM is theoretically monotone; allow tiny numerical slack
         assert jnp.all(jnp.diff(ll_history) >= -1e-4), (
             f"EM log-likelihood decreased: {ll_history}"
         )
@@ -288,18 +288,12 @@ class TestHMMCorrectness:
             (alpha, log_likelihood). alpha[t] is P(z_t=k | x_{1:t}) (normalized).
             log_likelihood is log P(x_{1:T}).
         """
-        # alpha_pred[t, k] = P(z_t=k, x_{1:t-1})  (predicted, before update)
-        # alpha[t, k] = P(z_t=k, x_{1:t})  (filtered)
-
         def step(
             carry: tuple[Array, Array], obs: Array
         ) -> tuple[tuple[Array, Array], Array]:
             alpha_prev, log_lik = carry
-            # Predict: alpha_pred[k] = sum_j alpha_prev[j] * A[j, k]
             alpha_pred = alpha_prev @ A
-            # Update with observation: multiply by B[:, obs]
             alpha_unnorm = alpha_pred * B[:, obs]
-            # Normalize and accumulate log-likelihood
             scale = jnp.sum(alpha_unnorm)
             alpha_new = alpha_unnorm / scale
             return (alpha_new, log_lik + jnp.log(scale)), alpha_new
@@ -317,19 +311,15 @@ class TestHMMCorrectness:
         n_states = 3
         n_obs = 4
 
-        hmm = create_hidden_markov_model(n_obs=n_obs, n_states=n_states)
+        hmm = HiddenMarkovModel(n_obs=n_obs, n_states=n_states)
         params = hmm.initialize(jax.random.PRNGKey(0), shape=0.5)
 
-        # Decode (pi, A, B) from hmm's natural params.
         prior_p, ems_p, trns_p = hmm.split_coords(params)
         pi_decoded = hmm.lat_man.to_probs(hmm.lat_man.to_mean(prior_p))
 
-        # For A (transition), each previous state z_{t-1} = j gives a conditional
-        # over z_t. Loop over j. trns_p is already likelihood-only natural params.
         kernel = hmm.trn_map.kernel
         trns_lkl = trns_p
 
-        # Categorical's data_dim is 1 (a scalar category index).
         def transition_row(j: int) -> Array:
             z_prev_data = jnp.array([j], dtype=jnp.float64)
             s_z_prev = kernel.lat_man.sufficient_statistic(z_prev_data)
@@ -348,21 +338,15 @@ class TestHMMCorrectness:
 
         B_decoded = jnp.stack([emission_row(j) for j in range(n_states)])
 
-        # Sample observations from the model. Categorical observations are
-        # already integer indices (data_dim = 1).
         obs, _ = hmm.sample(jax.random.PRNGKey(7), params, n_steps=20)
-        # obs has shape (n_steps, 1) -- integer indices wrapped in a length-1 array.
         obs_int = obs.reshape(-1).astype(jnp.int32)
 
-        # Run manual forward on (pi_decoded, A_decoded, B_decoded, obs_int).
         _, log_lik_manual = self._manual_forward(
             pi_decoded, A_decoded, B_decoded, obs_int
         )
 
-        # Run LatentProcess.filter on hmm with the original observations.
         _, log_lik_hmm = hmm.filter(params, obs)
 
-        # The two log-likelihoods should agree up to numerical error.
         assert jnp.allclose(log_lik_manual, log_lik_hmm, rtol=1e-4, atol=1e-4), (
             f"Manual forward log-likelihood {log_lik_manual} differs from "
             f"hmm.filter {log_lik_hmm}"
@@ -379,7 +363,7 @@ class TestMLPBPTTGradientDescent:
             lat, lat, hidden_dims=(8,), activation=jax.nn.relu
         )
         params = trans.glorot_initialize(jax.random.PRNGKey(0))
-        target = jnp.array([0.3, 0.5])  # arbitrary target in lat's nat space
+        target = jnp.array([0.3, 0.5])
 
         def loss(p: Array) -> Array:
             belief = jnp.zeros(lat.dim)

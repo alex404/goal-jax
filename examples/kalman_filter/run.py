@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from goal.models import KalmanFilter, create_kalman_filter
+from goal.models import KalmanFilter
 
 from ..shared import example_paths, jax_cli
 from .types import KalmanFilterResults
@@ -34,7 +34,7 @@ N_EM_STEPS = 200
 
 def create_ground_truth() -> tuple[KalmanFilter, Array]:
     """Damped oscillator with 1D observation of the position component."""
-    model = create_kalman_filter(obs_dim=OBS_DIM, lat_dim=LAT_DIM)
+    model = KalmanFilter(obs_dim=OBS_DIM, lat_dim=LAT_DIM)
 
     damping = 0.98
     omega = 0.4

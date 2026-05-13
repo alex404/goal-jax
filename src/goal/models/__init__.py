@@ -24,21 +24,8 @@ from .base.poisson import (
     PopulationLocationEmbedding,
 )
 from .base.von_mises import VonMises, VonMisesProduct
-from .dynamical.hmm import (
-    CategoricalEmission,
-    CategoricalKernel,
-    CategoricalTransition,
-    HiddenMarkovModel,
-    create_categorical_transition,
-    create_hidden_markov_model,
-)
-from .dynamical.kalman_filter import (
-    KalmanFilter,
-    LinearGaussianTransition,
-    NormalEmission,
-    create_kalman_filter,
-    create_linear_gaussian_transition,
-)
+from .dynamical.hmm import HiddenMarkovModel
+from .dynamical.kalman_filter import KalmanFilter
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -90,9 +77,6 @@ __all__ = [
     "BoltzmannEmbedding",
     "BoltzmannLGM",
     "Categorical",
-    "CategoricalEmission",
-    "CategoricalKernel",
-    "CategoricalTransition",
     "CoMPoisson",
     "CoMPoissonMixture",
     "CoMPoissons",
@@ -113,12 +97,10 @@ __all__ = [
     "HiddenMarkovModel",
     "IsotropicNormal",
     "KalmanFilter",
-    "LinearGaussianTransition",
     "Mixture",
     "MixtureOfFactorAnalyzers",
     "Normal",
     "NormalAnalyticLGM",
-    "NormalEmission",
     "NormalCovarianceEmbedding",
     "NormalLGM",
     "Poisson",
@@ -135,10 +117,6 @@ __all__ = [
     "VonMisesProduct",
     "analytic_hmog",
     "com_poisson_mixture",
-    "create_categorical_transition",
-    "create_hidden_markov_model",
-    "create_kalman_filter",
-    "create_linear_gaussian_transition",
     "diagonal_normal",
     "differentiable_hmog",
     "factor_analysis",
