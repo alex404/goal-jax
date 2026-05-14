@@ -14,7 +14,10 @@ from ...geometry import (
     Rectangular,
 )
 from ...geometry.exponential_family.harmonium import Harmonium
-from ...geometry.exponential_family.variational import VariationalConjugated
+from ...geometry.exponential_family.variational import (
+    VariationalConjugated,
+    regress_conjugation_parameters,
+)
 from ..base.poisson import CoMPoissons, Poissons, PopulationLocationEmbedding
 from ..base.von_mises import VonMisesProduct
 from .mixture import AnalyticMixture, Mixture
@@ -108,8 +111,8 @@ class VonMisesPopulationCode(
         # Fit rho via regression
         zero_rho = jnp.zeros(self.rho_man.dim)
         init_params = self.join_coords(zero_rho, hrm_params)
-        rho, _, _, _ = self.regress_conjugation_parameters(
-            key, init_params, n_regression_samples
+        rho, _, _, _ = regress_conjugation_parameters(
+            self, key, init_params, n_regression_samples
         )
 
         return self.join_coords(rho, hrm_params)

@@ -20,6 +20,11 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
+from goal.geometry.exponential_family.variational import (
+    conjugation_metrics,
+    reconstruction_error,
+    regress_conjugation_parameters,
+)
 from goal.models import (
     PoissonVonMisesHarmonium,
     VonMisesPopulationCode,
@@ -206,18 +211,18 @@ def compute_gt_conjugation(
 
     # Compute optimal rho via regression
     key, reg_key = jax.random.split(key)
-    rho_star, r_squared, _, _ = var_model.regress_conjugation_parameters(
-        reg_key, var_params, n_samples
+    rho_star, r_squared, _, _ = regress_conjugation_parameters(
+        var_model, reg_key, var_params, n_samples
     )
 
     # Var[\psi_X] = Var[RLS] when rho=0 (since RLS = 0 \cdot s - \psi = -\psi)
     key, m0_key = jax.random.split(key)
-    var_psi, _, _ = var_model.conjugation_metrics(m0_key, var_params, n_samples)
+    var_psi, _, _ = conjugation_metrics(var_model, m0_key, var_params, n_samples)
 
     # Var[RLS] with optimal rho
     optimal_params = var_model.join_coords(rho_star, gt_params)
     key, m1_key = jax.random.split(key)
-    var_rls, _, _ = var_model.conjugation_metrics(m1_key, optimal_params, n_samples)
+    var_rls, _, _ = conjugation_metrics(var_model, m1_key, optimal_params, n_samples)
 
     return {
         "optimal_rho": rho_star.tolist(),
@@ -307,8 +312,8 @@ def train_model(
 
         # Compute analytical rho via library regression
         dummy_params = model.join_coords(zero_rho, hrm_params)
-        rho_star, _, _, _ = model.regress_conjugation_parameters(
-            rho_key, dummy_params, n_analytical_samples
+        rho_star, _, _, _ = regress_conjugation_parameters(
+            model, rho_key, dummy_params, n_analytical_samples
         )
 
         # Let implicit gradient flow through lstsq for proper rho coupling
@@ -433,13 +438,13 @@ def train_model(
 
         # Periodic metrics (expensive, computed once per chunk)
         recon_error = float(
-            model.reconstruction_error(current_params, train_data[:500])
+            reconstruction_error(model, current_params, train_data[:500])
         )
         reconstruction_errors.append(recon_error)
 
         key, conj_key = jax.random.split(key)
-        var_f, _, r2_val = model.conjugation_metrics(
-            conj_key, current_params, n_conj_samples
+        var_f, _, r2_val = conjugation_metrics(
+            model, conj_key, current_params, n_conj_samples
         )
         r_squared.append(float(r2_val))
         var_rls_history.append(float(var_f))
@@ -490,16 +495,16 @@ def train_model(
         key, rho_eval_key = jax.random.split(key)
         zero_rho = jnp.zeros(model.rho_man.dim)
         eval_params = model.join_coords(zero_rho, current_hrm_params)
-        rho_final, _, _, _ = model.regress_conjugation_parameters(
-            rho_eval_key, eval_params, n_conj_samples * 2
+        rho_final, _, _, _ = regress_conjugation_parameters(
+            model, rho_eval_key, eval_params, n_conj_samples * 2
         )
         current_params = model.join_coords(rho_final, current_hrm_params)
 
     key, eval_key = jax.random.split(key)
 
-    final_recon_error = float(model.reconstruction_error(current_params, train_data))
-    final_var_rls, _, final_r2 = model.conjugation_metrics(
-        eval_key, current_params, n_conj_samples
+    final_recon_error = float(reconstruction_error(model, current_params, train_data))
+    final_var_rls, _, final_r2 = conjugation_metrics(
+        model, eval_key, current_params, n_conj_samples
     )
     final_rho, _ = model.split_coords(current_params)
     final_rho_norm = float(jnp.linalg.norm(final_rho))

@@ -27,7 +27,10 @@ from goal.geometry import (
     ObservableEmbedding,
     Rectangular,
 )
-from goal.geometry.exponential_family.variational import VariationalConjugated
+from goal.geometry.exponential_family.variational import (
+    VariationalConjugated,
+    conjugation_metrics,
+)
 from goal.geometry.manifold.embedding import LinearEmbedding
 from goal.geometry.manifold.map import LinearMap
 from goal.models import (
@@ -251,7 +254,7 @@ def compute_conjugation_metrics(
     Returns:
         Tuple of (var_f, std_f, r_squared, rho_norm)
     """
-    var_f, std_f, r_squared = model.conjugation_metrics(key, params, n_samples)
+    var_f, std_f, r_squared = conjugation_metrics(model, key, params, n_samples)
     rho = model.conjugation_parameters(params)
     rho_norm = jnp.linalg.norm(rho)
     return var_f, std_f, r_squared, rho_norm

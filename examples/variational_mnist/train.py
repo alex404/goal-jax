@@ -35,6 +35,11 @@ import optax
 from jax import Array
 from sklearn.datasets import fetch_openml
 
+from goal.geometry.exponential_family.variational import (
+    conjugation_metrics,
+    regress_conjugation_parameters,
+)
+
 from ..shared import example_paths
 from .model import (
     ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
@@ -222,7 +227,7 @@ def compute_conjugation_metrics_jit(
     Returns:
         Tuple of (variance, std, r_squared)
     """
-    return model.conjugation_metrics(key, params, n_samples)
+    return conjugation_metrics(model, key, params, n_samples)
 
 
 def train_model(  # noqa: C901
@@ -359,7 +364,9 @@ def train_model(  # noqa: C901
         # Var[f̃] measures how well the linear conjugation approximates the true
         # posterior, which is the same geometric quantity the KL gap depends on
         if use_conj_penalty:
-            conj_var = model.conjugation_error(conj_key, params, N_CONJ_PENALTY_SAMPLES)
+            conj_var, _, _ = conjugation_metrics(
+                model, conj_key, params, N_CONJ_PENALTY_SAMPLES
+            )
             conj_loss = beta * conj_weight * conj_var
         else:
             conj_var = jnp.array(0.0)
@@ -387,8 +394,8 @@ def train_model(  # noqa: C901
         # Compute analytical rho via regress_conjugation_parameters
         zero_rho = jnp.zeros(model.rho_man.dim)
         dummy_params = model.join_coords(zero_rho, hrm_params)
-        rho_star, _, _, regression_var = model.regress_conjugation_parameters(
-            rho_key, dummy_params, n_analytical_samples
+        rho_star, _, _, regression_var = regress_conjugation_parameters(
+            model, rho_key, dummy_params, n_analytical_samples
         )
 
         # Build full params with analytical rho and compute ELBO
@@ -507,7 +514,7 @@ def train_model(  # noqa: C901
     # JIT-compile diagnostic metrics (called only at LOG_INTERVAL)
     @jax.jit
     def compute_diagnostics(params: Array, key: Array) -> tuple[Array, Array, Array]:
-        return model.conjugation_metrics(key, params, N_CONJ_SAMPLES)
+        return conjugation_metrics(model, key, params, N_CONJ_SAMPLES)
 
     for step in range(n_steps):
         # Beta warmup: ramps KL weight and conj penalty together from 0 to 1.

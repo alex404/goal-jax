@@ -10,6 +10,10 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
+from goal.geometry.exponential_family.variational import (
+    reconstruct,
+    regress_conjugation_parameters,
+)
 from goal.models import PoissonVonMisesHarmonium, VonMisesPopulationCode
 
 jax.config.update("jax_platform_name", "cpu")
@@ -99,7 +103,7 @@ class TestVonMisesPopulationCode:
     def test_reconstruction(self) -> None:
         model, params = _make_population_code(8, jax.random.PRNGKey(42))
         x = jax.random.poisson(jax.random.PRNGKey(0), 5.0 * jnp.ones(8)).astype(jnp.float32)
-        recon = model.reconstruct(params, x)
+        recon = reconstruct(model, params, x)
         assert recon.shape == (8,)
         assert jnp.all(jnp.isfinite(recon))
         assert jnp.all(recon > 0)
@@ -123,7 +127,9 @@ class TestVonMisesPopulationCodeConjugation:
         params = model.join_coords(jnp.zeros(model.rho_man.dim), hrm_params)
 
         key, reg_key = jax.random.split(key)
-        rho, r_squared, _, _ = model.regress_conjugation_parameters(reg_key, params, 5000)
+        rho, r_squared, _, _ = regress_conjugation_parameters(
+            model, reg_key, params, 5000
+        )
         assert jnp.linalg.norm(rho) > 0.01 or float(r_squared) > 0.3
 
 
