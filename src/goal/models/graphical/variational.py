@@ -1,7 +1,6 @@
 """Variational hierarchical mixture model.
 
-Extends VariationalConjugated for models with mixture posterior structure,
-where the latent space is a CompleteMixture over a base latent manifold.
+Extends VariationalConjugated for hierarchical models with mixture posterior structure: the underlying harmonium has interaction structurally restricted to the observable (BaseLatent) component of the mixture posterior --- no per-component observable offsets, so the analytic mixture completion of the conjugation collapses to a simple zero-pad embedding of the learned $\\rho$ into the mixture-shaped Prior space.
 """
 
 from abc import ABC
@@ -9,8 +8,8 @@ from typing import Any, override
 
 from jax import Array
 
-from ...geometry import Differentiable, LinearEmbedding, ObservableEmbedding
-from ...geometry.exponential_family.variational import VariationalConjugated
+from ...geometry import Differentiable, ObservableEmbedding
+from ...geometry.exponential_family.variational import SymmetricVariationalConjugated
 from ..harmonium.mixture import CompleteMixture
 
 
@@ -18,26 +17,29 @@ class VariationalHierarchicalMixture[
     Observable: Differentiable,
     BaseLatent: Differentiable,
 ](
-    VariationalConjugated[Observable, Any, BaseLatent],
+    SymmetricVariationalConjugated[Observable, Any, BaseLatent],
     ABC,
 ):
-    """Variational harmonium with mixture latent structure.
+    """Variational harmonium with hierarchical mixture latent structure.
 
-    For a three-level hierarchy (Observable <-> BaseLatent <-> Categorical),
-    the rho correction only affects the BaseLatent (observable) component
-    of the mixture, leaving interaction and categorical unchanged.
+    Three-level hierarchy ``Observable (X) <-> BaseLatent (Y) <-> Categorical (K)``,
+    where the underlying harmonium's interaction only acts on the BaseLatent
+    component of the mixture (constructed via :class:`ObservableEmbedding`).
+    Posterior = Prior = ``CompleteMixture[BaseLatent]``; Conjugation = ``BaseLatent``.
 
-    Model structure::
+    Because the interaction is structurally restricted to the BaseLatent slot,
+    the marginal $p(z, k) = \\int p(x|y) p(x, y, k) dx$ only picks up
+    conjugation along the BaseLatent direction. The analytic mixture completion
+    therefore zero-pads the learned $\\rho_y$ into the (mixture-interaction,
+    categorical) slots of the Prior, exactly mirroring how
+    :meth:`DifferentiableHierarchical.conjugation_parameters` zero-pads via
+    :class:`ObservableEmbedding`.
 
-        Observable (X) <-> Base Latent (Y) <-> Categorical (K)
-           |                    |                    |
-        e.g., Binomials     Bernoullis        Mixture component
-
-    Joint distribution: ``p(x, y, k) = p(k) * p(y|k) * p(x|y)``
-
-    The posterior is a CompleteMixture[BaseLatent], and the rho correction
-    is applied only to the observable (BaseLatent) bias, not to the
-    mixture interaction or categorical parameters.
+    The contrast with :class:`VariationalFullMixture`: there the harmonium is a
+    :class:`CompleteMixtureOfHarmoniums` with a three-block interaction
+    (``xy``, ``xyk``, ``xk``), and the analytic mixture completion supplies a
+    *non-zero* categorical contribution (log-partition differences across
+    component-specific observable offsets).
     """
 
     @property
@@ -57,13 +59,25 @@ class VariationalHierarchicalMixture[
 
     @property
     @override
-    def rho_emb(self) -> LinearEmbedding[BaseLatent, Any]:
-        """Embedding from BaseLatent to mixture's observable component.
+    def lat_man(self) -> Any:
+        return self.gen_hrm.pst_man
 
-        The rho correction only affects the observable (BaseLatent) bias,
-        not the mixture interaction or categorical parameters.
+    @property
+    @override
+    def cnj_man(self) -> BaseLatent:
+        return self.bas_lat_man
+
+    @override
+    def conjugation_parameters(self, params: Array) -> Array:
+        """Zero-pad the learned $\\rho_y$ into the full mixture-shape Prior conjugation.
+
+        In the hierarchical case the underlying harmonium's interaction only
+        touches the BaseLatent slot, so the analytic mixture completion has
+        $\\rho_{yz} = 0$ and $\\rho_z = 0$. The full conjugation is just
+        $\\rho_y$ embedded via :class:`ObservableEmbedding` into the mixture.
         """
-        return ObservableEmbedding(self.mix_man)
+        _, _, rho = self.split_coords(params)
+        return ObservableEmbedding(self.mix_man).embed(rho)
 
     def get_cluster_probs(self, mixture_params: Array) -> Array:
         """Extract cluster probabilities from mixture natural parameters by marginalizing out the observable."""

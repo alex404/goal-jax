@@ -4,7 +4,7 @@ This module contains:
 
 - ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM in later phases.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
-- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is a ``VariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
+- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is a ``SymmetricVariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from .harmonium import (
     AnalyticConjugated,
     SymmetricConjugated,
 )
-from .variational import VariationalConjugated
+from .variational import SymmetricVariationalConjugated
 
 
 def transpose_harmonium[L: Differentiable](
@@ -401,8 +401,8 @@ class VariationalLatentProcess[
 
     @property
     @abstractmethod
-    def ems_hrm(self) -> VariationalConjugated[O, L, C]:
-        """The variational-conjugate emission harmonium $p(x_t \\mid z_t)$ with learned conjugation $\\rho$."""
+    def ems_hrm(self) -> SymmetricVariationalConjugated[O, L, C]:
+        """The variational-conjugate emission harmonium $p(x_t \\mid z_t)$ with learned conjugation $\\rho$. Symmetric variational because the transition operates on belief natural parameters in ``L``."""
 
     @property
     @abstractmethod
@@ -425,8 +425,8 @@ class VariationalLatentProcess[
     @property
     @override
     def trd_man(self) -> C:
-        """The conjugation parameter manifold (``ems_hrm.rho_man``)."""
-        return self.ems_hrm.rho_man
+        """The conjugation parameter manifold (``ems_hrm.cnj_man``)."""
+        return self.ems_hrm.cnj_man
 
     @property
     @override
@@ -434,14 +434,6 @@ class VariationalLatentProcess[
         return self.trn_map
 
     # Methods
-
-    def emission_params(self, params: Array, prior: Array) -> Array:
-        """Reconstruct full ``VariationalConjugated`` parameters using an externally-supplied prior.
-
-        Used both internally by the filter step (where ``prior`` is the predicted belief from the transition map) and externally by callers who want to evaluate ``regress_conjugation_parameters`` / ``conjugation_metrics`` / ``reduced_learning_signal`` on ``ems_hrm`` against an arbitrary prior context.
-        """
-        _, ems_lkl, rho, _ = self.split_coords(params)
-        return self.ems_hrm.join_coords(prior, ems_lkl, rho)
 
     def filter(
         self,
@@ -455,7 +447,7 @@ class VariationalLatentProcess[
 
         At each step, the transition map predicts the next belief, the emission's variational machinery computes the approximate posterior given the new observation, and the per-step ELBO (reconstruction term minus ``kl_weight`` times $\\mathrm{KL}(q \\| \\text{predicted prior})$) is accumulated. Differentiable end-to-end --- ``jax.grad`` of ``-total_elbo`` w.r.t. (prior, emission, $\\rho$, transition) flows through the scan.
         """
-        prior_params, _, _, trns_params = self.split_coords(params)
+        prior_params, ems_lkl, rho, trns_params = self.split_coords(params)
         ems_hrm = self.ems_hrm
         trn_map = self.trn_map
 
@@ -468,7 +460,7 @@ class VariationalLatentProcess[
             belief, total_elbo = carry
             obs, step_key = step_input
             predicted = trn_map(trns_params, belief)
-            ems_full = self.emission_params(params, predicted)
+            ems_full = ems_hrm.join_coords(predicted, ems_lkl, rho)
             posterior = ems_hrm.approximate_posterior_at(ems_full, obs)
             elbo_t = ems_hrm.elbo_at(
                 step_key, ems_full, obs, n_mc_samples, kl_weight=kl_weight

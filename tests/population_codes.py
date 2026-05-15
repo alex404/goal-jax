@@ -123,7 +123,7 @@ class TestVonMisesPopulationCodeConjugation:
         int_col_2 = gains * jnp.sin(preferred)
         int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
         lkl_params = model.gen_hrm.lkl_fun_man.join_coords(jnp.zeros(n_neurons), int_params)
-        params = model.join_coords(jnp.zeros(2), lkl_params, jnp.zeros(model.rho_man.dim))
+        params = model.join_coords(jnp.zeros(2), lkl_params, jnp.zeros(model.cnj_man.dim))
 
         key, reg_key = jax.random.split(key)
         rho, r_squared, _, _ = regress_conjugation_parameters(

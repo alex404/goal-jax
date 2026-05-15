@@ -28,10 +28,9 @@ from goal.geometry import (
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
-    VariationalConjugated,
+    SymmetricVariationalConjugated,
     conjugation_metrics,
 )
-from goal.geometry.manifold.embedding import LinearEmbedding
 from goal.geometry.manifold.map import LinearMap
 from goal.models import (
     Bernoullis,
@@ -94,15 +93,23 @@ class ConcreteCompleteMixtureOfHarmoniums[
 class VariationalFullMixture[
     Observable: Differentiable, BaseLatent: Differentiable
 ](
-    VariationalConjugated[
+    SymmetricVariationalConjugated[
         Observable, CompleteMixture[BaseLatent], BaseLatent
     ],
 ):
     """Fully connected X<->Y<->K via CompleteMixtureOfHarmoniums.
 
-    Rho corrects only the BaseLatent (observable) component of the
-    CompleteMixture posterior via ObservableEmbedding.  Cluster-specific
-    structure is forced through the three-block interaction (xy, xyk, xk).
+    The base ``CompleteMixtureOfHarmoniums`` has a three-block interaction
+    (``xy``, ``xyk``, ``xk``), so distinct components carry distinct observable
+    offsets. ``conjugation_parameters`` reproduces the analytic mixture
+    completion from ``CompleteMixtureOfConjugated.conjugation_parameters``,
+    substituting the variationally-learned ``rho`` (in ``BaseLatent``
+    shape) for what the analytic case computes from the base harmonium's
+    conjugation. ``rho_yz`` collapses to zero (since the variational
+    approximation reuses ``rho`` across components) but ``rho_z`` is
+    the analytic log-partition difference of the observable across
+    component-specific offsets --- this is the contribution that the previous
+    ``rho_emb = ObservableEmbedding(...)`` design silently dropped.
     """
 
     _gen_hrm: CompleteMixtureOfHarmoniums[Observable, BaseLatent]
@@ -114,8 +121,38 @@ class VariationalFullMixture[
 
     @property
     @override
-    def rho_emb(self) -> LinearEmbedding[BaseLatent, CompleteMixture[BaseLatent]]:
-        return ObservableEmbedding(self.gen_hrm.pst_man)  # pyright: ignore[reportReturnType]
+    def lat_man(self) -> CompleteMixture[BaseLatent]:
+        return self._gen_hrm.pst_man
+
+    @property
+    @override
+    def cnj_man(self) -> BaseLatent:
+        return self.bas_lat_man
+
+    @override
+    def conjugation_parameters(self, params: Array) -> Array:
+        """Mirror :meth:`CompleteMixtureOfConjugated.conjugation_parameters` with $\\rho_y$ peeled out of ``params``."""
+        _, lkl_params, rho_y = self.split_coords(params)
+        x_params, int_params = self.gen_hrm.lkl_fun_man.split_coords(lkl_params)
+        xy_params, xyk_params, xk_params = self.gen_hrm.int_man.coord_blocks(int_params)
+        del xy_params, xyk_params  # unused under the rho_yi = rho_y approximation
+
+        if self.n_categories == 1:
+            return self.prr_man.join_coords(rho_y, jnp.array([]), jnp.array([]))
+
+        xk_2d = xk_params.reshape(-1, self.n_categories - 1)
+        psi_base = self.obs_man.log_partition_function(x_params)
+
+        def rho_z_k(x_offset: Array) -> Array:
+            return self.obs_man.log_partition_function(x_params + x_offset) - psi_base
+
+        rho_z = jax.vmap(rho_z_k, in_axes=1)(xk_2d)
+
+        # Under the variational approximation rho_yi = rho_y for all components,
+        # so rho_yz = rho_yi - rho_y = 0.
+        rho_yz_zeros = jnp.zeros(self.prr_man.int_man.dim)
+
+        return self.prr_man.join_coords(rho_y, rho_yz_zeros, rho_z)
 
     @property
     def mix_man(self) -> CompleteMixture[BaseLatent]:
@@ -272,7 +309,9 @@ def compute_conjugation_metrics(
     """Compute conjugation quality metrics.
 
     Returns:
-        Tuple of (var_f, std_f, r_squared, rho_norm)
+        Tuple of (var_f, std_f, r_squared, rho_norm) --- ``rho_norm`` is the
+        norm of the variationally-learned $\\rho$ (the stored ``BaseLatent``-
+        shape correction).
     """
     var_f, std_f, r_squared = conjugation_metrics(model, key, params, n_samples)
     rho = model.conjugation_parameters(params)

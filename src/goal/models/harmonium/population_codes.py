@@ -15,7 +15,7 @@ from ...geometry import (
 )
 from ...geometry.exponential_family.harmonium import Harmonium
 from ...geometry.exponential_family.variational import (
-    VariationalConjugated,
+    SymmetricVariationalConjugated,
     regress_conjugation_parameters,
 )
 from ..base.poisson import CoMPoissons, Poissons, PopulationLocationEmbedding
@@ -53,13 +53,14 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
 @dataclass(frozen=True)
 class VonMisesPopulationCode(
-    VariationalConjugated[Poissons, VonMisesProduct, VonMisesProduct]
+    SymmetricVariationalConjugated[Poissons, VonMisesProduct, VonMisesProduct]
 ):
     """Variational population code with Poisson observables and VonMises latents.
 
     Unifies 1D population codes and multi-dimensional toroidal models under
-    the variational conjugation framework. The approximate posterior has VonMises
-    product form, with learned conjugation correction $\\rho$.
+    the variational conjugation framework. Posterior = prior = conjugation =
+    ``VonMisesProduct``, so :meth:`conjugation_parameters` returns the stored
+    $\\rho$ unchanged.
     """
 
     _gen_hrm: PoissonVonMisesHarmonium
@@ -73,8 +74,13 @@ class VonMisesPopulationCode(
 
     @property
     @override
-    def rho_emb(self) -> IdentityEmbedding[VonMisesProduct]:
-        return IdentityEmbedding(self.gen_hrm.pst_man)
+    def lat_man(self) -> VonMisesProduct:
+        return self._gen_hrm.pst_man
+
+    @property
+    @override
+    def cnj_man(self) -> VonMisesProduct:
+        return self.lat_man
 
     # Methods
 
@@ -114,7 +120,7 @@ class VonMisesPopulationCode(
         prior_nat = vm.join_mean_concentration(prior_mean, prior_concentration)
 
         # Fit rho via regression
-        zero_rho = jnp.zeros(self.rho_man.dim)
+        zero_rho = jnp.zeros(self.cnj_man.dim)
         init_params = self.join_coords(prior_nat, lkl_params, zero_rho)
         rho, _, _, _ = regress_conjugation_parameters(
             self, key, init_params, n_regression_samples

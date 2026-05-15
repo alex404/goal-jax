@@ -206,7 +206,7 @@ def compute_gt_conjugation(
     """Compute conjugation metrics for the ground truth model using library methods."""
     # Wrap GT harmonium in variational model to use library methods
     var_model = VonMisesPopulationCode(_gen_hrm=gt_model)
-    zero_rho = jnp.zeros(var_model.rho_man.dim)
+    zero_rho = jnp.zeros(var_model.cnj_man.dim)
 
     # Reformat GT harmonium params [obs, int, prior] into variational [prior, lkl, rho]
     gt_obs, gt_int, gt_prior = gt_model.split_coords(gt_params)
@@ -270,8 +270,10 @@ def train_model(
     print(f"{'=' * 60}")
 
     params = init_params
-    gen_params = model.generative_params(params)
-    zero_rho = jnp.zeros(model.rho_man.dim)
+    prior_dim = model.prr_man.dim
+    init_prior_p, init_lkl_p, _ = model.split_coords(params)
+    gen_params = jnp.concatenate([init_prior_p, init_lkl_p])
+    zero_rho = jnp.zeros(model.cnj_man.dim)
 
     # Optimizer setup
     if use_analytical_rho:
@@ -314,14 +316,17 @@ def train_model(
     ) -> tuple[Array, tuple[Array, Array]]:
         rho_key, elbo_key, conj_key = jax.random.split(key, 3)
 
+        prior_p = gen_params[:prior_dim]
+        lkl_p = gen_params[prior_dim:]
+
         # Compute analytical rho via library regression
-        dummy_params = model.join_generative_and_rho(gen_params, zero_rho)
+        dummy_params = model.join_coords(prior_p, lkl_p, zero_rho)
         rho_star, _, _, _ = regress_conjugation_parameters(
             model, rho_key, dummy_params, n_analytical_samples
         )
 
         # Let implicit gradient flow through lstsq for proper rho coupling
-        params_with_rho = model.join_generative_and_rho(gen_params, rho_star)
+        params_with_rho = model.join_coords(prior_p, lkl_p, rho_star)
         elbo = model.mean_elbo(elbo_key, params_with_rho, batch, n_mc_samples)
 
         # Conjugation penalty: explicitly discourage nonlinear \psi_X
@@ -415,7 +420,11 @@ def train_model(
                 train_step_analytical, carry, None, length=log_interval
             )
             current_gen_params, current_opt_state, train_key = carry
-            current_params = model.join_generative_and_rho(current_gen_params, rho_stars_chunk[-1])
+            current_params = model.join_coords(
+                current_gen_params[:prior_dim],
+                current_gen_params[prior_dim:],
+                rho_stars_chunk[-1],
+            )
             all_elbos.append(elbos_chunk)
             all_conj_errors.append(jnp.zeros(log_interval))
         elif use_conj_penalty:
@@ -467,7 +476,11 @@ def train_model(
                 train_step_analytical, carry, None, length=remainder
             )
             current_gen_params, current_opt_state, train_key = carry
-            current_params = model.join_generative_and_rho(current_gen_params, rho_stars_chunk[-1])
+            current_params = model.join_coords(
+                current_gen_params[:prior_dim],
+                current_gen_params[prior_dim:],
+                rho_stars_chunk[-1],
+            )
             all_elbos.append(elbos_chunk)
             all_conj_errors.append(jnp.zeros(remainder))
         elif use_conj_penalty:
@@ -497,12 +510,14 @@ def train_model(
     # For analytical mode, recompute rho with many samples for stable evaluation
     if use_analytical_rho:
         key, rho_eval_key = jax.random.split(key)
-        zero_rho = jnp.zeros(model.rho_man.dim)
-        eval_params = model.join_generative_and_rho(current_gen_params, zero_rho)
+        zero_rho = jnp.zeros(model.cnj_man.dim)
+        cur_prior_p = current_gen_params[:prior_dim]
+        cur_lkl_p = current_gen_params[prior_dim:]
+        eval_params = model.join_coords(cur_prior_p, cur_lkl_p, zero_rho)
         rho_final, _, _, _ = regress_conjugation_parameters(
             model, rho_eval_key, eval_params, n_conj_samples * 2
         )
-        current_params = model.join_generative_and_rho(current_gen_params, rho_final)
+        current_params = model.join_coords(cur_prior_p, cur_lkl_p, rho_final)
 
     key, eval_key = jax.random.split(key)
 
@@ -662,7 +677,7 @@ def main():
     model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, n_latent))
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
-    print(f"  Rho params: {model.rho_man.dim}")
+    print(f"  Rho params: {model.cnj_man.dim}")
     print(f"  Harmonium params: {model.gen_hrm.dim}")
 
     # Train all modes

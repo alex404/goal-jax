@@ -336,7 +336,9 @@ def train_model(  # noqa: C901
         boundaries=[lr_warmup_steps],
     )
     optimizer = optax.adam(lr_schedule)
-    gen_params = model.generative_params(params)
+    prior_dim = model.prr_man.dim
+    init_prior, init_lkl, _ = model.split_coords(params)
+    gen_params = jnp.concatenate([init_prior, init_lkl])
     if use_analytical_rho:
         opt_state = optimizer.init(gen_params)
     else:
@@ -392,15 +394,18 @@ def train_model(  # noqa: C901
     ) -> tuple[Array, tuple[Array, Array, Array]]:
         key, rho_key, elbo_key = jax.random.split(key, 3)
 
+        prior_p = gen_params[:prior_dim]
+        lkl_p = gen_params[prior_dim:]
+
         # Compute analytical rho via regress_conjugation_parameters
-        zero_rho = jnp.zeros(model.rho_man.dim)
-        dummy_params = model.join_generative_and_rho(gen_params, zero_rho)
+        zero_rho = jnp.zeros(model.cnj_man.dim)
+        dummy_params = model.join_coords(prior_p, lkl_p, zero_rho)
         rho_star, _, _, regression_var = regress_conjugation_parameters(
             model, rho_key, dummy_params, n_analytical_samples
         )
 
         # Build full params with analytical rho and compute ELBO
-        params_with_rho = model.join_generative_and_rho(gen_params, rho_star)
+        params_with_rho = model.join_coords(prior_p, lkl_p, rho_star)
         elbo = model.mean_elbo(
             elbo_key, params_with_rho, batch, DEFAULT_N_MC_SAMPLES, kl_weight=beta
         )
@@ -530,7 +535,11 @@ def train_model(  # noqa: C901
                 beta=beta,
             )
             elbo, conj_var, rho_star = metrics
-            current_params = model.join_generative_and_rho(current_gen_params, rho_star)
+            current_params = model.join_coords(
+                current_gen_params[:prior_dim],
+                current_gen_params[prior_dim:],
+                rho_star,
+            )
         else:
             (current_params, current_opt_state, train_key, _), metrics = train_step(
                 (current_params, current_opt_state, train_key, train_data),
@@ -705,7 +714,7 @@ def main():
         interaction=args.interaction,
     )
     print(f"Model dim: {model.dim}")
-    print(f"  Rho params: {model.rho_man.dim}")
+    print(f"  Rho params: {model.cnj_man.dim}")
     print(f"  Harmonium params: {model.gen_hrm.dim}")
 
     # Train model
