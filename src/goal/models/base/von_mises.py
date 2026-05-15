@@ -160,13 +160,19 @@ class VonMises(Differentiable):
         return samples[..., None]
 
 
+@dataclass(frozen=True)
 class VonMisesProduct(DifferentiableProduct[VonMises]):
     """Product of $n$ independent von Mises distributions for modeling multiple circular variables. Each component has natural parameters $(\\kappa \\cos(\\mu), \\kappa \\sin(\\mu))$."""
 
-    def __init__(self, n_components: int):
-        super().__init__(VonMises(), n_components)
+    n_components: int
+    """Number of Von Mises components."""
 
     @property
-    def n_components(self) -> int:
-        """Number of Von Mises components."""
-        return self.n_reps
+    @override
+    def rep_man(self) -> VonMises:
+        return VonMises()
+
+    @property
+    @override
+    def n_reps(self) -> int:
+        return self.n_components

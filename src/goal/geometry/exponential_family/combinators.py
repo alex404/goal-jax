@@ -100,8 +100,8 @@ class ExponentialFamilyPair[A: ExponentialFamily, B: ExponentialFamily](
         return self.join_coords(fst_params, snd_params)
 
 
-class GenerativePair[A: Generative, B: Generative](  # pyright: ignore[reportImplicitAbstractClass]
-    ExponentialFamilyPair[A, B], Generative
+class GenerativePair[A: Generative, B: Generative](
+    ExponentialFamilyPair[A, B], Generative, ABC
 ):
     """Heterogeneous EF pair adding independent sampling across the two slots."""
 
@@ -116,8 +116,8 @@ class GenerativePair[A: Generative, B: Generative](  # pyright: ignore[reportImp
         return jnp.concatenate([fst_samples, snd_samples], axis=-1)
 
 
-class DifferentiablePair[A: Differentiable, B: Differentiable](  # pyright: ignore[reportImplicitAbstractClass]
-    GenerativePair[A, B], Differentiable
+class DifferentiablePair[A: Differentiable, B: Differentiable](
+    GenerativePair[A, B], Differentiable, ABC
 ):
     """Heterogeneous EF pair with log-partition function summed across slots."""
 
@@ -146,7 +146,7 @@ class AnalyticPair[A: Analytic, B: Analytic](
         ) + self.snd_man.negative_entropy(snd_means)
 
 
-class ExponentialFamilyProduct[M: ExponentialFamily](Replicated[M], ExponentialFamily):
+class ExponentialFamilyProduct[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
     """Product of ``n_reps`` independent copies of the same exponential family.
 
     The sufficient statistic and base measure decompose across replicates. If the base family supports ``StatisticalMoments``, the product exposes composed mean and block-diagonal covariance.
@@ -231,7 +231,7 @@ class ExponentialFamilyProduct[M: ExponentialFamily](Replicated[M], ExponentialF
         return jax.scipy.linalg.block_diag(*component_covs)
 
 
-class GenerativeProduct[M: Generative](ExponentialFamilyProduct[M], Generative):
+class GenerativeProduct[M: Generative](ExponentialFamilyProduct[M], Generative, ABC):
     """Product of generative exponential families, adding independent sampling across replicates."""
 
     # Overrides
@@ -250,7 +250,7 @@ class GenerativeProduct[M: Generative](ExponentialFamilyProduct[M], Generative):
         return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 
 
-class DifferentiableProduct[M: Differentiable](Differentiable, GenerativeProduct[M]):
+class DifferentiableProduct[M: Differentiable](Differentiable, GenerativeProduct[M], ABC):
     """Product of differentiable exponential families, with log-partition function summed across replicates."""
 
     # Overrides

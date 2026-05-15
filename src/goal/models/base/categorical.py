@@ -172,13 +172,19 @@ class Categorical(Analytic):
         return jnp.argmax(jnp.log(probs) + g, axis=-1)[..., None]
 
 
+@dataclass(frozen=True)
 class Bernoullis(AnalyticProduct[Bernoulli]):
     """Product of $n$ independent Bernoulli distributions, commonly used for mean-field approximations in Boltzmann machines."""
 
-    def __init__(self, n_neurons: int):
-        super().__init__(Bernoulli(), n_neurons)
+    n_neurons: int
+    """Number of binary units."""
 
     @property
-    def n_neurons(self) -> int:
-        """Number of binary units."""
-        return self.n_reps
+    @override
+    def rep_man(self) -> Bernoulli:
+        return Bernoulli()
+
+    @property
+    @override
+    def n_reps(self) -> int:
+        return self.n_neurons

@@ -200,7 +200,7 @@ class Quadruple[
 
 
 @dataclass(frozen=True)
-class Replicated[M: Manifold](Manifold):
+class Replicated[M: Manifold](Manifold, ABC):
     """Homogeneous product of $n$ copies of the same manifold, stored flat as ``[n_reps * rep_man.dim]``.
 
     Used for collections where every element lives on the same manifold (e.g. mixture components, time series states). The ``map`` method applies a function across copies via ``vmap``.
@@ -208,12 +208,17 @@ class Replicated[M: Manifold](Manifold):
     Mathematically, the $n$-fold product $\\mathcal M^n = \\mathcal M \\times \\cdots \\times \\mathcal M$ with $\\dim = n \\cdot \\dim(\\mathcal M)$. Unlike ``Tuple``, the homogeneity allows ``vmap``-based operations over the copies.
     """
 
-    # Fields
+    # Contract
 
-    rep_man: M
-    """The base manifold being replicated."""
-    n_reps: int
-    """Number of copies of the base manifold."""
+    @property
+    @abstractmethod
+    def rep_man(self) -> M:
+        """The base manifold being replicated."""
+
+    @property
+    @abstractmethod
+    def n_reps(self) -> int:
+        """Number of copies of the base manifold."""
 
     # Overrides
 

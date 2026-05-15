@@ -344,19 +344,42 @@ class CoMPoisson(LocationShape[Poisson, CoMShape], Differentiable):
         return self.join_mode_dispersion(mu, nu)
 
 
+@dataclass(frozen=True)
 class Poissons(AnalyticProduct[Poisson]):
     """Product of $n$ independent Poisson distributions for modeling unbounded count data."""
 
-    def __init__(self, n_neurons: int):
-        super().__init__(Poisson(), n_neurons)
+    n_neurons: int
+    """Number of Poisson units."""
 
     @property
-    def n_neurons(self) -> int:
-        """Number of Poisson units."""
-        return self.n_reps
+    @override
+    def rep_man(self) -> Poisson:
+        return Poisson()
+
+    @property
+    @override
+    def n_reps(self) -> int:
+        return self.n_neurons
 
 
-type PopulationShape = ExponentialFamilyProduct[CoMShape]
+@dataclass(frozen=True)
+class CoMShapes(ExponentialFamilyProduct[CoMShape]):
+    """The shape slot of a CoM-Poisson population: ``_n_reps`` copies of ``CoMShape``."""
+
+    _n_reps: int
+
+    @property
+    @override
+    def rep_man(self) -> CoMShape:
+        return CoMShape()
+
+    @property
+    @override
+    def n_reps(self) -> int:
+        return self._n_reps
+
+
+type PopulationShape = CoMShapes
 
 
 @dataclass(frozen=True)
@@ -365,18 +388,28 @@ class CoMPoissons(
 ):
     """A population of independent Conway-Maxwell-Poisson (COM-Poisson) units."""
 
-    def __init__(self, n_reps: int):
-        super().__init__(CoMPoisson(), n_reps)
+    n_units: int
+    """Number of CoM-Poisson units."""
+
+    @property
+    @override
+    def rep_man(self) -> CoMPoisson:
+        return CoMPoisson()
+
+    @property
+    @override
+    def n_reps(self) -> int:
+        return self.n_units
 
     @property
     @override
     def fst_man(self) -> Poissons:
-        return Poissons(self.n_reps)
+        return Poissons(self.n_units)
 
     @property
     @override
     def snd_man(self) -> PopulationShape:
-        return ExponentialFamilyProduct(CoMShape(), n_reps=self.n_reps)
+        return CoMShapes(_n_reps=self.n_units)
 
     @override
     def join_coords(self, fst_coords: Array, snd_coords: Array) -> Array:
@@ -385,7 +418,7 @@ class CoMPoissons(
 
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array]:
-        matrix = coords.reshape(self.n_reps, 2).T
+        matrix = coords.reshape(self.n_units, 2).T
         return matrix[0], matrix[1]
 
 
@@ -403,7 +436,7 @@ class PopulationLocationEmbedding(TupleEmbedding[Poissons, CoMPoissons]):
     @property
     @override
     def amb_man(self) -> CoMPoissons:
-        return CoMPoissons(n_reps=self.n_neurons)
+        return CoMPoissons(n_units=self.n_neurons)
 
     @property
     @override

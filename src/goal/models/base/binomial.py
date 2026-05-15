@@ -112,18 +112,22 @@ class Binomial(Analytic):
         return jnp.array([self.n_trials * prob])
 
 
+@dataclass(frozen=True)
 class Binomials(AnalyticProduct[Binomial]):
     """Product of $n$ independent Binomial distributions sharing the same `n_trials`, useful for modeling count data like grayscale pixel values."""
 
-    def __init__(self, n_neurons: int, n_trials: int = 255):
-        super().__init__(Binomial(n_trials), n_neurons)
+    n_neurons: int
+    """Number of Binomial units."""
+
+    n_trials: int
+    """Number of trials for each unit."""
 
     @property
-    def n_neurons(self) -> int:
-        """Number of Binomial units."""
-        return self.n_reps
+    @override
+    def rep_man(self) -> Binomial:
+        return Binomial(self.n_trials)
 
     @property
-    def n_trials(self) -> int:
-        """Number of trials for each unit."""
-        return self.rep_man.n_trials
+    @override
+    def n_reps(self) -> int:
+        return self.n_neurons

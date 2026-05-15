@@ -34,6 +34,26 @@ from ..base.categorical import (
 
 
 @dataclass(frozen=True)
+class MixtureComponents[Observable: Differentiable](
+    ExponentialFamilyProduct[Observable]
+):
+    """The component slot of a mixture: ``_n_reps`` copies of ``_rep_man``."""
+
+    _rep_man: Observable
+    _n_reps: int
+
+    @property
+    @override
+    def rep_man(self) -> Observable:
+        return self._rep_man
+
+    @property
+    @override
+    def n_reps(self) -> int:
+        return self._n_reps
+
+
+@dataclass(frozen=True)
 class Mixture[Observable: Differentiable](
     SymmetricConjugated[Observable, Categorical],
 ):
@@ -108,9 +128,9 @@ class Mixture[Observable: Differentiable](
     # Methods
 
     @property
-    def cmp_man(self) -> ExponentialFamilyProduct[Observable]:
+    def cmp_man(self) -> MixtureComponents[Observable]:
         """Manifold for all components of mixture."""
-        return ExponentialFamilyProduct(self.obs_man, self.n_categories)
+        return MixtureComponents(_rep_man=self.obs_man, _n_reps=self.n_categories)
 
     def join_mean_mixture(
         self,
@@ -298,7 +318,7 @@ class CompleteMixture[Observable: Differentiable](
         remaining_start = self.obs_man.dim
         components_rest = components[remaining_start:]
 
-        cmp_man_minus = replace(self.cmp_man, n_reps=self.n_categories - 1)
+        cmp_man_minus = replace(self.cmp_man, _n_reps=self.n_categories - 1)
         # projected_comps shape: (n_categories-1, obs_dim)
         projected_comps = cmp_man_minus.map(to_interaction, components_rest)
 
@@ -354,7 +374,7 @@ class AnalyticMixture[Observable: Analytic](
         remaining_start = self.obs_man.dim
         nat_comps_rest = nat_comps[remaining_start:]
 
-        cmp_man1 = replace(self.cmp_man, n_reps=self.n_categories - 1)
+        cmp_man1 = replace(self.cmp_man, _n_reps=self.n_categories - 1)
         # int_cols shape: (n_categories-1, obs_dim)
         int_cols = cmp_man1.map(to_interaction, nat_comps_rest)
 
