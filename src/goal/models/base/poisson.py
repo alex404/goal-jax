@@ -13,8 +13,8 @@ from ...geometry import (
     Analytic,
     Differentiable,
     ExponentialFamily,
+    ExponentialFamilyProduct,
     LocationShape,
-    Product,
     TupleEmbedding,
 )
 from ...geometry.exponential_family.combinators import (
@@ -356,7 +356,7 @@ class Poissons(AnalyticProduct[Poisson]):
         return self.n_reps
 
 
-type PopulationShape = Product[CoMShape]
+type PopulationShape = ExponentialFamilyProduct[CoMShape]
 
 
 @dataclass(frozen=True)
@@ -376,7 +376,7 @@ class CoMPoissons(
     @property
     @override
     def snd_man(self) -> PopulationShape:
-        return Product(CoMShape(), n_reps=self.n_reps)
+        return ExponentialFamilyProduct(CoMShape(), n_reps=self.n_reps)
 
     @override
     def join_coords(self, fst_coords: Array, snd_coords: Array) -> Array:
@@ -390,9 +390,7 @@ class CoMPoissons(
 
 
 @dataclass(frozen=True)
-class PopulationLocationEmbedding(
-    TupleEmbedding[Poissons, CoMPoissons]
-):
+class PopulationLocationEmbedding(TupleEmbedding[Poissons, CoMPoissons]):
     """Embedding that projects COM-Poisson to Poisson via location parameters."""
 
     n_neurons: int

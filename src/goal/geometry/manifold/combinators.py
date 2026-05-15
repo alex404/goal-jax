@@ -133,6 +133,73 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
 
 
 @dataclass(frozen=True)
+class Quadruple[
+    First: Manifold, Second: Manifold, Third: Manifold, Fourth: Manifold
+](Tuple, ABC):
+    """Product of four manifolds, with coordinates stored as ``[fst | snd | trd | fth]``."""
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def fst_man(self) -> First:
+        """First component manifold."""
+
+    @property
+    @abstractmethod
+    def snd_man(self) -> Second:
+        """Second component manifold."""
+
+    @property
+    @abstractmethod
+    def trd_man(self) -> Third:
+        """Third component manifold."""
+
+    @property
+    @abstractmethod
+    def fth_man(self) -> Fourth:
+        """Fourth component manifold."""
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Total dimension is the sum of component dimensions."""
+        return (
+            self.fst_man.dim
+            + self.snd_man.dim
+            + self.trd_man.dim
+            + self.fth_man.dim
+        )
+
+    @override
+    def split_coords(self, coords: Array) -> tuple[Array, Array, Array, Array]:
+        """Split into ``(fst, snd, trd, fth)`` components."""
+        d1 = self.fst_man.dim
+        d2 = self.snd_man.dim
+        d3 = self.trd_man.dim
+
+        fst_coords = coords[:d1]
+        snd_coords = coords[d1 : d1 + d2]
+        trd_coords = coords[d1 + d2 : d1 + d2 + d3]
+        fth_coords = coords[d1 + d2 + d3 :]
+
+        return (fst_coords, snd_coords, trd_coords, fth_coords)
+
+    @override
+    def join_coords(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self,
+        fst_coords: Array,
+        snd_coords: Array,
+        trd_coords: Array,
+        fth_coords: Array,
+    ) -> Array:
+        """Concatenate component coordinates."""
+        return jnp.concatenate([fst_coords, snd_coords, trd_coords, fth_coords])
+
+
+@dataclass(frozen=True)
 class Replicated[M: Manifold](Manifold):
     """Homogeneous product of $n$ copies of the same manifold, stored flat as ``[n_reps * rep_man.dim]``.
 

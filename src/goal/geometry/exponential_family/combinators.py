@@ -1,4 +1,4 @@
-"""Combinators for composing exponential families: location-shape products and replicated (independent) products."""
+"""Combinators for composing exponential families: location-shape products, heterogeneous pairs, and replicated (independent) products."""
 
 from __future__ import annotations
 
@@ -54,7 +54,99 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.snd_man.log_base_measure(x)
 
 
-class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
+class ExponentialFamilyPair[A: ExponentialFamily, B: ExponentialFamily](
+    Pair[A, B], ExponentialFamily, ABC
+):
+    """A product of two exponential families over disjoint data slices.
+
+    The data array is split along the last axis at ``fst_man.data_dim``, with the leading slice going to the first component and the remainder to the second. Sufficient statistics, log-base-measures, and (in subclasses) sampling/log-partition/negative-entropy decompose additively across the two slots.
+
+    Contrast with ``LocationShape``, where both components consume the *same* ``x``.
+    """
+
+    # Overrides
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        return self.fst_man.data_dim + self.snd_man.data_dim
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Array:
+        d_fst = self.fst_man.data_dim
+        x_fst = x[..., :d_fst]
+        x_snd = x[..., d_fst:]
+        return self.join_coords(
+            self.fst_man.sufficient_statistic(x_fst),
+            self.snd_man.sufficient_statistic(x_snd),
+        )
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        d_fst = self.fst_man.data_dim
+        x_fst = x[..., :d_fst]
+        x_snd = x[..., d_fst:]
+        return self.fst_man.log_base_measure(x_fst) + self.snd_man.log_base_measure(
+            x_snd
+        )
+
+    @override
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        key_fst, key_snd = jax.random.split(key)
+        fst_params = self.fst_man.initialize(key_fst, location, shape)
+        snd_params = self.snd_man.initialize(key_snd, location, shape)
+        return self.join_coords(fst_params, snd_params)
+
+
+class GenerativePair[A: Generative, B: Generative](  # pyright: ignore[reportImplicitAbstractClass]
+    ExponentialFamilyPair[A, B], Generative
+):
+    """Heterogeneous EF pair adding independent sampling across the two slots."""
+
+    # Overrides
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        fst_params, snd_params = self.split_coords(params)
+        key_fst, key_snd = jax.random.split(key)
+        fst_samples = self.fst_man.sample(key_fst, fst_params, n)
+        snd_samples = self.snd_man.sample(key_snd, snd_params, n)
+        return jnp.concatenate([fst_samples, snd_samples], axis=-1)
+
+
+class DifferentiablePair[A: Differentiable, B: Differentiable](  # pyright: ignore[reportImplicitAbstractClass]
+    GenerativePair[A, B], Differentiable
+):
+    """Heterogeneous EF pair with log-partition function summed across slots."""
+
+    # Overrides
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        fst_params, snd_params = self.split_coords(params)
+        return self.fst_man.log_partition_function(
+            fst_params
+        ) + self.snd_man.log_partition_function(snd_params)
+
+
+class AnalyticPair[A: Analytic, B: Analytic](
+    DifferentiablePair[A, B], Analytic, ABC
+):
+    """Heterogeneous EF pair with negative entropy summed across slots."""
+
+    # Overrides
+
+    @override
+    def negative_entropy(self, means: Array) -> Array:
+        fst_means, snd_means = self.split_coords(means)
+        return self.fst_man.negative_entropy(
+            fst_means
+        ) + self.snd_man.negative_entropy(snd_means)
+
+
+class ExponentialFamilyProduct[M: ExponentialFamily](Replicated[M], ExponentialFamily):
     """Product of ``n_reps`` independent copies of the same exponential family.
 
     The sufficient statistic and base measure decompose across replicates. If the base family supports ``StatisticalMoments``, the product exposes composed mean and block-diagonal covariance.
@@ -139,7 +231,7 @@ class Product[M: ExponentialFamily](Replicated[M], ExponentialFamily):
         return jax.scipy.linalg.block_diag(*component_covs)
 
 
-class GenerativeProduct[M: Generative](Product[M], Generative):
+class GenerativeProduct[M: Generative](ExponentialFamilyProduct[M], Generative):
     """Product of generative exponential families, adding independent sampling across replicates."""
 
     # Overrides
@@ -184,7 +276,9 @@ class AnalyticProduct[M: Analytic](DifferentiableProduct[M], Analytic, ABC):
         domain-specific initialization in each replicate) rather than
         the generic Analytic version.
         """
-        return Product.initialize_from_sample(self, key, sample, location, shape)
+        return ExponentialFamilyProduct.initialize_from_sample(
+            self, key, sample, location, shape
+        )
 
     @override
     def negative_entropy(self, means: Array) -> Array:

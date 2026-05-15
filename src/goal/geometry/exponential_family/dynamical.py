@@ -4,6 +4,7 @@ This module contains:
 
 - ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM in later phases.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
+- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is a ``VariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
 
 from __future__ import annotations
@@ -16,13 +17,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.combinators import Triple
+from ..manifold.combinators import Quadruple, Triple
 from ..manifold.map import AffineMap, Map
-from .base import Analytic, Differentiable
+from .base import Analytic, Differentiable, ExponentialFamily
 from .harmonium import (
     AnalyticConjugated,
     SymmetricConjugated,
 )
+from .variational import VariationalConjugated
 
 
 def transpose_harmonium[L: Differentiable](
@@ -372,3 +374,128 @@ class AnalyticLatentProcess[
         """One full EM step: compute the expected sufficient statistics and convert to natural parameters."""
         means = self.mean_posterior_statistics(params, observations_batch)
         return self.to_natural(means)
+
+
+@dataclass(frozen=True)
+class VariationalLatentProcess[
+    O: Differentiable,
+    L: Differentiable,
+    C: ExponentialFamily,
+](
+    Quadruple[L, AffineMap[L, O], C, Map[L, L]],
+    ABC,
+):
+    """State-space model with a ``VariationalConjugated`` emission and a (deterministic) belief-space transition.
+
+    Parameters are laid out as ``[prior | ems_lkl | rho | trns]``: the prior over $z_0$, the emission's affine likelihood, the variational conjugation parameter $\\rho$, and the transition map. Both compound slots store only the variational pieces that vary independently of the predicted prior --- the underlying harmonium's stored latent-bias slot is omitted because the transition supplies that slot dynamically at every filter step.
+
+    Filtering returns ``(beliefs, total_elbo)``: the scan iterates predict $\\to$ approximate-conjugate update, accumulating the per-step ELBO of the variational emission under the predicted prior. Smoothing, exact EM, and joint trajectory sampling are not provided --- they are not generally well-defined when the transition is a deterministic belief-space map and the emission posterior is approximate.
+    """
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def lat_man(self) -> L:
+        """The latent manifold (prior over $z_0$ lives here)."""
+
+    @property
+    @abstractmethod
+    def ems_hrm(self) -> VariationalConjugated[O, L, C]:
+        """The variational-conjugate emission harmonium $p(x_t \\mid z_t)$ with learned conjugation $\\rho$."""
+
+    @property
+    @abstractmethod
+    def trn_map(self) -> Map[L, L]:
+        """The transition operator $z_{t-1} \\mapsto z_t$ (predict map)."""
+
+    # Quadruple slots
+
+    @property
+    @override
+    def fst_man(self) -> L:
+        return self.lat_man
+
+    @property
+    @override
+    def snd_man(self) -> AffineMap[L, O]:
+        """The emission likelihood manifold (``ems_hrm.hrm.lkl_fun_man``)."""
+        return self.ems_hrm.hrm.lkl_fun_man
+
+    @property
+    @override
+    def trd_man(self) -> C:
+        """The conjugation parameter manifold (``ems_hrm.rho_man``)."""
+        return self.ems_hrm.rho_man
+
+    @property
+    @override
+    def fth_man(self) -> Map[L, L]:
+        return self.trn_map
+
+    # Methods
+
+    def emission_params(self, params: Array, prior: Array) -> Array:
+        """Reconstruct full ``VariationalConjugated`` parameters using an externally-supplied prior.
+
+        Used both internally by the filter step (where ``prior`` is the predicted belief from the transition map) and externally by callers who want to evaluate ``regress_conjugation_parameters`` / ``conjugation_metrics`` / ``reduced_learning_signal`` on ``ems_hrm`` against an arbitrary prior context.
+        """
+        _, ems_lkl, rho, _ = self.split_coords(params)
+        return self.ems_hrm.approximate_join_conjugated(ems_lkl, prior, rho)
+
+    def filter(
+        self,
+        key: Array,
+        params: Array,
+        observations: Array,
+        n_mc_samples: int,
+        kl_weight: float = 1.0,
+    ) -> tuple[Array, Array]:
+        """Forward filter: returns ``(beliefs, total_elbo)``.
+
+        At each step, the transition map predicts the next belief, the emission's variational machinery computes the approximate posterior given the new observation, and the per-step ELBO (reconstruction term minus ``kl_weight`` times $\\mathrm{KL}(q \\| \\text{predicted prior})$) is accumulated. Differentiable end-to-end --- ``jax.grad`` of ``-total_elbo`` w.r.t. (prior, emission, $\\rho$, transition) flows through the scan.
+        """
+        prior_params, _, _, trns_params = self.split_coords(params)
+        ems_hrm = self.ems_hrm
+        trn_map = self.trn_map
+
+        t = observations.shape[0]
+        step_keys = jax.random.split(key, t)
+
+        def step(
+            carry: tuple[Array, Array], step_input: tuple[Array, Array]
+        ) -> tuple[tuple[Array, Array], Array]:
+            belief, total_elbo = carry
+            obs, step_key = step_input
+            predicted = trn_map(trns_params, belief)
+            ems_full = self.emission_params(params, predicted)
+            posterior = ems_hrm.approximate_posterior_at(ems_full, obs)
+            elbo_t = ems_hrm.elbo_at(
+                step_key, ems_full, obs, n_mc_samples, kl_weight=kl_weight
+            )
+            return (posterior, total_elbo + elbo_t), posterior
+
+        (_, total_elbo), beliefs = jax.lax.scan(
+            step,
+            (prior_params, jnp.array(0.0)),
+            (observations, step_keys),
+        )
+        return beliefs, total_elbo
+
+    def mean_elbo(
+        self,
+        key: Array,
+        params: Array,
+        observations_batch: Array,
+        n_mc_samples: int,
+        kl_weight: float = 1.0,
+    ) -> Array:
+        """Average ``total_elbo`` over a batch of independent trajectories."""
+        batch_size = observations_batch.shape[0]
+        traj_keys = jax.random.split(key, batch_size)
+
+        elbos = jax.vmap(
+            lambda k, obs: self.filter(k, params, obs, n_mc_samples, kl_weight)[1]
+        )(traj_keys, observations_batch)
+
+        return jnp.mean(elbos)

@@ -20,10 +20,10 @@ from ...geometry import (
     AnalyticConjugated,
     Differentiable,
     EmbeddedMap,
+    ExponentialFamilyProduct,
     IdentityEmbedding,
     LinearEmbedding,
     Manifold,
-    Product,
     Rectangular,
     StatisticalMoments,
     SymmetricConjugated,
@@ -108,9 +108,9 @@ class Mixture[Observable: Differentiable](
     # Methods
 
     @property
-    def cmp_man(self) -> Product[Observable]:
+    def cmp_man(self) -> ExponentialFamilyProduct[Observable]:
         """Manifold for all components of mixture."""
-        return Product(self.obs_man, self.n_categories)
+        return ExponentialFamilyProduct(self.obs_man, self.n_categories)
 
     def join_mean_mixture(
         self,

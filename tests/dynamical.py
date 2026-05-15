@@ -5,21 +5,37 @@ Covers:
 - ``KalmanFilter`` end-to-end (sample, filter, smooth, from_standard) and EM monotonicity.
 - ``HiddenMarkovModel`` end-to-end (sample, filter, smooth, EM) and a manual-forward correctness cross-check.
 - ``MultilayerPerceptron[L, L]`` as a transition map: BPTT gradient descent reduces loss.
+- ``VariationalLatentProcess`` with VonMises latent and Poisson emission: filter shapes, ELBO-monotonicity under SGD, emission_params reconstruction.
 """
+
+from dataclasses import dataclass
+from typing import override
 
 import jax
 import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import MultilayerPerceptron, PositiveDefinite
+from goal.geometry import (
+    MultilayerPerceptron,
+    PositiveDefinite,
+    VariationalLatentProcess,
+)
 from goal.geometry.exponential_family.dynamical import AnalyticTransition
+from goal.geometry.exponential_family.variational import (
+    conjugation_metrics,
+    regress_conjugation_parameters,
+)
 from goal.models import (
     AnalyticMixture,
     Categorical,
     HiddenMarkovModel,
     KalmanFilter,
     NormalAnalyticLGM,
+    Poissons,
+    PoissonVonMisesHarmonium,
+    VonMisesPopulationCode,
+    VonMisesProduct,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -169,9 +185,7 @@ class TestHiddenMarkovModel:
 
         def decoded_rows(lkl_params: Array, hrm) -> Array:
             def row(j: int) -> Array:
-                s = hrm.lat_man.sufficient_statistic(
-                    jnp.array([j], dtype=jnp.float64)
-                )
+                s = hrm.lat_man.sufficient_statistic(jnp.array([j], dtype=jnp.float64))
                 nat = hrm.lkl_fun_man(lkl_params, s)
                 return hrm.obs_man.to_probs(hrm.obs_man.to_mean(nat))
 
@@ -201,9 +215,7 @@ class TestMLPTransition:
 
     def test_grad_descent_reduces_loss(self) -> None:
         lat = Categorical(3)
-        trans = MultilayerPerceptron(
-            lat, lat, hidden_dims=(8,), activation=jax.nn.relu
-        )
+        trans = MultilayerPerceptron(lat, lat, hidden_dims=(8,), activation=jax.nn.relu)
         params = trans.glorot_initialize(jax.random.PRNGKey(0))
         target = jnp.array([0.3, 0.5])
 
@@ -214,3 +226,103 @@ class TestMLPTransition:
         for _ in range(50):
             params = params - 0.1 * jax.grad(loss)(params)
         assert loss(params) < initial * 0.5
+
+
+@dataclass(frozen=True)
+class _MinimalVarLP(
+    VariationalLatentProcess[Poissons, VonMisesProduct, VonMisesProduct]
+):
+    """Minimal concrete ``VariationalLatentProcess`` for tests: VonMises 1D latent + Poisson population emission + small MLP transition."""
+
+    n_neurons: int
+    n_latent: int
+
+    @property
+    @override
+    def lat_man(self) -> VonMisesProduct:
+        return VonMisesProduct(self.n_latent)
+
+    @property
+    @override
+    def ems_hrm(self) -> VonMisesPopulationCode:
+        return VonMisesPopulationCode(
+            hrm=PoissonVonMisesHarmonium(self.n_neurons, self.n_latent)
+        )
+
+    @property
+    @override
+    def trn_map(self) -> MultilayerPerceptron[VonMisesProduct, VonMisesProduct]:
+        lat = VonMisesProduct(self.n_latent)
+        return MultilayerPerceptron(lat, lat, hidden_dims=(8,), activation=jax.nn.relu)
+
+
+def _init_var_lp(model: _MinimalVarLP, key: Array) -> Array:
+    keys = jax.random.split(key, 3)
+    prior_params = model.lat_man.initialize(keys[0])
+    ems_full = model.ems_hrm.hrm.initialize(keys[1])
+    ems_lkl = model.ems_hrm.hrm.likelihood_function(ems_full)
+    rho = jnp.zeros(model.ems_hrm.rho_man.dim)
+    trns_params = model.trn_map.glorot_initialize(keys[2])
+    return model.join_coords(prior_params, ems_lkl, rho, trns_params)
+
+
+class TestVariationalLatentProcess:
+    """``VariationalLatentProcess`` with VonMises latent and Poisson emission."""
+
+    def test_dimensions(self) -> None:
+        model = _MinimalVarLP(n_neurons=8, n_latent=1)
+        params = _init_var_lp(model, jax.random.PRNGKey(0))
+        prior, ems_lkl, rho, trns = model.split_coords(params)
+        assert prior.shape == (model.lat_man.dim,)
+        assert ems_lkl.shape == (model.ems_hrm.hrm.lkl_fun_man.dim,)
+        assert rho.shape == (model.ems_hrm.rho_man.dim,)
+        assert trns.shape == (model.trn_map.dim,)
+        assert params.shape == (model.dim,)
+
+    def test_filter_shapes(self) -> None:
+        model = _MinimalVarLP(n_neurons=8, n_latent=1)
+        params = _init_var_lp(model, jax.random.PRNGKey(0))
+        n_steps = 5
+        observations = jnp.zeros((n_steps, model.ems_hrm.obs_man.data_dim))
+        beliefs, total_elbo = model.filter(
+            jax.random.PRNGKey(1), params, observations, n_mc_samples=2
+        )
+        assert beliefs.shape == (n_steps, model.lat_man.dim)
+        assert total_elbo.shape == ()
+
+    def test_grad_descent_reduces_loss(self) -> None:
+        model = _MinimalVarLP(n_neurons=8, n_latent=1)
+        params = _init_var_lp(model, jax.random.PRNGKey(0))
+        n_steps = 10
+        observations = jax.random.poisson(
+            jax.random.PRNGKey(99), 2.0, shape=(n_steps, model.n_neurons)
+        ).astype(jnp.float64)
+        loss_key = jax.random.PRNGKey(42)
+
+        def loss(p: Array) -> Array:
+            _, total_elbo = model.filter(loss_key, p, observations, n_mc_samples=4)
+            return -total_elbo
+
+        initial = loss(params)
+        for _ in range(30):
+            params = params - 0.01 * jax.grad(loss)(params)
+        assert loss(params) < initial
+
+    def test_emission_params_supports_regularization(self) -> None:
+        model = _MinimalVarLP(n_neurons=8, n_latent=1)
+        params = _init_var_lp(model, jax.random.PRNGKey(0))
+        prior_params, _, _, _ = model.split_coords(params)
+
+        ems_full = model.emission_params(params, prior_params)
+        assert ems_full.shape == (model.ems_hrm.dim,)
+
+        key = jax.random.PRNGKey(1)
+        var_f, std_f, _ = conjugation_metrics(
+            model.ems_hrm, key, ems_full, n_samples=200
+        )
+        assert jnp.isfinite(var_f) and jnp.isfinite(std_f)
+
+        rho_star, _, _, _ = regress_conjugation_parameters(
+            model.ems_hrm, key, ems_full, n_samples=500
+        )
+        assert rho_star.shape == (model.ems_hrm.rho_man.dim,)

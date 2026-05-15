@@ -36,6 +36,11 @@ Latent Processes
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.exponential_family.dynamical.VariationalLatentProcess
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Helpers
 -------
 

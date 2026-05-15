@@ -6,11 +6,18 @@ from .exponential_family.base import (
     Gibbs,
 )
 from .exponential_family.combinators import (
+    AnalyticPair,
     AnalyticProduct,
+    DifferentiablePair,
     DifferentiableProduct,
+    ExponentialFamilyPair,
+    ExponentialFamilyProduct,
+    GenerativePair,
     GenerativeProduct,
     LocationShape,
-    Product,
+)
+from .exponential_family.dynamical import (
+    VariationalLatentProcess,
 )
 from .exponential_family.graphical import (
     AnalyticHierarchical,
@@ -40,6 +47,7 @@ from .manifold.base import (
 from .manifold.combinators import (
     Null,
     Pair,
+    Quadruple,
     Replicated,
     Triple,
 )
@@ -79,6 +87,7 @@ __all__ = [
     "Analytic",
     "AnalyticConjugated",
     "AnalyticHierarchical",
+    "AnalyticPair",
     "AnalyticProduct",
     "BlockMap",
     "ComposedEmbedding",
@@ -87,11 +96,15 @@ __all__ = [
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiableHierarchical",
+    "DifferentiablePair",
     "DifferentiableProduct",
     "EmbeddedMap",
     "Embedding",
     "ExponentialFamily",
+    "ExponentialFamilyPair",
+    "ExponentialFamilyProduct",
     "Generative",
+    "GenerativePair",
     "GenerativeProduct",
     "Gibbs",
     "Harmonium",
@@ -112,7 +125,7 @@ __all__ = [
     "Pair",
     "PositiveDefinite",
     "PosteriorEmbedding",
-    "Product",
+    "Quadruple",
     "Rectangular",
     "Replicated",
     "Scale",
@@ -126,4 +139,5 @@ __all__ = [
     "TrivialEmbedding",
     "TupleEmbedding",
     "VariationalConjugated",
+    "VariationalLatentProcess",
 ]
