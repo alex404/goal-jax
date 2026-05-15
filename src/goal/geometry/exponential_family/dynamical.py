@@ -419,8 +419,8 @@ class VariationalLatentProcess[
     @property
     @override
     def snd_man(self) -> AffineMap[L, O]:
-        """The emission likelihood manifold (``ems_hrm.hrm.lkl_fun_man``)."""
-        return self.ems_hrm.hrm.lkl_fun_man
+        """The emission likelihood manifold (``ems_hrm.gen_hrm.lkl_fun_man``)."""
+        return self.ems_hrm.gen_hrm.lkl_fun_man
 
     @property
     @override
@@ -441,7 +441,7 @@ class VariationalLatentProcess[
         Used both internally by the filter step (where ``prior`` is the predicted belief from the transition map) and externally by callers who want to evaluate ``regress_conjugation_parameters`` / ``conjugation_metrics`` / ``reduced_learning_signal`` on ``ems_hrm`` against an arbitrary prior context.
         """
         _, ems_lkl, rho, _ = self.split_coords(params)
-        return self.ems_hrm.approximate_join_conjugated(ems_lkl, prior, rho)
+        return self.ems_hrm.join_coords(prior, ems_lkl, rho)
 
     def filter(
         self,

@@ -77,8 +77,8 @@ def diagnose_trained_model(mode: str = "gradient"):
     print(f"{'=' * 60}")
 
     # Split parameters
-    rho, hrm_params = model.split_coords(params)
-    obs_bias, int_params, lat_params = model.hrm.split_coords(hrm_params)
+    lat_params, lkl_params, rho = model.split_coords(params)
+    obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
 
     print("\n--- TRAINED PARAMETERS ---")
     print(
@@ -97,8 +97,7 @@ def diagnose_trained_model(mode: str = "gradient"):
     # Sample from prior
     print("\n--- PRIOR SAMPLES ---")
     key, sample_key = jax.random.split(key)
-    _, _, prior_mixture_params = model.hrm.split_coords(hrm_params)
-    z_samples_prior = model.mix_man.sample(sample_key, prior_mixture_params, 100)
+    z_samples_prior = model.mix_man.sample(sample_key, lat_params, 100)
     # Extract y and k components (k is a scalar category index)
     y_samples = z_samples_prior[:, :lat_dim]
     k_samples = z_samples_prior[:, lat_dim].astype(jnp.int32)
@@ -177,7 +176,7 @@ def diagnose_trained_model(mode: str = "gradient"):
     )
 
     # Get component-wise parameters
-    components, _ = model.mix_man.split_natural_mixture(prior_mixture_params)
+    components, _ = model.mix_man.split_natural_mixture(lat_params)
     comp_params_2d = model.mix_man.cmp_man.to_2d(components)
 
     print("\nComponent Bernoulli activation rates (sigmoid of natural params):")

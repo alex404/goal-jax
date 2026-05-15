@@ -246,7 +246,7 @@ class _MinimalVarLP(
     @override
     def ems_hrm(self) -> VonMisesPopulationCode:
         return VonMisesPopulationCode(
-            hrm=PoissonVonMisesHarmonium(self.n_neurons, self.n_latent)
+            _gen_hrm=PoissonVonMisesHarmonium(self.n_neurons, self.n_latent)
         )
 
     @property
@@ -259,8 +259,8 @@ class _MinimalVarLP(
 def _init_var_lp(model: _MinimalVarLP, key: Array) -> Array:
     keys = jax.random.split(key, 3)
     prior_params = model.lat_man.initialize(keys[0])
-    ems_full = model.ems_hrm.hrm.initialize(keys[1])
-    ems_lkl = model.ems_hrm.hrm.likelihood_function(ems_full)
+    ems_full = model.ems_hrm.gen_hrm.initialize(keys[1])
+    ems_lkl = model.ems_hrm.gen_hrm.likelihood_function(ems_full)
     rho = jnp.zeros(model.ems_hrm.rho_man.dim)
     trns_params = model.trn_map.glorot_initialize(keys[2])
     return model.join_coords(prior_params, ems_lkl, rho, trns_params)
@@ -274,7 +274,7 @@ class TestVariationalLatentProcess:
         params = _init_var_lp(model, jax.random.PRNGKey(0))
         prior, ems_lkl, rho, trns = model.split_coords(params)
         assert prior.shape == (model.lat_man.dim,)
-        assert ems_lkl.shape == (model.ems_hrm.hrm.lkl_fun_man.dim,)
+        assert ems_lkl.shape == (model.ems_hrm.gen_hrm.lkl_fun_man.dim,)
         assert rho.shape == (model.ems_hrm.rho_man.dim,)
         assert trns.shape == (model.trn_map.dim,)
         assert params.shape == (model.dim,)

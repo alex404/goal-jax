@@ -6,133 +6,141 @@ The approximate posterior has the same structure as the exact conjugate posterio
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.combinators import Pair
+from ..manifold.combinators import Triple
 from ..manifold.embedding import LinearEmbedding
+from ..manifold.map import AffineMap
 from .base import Differentiable, ExponentialFamily
 from .harmonium import Harmonium
 
 
-@dataclass(frozen=True)
 class VariationalConjugated[
     Observable: Differentiable,
     Posterior: Differentiable,
     Conjugation: ExponentialFamily,
 ](
-    Pair[Conjugation, Harmonium[Observable, Posterior]],
+    Triple[Posterior, AffineMap[Posterior, Observable], Conjugation],
     ABC,
 ):
-    """Variational harmonium whose full parameter space is ``Pair[rho_params, harmonium_params]``.
+    """Variational harmonium with parameter layout ``[prior, lkl, rho]``.
 
-    Reinterprets a harmonium as a directed generative model with explicit prior
-    $p(z; \\theta_Z)$ and likelihood $p(x|z)$, then approximates the intractable
-    posterior with a learnable member of the conjugate family:
+    Reinterprets an underlying harmonium (``gen_hrm``) as a directed generative
+    model: the harmonium's observable + interaction blocks supply the likelihood
+    $p(x|z)$ and a separately-stored prior supplies $p(z; \\theta_Z)$. The
+    variational layer adds learned conjugation parameters $\\rho$ that replace
+    the analytically derived ones in the conjugate posterior
 
-    $$q(z|x; \\rho) \\propto \\exp\\bigl((\\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)) \\cdot s_Z(z)\\bigr)$$
+    $$q(z|x; \\rho) \\propto \\exp\\bigl((\\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)) \\cdot s_Z(z)\\bigr).$$
 
-    Mathematically, this has the same form as the true conjugate posterior, but
-    $\\rho$ is learned rather than computed from conjugation. The ELBO decomposes as
+    Unlike :class:`AnalyticConjugated` (whose parameter layout *is* the underlying
+    harmonium's layout), :class:`VariationalConjugated` stores its parameters as
+    an explicit ``Triple[prior, lkl_fun, rho]``: the harmonium's redundant
+    top-level layout is not used here. ``gen_hrm`` is exposed for forward
+    computations (``posterior_at``, ``likelihood_at``, manifold types) but does
+    not define this class's parameter layout.
+
+    The ELBO decomposes as
     $\\mathcal{L}_\\beta(x) = \\mathbb{E}_q[\\log p(x|z)] - \\beta \\cdot D_{\\mathrm{KL}}(q \\| p)$,
     where the reconstruction term uses a score-function (REINFORCE) estimator for
     the intractable $\\mathbb{E}_q[\\psi_X]$ component.
     """
 
-    # Fields
-
-    hrm: Harmonium[Observable, Posterior]
-    """The underlying harmonium model."""
-
     # Contract
+
+    @property
+    @abstractmethod
+    def gen_hrm(self) -> Harmonium[Observable, Posterior]:
+        """Underlying generative harmonium --- supplies manifold structure and forward-computation methods. Not the source of this class's parameter layout."""
 
     @property
     @abstractmethod
     def rho_emb(self) -> LinearEmbedding[Conjugation, Posterior]:
         """Embedding from conjugation manifold to posterior manifold."""
 
-    # Overrides
+    # Triple slots
 
     @property
     @override
-    def fst_man(self) -> Conjugation:
-        return self.rho_man
+    def fst_man(self) -> Posterior:
+        return self.gen_hrm.pst_man
 
     @property
     @override
-    def snd_man(self) -> Harmonium[Observable, Posterior]:
-        return self.hrm
+    def snd_man(self) -> AffineMap[Posterior, Observable]:
+        return self.gen_hrm.lkl_fun_man
+
+    @property
+    @override
+    def trd_man(self) -> Conjugation:
+        return self.rho_emb.sub_man
 
     # Parameter access
 
     @property
     def rho_man(self) -> Conjugation:
         """Manifold for rho correction parameters."""
-        return self.rho_emb.sub_man
+        return self.trd_man
 
     @property
     def obs_man(self) -> Observable:
         """Observable manifold of the underlying harmonium."""
-        return self.hrm.obs_man
+        return self.gen_hrm.obs_man
 
     @property
     def pst_man(self) -> Posterior:
         """Posterior manifold of the underlying harmonium."""
-        return self.hrm.pst_man
+        return self.gen_hrm.pst_man
 
     def conjugation_parameters(self, params: Array) -> Array:
         """Extract conjugation parameters $\\rho$ from full parameters."""
-        rho, _ = self.split_coords(params)
+        _, _, rho = self.split_coords(params)
         return rho
 
-    def generative_params(self, params: Array) -> Array:
-        """Extract harmonium (generative model) parameters from full parameters."""
-        _, hrm_params = self.split_coords(params)
-        return hrm_params
-
     def prior_params(self, params: Array) -> Array:
-        """Extract prior parameters $\\theta_Z$ defining $p(z; \\theta_Z)$, NOT the harmonium marginal."""
-        _, hrm_params = self.split_coords(params)
-        _, _, lat_params = self.hrm.split_coords(hrm_params)
-        return lat_params
+        """Extract prior parameters $\\theta_Z$ defining $p(z; \\theta_Z)$."""
+        prior, _, _ = self.split_coords(params)
+        return prior
+
+    def likelihood_function(self, params: Array) -> Array:
+        """Extract the stored likelihood affine map $\\eta \\mapsto \\theta_X + \\Theta_{XZ} \\cdot \\eta$."""
+        _, lkl, _ = self.split_coords(params)
+        return lkl
+
+    def generative_params(self, params: Array) -> Array:
+        """Extract prior + likelihood concatenated --- the generative-model subset (no $\\rho$).
+
+        Useful for optimizers that train the generative model independently of the variational correction (e.g. analytical-$\\rho$ training, where $\\rho$ is set by least-squares rather than gradient descent). Inverse: :meth:`join_generative_and_rho`.
+        """
+        prior, lkl, _ = self.split_coords(params)
+        return jnp.concatenate([prior, lkl])
+
+    def join_generative_and_rho(self, gen_params: Array, rho: Array) -> Array:
+        """Inverse of :meth:`generative_params`: reconstruct full params from the generative subset and $\\rho$."""
+        prior_dim = self.pst_man.dim
+        prior = gen_params[:prior_dim]
+        lkl = gen_params[prior_dim:]
+        return self.join_coords(prior, lkl, rho)
 
     # Approximate conjugation
 
     def likelihood_at(self, params: Array, z: Array) -> Array:
         """Compute likelihood natural parameters $p(x|z)$ at latent $z$."""
-        _, hrm_params = self.split_coords(params)
-        return self.hrm.likelihood_at(hrm_params, z)
+        _, lkl, _ = self.split_coords(params)
+        mz = self.pst_man.sufficient_statistic(z)
+        return self.gen_hrm.lkl_fun_man(lkl, mz)
 
     def approximate_posterior_at(self, params: Array, x: Array) -> Array:
         """Compute approximate posterior natural parameters $\\eta_q = \\theta_Z + \\Theta_{XZ}^T s_X(x) - \\iota(\\rho)$."""
-        rho, hrm_params = self.split_coords(params)
-        exact_posterior = self.hrm.posterior_at(hrm_params, x)
+        prior, lkl, rho = self.split_coords(params)
+        obs_params, int_params = self.gen_hrm.lkl_fun_man.split_coords(lkl)
+        hrm_params = self.gen_hrm.join_coords(obs_params, int_params, prior)
+        exact_posterior = self.gen_hrm.posterior_at(hrm_params, x)
         return self.rho_emb.translate(exact_posterior, -rho)
-
-    def approximate_split_conjugated(self, params: Array) -> tuple[Array, Array, Array]:
-        """Split full variational parameters into ``(lkl_params, prior_params, rho)``.
-
-        Mirror of :meth:`SymmetricConjugated.split_conjugated`. The variational case exposes $\\rho$ explicitly because it is a stored parameter rather than a derived quantity.
-        """
-        rho, hrm_params = self.split_coords(params)
-        lkl_params = self.hrm.likelihood_function(hrm_params)
-        _, _, prior_params = self.hrm.split_coords(hrm_params)
-        return lkl_params, prior_params, rho
-
-    def approximate_join_conjugated(
-        self, lkl_params: Array, prior_params: Array, rho: Array
-    ) -> Array:
-        """Join into full variational parameters, mirroring :meth:`SymmetricConjugated.join_conjugated`.
-
-        The stored ``lat_params`` slot is taken directly from ``prior_params`` --- unlike the exact-conjugation case, no $\\rho$ correction is folded into the prior slot. The correction enters only at posterior time via :meth:`approximate_posterior_at`.
-        """
-        obs_params, int_params = self.hrm.lkl_fun_man.split_coords(lkl_params)
-        hrm_params = self.hrm.join_coords(obs_params, int_params, prior_params)
-        return self.join_coords(rho, hrm_params)
 
     # ELBO
 
@@ -171,16 +179,14 @@ class VariationalConjugated[
         2. Score: $-\\mathbb{E}_q[\\psi_X \\cdot \\nabla_\\theta\\log q]$ --- captured by ``reinforce``
         """
         s_x = self.obs_man.sufficient_statistic(x)
-        _, hrm_params = self.split_coords(params)
+        _, lkl, _ = self.split_coords(params)
         q_params = self.approximate_posterior_at(params, x)
 
         # --- Analytic term: s_X(x) . (theta_X + Theta_XZ . E_q[s_Z(z)]) ---
         # E_q[s_Z] = to_mean(q_params), which is differentiable w.r.t. q_params.
         # No MC, no score correction needed.
         mean_q = self.pst_man.to_mean(q_params)
-        lkl_at_mean = self.hrm.lkl_fun_man(
-            self.hrm.likelihood_function(hrm_params), mean_q
-        )
+        lkl_at_mean = self.gen_hrm.lkl_fun_man(lkl, mean_q)
         analytic_term = jnp.dot(s_x, lkl_at_mean)
 
         # --- MC term: E_q[psi_X(.)] via score-function estimator ---
@@ -192,7 +198,8 @@ class VariationalConjugated[
         z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
 
         def psi_at_z(z: Array) -> Array:
-            lkl_params = self.hrm.likelihood_at(hrm_params, z)
+            mz = self.pst_man.sufficient_statistic(z)
+            lkl_params = self.gen_hrm.lkl_fun_man(lkl, mz)
             return self.obs_man.log_partition_function(lkl_params)
 
         psi_vals = jax.vmap(psi_at_z)(z_samples)
@@ -262,11 +269,11 @@ class VariationalConjugated[
 
         The score-function gradient of $-\\mathbb{E}_q[\\psi_X(\\eta(z))]$ admits an arbitrary control variate; $\\rho \\cdot s_Z(z)$ is the optimal linear-in-$s_Z$ choice, and $\\tilde{f}$ is what remains of the learning signal after subtracting it. The per-$x$ KL gap is exactly $\\log \\mathbb{E}_q[e^{\\tilde{f}}] - \\mathbb{E}_q[\\tilde{f}]$, so $\\tilde{f}$ constant $\\iff$ zero ammorization gap; its variance under the prior is used as a training regularizer.
         """
-        rho, hrm_params = self.split_coords(params)
+        _, lkl, rho = self.split_coords(params)
         s_z = self.pst_man.sufficient_statistic(z)
         s_rho = self.rho_emb.project(s_z)
         term1 = jnp.dot(rho, s_rho)
-        lkl_params = self.hrm.likelihood_at(hrm_params, z)
+        lkl_params = self.gen_hrm.lkl_fun_man(lkl, s_z)
         term2 = self.obs_man.log_partition_function(lkl_params)
         return term1 - term2
 
@@ -295,10 +302,10 @@ class VariationalConjugated[
         """Compute joint log density $\\log p(x, z) = \\log p(z) + \\log p(x|z)$ for a joint data point."""
         x = xz[..., : self.obs_man.data_dim]
         z = xz[..., self.obs_man.data_dim :]
-        hrm_params = self.generative_params(params)
-        prior_p = self.prior_params(params)
-        log_pz = self.pst_man.log_density(prior_p, z)
-        lkl_params = self.hrm.likelihood_at(hrm_params, z)
+        prior, lkl, _ = self.split_coords(params)
+        log_pz = self.pst_man.log_density(prior, z)
+        mz = self.pst_man.sufficient_statistic(z)
+        lkl_params = self.gen_hrm.lkl_fun_man(lkl, mz)
         log_px_given_z = self.obs_man.log_density(lkl_params, x)
         return log_pz + log_px_given_z
 
@@ -309,16 +316,20 @@ class VariationalConjugated[
     ) -> Array:
         """Initialize full model parameters with zero conjugation correction."""
         rho = jnp.zeros(self.rho_man.dim)
-        hrm_params = self.hrm.initialize(key, location, shape)
-        return self.join_coords(rho, hrm_params)
+        hrm_params = self.gen_hrm.initialize(key, location, shape)
+        obs_params, int_params, prior_params = self.gen_hrm.split_coords(hrm_params)
+        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
+        return self.join_coords(prior_params, lkl_params, rho)
 
     def initialize_from_sample(
         self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
         """Initialize parameters using sample data for observable biases."""
         rho = jnp.zeros(self.rho_man.dim)
-        hrm_params = self.hrm.initialize_from_sample(key, sample, location, shape)
-        return self.join_coords(rho, hrm_params)
+        hrm_params = self.gen_hrm.initialize_from_sample(key, sample, location, shape)
+        obs_params, int_params, prior_params = self.gen_hrm.split_coords(hrm_params)
+        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
+        return self.join_coords(prior_params, lkl_params, rho)
 
 
 # --- Free functions: diagnostics, fitting helpers, downstream uses ---
@@ -340,20 +351,19 @@ def regress_conjugation_parameters[
 
     A pragmatic fitting/initialization heuristic --- theoretically a black sheep in the variational conjugation family, hence its free-function status.
     """
-    _, hrm_params = model.split_coords(params)
-    p_params = model.prior_params(params)
+    prior_params, lkl, _ = model.split_coords(params)
 
     # [SG-3] The sampler may be non-differentiable (e.g. VonMises uses
     # rejection sampling via while_loop, which JAX cannot reverse-diff).
     # The samples are just evaluation points for the regression; the
     # gradient we need flows through the regression targets psi_X, which
     # depend smoothly on (theta_X, Theta).
-    z_samples = jax.lax.stop_gradient(model.pst_man.sample(key, p_params, n_samples))
+    z_samples = jax.lax.stop_gradient(model.pst_man.sample(key, prior_params, n_samples))
 
     def design_and_target(z: Array) -> tuple[Array, Array]:
         s_z = model.pst_man.sufficient_statistic(z)
         s_rho = model.rho_emb.project(s_z)
-        lkl_params = model.hrm.likelihood_at(hrm_params, z)
+        lkl_params = model.gen_hrm.lkl_fun_man(lkl, s_z)
         psi_x = model.obs_man.log_partition_function(lkl_params)
         return s_rho, psi_x
 
@@ -386,14 +396,13 @@ def conjugation_metrics[
 
     $R^2 = 1 - \\mathrm{Var}[\\tilde{f}] / \\mathrm{Var}[\\psi_X(\\eta(z))]$ measures how well the linear correction $\\rho \\cdot s(z)$ approximates $\\psi_X(\\eta(z))$: 1 = perfect conjugation, 0 = no explanatory power, <0 = worse than constant.
     """
-    rho, hrm_params = model.split_coords(params)
-    p_params = model.prior_params(params)
-    z_samples = model.pst_man.sample(key, p_params, n_samples)
+    prior_params, lkl, rho = model.split_coords(params)
+    z_samples = model.pst_man.sample(key, prior_params, n_samples)
 
     def compute_both(z: Array) -> tuple[Array, Array]:
         s_z = model.pst_man.sufficient_statistic(z)
         s_rho = model.rho_emb.project(s_z)
-        lkl_params = model.hrm.likelihood_at(hrm_params, z)
+        lkl_params = model.gen_hrm.lkl_fun_man(lkl, s_z)
         psi_x = model.obs_man.log_partition_function(lkl_params)
         f_tilde = jnp.dot(rho, s_rho) - psi_x
         return f_tilde, psi_x
@@ -427,9 +436,8 @@ def reconstruct[
     """Reconstruct observable means via mean-field approximation: posterior mean stats through likelihood."""
     q_params = model.approximate_posterior_at(params, x)
     z_mean_stats = model.pst_man.to_mean(q_params)
-    _, hrm_params = model.split_coords(params)
-    lkl_fun = model.hrm.likelihood_function(hrm_params)
-    lkl_natural = model.hrm.lkl_fun_man(lkl_fun, z_mean_stats)
+    _, lkl, _ = model.split_coords(params)
+    lkl_natural = model.gen_hrm.lkl_fun_man(lkl, z_mean_stats)
     return model.obs_man.to_mean(lkl_natural)
 
 

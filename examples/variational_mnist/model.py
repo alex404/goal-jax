@@ -105,17 +105,22 @@ class VariationalFullMixture[
     structure is forced through the three-block interaction (xy, xyk, xk).
     """
 
-    hrm: CompleteMixtureOfHarmoniums[Observable, BaseLatent]
+    _gen_hrm: CompleteMixtureOfHarmoniums[Observable, BaseLatent]
+
+    @property
+    @override
+    def gen_hrm(self) -> CompleteMixtureOfHarmoniums[Observable, BaseLatent]:
+        return self._gen_hrm
 
     @property
     @override
     def rho_emb(self) -> LinearEmbedding[BaseLatent, CompleteMixture[BaseLatent]]:
-        return ObservableEmbedding(self.hrm.pst_man)  # pyright: ignore[reportReturnType]
+        return ObservableEmbedding(self.gen_hrm.pst_man)  # pyright: ignore[reportReturnType]
 
     @property
     def mix_man(self) -> CompleteMixture[BaseLatent]:
         """Complete mixture over base latent."""
-        return self.hrm.pst_man  # type: ignore[return-value]
+        return self.gen_hrm.pst_man  # type: ignore[return-value]
 
     @property
     def n_categories(self) -> int:
@@ -133,17 +138,33 @@ class VariationalFullMixture[
 
     def prior_entropy(self, params: Array) -> Array:
         """Compute entropy of the prior's marginal cluster distribution."""
-        _, hrm_params = self.split_coords(params)
-        _, _, prior_mixture_params = self.hrm.split_coords(hrm_params)
+        prior_mixture_params, _, _ = self.split_coords(params)
         probs = self.get_cluster_probs(prior_mixture_params)
         probs_safe = jnp.clip(probs, 1e-10, 1.0)
         return -jnp.sum(probs_safe * jnp.log(probs_safe))
 
 
+### Concrete variational hierarchical mixture ###
+
+
+@dataclass(frozen=True)
+class ConcreteVariationalHierarchicalMixture[
+    Observable: Differentiable, BaseLatent: Differentiable
+](VariationalHierarchicalMixture[Observable, BaseLatent]):
+    """Concrete instantiation of VariationalHierarchicalMixture."""
+
+    _gen_hrm: Harmonium[Observable, Any]  # CompleteMixture[BaseLatent] in practice
+
+    @property
+    @override
+    def gen_hrm(self) -> Harmonium[Observable, Any]:
+        return self._gen_hrm
+
+
 ### Type aliases and factory functions ###
 
-type BinomialBernoulliHierarchical = VariationalHierarchicalMixture[Binomials, Bernoullis]
-type PoissonBernoulliHierarchical = VariationalHierarchicalMixture[Poissons, Bernoullis]
+type BinomialBernoulliHierarchical = ConcreteVariationalHierarchicalMixture[Binomials, Bernoullis]
+type PoissonBernoulliHierarchical = ConcreteVariationalHierarchicalMixture[Poissons, Bernoullis]
 type BinomialBernoulliFull = VariationalFullMixture[Binomials, Bernoullis]
 type PoissonBernoulliFull = VariationalFullMixture[Poissons, Bernoullis]
 type MixtureModel = (
@@ -213,10 +234,10 @@ def create_model(
     if interaction == "full":
         bas_hrm = _full_base_harmonium(obs_man, base_lat_man)
         hrm = ConcreteCompleteMixtureOfHarmoniums(n_categories=n_clusters, bas_hrm=bas_hrm)
-        return VariationalFullMixture(hrm=hrm)
+        return VariationalFullMixture(_gen_hrm=hrm)
     else:
         hrm = _hierarchical_harmonium(obs_man, base_lat_man, n_clusters)
-        return VariationalHierarchicalMixture(hrm=hrm)
+        return ConcreteVariationalHierarchicalMixture(_gen_hrm=hrm)
 
 
 ### Standalone utility functions ###
@@ -226,9 +247,8 @@ def reconstruct(model: MixtureModel, params: Array, x: Array) -> Array:
     """Reconstruct an observation via posterior mean."""
     q_params = model.approximate_posterior_at(params, x)
     z_mean_stats = model.pst_man.to_mean(q_params)
-    _, hrm_params = model.split_coords(params)
-    lkl_fun = model.hrm.likelihood_function(hrm_params)
-    lkl_natural = model.hrm.lkl_fun_man(lkl_fun, z_mean_stats)
+    _, lkl, _ = model.split_coords(params)
+    lkl_natural = model.gen_hrm.lkl_fun_man(lkl, z_mean_stats)
     return model.obs_man.to_mean(lkl_natural)
 
 

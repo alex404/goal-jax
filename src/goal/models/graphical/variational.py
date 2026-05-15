@@ -4,7 +4,7 @@ Extends VariationalConjugated for models with mixture posterior structure,
 where the latent space is a CompleteMixture over a base latent manifold.
 """
 
-from dataclasses import dataclass
+from abc import ABC
 from typing import Any, override
 
 from jax import Array
@@ -14,12 +14,12 @@ from ...geometry.exponential_family.variational import VariationalConjugated
 from ..harmonium.mixture import CompleteMixture
 
 
-@dataclass(frozen=True)
 class VariationalHierarchicalMixture[
     Observable: Differentiable,
     BaseLatent: Differentiable,
 ](
     VariationalConjugated[Observable, Any, BaseLatent],
+    ABC,
 ):
     """Variational harmonium with mixture latent structure.
 
@@ -43,7 +43,7 @@ class VariationalHierarchicalMixture[
     @property
     def mix_man(self) -> CompleteMixture[BaseLatent]:
         """Complete mixture over base latent."""
-        return self.hrm.pst_man
+        return self.gen_hrm.pst_man
 
     @property
     def n_categories(self) -> int:

@@ -294,8 +294,8 @@ def train_model(  # noqa: C901
 
     # Break symmetry in cluster-specific parameters
     key, cluster_key = jax.random.split(key)
-    rho, hrm_params = model.split_coords(params)
-    obs_bias, int_params, lat_params = model.hrm.split_coords(hrm_params)
+    lat_params, lkl_params, rho = model.split_coords(params)
+    obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
     mix_obs_bias, _, cat_params = model.mix_man.split_coords(lat_params)
 
     mix_int_dim = model.bas_lat_man.dim * (model.n_categories - 1)
@@ -307,8 +307,8 @@ def train_model(  # noqa: C901
     )
 
     # For full model, also break symmetry in the xyk and xk interaction blocks
-    if hasattr(model.hrm, 'xyk_man'):
-        block_int = model.hrm.int_man
+    if hasattr(model.gen_hrm, 'xyk_man'):
+        block_int = model.gen_hrm.int_man
         xy_params, xyk_params, xk_params = block_int.coord_blocks(int_params)
         obs_dim = model.obs_man.dim
         lat_dim = model.bas_lat_man.dim
@@ -319,8 +319,8 @@ def train_model(  # noqa: C901
         new_xk = jax.random.normal(k3, xk_params.shape) * xk_scale
         int_params = jnp.concatenate([xy_params, new_xyk, new_xk])
 
-    new_hrm_params = model.hrm.join_coords(obs_bias, int_params, new_lat_params)
-    params = model.join_coords(rho, new_hrm_params)
+    new_lkl_params = model.gen_hrm.lkl_fun_man.join_coords(obs_bias, int_params)
+    params = model.join_coords(new_lat_params, new_lkl_params, rho)
 
     # Optimizer setup with linear LR warmup then constant
     # In analytical mode, optimizer only updates hrm_params (rho is computed via lstsq)
@@ -336,8 +336,9 @@ def train_model(  # noqa: C901
         boundaries=[lr_warmup_steps],
     )
     optimizer = optax.adam(lr_schedule)
+    gen_params = model.generative_params(params)
     if use_analytical_rho:
-        opt_state = optimizer.init(new_hrm_params)
+        opt_state = optimizer.init(gen_params)
     else:
         opt_state = optimizer.init(params)
 
@@ -387,19 +388,19 @@ def train_model(  # noqa: C901
     # The optimizer only updates hrm_params; rho is always optimal given hrm_params
 
     def loss_fn_analytical(
-        hrm_params: Array, key: Array, batch: Array, beta: float
+        gen_params: Array, key: Array, batch: Array, beta: float
     ) -> tuple[Array, tuple[Array, Array, Array]]:
         key, rho_key, elbo_key = jax.random.split(key, 3)
 
         # Compute analytical rho via regress_conjugation_parameters
         zero_rho = jnp.zeros(model.rho_man.dim)
-        dummy_params = model.join_coords(zero_rho, hrm_params)
+        dummy_params = model.join_generative_and_rho(gen_params, zero_rho)
         rho_star, _, _, regression_var = regress_conjugation_parameters(
             model, rho_key, dummy_params, n_analytical_samples
         )
 
         # Build full params with analytical rho and compute ELBO
-        params_with_rho = model.join_coords(rho_star, hrm_params)
+        params_with_rho = model.join_generative_and_rho(gen_params, rho_star)
         elbo = model.mean_elbo(
             elbo_key, params_with_rho, batch, DEFAULT_N_MC_SAMPLES, kl_weight=beta
         )
@@ -443,7 +444,7 @@ def train_model(  # noqa: C901
         ) -> tuple[Any, tuple[Array, Array, Array]]:
             if beta is None:
                 beta = jnp.array(1.0)
-            hrm_params, opt_state, step_key, data = carry
+            gen_params, opt_state, step_key, data = carry
             step_key, next_key, batch_key = jax.random.split(step_key, 3)
 
             batch_idx = jax.random.choice(
@@ -452,13 +453,13 @@ def train_model(  # noqa: C901
             batch = data[batch_idx]
 
             (_, metrics), grads = jax.value_and_grad(loss_fn_analytical, has_aux=True)(
-                hrm_params, next_key, batch, beta
+                gen_params, next_key, batch, beta
             )
 
-            updates, new_opt_state = optimizer.update(grads, opt_state, hrm_params)
-            new_hrm_params = optax.apply_updates(hrm_params, updates)
+            updates, new_opt_state = optimizer.update(grads, opt_state, gen_params)
+            new_gen_params = optax.apply_updates(gen_params, updates)
 
-            return (new_hrm_params, new_opt_state, step_key, data), metrics
+            return (new_gen_params, new_opt_state, step_key, data), metrics
 
     else:
 
@@ -494,7 +495,7 @@ def train_model(  # noqa: C901
 
     key, train_key = jax.random.split(key)
     current_params = params
-    current_hrm_params = new_hrm_params
+    current_gen_params = gen_params
     current_opt_state = opt_state
 
     print(f"Training for {n_steps} steps...")
@@ -523,13 +524,13 @@ def train_model(  # noqa: C901
         beta = jnp.array(min(1.0, step / max(kl_warmup_steps, 1)))
 
         if use_analytical_rho:
-            (current_hrm_params, current_opt_state, train_key, _), metrics = train_step(
-                (current_hrm_params, current_opt_state, train_key, train_data),
+            (current_gen_params, current_opt_state, train_key, _), metrics = train_step(
+                (current_gen_params, current_opt_state, train_key, train_data),
                 None,
                 beta=beta,
             )
             elbo, conj_var, rho_star = metrics
-            current_params = model.join_coords(rho_star, current_hrm_params)
+            current_params = model.join_generative_and_rho(current_gen_params, rho_star)
         else:
             (current_params, current_opt_state, train_key, _), metrics = train_step(
                 (current_params, current_opt_state, train_key, train_data),
@@ -541,7 +542,7 @@ def train_model(  # noqa: C901
         elbos.append(float(elbo))
         conj_vars.append(float(conj_var))
 
-        rho_current, _ = model.split_coords(current_params)
+        rho_current = model.conjugation_parameters(current_params)
         rho_norm = float(jnp.linalg.norm(rho_current))
         rho_norms.append(rho_norm)
 
@@ -617,9 +618,7 @@ def train_model(  # noqa: C901
 
     # Also generate mean-based samples (expected values, not sampled)
     key, mean_key = jax.random.split(key)
-    _, _, prior_mixture_params = model.hrm.split_coords(
-        model.generative_params(final_params)
-    )
+    prior_mixture_params = model.prior_params(final_params)
     z_mean_samples = model.mix_man.sample(mean_key, prior_mixture_params, 20)
 
     def get_mean_image(z: Array) -> Array:
@@ -707,7 +706,7 @@ def main():
     )
     print(f"Model dim: {model.dim}")
     print(f"  Rho params: {model.rho_man.dim}")
-    print(f"  Harmonium params: {model.hrm.dim}")
+    print(f"  Harmonium params: {model.gen_hrm.dim}")
 
     # Train model
     key, train_key = jax.random.split(key)

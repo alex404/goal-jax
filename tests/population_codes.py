@@ -27,7 +27,7 @@ def _make_population_code(
     n_neurons: int, key: Array, *, n_regression_samples: int = 1000
 ) -> tuple[VonMisesPopulationCode, Array]:
     """Create a VonMisesPopulationCode with uniform preferred directions."""
-    model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, 1))
+    model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, 1))
     preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
     params = model.initialize_from_tuning_curves(
         key=key,
@@ -45,35 +45,34 @@ class TestVonMisesPopulationCode:
     @pytest.mark.parametrize("n", [4, 8, 16])
     def test_dimensions(self, n: int) -> None:
         hrm = PoissonVonMisesHarmonium(n, 1)
-        model = VonMisesPopulationCode(hrm=hrm)
+        model = VonMisesPopulationCode(_gen_hrm=hrm)
         assert model.obs_man.dim == n
         assert model.obs_man.data_dim == n
         assert model.pst_man.dim == 2
         assert model.pst_man.data_dim == 1
-        assert model.hrm.int_man.dim == n * 2
+        assert model.gen_hrm.int_man.dim == n * 2
         assert model.dim == 2 + n + n * 2 + 2
 
     @pytest.mark.parametrize("n", [4, 8])
     def test_tuning_curve_peaks_at_preferred(self, n: int) -> None:
         """Each neuron's firing rate is higher at its preferred direction."""
         model, params = _make_population_code(n, jax.random.PRNGKey(42))
-        _, hrm_params = model.split_coords(params)
-        _, int_params, _ = model.hrm.split_coords(hrm_params)
+        _, lkl_params, _ = model.split_coords(params)
+        _, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
         int_matrix = int_params.reshape(n, 2)
         preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])
 
         for i in range(n):
             pref = jnp.array([preferred[i]])
             opp = jnp.array([preferred[i] + jnp.pi])
-            assert model.hrm.likelihood_at(hrm_params, pref)[i] > model.hrm.likelihood_at(
-                hrm_params, opp
+            assert model.likelihood_at(params, pref)[i] > model.likelihood_at(
+                params, opp
             )[i]
 
     def test_firing_rates_positive(self) -> None:
         model, params = _make_population_code(8, jax.random.PRNGKey(42))
-        _, hrm_params = model.split_coords(params)
         for z_scalar in jnp.linspace(0, 2 * jnp.pi, 10):
-            rates = model.obs_man.to_mean(model.hrm.likelihood_at(hrm_params, jnp.array([z_scalar])))
+            rates = model.obs_man.to_mean(model.likelihood_at(params, jnp.array([z_scalar])))
             assert jnp.all(rates > 0)
 
     def test_posterior_valid_vonmises(self) -> None:
@@ -114,7 +113,7 @@ class TestVonMisesPopulationCodeConjugation:
 
     def test_regression_with_variation(self) -> None:
         n_neurons = 16
-        model = VonMisesPopulationCode(hrm=PoissonVonMisesHarmonium(n_neurons, 1))
+        model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, 1))
         key = jax.random.PRNGKey(42)
 
         preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
@@ -123,8 +122,8 @@ class TestVonMisesPopulationCodeConjugation:
         int_col_1 = gains * jnp.cos(preferred)
         int_col_2 = gains * jnp.sin(preferred)
         int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
-        hrm_params = model.hrm.join_coords(jnp.zeros(n_neurons), int_params, jnp.zeros(2))
-        params = model.join_coords(jnp.zeros(model.rho_man.dim), hrm_params)
+        lkl_params = model.gen_hrm.lkl_fun_man.join_coords(jnp.zeros(n_neurons), int_params)
+        params = model.join_coords(jnp.zeros(2), lkl_params, jnp.zeros(model.rho_man.dim))
 
         key, reg_key = jax.random.split(key)
         rho, r_squared, _, _ = regress_conjugation_parameters(
