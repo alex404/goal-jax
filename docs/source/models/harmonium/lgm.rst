@@ -42,6 +42,11 @@ Boltzmann LGM
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.models.harmonium.lgm.DifferentiableBoltzmannLGM
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Embeddings
 ----------
 
@@ -51,6 +56,11 @@ Embeddings
    :show-inheritance:
 
 .. autoclass:: goal.models.harmonium.lgm.NormalCovarianceEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.models.harmonium.lgm.BoltzmannEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

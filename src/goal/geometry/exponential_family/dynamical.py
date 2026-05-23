@@ -441,11 +441,10 @@ class VariationalLatentProcess[
         params: Array,
         observations: Array,
         n_mc_samples: int,
-        kl_weight: float = 1.0,
     ) -> tuple[Array, Array]:
         """Forward filter: returns ``(beliefs, total_elbo)``.
 
-        At each step, the transition map predicts the next belief, the emission's variational machinery computes the approximate posterior given the new observation, and the per-step ELBO (reconstruction term minus ``kl_weight`` times $\\mathrm{KL}(q \\| \\text{predicted prior})$) is accumulated. Differentiable end-to-end --- ``jax.grad`` of ``-total_elbo`` w.r.t. (prior, emission, $\\rho$, transition) flows through the scan.
+        At each step, the transition map predicts the next belief, the emission's variational machinery computes the approximate posterior given the new observation, and the per-step ELBO is accumulated. Differentiable end-to-end --- ``jax.grad`` of ``-total_elbo`` w.r.t. (prior, emission, $\\rho$, transition) flows through the scan. Callers wanting $\\beta$-VAE-style KL warmup wrap this and add $(1-\\beta) \\cdot \\sum_t$ :meth:`ems_hrm.elbo_divergence` externally.
         """
         prior_params, ems_lkl, rho, trns_params = self.split_coords(params)
         ems_hrm = self.ems_hrm
@@ -462,9 +461,7 @@ class VariationalLatentProcess[
             predicted = trn_map(trns_params, belief)
             ems_full = ems_hrm.join_coords(predicted, ems_lkl, rho)
             posterior = ems_hrm.approximate_posterior_at(ems_full, obs)
-            elbo_t = ems_hrm.elbo_at(
-                step_key, ems_full, obs, n_mc_samples, kl_weight=kl_weight
-            )
+            elbo_t = ems_hrm.elbo_at(step_key, ems_full, obs, n_mc_samples)
             return (posterior, total_elbo + elbo_t), posterior
 
         (_, total_elbo), beliefs = jax.lax.scan(
@@ -480,14 +477,13 @@ class VariationalLatentProcess[
         params: Array,
         observations_batch: Array,
         n_mc_samples: int,
-        kl_weight: float = 1.0,
     ) -> Array:
         """Average ``total_elbo`` over a batch of independent trajectories."""
         batch_size = observations_batch.shape[0]
         traj_keys = jax.random.split(key, batch_size)
 
         elbos = jax.vmap(
-            lambda k, obs: self.filter(k, params, obs, n_mc_samples, kl_weight)[1]
+            lambda k, obs: self.filter(k, params, obs, n_mc_samples)[1]
         )(traj_keys, observations_batch)
 
         return jnp.mean(elbos)

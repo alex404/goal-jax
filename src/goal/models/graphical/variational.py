@@ -22,24 +22,11 @@ class VariationalHierarchicalMixture[
 ):
     """Variational harmonium with hierarchical mixture latent structure.
 
-    Three-level hierarchy ``Observable (X) <-> BaseLatent (Y) <-> Categorical (K)``,
-    where the underlying harmonium's interaction only acts on the BaseLatent
-    component of the mixture (constructed via :class:`ObservableEmbedding`).
-    Posterior = Prior = ``CompleteMixture[BaseLatent]``; Conjugation = ``BaseLatent``.
+    Three-level hierarchy ``Observable (X) <-> BaseLatent (Y) <-> Categorical (K)``, where the underlying harmonium's interaction only acts on the BaseLatent component of the mixture (constructed via :class:`~goal.geometry.exponential_family.graphical.ObservableEmbedding`). Posterior = Prior = ``CompleteMixture[BaseLatent]``; Conjugation = ``BaseLatent``.
 
-    Because the interaction is structurally restricted to the BaseLatent slot,
-    the marginal $p(z, k) = \\int p(x|y) p(x, y, k) dx$ only picks up
-    conjugation along the BaseLatent direction. The analytic mixture completion
-    therefore zero-pads the learned $\\rho_y$ into the (mixture-interaction,
-    categorical) slots of the Prior, exactly mirroring how
-    :meth:`DifferentiableHierarchical.conjugation_parameters` zero-pads via
-    :class:`ObservableEmbedding`.
+    Because the interaction is structurally restricted to the BaseLatent slot, the marginal $p(z, k) = \\int p(x|y) p(x, y, k) dx$ only picks up conjugation along the BaseLatent direction. The analytic mixture completion therefore zero-pads the learned $\\rho_y$ into the (mixture-interaction, categorical) slots of the Prior, mirroring how the analytic-side :class:`~goal.geometry.exponential_family.graphical.DifferentiableHierarchical` zero-pads via :class:`~goal.geometry.exponential_family.graphical.ObservableEmbedding`.
 
-    The contrast with :class:`VariationalFullMixture`: there the harmonium is a
-    :class:`CompleteMixtureOfHarmoniums` with a three-block interaction
-    (``xy``, ``xyk``, ``xk``), and the analytic mixture completion supplies a
-    *non-zero* categorical contribution (log-partition differences across
-    component-specific observable offsets).
+    The contrast with a hypothetical full-mixture variant (built atop :class:`~goal.models.graphical.mixture.CompleteMixtureOfHarmoniums`): the analytic mixture completion would supply a *non-zero* categorical contribution from the three-block interaction (``xy``, ``xyk``, ``xk``), reflecting log-partition differences across component-specific observable offsets.
     """
 
     @property
@@ -71,10 +58,7 @@ class VariationalHierarchicalMixture[
     def conjugation_parameters(self, params: Array) -> Array:
         """Zero-pad the learned $\\rho_y$ into the full mixture-shape Prior conjugation.
 
-        In the hierarchical case the underlying harmonium's interaction only
-        touches the BaseLatent slot, so the analytic mixture completion has
-        $\\rho_{yz} = 0$ and $\\rho_z = 0$. The full conjugation is just
-        $\\rho_y$ embedded via :class:`ObservableEmbedding` into the mixture.
+        In the hierarchical case the underlying harmonium's interaction only touches the BaseLatent slot, so the analytic mixture completion has $\\rho_{yz} = 0$ and $\\rho_z = 0$. The full conjugation is just $\\rho_y$ embedded via :class:`~goal.geometry.exponential_family.graphical.ObservableEmbedding` into the mixture.
         """
         _, _, rho = self.split_coords(params)
         return ObservableEmbedding(self.mix_man).embed(rho)

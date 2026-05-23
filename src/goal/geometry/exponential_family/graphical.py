@@ -191,7 +191,7 @@ class DifferentiableHierarchical[
     @property
     @abstractmethod
     def lwr_hrm(self) -> LowerHarmonium:
-        """Lower harmonium: observable \\to middle latent."""
+        """Lower harmonium (observable to middle latent)."""
         ...
 
     @property
@@ -257,7 +257,7 @@ class SymmetricHierarchical[
     @property
     @abstractmethod
     def upr_hrm(self) -> UpperHarmonium:
-        """Upper harmonium: middle latent \\to top latent."""
+        """Upper harmonium (middle latent to top latent)."""
         ...
 
     # Overrides

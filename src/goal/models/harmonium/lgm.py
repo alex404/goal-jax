@@ -463,18 +463,7 @@ class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
 ):
     """Differentiable Linear Gaussian Model with mean-field Boltzmann latent variables.
 
-    This model combines a Normal observable distribution with Boltzmann (binary)
-    latent variables, using a mean-field (independent units) approximation for
-    the posterior.
-
-    **Posterior vs Prior Structure**:
-    - Posterior: Uses `DiagonalBoltzmann` (independent binary units) for computational
-      efficiency. This mean-field approximation has O(n) log partition computation.
-    - Prior: Uses full `Boltzmann` with pairwise coupling. The conjugation parameters
-      naturally produce coupling terms even when the posterior is mean-field.
-
-    This asymmetric structure enables efficient inference while maintaining the
-    expressiveness of the full Boltzmann prior for modeling complex dependencies.
+    Combines a Normal observable distribution with Boltzmann (binary) latent variables, using a mean-field (independent units) approximation for the posterior while keeping the full Boltzmann prior with pairwise coupling. The posterior uses ``DiagonalBoltzmann`` for O(n) log-partition computation; conjugation parameters naturally produce coupling terms even when the posterior is mean-field. The asymmetric structure enables efficient inference while preserving the prior's expressiveness for modeling complex dependencies.
     """
 
     lat_dim: int
@@ -485,7 +474,7 @@ class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
     @property
     @override
     def pst_man(self) -> DiagonalBoltzmann:
-        """Mean-field posterior: diagonal Boltzmann (independent units)."""
+        """Mean-field posterior (diagonal Boltzmann, independent units)."""
         return DiagonalBoltzmann(self.lat_dim)
 
     @property

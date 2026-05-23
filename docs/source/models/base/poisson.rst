@@ -43,6 +43,11 @@ Product Types
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.models.base.poisson.CoMShapes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.models.base.poisson.CoMPoissons
    :members:
    :undoc-members:

@@ -37,7 +37,7 @@ Mixture & Latent Variable Models
 Latent structure discovery with mixtures and factor models.
 
 - **mixture_of_gaussians** --- EM for Gaussian mixtures (:class:`~goal.models.harmonium.mixture.AnalyticMixture`), compared against sklearn.
-- **dimensionality_reduction** --- Factor analysis (:class:`~goal.models.harmonium.lgm.FactorAnalysis`) recovering a latent figure-8 curve from 20D observations.
+- **dimensionality_reduction** --- Factor analysis (``FactorAnalysis``) recovering a latent figure-8 curve from 20D observations.
 - **mfa** --- Mixture of factor analyzers with per-component low-rank structure, using :class:`~goal.models.graphical.hmog.AnalyticHMoG`.
 - **hmog** --- Hierarchical mixture of Gaussians (:class:`~goal.models.graphical.hmog.AnalyticHMoG`) with nested harmonium structure.
 

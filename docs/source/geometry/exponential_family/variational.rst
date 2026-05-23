@@ -21,3 +21,19 @@ Variational Conjugated
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.variational.SymmetricVariationalConjugated
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Helpers
+-------
+
+.. autofunction:: goal.geometry.exponential_family.variational.regress_conjugation_parameters
+
+.. autofunction:: goal.geometry.exponential_family.variational.conjugation_metrics
+
+.. autofunction:: goal.geometry.exponential_family.variational.reconstruct
+
+.. autofunction:: goal.geometry.exponential_family.variational.reconstruction_error

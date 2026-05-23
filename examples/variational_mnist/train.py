@@ -73,6 +73,7 @@ N_CONJ_PENALTY_SAMPLES = 1024  # For conjugation penalty in loss (every step)
 # Schedule defaults
 DEFAULT_KL_WARMUP_STEPS = 1000
 DEFAULT_LR_WARMUP_STEPS = 500
+DEFAULT_CONJ_WARMUP_STEPS = 2000
 
 
 def parse_args() -> argparse.Namespace:
@@ -158,6 +159,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_LR_WARMUP_STEPS,
         help="Steps for learning rate warmup before cosine decay",
+    )
+    parser.add_argument(
+        "--conj-warmup-steps",
+        type=int,
+        default=DEFAULT_CONJ_WARMUP_STEPS,
+        help="Steps to linearly ramp the conjugation regularizer from 0 to conj_weight",
     )
     return parser.parse_args()
 
@@ -248,6 +255,7 @@ def train_model(  # noqa: C901
     posterior_entropy_weight: float = DEFAULT_ENTROPY_WEIGHT,
     kl_warmup_steps: int = DEFAULT_KL_WARMUP_STEPS,
     lr_warmup_steps: int = DEFAULT_LR_WARMUP_STEPS,
+    conj_warmup_steps: int = DEFAULT_CONJ_WARMUP_STEPS,
 ) -> tuple[Array, dict[str, Any]]:
     """Train a model with specified mode.
 
@@ -346,12 +354,15 @@ def train_model(  # noqa: C901
 
     # Loss function for gradient mode (learnable rho, optional regularization)
     def loss_fn_gradient(
-        params: Array, key: Array, batch: Array, beta: float
+        params: Array, key: Array, batch: Array, beta: float, conj_beta: float
     ) -> tuple[Array, tuple[Array, Array]]:
         key, elbo_key, conj_key = jax.random.split(key, 3)
-        elbo = model.mean_elbo(
-            elbo_key, params, batch, DEFAULT_N_MC_SAMPLES, kl_weight=beta
+        # beta-warmup applied externally as L_beta = L_1 + (1-beta)*KL
+        elbo_1 = model.mean_elbo(elbo_key, params, batch, DEFAULT_N_MC_SAMPLES)
+        mean_kl = jnp.mean(
+            jax.vmap(lambda x: model.elbo_divergence(params, x))(batch)
         )
+        elbo = elbo_1 + (1.0 - beta) * mean_kl
 
         prior_entropy = model.prior_entropy(params)
 
@@ -363,14 +374,14 @@ def train_model(  # noqa: C901
         all_probs = jax.vmap(get_cluster_probs)(batch)
         posterior_entropy = compute_batch_entropy(all_probs)
 
-        # Conjugation penalty shares beta with KL — both are about prior structure
-        # Var[f̃] measures how well the linear conjugation approximates the true
-        # posterior, which is the same geometric quantity the KL gap depends on
+        # Conjugation penalty: independent ramp via conj_beta so we can train
+        # at standard ELBO (beta=1) while gradually introducing the conjugation
+        # regularizer over its own (typically slower) schedule.
         if use_conj_penalty:
             conj_var, _, _ = conjugation_metrics(
                 model, conj_key, params, N_CONJ_PENALTY_SAMPLES
             )
-            conj_loss = beta * conj_weight * conj_var
+            conj_loss = conj_beta * conj_weight * conj_var
         else:
             conj_var = jnp.array(0.0)
             conj_loss = 0.0
@@ -390,7 +401,7 @@ def train_model(  # noqa: C901
     # The optimizer only updates hrm_params; rho is always optimal given hrm_params
 
     def loss_fn_analytical(
-        gen_params: Array, key: Array, batch: Array, beta: float
+        gen_params: Array, key: Array, batch: Array, beta: float, conj_beta: float
     ) -> tuple[Array, tuple[Array, Array, Array]]:
         key, rho_key, elbo_key = jax.random.split(key, 3)
 
@@ -406,9 +417,14 @@ def train_model(  # noqa: C901
 
         # Build full params with analytical rho and compute ELBO
         params_with_rho = model.join_coords(prior_p, lkl_p, rho_star)
-        elbo = model.mean_elbo(
-            elbo_key, params_with_rho, batch, DEFAULT_N_MC_SAMPLES, kl_weight=beta
+        # beta-warmup applied externally as L_beta = L_1 + (1-beta)*KL
+        elbo_1 = model.mean_elbo(
+            elbo_key, params_with_rho, batch, DEFAULT_N_MC_SAMPLES
         )
+        mean_kl = jnp.mean(
+            jax.vmap(lambda x: model.elbo_divergence(params_with_rho, x))(batch)
+        )
+        elbo = elbo_1 + (1.0 - beta) * mean_kl
 
         # Prior entropy to prevent cluster collapse in generative model
         prior_entropy = model.prior_entropy(params_with_rho)
@@ -421,11 +437,11 @@ def train_model(  # noqa: C901
         all_probs = jax.vmap(get_cluster_probs)(batch)
         posterior_entropy = compute_batch_entropy(all_probs)
 
-        # Conjugation penalty shares beta with KL — use residual variance
-        # from the regression rather than sampling from the prior again
+        # Conjugation penalty on independent ramp via conj_beta — use residual
+        # variance from the regression rather than sampling the prior again.
         if use_conj_penalty:
             conj_var = regression_var
-            conj_loss = beta * conj_weight * conj_var
+            conj_loss = conj_beta * conj_weight * conj_var
         else:
             conj_var = jnp.array(0.0)
             conj_loss = 0.0
@@ -445,10 +461,15 @@ def train_model(  # noqa: C901
 
         @jax.jit
         def train_step(
-            carry: Any, _: None, beta: Array | None = None
+            carry: Any,
+            _: None,
+            beta: Array | None = None,
+            conj_beta: Array | None = None,
         ) -> tuple[Any, tuple[Array, Array, Array]]:
             if beta is None:
                 beta = jnp.array(1.0)
+            if conj_beta is None:
+                conj_beta = jnp.array(1.0)
             gen_params, opt_state, step_key, data = carry
             step_key, next_key, batch_key = jax.random.split(step_key, 3)
 
@@ -458,7 +479,7 @@ def train_model(  # noqa: C901
             batch = data[batch_idx]
 
             (_, metrics), grads = jax.value_and_grad(loss_fn_analytical, has_aux=True)(
-                gen_params, next_key, batch, beta
+                gen_params, next_key, batch, beta, conj_beta
             )
 
             updates, new_opt_state = optimizer.update(grads, opt_state, gen_params)
@@ -470,10 +491,15 @@ def train_model(  # noqa: C901
 
         @jax.jit
         def train_step(
-            carry: Any, _: None, beta: Array | None = None
+            carry: Any,
+            _: None,
+            beta: Array | None = None,
+            conj_beta: Array | None = None,
         ) -> tuple[Any, tuple[Array, Array]]:
             if beta is None:
                 beta = jnp.array(1.0)
+            if conj_beta is None:
+                conj_beta = jnp.array(1.0)
             params, opt_state, step_key, data = carry
             step_key, next_key, batch_key = jax.random.split(step_key, 3)
 
@@ -483,7 +509,7 @@ def train_model(  # noqa: C901
             batch = data[batch_idx]
 
             (_, metrics), grads = jax.value_and_grad(loss_fn_gradient, has_aux=True)(
-                params, next_key, batch, beta
+                params, next_key, batch, beta, conj_beta
             )
 
             updates, new_opt_state = optimizer.update(grads, opt_state, params)
@@ -523,16 +549,20 @@ def train_model(  # noqa: C901
         return conjugation_metrics(model, key, params, N_CONJ_SAMPLES)
 
     for step in range(n_steps):
-        # Beta warmup: ramps KL weight and conj penalty together from 0 to 1.
-        # Both are about prior structure — KL penalizes q deviating from the prior,
-        # Var[f̃] penalizes the conjugation gap that makes q ≠ p(z|x).
+        # Independent warmup schedules. `beta` linearly ramps the KL penalty
+        # (L_beta = L_1 + (1-beta)*KL externally); `conj_beta` linearly ramps
+        # the conjugation regularizer. Decoupled because they target different
+        # structures: KL controls posterior collapse, conj controls residual
+        # variance.
         beta = jnp.array(min(1.0, step / max(kl_warmup_steps, 1)))
+        conj_beta = jnp.array(min(1.0, step / max(conj_warmup_steps, 1)))
 
         if use_analytical_rho:
             (current_gen_params, current_opt_state, train_key, _), metrics = train_step(
                 (current_gen_params, current_opt_state, train_key, train_data),
                 None,
                 beta=beta,
+                conj_beta=conj_beta,
             )
             elbo, conj_var, rho_star = metrics
             current_params = model.join_coords(
@@ -545,6 +575,7 @@ def train_model(  # noqa: C901
                 (current_params, current_opt_state, train_key, train_data),
                 None,
                 beta=beta,
+                conj_beta=conj_beta,
             )
             elbo, conj_var = metrics
 
@@ -689,6 +720,7 @@ def main():
     print(f"  Interaction: {args.interaction}")
     print(f"  KL warmup steps: {args.kl_warmup_steps}")
     print(f"  LR warmup steps: {args.lr_warmup_steps}")
+    print(f"  Conj warmup steps: {args.conj_warmup_steps}")
     if args.mode == "analytical":
         print(f"  Analytical samples mult: {args.analytical_samples_mult}")
     print("=" * 60)
@@ -737,6 +769,7 @@ def main():
         posterior_entropy_weight=args.posterior_entropy_weight,
         kl_warmup_steps=args.kl_warmup_steps,
         lr_warmup_steps=args.lr_warmup_steps,
+        conj_warmup_steps=args.conj_warmup_steps,
     )
 
     # Reconstructions
@@ -768,6 +801,7 @@ def main():
             "interaction": args.interaction,
             "kl_warmup_steps": args.kl_warmup_steps,
             "lr_warmup_steps": args.lr_warmup_steps,
+            "conj_warmup_steps": args.conj_warmup_steps,
         },
     }
 

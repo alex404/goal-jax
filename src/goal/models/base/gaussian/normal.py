@@ -130,19 +130,19 @@ class Normal[Rep: PositiveDefinite](
     @property
     @override
     def shp_man(self) -> Covariance[Rep]:
-        """Shape component: covariance manifold."""
+        """Shape component (covariance manifold)."""
         return self.cov_man
 
     @property
     @override
     def fst_man(self) -> Euclidean:
-        """First component: location manifold."""
+        """First component (location manifold)."""
         return self.loc_man
 
     @property
     @override
     def snd_man(self) -> Covariance[Rep]:
-        """Second component: covariance manifold."""
+        """Second component (covariance manifold)."""
         return self.cov_man
 
     @override

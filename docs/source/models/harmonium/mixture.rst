@@ -16,6 +16,11 @@ Class Hierarchy
 Core Classes
 ------------
 
+.. autoclass:: goal.models.harmonium.mixture.MixtureComponents
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.models.harmonium.mixture.Mixture
    :members:
    :undoc-members:

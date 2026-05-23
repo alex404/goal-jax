@@ -41,6 +41,11 @@ Product Manifolds
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.manifold.combinators.Quadruple
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.geometry.manifold.combinators.Replicated
    :members:
    :undoc-members:

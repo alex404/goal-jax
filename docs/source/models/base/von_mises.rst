@@ -21,3 +21,8 @@ Von Mises
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: goal.models.base.von_mises.VonMisesProduct
+   :members:
+   :undoc-members:
+   :show-inheritance:

@@ -19,6 +19,11 @@ Class Hierarchy
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.exponential_family.base.Gibbs
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.geometry.exponential_family.base.Generative
    :members:
    :undoc-members:

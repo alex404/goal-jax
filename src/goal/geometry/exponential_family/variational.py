@@ -1,6 +1,12 @@
-"""Variational conjugation for harmoniums: approximate posterior with learnable conjugation correction and ELBO computation.
+"""Variational conjugation for harmoniums.
 
-The approximate posterior has the same structure as the exact conjugate posterior, but with learned conjugation parameters ``\\rho`` replacing the analytically derived ones. The class mirrors the analytic ``Conjugated`` hierarchy: a ``Prior`` type parameter and a ``pst_prr_emb`` capture the (potentially asymmetric) Posterior \\subset Prior relationship, and the abstract ``conjugation_parameters(params)`` returns the full Prior-shape conjugation (by peeling the stored ``\\rho`` from ``params`` and applying any model-specific analytic completion). Hierarchical and mixture subclasses override this method to inline the same analytic completion patterns used on the analytic side (zero-padding for chains, mixture completion for mixtures).
+Implements the standard-form ELBO
+
+$$\\mathcal{L}(x) = \\mathbb{E}_{q(z\\mid x)}[\\log p(x, Z) - \\log q(Z \\mid x)] = c(x) + \\mathbb{E}_q[r(Z)],$$
+
+where the **conjugation residual** $r(z) = \\rho_Z \\cdot s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ}\\cdot s_Z(z)) + \\psi_X(\\theta_X)$ is the difference between the LHS and RHS of the conjugation equation: it vanishes pointwise iff the likelihood and prior are exactly conjugate. The residual is the central object of the module --- it drives the ELBO via $\\mathbb{E}_q[r]$ and the conjugation regularizers $\\mathcal{R}_p$ / $\\mathcal{R}_q$ via $\\mathrm{Var}[r]$.
+
+The $\\beta$-VAE-style KL warmup is handled by callers, who add $(1-\\beta)\\cdot\\mathrm{KL}(q \\Vert p)$ to the ELBO externally via :meth:`elbo_divergence`. Keeping $\\beta$ out of :meth:`elbo_at` lets the residual machinery extend without alteration to hierarchical models, where no closed-form KL exists between joint $q$ and joint $p$ and the closed-form-KL lever the recon+KL form depends on disappears.
 """
 
 from __future__ import annotations
@@ -30,40 +36,28 @@ class VariationalConjugated[
 ):
     """Variational harmonium with parameter layout ``[prior_params, lkl_fun, rho]``.
 
-    Reinterprets an underlying harmonium (``gen_hrm``) as a directed generative
-    model: the harmonium's observable + interaction blocks supply the likelihood
-    $p(x|z)$, and a separately-stored prior $p(z; \\theta_Z)$ lives in ``Prior``
-    space (which may be a superset of ``Posterior``). The variational layer adds
-    learned conjugation parameters $\\rho$ that replace the analytically-derived
-    ones in the conjugate posterior
+    Models a directed generative process
 
-    $$q(z|x; \\rho) \\propto \\exp\\bigl(\\pi(\\theta_Z - \\iota(\\rho)) \\cdot s_Z(z) + \\Theta_{XZ}^\\top s_X(x) \\cdot s_Z(z)\\bigr),$$
+    $$p(x, z) = p(z; \\theta_Z) \\, p(x \\mid z; \\theta_X, \\Theta_{XZ}),$$
 
-    where $\\iota(\\rho)$ is the full Prior-shape conjugation derived from the
-    stored ``rho`` via :meth:`conjugation_parameters` (analog of
-    :class:`Conjugated.conjugation_parameters` on the analytic side), and $\\pi$
-    is :meth:`pst_prr_emb.project`. In the symmetric case (Posterior=Prior),
-    $\\pi$ is identity and the formula collapses to
-    $(\\theta_Z + \\Theta_{XZ}^\\top s_X(x) - \\iota(\\rho)) \\cdot s_Z(z)$.
+    with an exponential-family prior $p(z; \\theta_Z) \\in $ ``Prior`` and a likelihood whose natural parameters are affine in the latent sufficient statistic,
 
-    The four type parameters separate four roles that the original two-parameter
-    design conflated:
+    $$\\theta_{X \\mid Z}(z) = \\theta_X + \\Theta_{XZ} \\cdot s_Z(z).$$
+
+    When exact conjugation is unavailable, we approximate the posterior by retaining the same exponential-family form as the prior but replacing the analytic conjugation correction with a learned, input-independent parameter $\\rho_Z$:
+
+    $$q(z \\mid x) = p(z; \\hat\\theta_{Z \\mid X}(x)), \\qquad \\hat\\theta_{Z \\mid X}(x) = \\theta_Z + s_X(x) \\cdot \\Theta_{XZ} - \\rho_Z.$$
+
+    Training jointly optimizes $(\\theta_Z, \\theta_X, \\Theta_{XZ}, \\rho_Z)$ under the ELBO so that the model moves toward a regime in which the conjugate-form posterior is accurate.
+
+    The four type parameters separate four roles:
 
     - ``Observable`` --- observable variable family
-    - ``Posterior`` --- family of $q(z|x)$; what the posterior formula returns
-    - ``Prior`` --- family of $p(z)$; what the stored prior lives in
-    - ``Conjugation`` --- storage space for the learned $\\rho$; may be a
-      sub-manifold of Prior when only some prior components need variational
-      approximation (e.g. for hierarchical/mixture priors, only the
-      observable-adjacent component lacks a closed form)
+    - ``Posterior`` --- family of $q(z \\mid x)$
+    - ``Prior`` --- family of $p(z)$; may be a superset of ``Posterior``
+    - ``Conjugation`` --- storage space for $\\rho_Z$; may be a sub-manifold of ``Prior`` when only part of the prior requires variational correction (e.g. for mixture priors, the analytic mixture completion handles the categorical part)
 
-    The :meth:`conjugation_parameters` abstract method bridges ``Conjugation``
-    and ``Prior``: subclasses peel the stored $\\rho$ from ``params`` and
-    apply whatever analytic completion their graphical structure calls for.
-    Unlike analytic ``Conjugated.conjugation_parameters(lkl_params)`` which
-    *computes* $\\rho$ from likelihood, the variational $\\rho$ is *stored* ---
-    so the natural argument here is the full ``params`` rather than a separate
-    ``lkl`` / ``rho`` pair.
+    :meth:`conjugation_parameters` peels $\\rho_Z$ from ``params`` and applies the analytic completion appropriate to the graphical structure (zero-padding for chains, mixture completion for mixtures). In the symmetric case (Posterior = Prior = Conjugation) it returns $\\rho_Z$ unchanged.
     """
 
     # Contract
@@ -71,17 +65,17 @@ class VariationalConjugated[
     @property
     @abstractmethod
     def gen_hrm(self) -> Harmonium[Observable, Posterior]:
-        """Underlying generative harmonium --- supplies the likelihood structure and observable/posterior manifolds."""
+        """The underlying harmonium; supplies the likelihood $p(x \\mid z)$ and the observable/posterior manifolds."""
 
     @property
     @abstractmethod
     def pst_prr_emb(self) -> LinearEmbedding[Posterior, Prior]:
-        """Embedding of the posterior manifold into the prior manifold (analogous to :attr:`Conjugated.pst_prr_emb`)."""
+        """Embedding of the posterior manifold into the prior manifold."""
 
     @property
     @abstractmethod
     def cnj_man(self) -> Conjugation:
-        """Manifold for the variationally-learned $\\rho$ (the third Triple slot)."""
+        """The manifold in which $\\rho_Z$ is stored."""
 
     # Triple slots
 
@@ -104,67 +98,51 @@ class VariationalConjugated[
 
     @property
     def obs_man(self) -> Observable:
-        """Observable manifold of the underlying harmonium."""
+        """The observable manifold."""
         return self.gen_hrm.obs_man
 
     @property
     def pst_man(self) -> Posterior:
-        """Posterior manifold (family of $q(z|x)$)."""
+        """The posterior manifold (family of $q(z \\mid x)$)."""
         return self.gen_hrm.pst_man
 
     @property
     def prr_man(self) -> Prior:
-        """Prior manifold (family of stored $p(z)$)."""
+        """The prior manifold (family of $p(z; \\theta_Z)$)."""
         return self.pst_prr_emb.amb_man
 
     # Parameter access
 
     def prior_params(self, params: Array) -> Array:
-        """Extract prior parameters $\\theta_Z$ defining $p(z; \\theta_Z)$ (in ``Prior`` space)."""
+        """Extract the prior natural parameters $\\theta_Z$."""
         prior, _, _ = self.split_coords(params)
         return prior
 
     def likelihood_function(self, params: Array) -> Array:
-        """Extract the stored likelihood affine map $\\eta \\mapsto \\theta_X + \\Theta_{XZ} \\cdot \\eta$."""
+        """Extract the affine likelihood parameters $(\\theta_X, \\Theta_{XZ})$."""
         _, lkl, _ = self.split_coords(params)
         return lkl
 
     # Approximate conjugation
 
     def conjugation_parameters(self, params: Array) -> Array:
-        """Return the full Prior-shape conjugation $\\iota(\\rho)$ for the given model parameters.
+        """Return the conjugation correction in Prior shape.
 
-        Default: ``Conjugation == Prior`` --- the stored $\\rho$ already has
-        the right shape, so just peel it out of ``params`` and return it.
-        Subclasses with $\\text{Conjugation} \\subset \\text{Prior}$
-        (hierarchical chains, mixtures) override to apply the analytic
-        completion that lifts the learned $\\rho$ into the full Prior shape
-        (zero-padding into unconnected slots for hierarchical chains,
-        log-partition differences for mixture categorical slots, etc. ---
-        mirroring how the analytic-side ``Conjugated`` subclasses construct
-        their full-Prior conjugation from likelihood blocks).
-
-        Unlike the analytic ``Conjugated.conjugation_parameters(lkl_params)``,
-        this is *not* a function of likelihood alone --- the variational $\\rho$
-        is stored, not computed --- so the natural argument is the full
-        ``params`` from which the method peels what it needs.
+        Default: $\\rho_Z$ already lives in ``Prior``, so return it unchanged. Subclasses with ``Conjugation`` a proper sub-manifold of ``Prior`` (hierarchical chains, mixtures) override to apply the analytic structural completion --- zero-padding for chains, mixture completion for mixtures.
         """
         _, _, rho = self.split_coords(params)
         return rho
 
     def likelihood_at(self, params: Array, z: Array) -> Array:
-        """Compute likelihood natural parameters $p(x|z)$ at latent $z$."""
+        """Natural parameters of the likelihood $p(x \\mid z)$ at the given latent state."""
         _, lkl, _ = self.split_coords(params)
         mz = self.pst_man.sufficient_statistic(z)
         return self.gen_hrm.lkl_fun_man(lkl, mz)
 
     def approximate_posterior_at(self, params: Array, x: Array) -> Array:
-        """Compute approximate posterior natural parameters $q(z|x)$ (in ``Posterior`` space).
+        """Natural parameters of the approximate posterior $q(z \\mid x)$ at the given observation.
 
-        Computes the corrected latent bias $\\pi(\\theta_Z - \\iota(\\rho))$ in
-        ``Posterior`` space (where $\\iota = $ :meth:`conjugation_parameters` and
-        $\\pi = $ :meth:`pst_prr_emb.project`), then applies the standard
-        harmonium posterior formula via ``gen_hrm.posterior_at``.
+        Computes $\\hat\\theta_{Z \\mid X}(x) = \\theta_Z + s_X(x) \\cdot \\Theta_{XZ} - \\rho_Z$ and projects into ``Posterior`` via :attr:`pst_prr_emb`; in the symmetric case the projection is identity.
         """
         prior, lkl, _ = self.split_coords(params)
         rho_full = self.conjugation_parameters(params)
@@ -173,101 +151,27 @@ class VariationalConjugated[
         hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_eff)
         return self.gen_hrm.posterior_at(hrm_params, x)
 
-    # ELBO
+    # Conjugation residual
 
-    def elbo_divergence(self, params: Array, x: Array) -> Array:
-        """Compute $D_{\\mathrm{KL}}(q(z|x) \\| p(z))$.
+    def conjugation_residual(self, params: Array, z: Array) -> Array:
+        """Conjugation residual $r(z) = \\rho_Z \\cdot s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ}\\cdot s_Z(z)) + \\psi_X(\\theta_X)$.
 
-        $q$ lives in ``Posterior`` space, $p$ in ``Prior`` space; the KL is
-        evaluated in ``Prior`` space by embedding $q$ via :meth:`pst_prr_emb.embed`.
-        In the symmetric case this is identity and reduces to the natural
-        same-space KL.
+        Mathematically, $r$ is the difference between the LHS and RHS of the conjugation equation $\\rho_Z \\cdot s_Z(z) + \\psi_X(\\theta_X) = \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))$, so $r \\equiv 0$ iff the likelihood is exactly conjugate to the prior. Used as the per-sample summand in the standard-form ELBO ($\\mathcal{L}(x) = c(x) + \\mathbb{E}_q[r(Z)]$) and as the integrand of the conjugation regularizers $\\mathrm{Var}_q[r]$ and $\\mathrm{Var}_p[r]$.
+
+        Generalizes correctly through :meth:`conjugation_parameters` (which embeds $\\rho_Z$ into Prior shape for asymmetric cases) and :attr:`pst_prr_emb` (which embeds the posterior sufficient statistic into Prior space).
         """
-        q_params = self.approximate_posterior_at(params, x)
-        p_params = self.prior_params(params)
-        q_in_prior = self.pst_prr_emb.embed(q_params)
-        return self.prr_man.relative_entropy(q_in_prior, p_params)
-
-    def elbo_reconstruction_term(
-        self, key: Array, params: Array, x: Array, n_samples: int
-    ) -> Array:
-        """Compute $\\mathbb{E}_q[\\log p(x|z)]$ via analytic/MC split with score correction.
-
-        Decomposes as
-
-        .. math::
-
-            \\mathbb{E}_q[\\log p(x|z)] =
-            \\underbrace{s_X(x) \\cdot (\\theta_X + \\Theta_{XZ} \\cdot \\mathbb{E}_q[s_Z(z)])}_{\\text{analytic}}
-            - \\underbrace{\\mathbb{E}_q[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))]}_{\\text{MC}}
-            + \\log h_X(x)
-
-        The analytic term computes $\\mathbb{E}_q[s_Z]$ exactly via ``to_mean()``,
-        so its gradients are exact (no MC, no score correction needed).
-
-        The MC term estimates $\\mathbb{E}_q[\\psi_X]$ using the score-function
-        (REINFORCE) estimator: samples are treated as fixed evaluation points,
-        and a surrogate term recovers the gradient through the sampling
-        distribution. This is correct for all posteriors, including those with
-        non-differentiable samplers (e.g. VonMises rejection sampling).
-
-        The full gradient of $-\\mathbb{E}_q[\\psi_X]$ decomposes by the Leibniz rule into:
-
-        1. Direct: $-\\mathbb{E}_q[\\partial\\psi_X/\\partial\\theta]$ --- captured by ``mc_term``
-        2. Score: $-\\mathbb{E}_q[\\psi_X \\cdot \\nabla_\\theta\\log q]$ --- captured by ``reinforce``
-        """
-        s_x = self.obs_man.sufficient_statistic(x)
         _, lkl, _ = self.split_coords(params)
-        q_params = self.approximate_posterior_at(params, x)
+        obs_params, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
+        rho_full = self.conjugation_parameters(params)
+        s_z = self.pst_man.sufficient_statistic(z)
+        s_z_in_prior = self.pst_prr_emb.embed(s_z)
+        rho_term = jnp.dot(rho_full, s_z_in_prior)
+        lkl_params_at_z = self.gen_hrm.lkl_fun_man(lkl, s_z)
+        psi_at_z = self.obs_man.log_partition_function(lkl_params_at_z)
+        psi_at_bias = self.obs_man.log_partition_function(obs_params)
+        return rho_term - psi_at_z + psi_at_bias
 
-        # --- Analytic term: s_X(x) . (theta_X + Theta_XZ . E_q[s_Z(z)]) ---
-        # E_q[s_Z] = to_mean(q_params), which is differentiable w.r.t. q_params.
-        # No MC, no score correction needed.
-        mean_q = self.pst_man.to_mean(q_params)
-        lkl_at_mean = self.gen_hrm.lkl_fun_man(lkl, mean_q)
-        analytic_term = jnp.dot(s_x, lkl_at_mean)
-
-        # --- MC term: E_q[psi_X(.)] via score-function estimator ---
-
-        # [SG-1] Score-function estimator: samples are evaluation points, not
-        # carriers of gradient. The gradient of E_q[psi_X] w.r.t. parameters
-        # of q comes from nabla(log q) in the REINFORCE term below, not from
-        # moving the sample locations.
-        z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
-
-        def psi_at_z(z: Array) -> Array:
-            mz = self.pst_man.sufficient_statistic(z)
-            lkl_params = self.gen_hrm.lkl_fun_man(lkl, mz)
-            return self.obs_man.log_partition_function(lkl_params)
-
-        psi_vals = jax.vmap(psi_at_z)(z_samples)
-
-        # mc_term captures the direct gradient E_q[d(psi_X)/d(theta)] at
-        # fixed z: how changing (theta_X, Theta) directly changes psi_X.
-        mc_term = jnp.mean(psi_vals)
-
-        # --- REINFORCE correction: score gradient of E_q[psi_X] ---
-
-        # [SG-2] psi_vals must be stopped here because it is used as the
-        # scalar reward signal in the REINFORCE surrogate. If its dependence
-        # on (theta_X, Theta) were retained, differentiating would produce a
-        # spurious cross-term E_q[d(psi_X)/d(theta) . log q] that has no
-        # probabilistic meaning and would corrupt the gradient. The direct
-        # gradient E_q[d(psi_X)/d(theta)] is already captured by mc_term.
-        psi_stopped = jax.lax.stop_gradient(psi_vals)
-        baseline = jnp.mean(psi_stopped)
-        centered = psi_stopped - baseline
-
-        log_q = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(z_samples)
-
-        # The surrogate: its VALUE is meaningless, but its GRADIENT w.r.t.
-        # parameters of q gives -E_q[(psi_X - b) . nabla(log q)], which is
-        # the score-function estimate of -nabla E_q[psi_X] (with variance-
-        # reducing baseline b). Combined with mc_term, this gives the full
-        # Leibniz-rule gradient.
-        reinforce = -jnp.mean(centered * log_q)
-
-        return analytic_term - mc_term + self.obs_man.log_base_measure(x) + reinforce
+    # ELBO
 
     def elbo_at(
         self,
@@ -275,12 +179,52 @@ class VariationalConjugated[
         params: Array,
         x: Array,
         n_samples: int,
-        kl_weight: float = 1.0,
     ) -> Array:
-        """Compute the ELBO $\\mathcal{L}_\\beta(x) = \\mathbb{E}_q[\\log p(x|z)] - \\beta \\cdot D_{\\mathrm{KL}}(q \\| p)$."""
-        recon = self.elbo_reconstruction_term(key, params, x, n_samples)
-        kl = self.elbo_divergence(params, x)
-        return recon - kl_weight * kl
+        """ELBO $\\mathcal{L}(x) = c(x) + \\mathbb{E}_{q(z\\mid x)}[r(Z)]$ via MC over the recognition model.
+
+        Decomposition: after substituting exponential-family forms into $\\log p(x,z) - \\log q(z\\mid x)$ and cancelling shared $s_Z\\cdot\\theta_Z$ and $s_X\\cdot\\Theta_{XZ}\\cdot s_Z$ terms,
+
+        $$c(x) = s_X(x) \\cdot \\theta_X + \\psi_Z(\\hat\\theta_{Z\\mid X}(x)) - \\psi_Z(\\theta_Z) - \\psi_X(\\theta_X) + \\log h_X(x)$$
+
+        carries the entire $x$-dependence, and $r(z)$ (see :meth:`conjugation_residual`) carries the entire $z$-dependence.
+
+        The surrogate ``c_x + direct + score - sg(score)`` is value-correct as an MC estimate of the ELBO and gradient-correct under autodiff: ``direct = mean(r)`` contributes $\\nabla c + \\mathbb{E}_q[\\nabla r]$, the score correction contributes $\\mathbb{E}_q[r \\nabla \\log q]$, and the ``- sg(score)`` cancels the score's value contribution. The population gradient needs no baseline since $c(x)$ already cancels under the zero-score identity; the sample-mean baseline ``b`` only reduces finite-sample variance.
+
+        Two ``stop_gradient`` calls:
+
+        1. **On samples** --- the recognition sampler may be non-differentiable (e.g. VonMises rejection); samples are evaluation points, not gradient carriers.
+        2. **On $r$ inside the score correction** --- its direct gradient is already in ``direct``, so letting autodiff flow through $r$ here would double-count it.
+
+        $\\beta$-VAE-style KL warmup is the caller's responsibility: add $(1-\\beta)\\cdot$ :meth:`elbo_divergence` to the returned value.
+        """
+        prior_p, lkl, _ = self.split_coords(params)
+        obs_p, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
+
+        q_params = self.approximate_posterior_at(params, x)
+        z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
+
+        # c(x): closed-form, $x$-dependent piece
+        q_in_prior = self.pst_prr_emb.embed(q_params)
+        s_x = self.obs_man.sufficient_statistic(x)
+        c_x = (
+            jnp.dot(s_x, obs_p)
+            + self.prr_man.log_partition_function(q_in_prior)
+            - self.prr_man.log_partition_function(prior_p)
+            - self.obs_man.log_partition_function(obs_p)
+            + self.obs_man.log_base_measure(x)
+        )
+
+        # E_q[r(Z)] via MC + score-function correction
+        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z))(z_samples)
+        log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(
+            z_samples
+        )
+
+        direct = jnp.mean(r_vals)
+        r_sg = jax.lax.stop_gradient(r_vals)
+        b = jnp.mean(r_sg)
+        score = jnp.mean((r_sg - b) * log_q_vals)
+        return c_x + direct + score - jax.lax.stop_gradient(score)
 
     def mean_elbo(
         self,
@@ -288,33 +232,59 @@ class VariationalConjugated[
         params: Array,
         xs: Array,
         n_samples: int,
-        kl_weight: float = 1.0,
     ) -> Array:
-        """Compute mean ELBO over a batch of observations."""
+        """Mean ELBO over a batch of observations."""
         batch_size = xs.shape[0]
         keys = jax.random.split(key, batch_size)
-
-        elbos = jax.vmap(lambda k, x: self.elbo_at(k, params, x, n_samples, kl_weight))(
-            keys, xs
-        )
-
+        elbos = jax.vmap(lambda k, x: self.elbo_at(k, params, x, n_samples))(keys, xs)
         return jnp.mean(elbos)
 
-    # Reduced learning signal
+    def elbo_divergence(self, params: Array, x: Array) -> Array:
+        """Closed-form $\\mathrm{KL}(q(z\\mid x) \\Vert p(z))$, evaluated in Prior space by embedding $q$ via :meth:`pst_prr_emb.embed`.
 
-    def reduced_learning_signal(self, params: Array, z: Array) -> Array:
-        """Compute the reduced learning signal $\\tilde{f}(z) = \\iota(\\rho) \\cdot \\phi(s_Z(z)) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot s_Z(z))$.
-
-        The score-function gradient of $-\\mathbb{E}_q[\\psi_X(\\eta(z))]$ admits an arbitrary control variate; the full Prior-shape conjugation $\\iota(\\rho)$ inner-producted with the embedded sufficient statistic $\\phi(s_Z(z))$ is the optimal linear-in-$s_Z$ choice, and $\\tilde{f}$ is what remains of the learning signal after subtracting it. The per-$x$ KL gap is exactly $\\log \\mathbb{E}_q[e^{\\tilde{f}}] - \\mathbb{E}_q[\\tilde{f}]$, so $\\tilde{f}$ constant $\\iff$ zero amortization gap; its variance under the prior is used as a training regularizer.
+        Not on the critical path of :meth:`elbo_at` (the standard-form ELBO bundles this implicitly into $c(x)$ and $\\mathbb{E}_q[r]$), but useful externally: callers wanting $\\beta$-VAE-style warmup add $(1-\\beta)\\cdot$ this to :meth:`elbo_at`, and the KL is a natural diagnostic in its own right.
         """
-        _, lkl, _ = self.split_coords(params)
-        rho_full = self.conjugation_parameters(params)
-        s_z = self.pst_man.sufficient_statistic(z)
-        s_z_in_prior = self.pst_prr_emb.embed(s_z)
-        term1 = jnp.dot(rho_full, s_z_in_prior)
-        lkl_params = self.gen_hrm.lkl_fun_man(lkl, s_z)
-        term2 = self.obs_man.log_partition_function(lkl_params)
-        return term1 - term2
+        q_params = self.approximate_posterior_at(params, x)
+        p_params = self.prior_params(params)
+        q_in_prior = self.pst_prr_emb.embed(q_params)
+        return self.prr_man.relative_entropy(q_in_prior, p_params)
+
+    # Conjugation regularizers
+
+    def prior_conjugation_loss(
+        self, key: Array, params: Array, n_samples: int
+    ) -> Array:
+        """Prior-based regularizer $\\mathcal{R}_p = \\mathrm{Var}_{p_Z}[r(Z)]$.
+
+        $x$-independent and arguably more consistent with the intuition that conjugation is a property of the likelihood and prior. Can enforce conjugacy in regions of latent space that inference never visits.
+        """
+        prior_p = self.prior_params(params)
+        z_samples = jax.lax.stop_gradient(self.prr_man.sample(key, prior_p, n_samples))
+        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z))(z_samples)
+        return jnp.var(r_vals)
+
+    def recognition_conjugation_loss_at(
+        self, key: Array, params: Array, x: Array, n_samples: int
+    ) -> Array:
+        """Recognition-based regularizer $\\mathcal{R}_q(x) = \\mathrm{Var}_{q(Z\\mid X=x)}[r(Z)]$.
+
+        Focuses on the latents inference actually visits. Directly connected to the amortization gap, since $\\mathrm{Var}_q[r(Z)] = \\mathrm{Var}_q[\\log q(Z\\mid x) / p(Z\\mid x)]$. Estimated with the same recognition samples one would draw for the ELBO.
+        """
+        q_params = self.approximate_posterior_at(params, x)
+        z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
+        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z))(z_samples)
+        return jnp.var(r_vals)
+
+    def mean_recognition_conjugation_loss(
+        self, key: Array, params: Array, xs: Array, n_samples: int
+    ) -> Array:
+        """Mean of :meth:`recognition_conjugation_loss_at` over a batch."""
+        batch_size = xs.shape[0]
+        keys = jax.random.split(key, batch_size)
+        losses = jax.vmap(
+            lambda k, x: self.recognition_conjugation_loss_at(k, params, x, n_samples)
+        )(keys, xs)
+        return jnp.mean(losses)
 
     # Generative
 
@@ -425,7 +395,7 @@ def regress_conjugation_parameters[
 
     Solves $\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\iota(\\rho) \\cdot \\phi(s_Z(z_k)) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$, where $\\iota = $ :meth:`conjugation_parameters` (applied to a synthetic ``params`` with the candidate $\\rho$ swapped in) and $\\phi = $ :meth:`pst_prr_emb.embed`. The design matrix is obtained by linearizing the (linear) dependence of $\\iota(\\rho)\\cdot\\phi(s_Z)$ on the stored $\\rho$ via :func:`jax.grad`, which lets the same regression code work whether ``conjugation_parameters`` is identity (simple symmetric case) or a richer analytic completion (mixture/hierarchical case). The constant offset from the rho-independent part of $\\iota(\\rho)\\cdot\\phi(s_Z)$ (e.g. the analytic categorical contribution in a mixture) is subtracted from the regression target.
 
-    Returns ``(rho, r_squared, chi, residual_var)`` where ``chi`` is the intercept and ``residual_var`` is the conjugation error $\\mathrm{Var}[\\tilde{f}]$ estimated from the regression samples.
+    Returns ``(rho, r_squared, chi, residual_var)`` where ``chi`` is the intercept and ``residual_var`` is the conjugation error $\\mathrm{Var}[r]$ estimated from the regression samples. The intercept absorbs the $z$-independent $\\psi_X(\\theta_X)$ shift in :meth:`conjugation_residual`, so the regression is invariant to that shift.
 
     A pragmatic fitting/initialization heuristic --- theoretically a black sheep in the variational conjugation family, hence its free-function status.
     """
@@ -434,11 +404,10 @@ def regress_conjugation_parameters[
     zero_rho = jnp.zeros(cnj_dim)
     params_zero_rho = model.join_coords(prior_params, lkl, zero_rho)
 
-    # [SG-3] The sampler may be non-differentiable (e.g. VonMises uses
-    # rejection sampling via while_loop, which JAX cannot reverse-diff).
-    # The samples are just evaluation points for the regression; the
-    # gradient we need flows through the regression targets psi_X, which
-    # depend smoothly on (theta_X, Theta).
+    # The sampler may be non-differentiable (e.g. VonMises uses rejection
+    # sampling via while_loop). The samples are just evaluation points for the
+    # regression; the gradient we need flows through the regression targets
+    # psi_X, which depend smoothly on (theta_X, Theta).
     z_samples = jax.lax.stop_gradient(
         model.prr_man.sample(key, prior_params, n_samples)
     )
@@ -490,24 +459,21 @@ def conjugation_metrics[
 ) -> tuple[Array, Array, Array]:
     """Compute conjugation quality metrics (variance, std, $R^2$) under the prior.
 
-    $R^2 = 1 - \\mathrm{Var}[\\tilde{f}] / \\mathrm{Var}[\\psi_X(\\eta(z))]$ measures how well the linear correction $\\iota(\\rho) \\cdot \\phi(s_Z)$ approximates $\\psi_X(\\eta(z))$: 1 = perfect conjugation, 0 = no explanatory power, <0 = worse than constant.
+    $R^2 = 1 - \\mathrm{Var}[r] / \\mathrm{Var}[\\psi_X(\\eta(z))]$ measures how well the linear correction $\\iota(\\rho) \\cdot \\phi(s_Z)$ approximates $\\psi_X(\\eta(z))$: 1 = perfect conjugation, 0 = no explanatory power, <0 = worse than constant. Both variances are shift-invariant, so the $\\psi_X(\\theta_X)$ term in :meth:`conjugation_residual` does not affect the metric.
     """
-    prior_params, lkl, _ = model.split_coords(params)
-    rho_full = model.conjugation_parameters(params)
-    z_samples = model.prr_man.sample(key, prior_params, n_samples)
-
-    def compute_both(z: Array) -> tuple[Array, Array]:
-        s_z = model.pst_man.sufficient_statistic(z)
-        s_z_in_prior = model.pst_prr_emb.embed(s_z)
-        lkl_params = model.gen_hrm.lkl_fun_man(lkl, s_z)
-        psi_x = model.obs_man.log_partition_function(lkl_params)
-        f_tilde = jnp.dot(rho_full, s_z_in_prior) - psi_x
-        return f_tilde, psi_x
-
-    f_vals, psi_vals = jax.vmap(compute_both)(z_samples)
-
-    var_f = jnp.var(f_vals)
+    var_key, psi_key = jax.random.split(key)
+    var_f = model.prior_conjugation_loss(var_key, params, n_samples)
     std_f = jnp.sqrt(var_f)
+
+    prior_params, lkl, _ = model.split_coords(params)
+    z_samples = model.prr_man.sample(psi_key, prior_params, n_samples)
+
+    def psi_at(z: Array) -> Array:
+        s_z = model.pst_man.sufficient_statistic(z)
+        lkl_params = model.gen_hrm.lkl_fun_man(lkl, s_z)
+        return model.obs_man.log_partition_function(lkl_params)
+
+    psi_vals = jax.vmap(psi_at)(z_samples)
     var_psi = jnp.var(psi_vals)
 
     variance_threshold = 1e-6

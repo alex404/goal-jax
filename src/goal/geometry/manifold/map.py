@@ -512,7 +512,7 @@ class MultilayerPerceptron[Domain: Manifold, Codomain: Manifold](Map[Domain, Cod
 
     @property
     def layer_dims(self) -> tuple[int, ...]:
-        """Sequence of layer widths: domain, hidden layers, codomain."""
+        """Sequence of layer widths --- domain, hidden layers, codomain."""
         return (self.dom_man.dim, *self.hidden_dims, self.cod_man.dim)
 
     def glorot_initialize(self, key: Array) -> Array:

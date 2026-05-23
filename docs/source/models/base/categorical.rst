@@ -21,3 +21,16 @@ Categorical
    :members:
    :undoc-members:
    :show-inheritance:
+
+Bernoulli
+---------
+
+.. autoclass:: goal.models.base.categorical.Bernoulli
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.models.base.categorical.Bernoullis
+   :members:
+   :undoc-members:
+   :show-inheritance:

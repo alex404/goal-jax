@@ -279,12 +279,11 @@ class CompleteMixtureOfHarmoniums[
     @property
     @override
     def int_man(self) -> BlockMap[CompleteMixture[Posterior], Observable]:
-        """Interaction matrix with three blocks: mxy, mxyz, mxz.
+        """Interaction matrix with three blocks (mxy, mxyz, mxz).
 
-        Following the theory:
-        - mxy: Base harmonium interaction $(\\theta_{XY})$
-        - mxyk: Component-specific interactions $(\\theta^0_{XYZ})$
-        - mxk: Observable bias adjustments per component $(\\theta_{XZ})$
+        - ``mxy`` --- base harmonium interaction $\\theta_{XY}$
+        - ``mxyk`` --- component-specific interactions $\\theta^0_{XYZ}$
+        - ``mxk`` --- observable bias adjustments per component $\\theta_{XZ}$
         """
         return BlockMap([self.xy_man, self.xyk_man, self.xk_man])
 

@@ -47,6 +47,11 @@ Algebraic Embeddings
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.manifold.embedding.TrivialEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.geometry.manifold.embedding.TupleEmbedding
    :members:
    :undoc-members:

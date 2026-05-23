@@ -59,8 +59,7 @@ class VonMisesPopulationCode(
 
     Unifies 1D population codes and multi-dimensional toroidal models under
     the variational conjugation framework. Posterior = prior = conjugation =
-    ``VonMisesProduct``, so :meth:`conjugation_parameters` returns the stored
-    $\\rho$ unchanged.
+    ``VonMisesProduct``, so :meth:`~goal.geometry.exponential_family.variational.VariationalConjugated.conjugation_parameters` returns the stored $\\rho$ unchanged.
     """
 
     _gen_hrm: PoissonVonMisesHarmonium

@@ -22,10 +22,33 @@ Location-Shape Models
    :undoc-members:
    :show-inheritance:
 
+Pair Models
+-----------
+
+.. autoclass:: goal.geometry.exponential_family.combinators.ExponentialFamilyPair
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.combinators.GenerativePair
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.combinators.DifferentiablePair
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.combinators.AnalyticPair
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Product Models
 --------------
 
-.. autoclass:: goal.geometry.exponential_family.combinators.Product
+.. autoclass:: goal.geometry.exponential_family.combinators.ExponentialFamilyProduct
    :members:
    :undoc-members:
    :show-inheritance:

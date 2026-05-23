@@ -305,7 +305,7 @@ def train_model(
         z_sg = jax.lax.stop_gradient(
             model.pst_man.sample(conj_key, p_params, n_conj_samples)
         )
-        f_vals = jax.vmap(lambda z: model.reduced_learning_signal(params, z))(z_sg)
+        f_vals = jax.vmap(lambda z: model.conjugation_residual(params, z))(z_sg)
         conj_var = jnp.var(f_vals)
 
         loss = -elbo + conj_weight * conj_var
@@ -334,7 +334,7 @@ def train_model(
         z_sg = jax.lax.stop_gradient(
             model.pst_man.sample(conj_key, p_params, n_conj_samples)
         )
-        f_vals = jax.vmap(lambda z: model.reduced_learning_signal(params_with_rho, z))(
+        f_vals = jax.vmap(lambda z: model.conjugation_residual(params_with_rho, z))(
             z_sg
         )
         conj_var = jnp.var(f_vals)
