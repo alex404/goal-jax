@@ -46,7 +46,7 @@ def plot_training_elbos(ax: Axes, models: dict[str, Any]) -> None:
 
 
 def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
-    """Plot conjugation error (Var[f_tilde]) over time."""
+    """Plot conjugation error (Var[r]) over time."""
     for mode, results in models.items():
         if results["conjugation_vars"]:
             ax.plot(
@@ -56,7 +56,7 @@ def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
                 alpha=0.7,
             )
     ax.set_xlabel("Training Step")
-    ax.set_ylabel("Var[f_tilde]")
+    ax.set_ylabel("Var[r]")
     ax.set_title("Conjugation Error (Variance)")
     ax.legend()
 
@@ -64,7 +64,7 @@ def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
 
 
 def plot_conjugation_std(ax: Axes, models: dict[str, Any]) -> None:
-    """Plot conjugation std (Std[f_tilde]) over time."""
+    """Plot conjugation std (Std[r]) over time."""
     for mode, results in models.items():
         if results["conjugation_stds"]:
             ax.plot(
@@ -74,7 +74,7 @@ def plot_conjugation_std(ax: Axes, models: dict[str, Any]) -> None:
                 alpha=0.7,
             )
     ax.set_xlabel("Training Step")
-    ax.set_ylabel("Std[f_tilde]")
+    ax.set_ylabel("Std[r]")
     ax.set_title("Conjugation Error (Std)")
     ax.legend()
 
@@ -246,7 +246,7 @@ def main():
     ax_var = fig1.add_subplot(gs[1, 0])
     ax_r2 = fig1.add_subplot(gs[1, 1])
 
-    # Row 3: Rho norm, Std[f_tilde]
+    # Row 3: Rho norm, Std[r]
     ax_rho = fig1.add_subplot(gs[2, 0])
     ax_std = fig1.add_subplot(gs[2, 1])
 

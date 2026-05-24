@@ -118,6 +118,20 @@ class PendulumPopulationCode(
     def cnj_man(self) -> VonMisesNormalPair:
         return self.lat_man
 
+    @override
+    def approximate_posterior_at(self, params: Array, x: Array) -> Array:
+        """Approximate posterior with a soft clamp on the recognition Normal's precision.
+
+        The recognition $q(z\\mid x)$ has natural parameters $\\theta_Z + s_X(x)\\cdot\\Theta_{XZ} - \\rho$. The Normal portion's precision slot $\\theta_2$ must stay strictly negative for downstream :meth:`log_partition_function` / :meth:`to_mean` to be finite. The likelihood interaction column for $v^2$ is initialized at $-1/(2\\sigma_v^2) < 0$ which keeps $s_X\\cdot\\Theta$ non-positive when $s_X \\geq 0$, but free training can flip it positive on individual neurons. Mirror the transition's soft clamp here so a momentary overshoot doesn't NaN the whole loss.
+        """
+        q_params = super().approximate_posterior_at(params, x)
+        vm_part, n_part = self.pst_man.split_coords(q_params)
+        n_clamped = jnp.array([
+            n_part[0],
+            -jax.nn.softplus(-n_part[1]) - 1e-2,
+        ])
+        return self.pst_man.join_coords(vm_part, n_clamped)
+
     def initialize_from_tuning_curves(
         self,
         key: Array,
@@ -360,22 +374,29 @@ def train_mode(
     n_mc_samples: int,
     n_conj_samples: int,
     conj_weight: float,
+    conj_warmup_steps: int,
     log_interval: int,
 ) -> tuple[Array, TrainingHistory]:
-    """Train one mode: ``"free"`` (vanilla ELBO) or ``"regularized"`` (ELBO + Var[rls] penalty)."""
+    """Train one mode: ``"free"`` (vanilla ELBO) or ``"regularized"`` (ELBO + ``weight_t * Var[r]`` penalty).
+
+    In regularized mode the per-step weight ramps linearly from 0 to ``conj_weight`` over ``conj_warmup_steps``, then holds. Lets the model find good likelihood parameters before the conjugation penalty starts squeezing $\\rho$ toward a sub-optimal interior solution.
+    """
     use_conj_penalty = mode == "regularized"
     n_trajectories = train_trajectories.shape[0]
 
     print(f"\n{'=' * 60}")
     mode_label = (
-        f"REGULARIZED (conj_weight={conj_weight})"
+        f"REGULARIZED (conj_weight={conj_weight}, warmup={conj_warmup_steps})"
         if use_conj_penalty
         else "LEARNABLE rho"
     )
     print(f"Training [{mode_label}]")
     print(f"{'=' * 60}")
 
-    optimizer = optax.adam(learning_rate)
+    # Global-norm clipping keeps the transition MLP and likelihood interaction
+    # from overshooting into regions where the recognition Normal becomes
+    # non-PD (\\theta_2 \\geq 0) and downstream log_partition_function NaNs.
+    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(learning_rate))
     opt_state = optimizer.init(init_params)
 
     def loss_fn_free(p: Array, lkey: Array, batch: Array) -> tuple[Array, Array]:
@@ -383,7 +404,7 @@ def train_mode(
         return -elbo, elbo
 
     def loss_fn_reg(
-        p: Array, lkey: Array, batch: Array
+        p: Array, lkey: Array, batch: Array, weight: Array
     ) -> tuple[Array, tuple[Array, Array]]:
         elbo_key, conj_key = jax.random.split(lkey)
         elbo = model.mean_elbo(elbo_key, p, batch, n_mc_samples)
@@ -394,9 +415,9 @@ def train_mode(
         z_sg = jax.lax.stop_gradient(
             ems_hrm.pst_man.sample(conj_key, prior_params, n_conj_samples)
         )
-        f_vals = jax.vmap(lambda z: ems_hrm.conjugation_residual(ems_full, z))(z_sg)
-        conj_var = jnp.var(f_vals)
-        return -elbo + conj_weight * conj_var, (elbo, conj_var)
+        r_vals = jax.vmap(lambda z: ems_hrm.conjugation_residual(ems_full, z))(z_sg)
+        conj_var = jnp.var(r_vals)
+        return -elbo + weight * conj_var, (elbo, conj_var)
 
     def step_free(carry: Any, _: None) -> tuple[Any, Array]:
         p, opt_st, k = carry
@@ -412,23 +433,23 @@ def train_mode(
         return (p, opt_st, k), elbo
 
     def step_reg(carry: Any, _: None) -> tuple[Any, Array]:
-        p, opt_st, k = carry
+        p, opt_st, k, weight = carry
         k, next_k, batch_k = jax.random.split(k, 3)
         batch = train_trajectories[
             jax.random.choice(batch_k, n_trajectories, shape=(batch_size,))
         ]
-        (_, (elbo, conj_var)), grads = jax.value_and_grad(loss_fn_reg, has_aux=True)(
-            p, next_k, batch
-        )
+        (_, (elbo, conj_var)), grads = jax.value_and_grad(
+            loss_fn_reg, has_aux=True
+        )(p, next_k, batch, weight)
         updates, opt_st = optimizer.update(grads, opt_st, p)
         p = optax.apply_updates(p, updates)
-        return (p, opt_st, k), jnp.stack([elbo, conj_var])
+        return (p, opt_st, k, weight), jnp.stack([elbo, conj_var])
 
     n_chunks = max(1, n_steps // log_interval)
     chunk_len = n_steps // n_chunks
 
     elbos_hist: list[float] = []
-    var_rls_hist: list[float] = []
+    var_cr_hist: list[float] = []
     r_sq_hist: list[float] = []
     rho_norm_hist: list[float] = []
 
@@ -438,8 +459,14 @@ def train_mode(
     for chunk in range(n_chunks):
         train_key, k = jax.random.split(train_key)
         if use_conj_penalty:
-            (params, opt_state, _), out_reg = jax.lax.scan(
-                step_reg, (params, opt_state, k), None, length=chunk_len
+            # Ramp: weight at the midpoint of this chunk. Cheap per-chunk
+            # piecewise-constant approximation to a per-step linear ramp;
+            # avoids threading a step counter through the scan.
+            chunk_mid_step = (chunk + 0.5) * chunk_len
+            ramp_frac = min(1.0, chunk_mid_step / max(conj_warmup_steps, 1))
+            weight_t = jnp.array(conj_weight * ramp_frac)
+            (params, opt_state, _, _), out_reg = jax.lax.scan(
+                step_reg, (params, opt_state, k, weight_t), None, length=chunk_len
             )
             chunk_elbos = jnp.take(out_reg, jnp.array(0), axis=1)
             elbos_hist.extend(chunk_elbos.tolist())
@@ -456,22 +483,28 @@ def train_mode(
             model.ems_hrm, metrics_key, ems_full, n_samples=n_conj_samples
         )
         rho = model.ems_hrm.conjugation_parameters(ems_full)
-        var_rls_hist.append(float(var_f))
+        var_cr_hist.append(float(var_f))
         r_sq_hist.append(float(r_sq))
         rho_norm_hist.append(float(jnp.linalg.norm(rho)))
 
+        weight_disp = (
+            f" w_cr={conj_weight * min(1.0, ((chunk + 1) * chunk_len) / max(conj_warmup_steps, 1)):.2f}"
+            if use_conj_penalty
+            else ""
+        )
         msg = (
             f"  chunk {chunk + 1}/{n_chunks}: "
             + f"ELBO={elbos_hist[-1]:.2f} "
-            + f"Var[RLS]={var_rls_hist[-1]:.3f} "
+            + f"Var[CR]={var_cr_hist[-1]:.3f} "
             + f"R^2={r_sq_hist[-1]:.3f} "
             + f"||rho||={rho_norm_hist[-1]:.3f}"
+            + weight_disp
         )
         print(msg)
 
     history = TrainingHistory(
         elbos=elbos_hist,
-        var_rls=var_rls_hist,
+        var_cr=var_cr_hist,
         r_squared=r_sq_hist,
         rho_norms=rho_norm_hist,
     )
@@ -483,7 +516,8 @@ def train_mode(
 # =====================================================================
 
 
-def main() -> None:
+def main(**overrides: Any) -> None:
+    """Run pendulum training. ``**overrides`` patch any default ``TrainingConfig`` field, useful for sweep drivers (``main(learning_rate=1e-3, conj_weight=50.0)``)."""
     jax_cli()
     paths = example_paths(__file__)
 
@@ -497,19 +531,26 @@ def main() -> None:
     )
 
     train_cfg = TrainingConfig(
-        n_neurons=24,
-        n_train_steps=600,
+        n_neurons=48,  # 8 angle x 6 velocity — denser velocity tiling for tighter conjugation
+        n_train_steps=3000,
         n_test_steps=120,
         trajectory_length=80,
-        batch_size=8,
-        n_trajectories=64,
-        learning_rate=3e-3,
-        n_mc_samples=8,
-        n_conj_samples=300,
-        conj_weight=10.0,
+        batch_size=16,
+        n_trajectories=128,
+        learning_rate=5e-4,
+        n_mc_samples=16,
+        n_conj_samples=512,
+        conj_weight=30.0,
+        conj_warmup_steps=500,
         mlp_hidden_dims=[64, 64],
         seed=0,
     )
+
+    # Apply any sweep-driver overrides
+    for k, v in overrides.items():
+        if k not in train_cfg:
+            raise KeyError(f"Unknown TrainingConfig field: {k}")
+        train_cfg[k] = v
 
     key = jax.random.PRNGKey(train_cfg["seed"])
     keys = jax.random.split(key, 8)
@@ -520,9 +561,9 @@ def main() -> None:
     gt_tuning = make_ground_truth_tuning(
         n_angle_bins=n_angle_bins,
         n_velocity_bins=n_velocity_bins,
-        velocity_range=3.0,
+        velocity_range=4.0,
         angle_kappa=1.5,
-        velocity_variance=1.0,
+        velocity_variance=1.5,  # wider bumps → smoother sum → tighter conjugation
         log_gain=float(jnp.log(2.0)),
     )
 
@@ -622,7 +663,8 @@ def main() -> None:
             n_mc_samples=train_cfg["n_mc_samples"],
             n_conj_samples=train_cfg["n_conj_samples"],
             conj_weight=train_cfg["conj_weight"],
-            log_interval=max(1, train_cfg["n_train_steps"] // 10),
+            conj_warmup_steps=train_cfg["conj_warmup_steps"],
+            log_interval=max(1, train_cfg["n_train_steps"] // 15),
         )
 
         train_key, filter_key = jax.random.split(train_key)
@@ -637,7 +679,7 @@ def main() -> None:
         mode_results[mode] = ModeResults(
             history=history,
             final_elbo=history["elbos"][-1],
-            final_var_rls=history["var_rls"][-1],
+            final_var_cr=history["var_cr"][-1],
             final_r_squared=history["r_squared"][-1],
             final_rho_norm=history["rho_norms"][-1],
             learned_tuning=extract_learned_tuning(model, trained_params),

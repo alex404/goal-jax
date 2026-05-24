@@ -17,7 +17,7 @@ class TrainingHistory(TypedDict):
     """Training metrics tracked during optimization."""
 
     elbos: list[float]
-    var_rls: list[float]
+    var_cr: list[float]
     r_squared: list[float]
     rho_norms: list[float]
 
@@ -27,7 +27,7 @@ class ModeResults(TypedDict):
 
     history: TrainingHistory
     final_elbo: float
-    final_var_rls: float
+    final_var_cr: float
     final_r_squared: float
     final_rho_norm: float
     learned_tuning: TuningParams
@@ -59,6 +59,7 @@ class TrainingConfig(TypedDict):
     n_mc_samples: int
     n_conj_samples: int
     conj_weight: float
+    conj_warmup_steps: int
     mlp_hidden_dims: list[int]
     seed: int
 

@@ -219,20 +219,20 @@ def compute_gt_conjugation(
         var_model, reg_key, var_params, n_samples
     )
 
-    # Var[\psi_X] = Var[RLS] when rho=0 (since RLS = 0 \cdot s - \psi = -\psi)
+    # Var[\psi_X] = Var[CR] when rho=0 (since CR = 0 \cdot s - \psi + psi(theta_X) = const - psi)
     key, m0_key = jax.random.split(key)
     var_psi, _, _ = conjugation_metrics(var_model, m0_key, var_params, n_samples)
 
-    # Var[RLS] with optimal rho
+    # Var[CR] with optimal rho
     optimal_params = var_model.join_coords(gt_prior, gt_lkl, rho_star)
     key, m1_key = jax.random.split(key)
-    var_rls, _, _ = conjugation_metrics(var_model, m1_key, optimal_params, n_samples)
+    var_cr, _, _ = conjugation_metrics(var_model, m1_key, optimal_params, n_samples)
 
     return {
         "optimal_rho": rho_star.tolist(),
         "optimal_rho_norm": float(jnp.linalg.norm(rho_star)),
         "r_squared": float(r_squared),
-        "var_rls": float(var_rls),
+        "var_cr": float(var_cr),
         "var_psi": float(var_psi),
     }
 
@@ -399,7 +399,7 @@ def train_model(
     all_elbos: list[Array] = []
     reconstruction_errors: list[float] = []
     r_squared: list[float] = []
-    var_rls_history: list[float] = []
+    var_cr_history: list[float] = []
     rho_norms: list[float] = []
     all_conj_errors: list[Array] = []
 
@@ -460,12 +460,12 @@ def train_model(
             model, conj_key, current_params, n_conj_samples
         )
         r_squared.append(float(r2_val))
-        var_rls_history.append(float(var_f))
+        var_cr_history.append(float(var_f))
 
         step_num = (chunk + 1) * log_interval
         last_elbo = float(elbos_chunk[-1])
         print(
-            f"  Step {step_num}: ELBO={last_elbo:.2f}, R^2={r2_val:.4f}, var[RLS]={var_f:.4f}, ||rho||={rho_norm:.2f}"
+            f"  Step {step_num}: ELBO={last_elbo:.2f}, R^2={r2_val:.4f}, var[CR]={var_f:.4f}, ||rho||={rho_norm:.2f}"
         )
 
     # Handle remainder steps
@@ -522,7 +522,7 @@ def train_model(
     key, eval_key = jax.random.split(key)
 
     final_recon_error = float(reconstruction_error(model, current_params, train_data))
-    final_var_rls, _, final_r2 = conjugation_metrics(
+    final_var_cr, _, final_r2 = conjugation_metrics(
         model, eval_key, current_params, n_conj_samples
     )
     final_rho = model.conjugation_parameters(current_params)
@@ -530,7 +530,7 @@ def train_model(
 
     print(f"  Final ELBO: {elbos[-1]:.4f}")
     print(f"  Final R^2: {float(final_r2):.4f}")
-    print(f"  Final var[RLS]: {float(final_var_rls):.4f}")
+    print(f"  Final var[CR]: {float(final_var_cr):.4f}")
     print(f"  Final ||rho||: {final_rho_norm:.4f}")
     print(f"  Reconstruction error: {final_recon_error:.4f}")
 
@@ -545,13 +545,13 @@ def train_model(
             "elbos": elbos,
             "reconstruction_errors": reconstruction_errors,
             "r_squared": r_squared,
-            "var_rls": var_rls_history,
+            "var_cr": var_cr_history,
             "rho_norms": rho_norms,
             "conjugation_errors": conjugation_errors,
         },
         "final_rho_norm": final_rho_norm,
         "final_r_squared": float(final_r2),
-        "final_var_rls": float(final_var_rls),
+        "final_var_cr": float(final_var_cr),
         "final_elbo": elbos[-1],
         "final_reconstruction_error": final_recon_error,
         "learned_weight_matrix": learned_weights.tolist(),
@@ -590,12 +590,12 @@ def main():
     density_mu2 = 0.0  # Center of concentration in theta2
 
     # Training mode parameters
-    conj_weight = 1.0  # Weight for var[RLS] penalty in regularized mode
+    conj_weight = 1.0  # Weight for var[CR] penalty in regularized mode
     analytical_rho_samples_multiplier = 500  # Enough samples for stable lstsq regression
 
     # Logging
     log_interval = 200
-    n_conj_samples = 10000  # Large sample for stable var[RLS] evaluation
+    n_conj_samples = 10000  # Large sample for stable var[CR] evaluation
 
     print("=" * 60)
     print("POISSON-VONMISES VARIATIONAL HARMONIUM")
@@ -657,7 +657,7 @@ def main():
         gt_model, gt_params, gt_conj_key, n_samples=n_conj_samples * 2
     )
     print(f"  GT R^2 (with optimal rho): {gt_conjugation['r_squared']:.4f}")
-    print(f"  GT var[RLS]: {gt_conjugation['var_rls']:.4f}")
+    print(f"  GT var[CR]: {gt_conjugation['var_cr']:.4f}")
     print(f"  GT var[psi_X]: {gt_conjugation['var_psi']:.4f}")
     print(f"  GT ||rho_optimal||: {gt_conjugation['optimal_rho_norm']:.4f}")
 
@@ -760,7 +760,7 @@ def main():
     metrics = [
         ("Final ELBO", "final_elbo", lambda x: f"{x:>14.2f}"),
         ("Final R^2", "final_r_squared", lambda x: f"{x:>14.4f}"),
-        ("Final var[RLS]", "final_var_rls", lambda x: f"{x:>14.4f}"),
+        ("Final var[CR]", "final_var_cr", lambda x: f"{x:>14.4f}"),
         ("Final ||rho||", "final_rho_norm", lambda x: f"{x:>14.4f}"),
         ("Reconstruction error", "final_reconstruction_error", lambda x: f"{x:>14.4f}"),
     ]
@@ -775,7 +775,7 @@ def main():
     # Print GT reference values
     print("-" * 80)
     print(f"{'GT R^2 (optimal rho)':<25} {gt_conjugation['r_squared']:>14.4f}")
-    print(f"{'GT var[RLS] (optimal rho)':<25} {gt_conjugation['var_rls']:>14.4f}")
+    print(f"{'GT var[CR] (optimal rho)':<25} {gt_conjugation['var_cr']:>14.4f}")
 
 
 if __name__ == "__main__":

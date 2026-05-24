@@ -9,7 +9,7 @@ class TrainingHistory(TypedDict):
     elbos: list[float]
     reconstruction_errors: list[float]
     r_squared: list[float]
-    var_rls: list[float]  # Variance of reduced learning signal
+    var_cr: list[float]  # Variance of conjugation residual
     rho_norms: list[float]
     conjugation_errors: list[float]
 
@@ -29,7 +29,7 @@ class GTConjugationMetrics(TypedDict):
     optimal_rho: list[float]  # Optimal rho via least squares
     optimal_rho_norm: float
     r_squared: float  # R² with optimal rho
-    var_rls: float  # Var[RLS] with optimal rho
+    var_cr: float  # Var[CR] with optimal rho
     var_psi: float  # Var[\psi_X(z)] for reference
 
 
@@ -49,7 +49,7 @@ class ModeResults(TypedDict):
     history: TrainingHistory
     final_rho_norm: float
     final_r_squared: float
-    final_var_rls: float  # Final variance of reduced learning signal
+    final_var_cr: float  # Final variance of conjugation residual
     final_elbo: float
     final_reconstruction_error: float
     learned_weight_matrix: list[list[float]]

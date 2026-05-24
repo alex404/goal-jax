@@ -5,7 +5,7 @@ Training modes:
 2. analytical: Analytical rho via least squares each step.
 
 Both modes support --conj-weight to regularize the generative model
-parameters with the conjugation variance (Var[f_tilde]).
+parameters with the conjugation variance (Var[r]).
 Set --conj-weight 0 for no regularization (default), or positive for regularized.
 
 Supports two observable types:
@@ -128,7 +128,7 @@ def parse_args() -> argparse.Namespace:
         "--conj-mode",
         choices=["variance", "r2"],
         default="variance",
-        help="Conjugation penalty: 'variance' uses Var[f_tilde], 'r2' uses (1-R^2)",
+        help="Conjugation penalty: 'variance' uses Var[r], 'r2' uses (1-R^2)",
     )
     parser.add_argument(
         "--observable",
@@ -825,9 +825,9 @@ def main():
     print(f"{'Accuracy':<22} {100 * results['cluster_accuracy']:>13.1f}%")
     print(f"{'NMI':<22} {results['nmi']:>14.4f}")
     print(f"{'Reconstruction error':<22} {results['reconstruction_error']:>14.4f}")
-    print(f"{'Final Var[f_tilde]':<22} {results['conjugation_vars'][-1]:>14.2f}")
+    print(f"{'Final Var[r]':<22} {results['conjugation_vars'][-1]:>14.2f}")
     if results['conjugation_stds']:
-        print(f"{'Final Std[f_tilde]':<22} {results['conjugation_stds'][-1]:>14.2f}")
+        print(f"{'Final Std[r]':<22} {results['conjugation_stds'][-1]:>14.2f}")
     if results['conjugation_r2s']:
         print(f"{'Final R^2':<22} {results['conjugation_r2s'][-1]:>14.4f}")
     print(f"{'Final ||rho||':<22} {results['rho_norms'][-1]:>14.4f}")

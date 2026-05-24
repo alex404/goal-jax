@@ -2,7 +2,7 @@
 
 Creates a 4-panel abstract-ready figure:
 1. TL: ELBO training curves
-2. TR: Conjugation quality (R² or var[RLS])
+2. TR: Conjugation quality (R² or var[CR])
 3. BL: Tuning curve location recovery
 4. BR: Conjugate Bayesian inference (evidence accumulation)
 
@@ -123,7 +123,7 @@ def main():
     # GT conjugation info
     gt_conjugation = ground_truth.get("conjugation", {})
     _ = gt_conjugation.get("r_squared", None)
-    gt_var_rls = gt_conjugation.get("var_rls", None)
+    gt_var_cr = gt_conjugation.get("var_cr", None)
 
     # Get list of modes
     modes = list(models.keys())
@@ -147,21 +147,21 @@ def main():
     ax1.legend(loc='lower right')
 
     # =========================================================================
-    # Panel B (TR): Conjugation Quality (var[RLS])
+    # Panel B (TR): Conjugation Quality (var[CR])
     # =========================================================================
     ax2 = axes[0, 1]
     for i, mode in enumerate(modes):
         history = models[mode]["history"]
-        var_rls_data = history.get("var_rls", [])
-        if len(var_rls_data) > 0:
+        var_cr_data = history.get("var_cr", [])
+        if len(var_cr_data) > 0:
             n_total = len(history["elbos"])
-            log_interval = n_total // len(var_rls_data) if len(var_rls_data) > 0 else 1
-            steps = [j * log_interval for j in range(len(var_rls_data))]
-            ax2.plot(steps, var_rls_data, color=model_color(i), linewidth=1.5, label=mode)
+            log_interval = n_total // len(var_cr_data) if len(var_cr_data) > 0 else 1
+            steps = [j * log_interval for j in range(len(var_cr_data))]
+            ax2.plot(steps, var_cr_data, color=model_color(i), linewidth=1.5, label=mode)
 
     # GT reference line
-    if gt_var_rls is not None:
-        ax2.axhline(y=gt_var_rls, color=colors["ground_truth"], linestyle="--",
+    if gt_var_cr is not None:
+        ax2.axhline(y=gt_var_cr, color=colors["ground_truth"], linestyle="--",
                    linewidth=2, label=f"GT optimal")
     ax2.axhline(y=0.0, color="gray", linestyle=":", alpha=0.5)
 
