@@ -9,7 +9,7 @@ from typing import Any, override
 from jax import Array
 
 from ...geometry import Differentiable, ObservableEmbedding
-from ...geometry.exponential_family.variational import SymmetricVariationalConjugated
+from ...geometry.exponential_family.variational import VariationalSymmetric
 from ..harmonium.mixture import CompleteMixture
 
 
@@ -17,7 +17,7 @@ class VariationalHierarchicalMixture[
     Observable: Differentiable,
     BaseLatent: Differentiable,
 ](
-    SymmetricVariationalConjugated[Observable, Any, BaseLatent],
+    VariationalSymmetric[Observable, Any, BaseLatent],
     ABC,
 ):
     """Variational harmonium with hierarchical mixture latent structure.
@@ -55,11 +55,12 @@ class VariationalHierarchicalMixture[
         return self.bas_lat_man
 
     @override
-    def conjugation_parameters(self, params: Array) -> Array:
+    def conjugation_parameters(self, params: Array, x: Array | None = None) -> Array:
         """Zero-pad the learned $\\rho_y$ into the full mixture-shape Prior conjugation.
 
-        In the hierarchical case the underlying harmonium's interaction only touches the BaseLatent slot, so the analytic mixture completion has $\\rho_{yz} = 0$ and $\\rho_z = 0$. The full conjugation is just $\\rho_y$ embedded via :class:`~goal.geometry.exponential_family.graphical.ObservableEmbedding` into the mixture.
+        In the hierarchical case the underlying harmonium's interaction only touches the BaseLatent slot, so the analytic mixture completion has $\\rho_{yz} = 0$ and $\\rho_z = 0$. The full conjugation is just $\\rho_y$ embedded via :class:`~goal.geometry.exponential_family.graphical.ObservableEmbedding` into the mixture. ``x`` is unused (input-independent $\\rho_y$).
         """
+        del x
         _, _, rho = self.split_coords(params)
         return ObservableEmbedding(self.mix_man).embed(rho)
 

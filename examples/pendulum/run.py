@@ -36,7 +36,7 @@ from goal.geometry import (
 )
 from goal.geometry.exponential_family.harmonium import Harmonium
 from goal.geometry.exponential_family.variational import (
-    SymmetricVariationalConjugated,
+    VariationalSymmetric,
     conjugation_metrics,
     regress_conjugation_parameters,
 )
@@ -97,7 +97,7 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
 
 @dataclass(frozen=True)
 class PendulumPopulationCode(
-    SymmetricVariationalConjugated[Poissons, VonMisesNormalPair, VonMisesNormalPair]
+    VariationalSymmetric[Poissons, VonMisesNormalPair, VonMisesNormalPair]
 ):
     """Variational population code with Poisson observations and pendulum-latent posterior."""
 
@@ -126,10 +126,12 @@ class PendulumPopulationCode(
         """
         q_params = super().approximate_posterior_at(params, x)
         vm_part, n_part = self.pst_man.split_coords(q_params)
-        n_clamped = jnp.array([
-            n_part[0],
-            -jax.nn.softplus(-n_part[1]) - 1e-2,
-        ])
+        n_clamped = jnp.array(
+            [
+                n_part[0],
+                -jax.nn.softplus(-n_part[1]) - 1e-2,
+            ]
+        )
         return self.pst_man.join_coords(vm_part, n_clamped)
 
     def initialize_from_tuning_curves(
@@ -183,11 +185,13 @@ class PendulumTransition(MultilayerPerceptron[VonMisesNormalPair, VonMisesNormal
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         raw = super().__call__(f_coords, v_coords)
-        return jnp.concatenate([
-            raw[:2],
-            raw[2:3],
-            -jax.nn.softplus(-raw[3:4]) - self.precision_epsilon,
-        ])
+        return jnp.concatenate(
+            [
+                raw[:2],
+                raw[2:3],
+                -jax.nn.softplus(-raw[3:4]) - self.precision_epsilon,
+            ]
+        )
 
 
 @dataclass(frozen=True)
@@ -438,9 +442,9 @@ def train_mode(
         batch = train_trajectories[
             jax.random.choice(batch_k, n_trajectories, shape=(batch_size,))
         ]
-        (_, (elbo, conj_var)), grads = jax.value_and_grad(
-            loss_fn_reg, has_aux=True
-        )(p, next_k, batch, weight)
+        (_, (elbo, conj_var)), grads = jax.value_and_grad(loss_fn_reg, has_aux=True)(
+            p, next_k, batch, weight
+        )
         updates, opt_st = optimizer.update(grads, opt_st, p)
         p = optax.apply_updates(p, updates)
         return (p, opt_st, k, weight), jnp.stack([elbo, conj_var])

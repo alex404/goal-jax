@@ -4,7 +4,7 @@ This module contains:
 
 - ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM in later phases.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
-- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is a ``SymmetricVariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
+- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is a ``VariationalSymmetric`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from .harmonium import (
     AnalyticConjugated,
     SymmetricConjugated,
 )
-from .variational import SymmetricVariationalConjugated
+from .variational import VariationalSymmetric
 
 
 def transpose_harmonium[L: Differentiable](
@@ -292,7 +292,9 @@ class AnalyticLatentProcess[
         ) -> tuple[Array, tuple[Array, Array]]:
             # Smoothing kernel: build p(z_t | z_{t+1}) reweighted by the filter at t.
             fwd_joint = kernel.join_conjugated(trns_lkl_params, filtered)
-            trns_t_lkl, _ = kernel.split_conjugated(transpose_harmonium(kernel, fwd_joint))
+            trns_t_lkl, _ = kernel.split_conjugated(
+                transpose_harmonium(kernel, fwd_joint)
+            )
 
             # Marginalize the smoothing kernel against the smoothed belief at t+1.
             bwd_joint = kernel.join_conjugated(trns_t_lkl, smoothed_next)
@@ -309,9 +311,7 @@ class AnalyticLatentProcess[
             reverse=True,
         )
 
-        smoothed_full = jnp.concatenate(
-            [smoothed_rest, last_filtered[None, :]], axis=0
-        )
+        smoothed_full = jnp.concatenate([smoothed_rest, last_filtered[None, :]], axis=0)
         smoothed_z0 = smoothed_full[0]
         smoothed_seq = smoothed_full[1:]
         joints = jax.vmap(kernel.to_mean)(backward_hrms)
@@ -401,7 +401,7 @@ class VariationalLatentProcess[
 
     @property
     @abstractmethod
-    def ems_hrm(self) -> SymmetricVariationalConjugated[O, L, C]:
+    def ems_hrm(self) -> VariationalSymmetric[O, L, C]:
         """The variational-conjugate emission harmonium $p(x_t \\mid z_t)$ with learned conjugation $\\rho$. Symmetric variational because the transition operates on belief natural parameters in ``L``."""
 
     @property
@@ -482,8 +482,8 @@ class VariationalLatentProcess[
         batch_size = observations_batch.shape[0]
         traj_keys = jax.random.split(key, batch_size)
 
-        elbos = jax.vmap(
-            lambda k, obs: self.filter(k, params, obs, n_mc_samples)[1]
-        )(traj_keys, observations_batch)
+        elbos = jax.vmap(lambda k, obs: self.filter(k, params, obs, n_mc_samples)[1])(
+            traj_keys, observations_batch
+        )
 
         return jnp.mean(elbos)

@@ -39,8 +39,11 @@ from .exponential_family.protocols import (
     StatisticalMoments,
 )
 from .exponential_family.variational import (
-    SymmetricVariationalConjugated,
+    HierarchicalConjugated,
     VariationalConjugated,
+    VariationalDifferentiable,
+    VariationalHierarchical,
+    VariationalSymmetric,
 )
 from .manifold.base import (
     Manifold,
@@ -109,6 +112,7 @@ __all__ = [
     "GenerativeProduct",
     "Gibbs",
     "Harmonium",
+    "HierarchicalConjugated",
     "Identity",
     "IdentityEmbedding",
     "InteractionEmbedding",
@@ -136,10 +140,12 @@ __all__ = [
     "Symmetric",
     "SymmetricConjugated",
     "SymmetricHierarchical",
-    "SymmetricVariationalConjugated",
     "Triple",
     "TrivialEmbedding",
     "TupleEmbedding",
     "VariationalConjugated",
+    "VariationalDifferentiable",
+    "VariationalHierarchical",
     "VariationalLatentProcess",
+    "VariationalSymmetric",
 ]

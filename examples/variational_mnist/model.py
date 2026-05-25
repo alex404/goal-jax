@@ -28,7 +28,7 @@ from goal.geometry import (
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
-    SymmetricVariationalConjugated,
+    VariationalSymmetric,
     conjugation_metrics,
 )
 from goal.geometry.manifold.map import LinearMap
@@ -58,9 +58,9 @@ ANALYTICAL_RHO_SAMPLES_MULTIPLIER = 5
 
 
 @dataclass(frozen=True)
-class ConcreteHarmonium[
-    Observable: Differentiable, Latent: Differentiable
-](Harmonium[Observable, Latent]):
+class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
+    Harmonium[Observable, Latent]
+):
     """Concrete harmonium coupling an observable to a latent manifold.
 
     A thin wrapper that stores the interaction map directly.
@@ -79,7 +79,8 @@ class ConcreteHarmonium[
 
 @dataclass(frozen=True)
 class ConcreteCompleteMixtureOfHarmoniums[
-    Observable: Differentiable, Posterior: Differentiable
+    Observable: Differentiable,
+    Posterior: Differentiable,
 ](CompleteMixtureOfHarmoniums[Observable, Posterior]):
     """Concrete instantiation of CompleteMixtureOfHarmoniums."""
 
@@ -90,12 +91,8 @@ class ConcreteCompleteMixtureOfHarmoniums[
 
 
 @dataclass(frozen=True)
-class VariationalFullMixture[
-    Observable: Differentiable, BaseLatent: Differentiable
-](
-    SymmetricVariationalConjugated[
-        Observable, CompleteMixture[BaseLatent], BaseLatent
-    ],
+class VariationalFullMixture[Observable: Differentiable, BaseLatent: Differentiable](
+    VariationalSymmetric[Observable, CompleteMixture[BaseLatent], BaseLatent],
 ):
     """Fully connected X<->Y<->K via CompleteMixtureOfHarmoniums.
 
@@ -130,8 +127,9 @@ class VariationalFullMixture[
         return self.bas_lat_man
 
     @override
-    def conjugation_parameters(self, params: Array) -> Array:
+    def conjugation_parameters(self, params: Array, x: Array | None = None) -> Array:
         """Mirror :meth:`CompleteMixtureOfConjugated.conjugation_parameters` with $\\rho_y$ peeled out of ``params``."""
+        del x
         _, lkl_params, rho_y = self.split_coords(params)
         x_params, int_params = self.gen_hrm.lkl_fun_man.split_coords(lkl_params)
         xy_params, xyk_params, xk_params = self.gen_hrm.int_man.coord_blocks(int_params)
@@ -186,7 +184,8 @@ class VariationalFullMixture[
 
 @dataclass(frozen=True)
 class ConcreteVariationalHierarchicalMixture[
-    Observable: Differentiable, BaseLatent: Differentiable
+    Observable: Differentiable,
+    BaseLatent: Differentiable,
 ](VariationalHierarchicalMixture[Observable, BaseLatent]):
     """Concrete instantiation of VariationalHierarchicalMixture."""
 
@@ -200,8 +199,12 @@ class ConcreteVariationalHierarchicalMixture[
 
 ### Type aliases and factory functions ###
 
-type BinomialBernoulliHierarchical = ConcreteVariationalHierarchicalMixture[Binomials, Bernoullis]
-type PoissonBernoulliHierarchical = ConcreteVariationalHierarchicalMixture[Poissons, Bernoullis]
+type BinomialBernoulliHierarchical = ConcreteVariationalHierarchicalMixture[
+    Binomials, Bernoullis
+]
+type PoissonBernoulliHierarchical = ConcreteVariationalHierarchicalMixture[
+    Poissons, Bernoullis
+]
 type BinomialBernoulliFull = VariationalFullMixture[Binomials, Bernoullis]
 type PoissonBernoulliFull = VariationalFullMixture[Poissons, Bernoullis]
 type MixtureModel = (
@@ -270,11 +273,12 @@ def create_model(
 
     if interaction == "full":
         bas_hrm = _full_base_harmonium(obs_man, base_lat_man)
-        hrm = ConcreteCompleteMixtureOfHarmoniums(n_categories=n_clusters, bas_hrm=bas_hrm)
+        hrm = ConcreteCompleteMixtureOfHarmoniums(
+            n_categories=n_clusters, bas_hrm=bas_hrm
+        )
         return VariationalFullMixture(_gen_hrm=hrm)
-    else:
-        hrm = _hierarchical_harmonium(obs_man, base_lat_man, n_clusters)
-        return ConcreteVariationalHierarchicalMixture(_gen_hrm=hrm)
+    hrm = _hierarchical_harmonium(obs_man, base_lat_man, n_clusters)
+    return ConcreteVariationalHierarchicalMixture(_gen_hrm=hrm)
 
 
 ### Standalone utility functions ###
@@ -344,7 +348,9 @@ def iwae_bound(
     q_params = model.approximate_posterior_at(params, x)
     z_samples = model.pst_man.sample(key, q_params, n_importance_samples)
 
-    log_joints = jax.vmap(lambda z: model.log_density(params, jnp.concatenate([x, z])))(z_samples)
+    log_joints = jax.vmap(lambda z: model.log_density(params, jnp.concatenate([x, z])))(
+        z_samples
+    )
     log_posteriors = jax.vmap(lambda z: model.pst_man.log_density(q_params, z))(
         z_samples
     )

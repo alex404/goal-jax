@@ -15,7 +15,7 @@ from ...geometry import (
 )
 from ...geometry.exponential_family.harmonium import Harmonium
 from ...geometry.exponential_family.variational import (
-    SymmetricVariationalConjugated,
+    VariationalSymmetric,
     regress_conjugation_parameters,
 )
 from ..base.poisson import CoMPoissons, Poissons, PopulationLocationEmbedding
@@ -44,8 +44,9 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
     def int_man(self) -> EmbeddedMap[VonMisesProduct, Poissons]:
         obs = Poissons(self.n_neurons)
         lat = VonMisesProduct(self.n_latent)
-        return EmbeddedMap(Rectangular(), IdentityEmbedding(lat), IdentityEmbedding(obs))
-
+        return EmbeddedMap(
+            Rectangular(), IdentityEmbedding(lat), IdentityEmbedding(obs)
+        )
 
 
 # --- Von Mises Population Code (unified variational model) ---
@@ -53,7 +54,7 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
 @dataclass(frozen=True)
 class VonMisesPopulationCode(
-    SymmetricVariationalConjugated[Poissons, VonMisesProduct, VonMisesProduct]
+    VariationalSymmetric[Poissons, VonMisesProduct, VonMisesProduct]
 ):
     """Variational population code with Poisson observables and VonMises latents.
 
