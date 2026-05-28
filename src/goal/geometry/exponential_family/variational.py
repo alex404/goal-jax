@@ -6,25 +6,23 @@ $$\\mathcal{L}(x) = \\mathbb{E}_{q(z\\mid x)}[\\log p(x, Z) - \\log q(Z \\mid x)
 
 where the **conjugation residual** $r(z) = \\rho_Z \\cdot s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ}\\cdot s_Z(z)) + \\psi_X(\\theta_X)$ is the difference between the LHS and RHS of the conjugation equation: it vanishes pointwise iff the likelihood and prior are exactly conjugate. The residual is the central object of the module --- it drives the ELBO via $\\mathbb{E}_q[r]$ and the conjugation regularizers $\\mathcal{R}_p$ / $\\mathcal{R}_q$ via $\\mathrm{Var}[r]$.
 
-The $\\beta$-VAE-style KL warmup is handled by callers, who add $(1-\\beta)\\cdot\\mathrm{KL}(q \\Vert p)$ to the ELBO externally via :meth:`elbo_divergence`. Keeping $\\beta$ out of :meth:`elbo_at` lets the residual machinery extend without alteration to hierarchical models, where no closed-form KL exists between joint $q$ and joint $p$ and the closed-form-KL lever the recon+KL form depends on disappears.
+The $\\beta$-VAE-style KL warmup is handled by callers, who add $(1-\\beta)\\cdot\\mathrm{KL}(q \\Vert p)$ to the ELBO externally via :meth:`elbo_divergence`. Keeping $\\beta$ out of :meth:`elbo_at` keeps the standard-form ELBO clean and avoids baking the recon+KL decomposition into the residual machinery.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.combinators import Pair, Triple
+from ..manifold.combinators import Triple
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
-from ..manifold.map import AffineMap, Map
+from ..manifold.map import AffineMap
 from .base import Differentiable, Generative
-from .graphical import ObservableEmbedding
 from .harmonium import Harmonium
 
 
@@ -52,11 +50,11 @@ class VariationalConjugated[
 
     $$q(z \\mid x) = p(z; \\hat\\theta_{Z \\mid X}(x)), \\qquad \\hat\\theta_{Z \\mid X}(x) = \\theta_Z + s_X(x) \\cdot \\Theta_{XZ} - \\rho_Z.$$
 
-    By default $\\rho_Z$ is input-independent: a single Bernoullis/Gaussian-shaped vector stored in the ``Conjugation`` slot of the Triple. The :meth:`conjugation_parameters` API accepts an optional ``x`` argument so that subclasses can implement input-dependent corrections $\\rho_Z(x) = f(\\hat\\theta_Y(x), \\Theta_{YZ}; \\phi)$ --- in that case the ``Conjugation`` slot stores the parametric map's parameters (e.g. MLP weights and biases) rather than a flat $\\rho_Z$.
+    By default $\\rho_Z$ is input-independent: a single Bernoullis/Gaussian-shaped vector stored in the ``Conjugation`` slot of the Triple. The :meth:`conjugation_parameters` API accepts an optional ``x`` argument so that subclasses can implement input-dependent corrections $\\rho_Z(x)$ --- in that case the ``Conjugation`` slot stores the parametric map's parameters rather than a flat $\\rho_Z$.
 
     Training jointly optimizes $(\\theta_Z, \\theta_X, \\Theta_{XZ}, \\rho_Z)$ under the ELBO so that the model moves toward a regime in which the conjugate-form posterior is accurate.
 
-    The base :meth:`elbo_at` is a Monte-Carlo + score-function estimator that requires only :class:`Generative` capabilities on ``Posterior`` and ``Prior`` --- enough to drive the joint hierarchical case where the prior's log-partition is not closed-form. Subclasses where ``Posterior`` and ``Prior`` are :class:`Differentiable` (see :class:`VariationalDifferentiable`) override with the lower-variance $c(x) + \\mathbb{E}_q[r]$ form and gain :meth:`conjugation_baseline` / :meth:`elbo_divergence`.
+    The base :meth:`elbo_at` is a Monte-Carlo + score-function estimator that requires only :class:`Generative` capabilities on ``Posterior`` and ``Prior``. Subclasses where ``Posterior`` and ``Prior`` are :class:`Differentiable` (see :class:`VariationalDifferentiable`) override with the lower-variance $c(x) + \\mathbb{E}_q[r]$ form and gain :meth:`conjugation_baseline` / :meth:`elbo_divergence`.
 
     The four type parameters separate four roles:
 
@@ -138,8 +136,8 @@ class VariationalConjugated[
 
         Default: $\\rho_Z$ already lives in ``Prior``, so return it unchanged and ignore ``x``. Subclasses with richer structure override:
 
-        - ``Conjugation`` a proper sub-manifold of ``Prior`` (hierarchical chains, mixtures): apply the analytic structural completion (zero-padding for chains, mixture completion for mixtures).
-        - Input-dependent corrections (parametric $\\rho_Z(x) = f(\\hat\\theta_Y(x), \\Theta_{YZ}; \\phi)$): use ``x`` to evaluate the parametric map. ``x`` is the observation that defines the conditional; subclasses determine how to thread it (e.g. precompute $\\hat\\theta_Y(x)$ for an MLP input).
+        - ``Conjugation`` a proper sub-manifold of ``Prior`` (e.g. mixtures): apply the analytic structural completion (mixture completion zero-pads the categorical interaction slots).
+        - Input-dependent corrections (parametric $\\rho_Z(x)$): use ``x`` to evaluate the parametric map.
         """
         del x
         _, _, rho = self.split_coords(params)
@@ -196,7 +194,7 @@ class VariationalConjugated[
     ) -> Array:
         """ELBO $\\mathcal{L}(x) = \\mathbb{E}_{q(z \\mid x)}[\\log p(x, Z) - \\log q(Z \\mid x)]$ via MC + score-function correction.
 
-        Estimates the full integrand $f(z) = \\log p(x \\mid z) + \\log p(z) - \\log q(z \\mid x)$ per recognition sample, then applies a score-function correction $\\mathbb{E}_q[(f - b) \\nabla \\log q]$ with sample-mean baseline $b$. Works without any closed-form log-partition assumption on ``Prior`` --- the formulation that drives the hierarchical case (where the joint $\\psi$ is intractable) and the bivariate one as a special case.
+        Estimates the full integrand $f(z) = \\log p(x \\mid z) + \\log p(z) - \\log q(z \\mid x)$ per recognition sample, then applies a score-function correction $\\mathbb{E}_q[(f - b) \\nabla \\log q]$ with sample-mean baseline $b$. Works without any closed-form log-partition assumption on ``Prior``.
 
         Subclasses where ``Posterior`` and ``Prior`` are :class:`Differentiable` (see :class:`VariationalDifferentiable`) override with the lower-variance $c(x) + \\mathbb{E}_q[r(Z)]$ form, which Rao-Blackwellizes the $x$-dependent piece via the analytic posterior log-partition.
 
@@ -206,7 +204,7 @@ class VariationalConjugated[
         2. **On $f$ inside the score correction** --- its direct gradient is already in ``direct``, so letting autodiff flow through $f$ here would double-count it.
         3. **On the final ``score`` value subtraction** --- keeps the surrogate value-correct as an MC estimate while preserving the gradient contribution.
 
-        $\\beta$-VAE-style KL warmup is the caller's responsibility (see :meth:`VariationalDifferentiable.elbo_divergence` / :meth:`VariationalHierarchical.elbo_divergence`).
+        $\\beta$-VAE-style KL warmup is the caller's responsibility (see :meth:`VariationalDifferentiable.elbo_divergence`).
         """
         q_params = self.approximate_posterior_at(params, x)
         z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
@@ -453,31 +451,6 @@ class VariationalDifferentiable[
         return self.prr_man.relative_entropy(q_in_prior, p_params)
 
 
-@dataclass(frozen=True)
-class HierarchicalConjugated[LwrCnj: Manifold, RhoMap: Manifold](Pair[LwrCnj, RhoMap]):
-    """Combined storage manifold for the lower harmonium's input-independent $\\rho_Y$ and the upper-level parametric $\\rho_Z(x)$ map's parameters $\\phi$.
-
-    A concrete :class:`~goal.geometry.manifold.combinators.Pair` whose first slot is the lower harmonium's conjugation manifold (a flat $\\rho_Y$ vector) and whose second slot is the manifold of the rho-map's parameters (e.g. an :class:`~goal.geometry.manifold.map.AffineMap` or :class:`~goal.geometry.manifold.map.MultilayerPerceptron`).
-    """
-
-    # Fields
-
-    _lwr_cnj_man: LwrCnj
-    _rho_map_man: RhoMap
-
-    # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> LwrCnj:
-        return self._lwr_cnj_man
-
-    @property
-    @override
-    def snd_man(self) -> RhoMap:
-        return self._rho_map_man
-
-
 class VariationalSymmetric[
     Observable: Differentiable,
     Latent: Differentiable,
@@ -504,437 +477,6 @@ class VariationalSymmetric[
     @override
     def pst_prr_emb(self) -> IdentityEmbedding[Latent]:
         return IdentityEmbedding(self.lat_man)
-
-
-class VariationalHierarchical[
-    Observable: Differentiable,
-    Lower: "VariationalConjugated[Any, Any, Any, Any]",
-    Upper: "VariationalConjugated[Any, Any, Any, Any]",
-    LwrCnj: Manifold,
-    RhoMap: Map[Any, Any],
-](
-    VariationalConjugated[Observable, Any, Upper, HierarchicalConjugated[LwrCnj, RhoMap]],
-    ABC,
-):
-    """Variational hierarchical harmonium composing a lower and an upper variational conjugated harmonium.
-
-    Models a three-level chain $p(x, y, z) = p(z) p(y \\mid z) p(x \\mid y)$ (with $z$ possibly itself a joint over further latents, e.g. a categorical-Bernoullis mixture), where the lower harmonium models $p(x \\mid y)$ with a learned, input-independent $\\rho_Y$ for the X--Y boundary, and the upper harmonium models $p(y, z)$ with its own internal variational structure.
-
-    Mathematically, the joint recognition is itself a variational conjugated harmonium of the same algebraic shape as ``Upper`` --- ``Upper``'s parameters but with two corrections:
-
-    - the observable-bias slot of ``Upper`` is shifted by $\\Delta_Y(x) = s_X(x) \\cdot \\Theta_{XY} - \\rho_Y$ (the lower harmonium's X-Y bias contribution),
-    - the conjugation slot of ``Upper`` is replaced by an input-dependent $\\rho_Z(x) = f(\\hat\\theta_Y(x), \\Theta_{YZ}; \\phi)$ evaluated by :attr:`rho_map`.
-
-    Because the recognition retains ``Upper``'s structure, ancestral sampling and log-density evaluation use ``Upper``'s existing :meth:`sample` and :meth:`log_density` directly (passing the shifted parameter vector).
-
-    Extends :class:`VariationalConjugated` directly: ``pst_man = prr_man = Upper`` (joint $(Y, Z)$) and the inherited base :meth:`elbo_at` (MC + score-function) works without modification --- the joint log-densities ``Upper.log_density(recog_params, ·)`` and ``Upper.log_density(prior_params, ·)`` are the right thing whether ``Upper`` is a leaf variational harmonium or itself a :class:`VariationalHierarchical` (recursive composition). This is the analog of :class:`AnalyticHierarchical extends AnalyticConjugated`.
-
-    Parameter layout (``Triple`` slots):
-
-    1. ``fst`` (``Upper`` slot) --- the upper harmonium's full natural-parameter vector $(\\theta_{Y,\\mathrm{upr}}, \\Theta_{YZ}, \\theta_Z, \\rho_{Z,\\mathrm{stored}})$. The stored $\\rho_Z$ baseline is unused in the hierarchical recognition (replaced by ``rho_map``) but kept so ``Upper`` remains a self-contained variational harmonium that can be initialized, sampled, or evaluated standalone for diagnostics.
-    2. ``snd`` (lower likelihood slot) --- $(\\theta_X, \\Theta_{XY})$ as an :class:`~goal.geometry.manifold.map.AffineMap`.
-    3. ``trd`` (combined conjugation slot) --- :class:`HierarchicalConjugated` packing the lower harmonium's $\\rho_Y$ (input-independent) and the upper-level rho-map's parameters $\\phi$.
-
-    Five type parameters separate the roles:
-
-    - ``Observable`` --- the bottom-of-stack observable family (the data manifold, $X$).
-    - ``Lower`` --- the lower harmonium's type, supplying the X-Y likelihood structure and a $\\rho_Y$ slot.
-    - ``Upper`` --- the upper harmonium's type. Often :class:`VariationalSymmetric` or :class:`~goal.models.graphical.variational.VariationalHierarchicalMixture`, or itself a :class:`VariationalHierarchical` for deeper stacks.
-    - ``LwrCnj`` --- the lower harmonium's conjugation manifold (typically a flat exponential family).
-    - ``RhoMap`` --- a :class:`~goal.geometry.manifold.map.Map` from the upper harmonium's observable manifold to its conjugation manifold; an :class:`~goal.geometry.manifold.map.MultilayerPerceptron` with ``hidden_dims=()`` collapses to a plain affine map.
-    """
-
-    # Contract
-
-    @property
-    @abstractmethod
-    def lwr_hrm(self) -> Lower:
-        """The lower variational harmonium (observable $X$, latent $Y$)."""
-
-    @property
-    @abstractmethod
-    def upr_hrm(self) -> Upper:
-        """The upper variational harmonium (observable $Y$, latent $Z$). May itself be hierarchical."""
-
-    @property
-    @abstractmethod
-    def rho_map(self) -> RhoMap:
-        """Parametric map computing $\\rho_Z(x)$ from $\\hat\\theta_Y(x)$."""
-
-    # Triple slots
-
-    @property
-    @override
-    def fst_man(self) -> Any:
-        return self.upr_hrm
-
-    @property
-    @override
-    def snd_man(self) -> Any:
-        return self.lwr_hrm.gen_hrm.lkl_fun_man
-
-    @property
-    @override
-    def trd_man(self) -> HierarchicalConjugated[LwrCnj, RhoMap]:
-        return HierarchicalConjugated(
-            _lwr_cnj_man=self.lwr_hrm.cnj_man,
-            _rho_map_man=self.rho_map,
-        )
-
-    # VariationalConjugated contract
-
-    @property
-    @override
-    def gen_hrm(self) -> Harmonium[Observable, Any]:
-        """The X--Y harmonium underlying the lower boundary; supplies the likelihood storage shape and the observable manifold."""
-        return self.lwr_hrm.gen_hrm
-
-    @property
-    @override
-    def pst_prr_emb(self) -> IdentityEmbedding[Upper]:
-        """Identity --- the recognition and generative prior share ``Upper`` as their manifold."""
-        return IdentityEmbedding(self.upr_hrm)
-
-    @property
-    @override
-    def cnj_man(self) -> HierarchicalConjugated[LwrCnj, RhoMap]:
-        """Combined storage for $(\\rho_Y, \\phi)$."""
-        return self.trd_man
-
-    # Manifold access
-
-    @property
-    @override
-    def obs_man(self) -> Observable:
-        """The bottom-of-stack observable manifold ($X$)."""
-        return self.lwr_hrm.obs_man
-
-    @property
-    @override
-    def pst_man(self) -> Upper:
-        """Manifold of recognition parameters. The recognition is itself a variational conjugated harmonium of the same shape as ``Upper``."""
-        return self.upr_hrm
-
-    @property
-    @override
-    def prr_man(self) -> Upper:
-        """Manifold of generative-prior parameters over latents; symmetric to :attr:`pst_man`."""
-        return self.upr_hrm
-
-    # Generative / ExponentialFamily contract on the joint $(x, y, z, ...)$
-
-    @property
-    @override
-    def data_dim(self) -> int:
-        """Total dimension of a joint $(x, y, z, ...)$ datapoint: $\\dim X + \\dim_{\\mathrm{data}} \\mathrm{Upper}$."""
-        return self.obs_man.data_dim + self.upr_hrm.data_dim
-
-    @override
-    def sufficient_statistic(self, x: Array) -> Array:
-        """Not provided: a flat hierarchical chain does not admit a single joint sufficient statistic in the exponential-family sense (the $\\rho_Y$ and $\\phi$ slots have no sufficient-statistic correspondence). Use :meth:`sample` / :meth:`log_density` instead."""
-        raise NotImplementedError(
-            "VariationalHierarchical does not provide a flat joint sufficient statistic;"
-            + " use sample() and log_density() for evaluation."
-        )
-
-    @override
-    def log_base_measure(self, x: Array) -> Array:
-        """Joint log base measure over $(x, y, z, \\ldots)$ --- recursively composed."""
-        x_part = x[..., : self.obs_man.data_dim]
-        yz_part = x[..., self.obs_man.data_dim :]
-        return self.obs_man.log_base_measure(x_part) + self.upr_hrm.log_base_measure(
-            yz_part
-        )
-
-    # Parameter access
-
-    @override
-    def prior_params(self, params: Array) -> Array:
-        """Extract the upper harmonium's full parameter vector."""
-        upr, _, _ = self.split_coords(params)
-        return upr
-
-    @override
-    def likelihood_function(self, params: Array) -> Array:
-        """Extract the lower harmonium's likelihood function $(\\theta_X, \\Theta_{XY})$."""
-        _, lkl, _ = self.split_coords(params)
-        return lkl
-
-    def split_conjugation_params(self, params: Array) -> tuple[Array, Array]:
-        """Split the combined conjugation slot into $(\\rho_Y, \\phi)$."""
-        _, _, cnj = self.split_coords(params)
-        return self.cnj_man.split_coords(cnj)
-
-    # Recognition construction
-
-    def _shifted_upper_params(self, params: Array, x: Array) -> Array:
-        """Build the recognition harmonium's parameters by injecting the X-shift into ``Upper``'s observable-bias slot and folding the input-dependent $\\rho_Z(x)$ into ``Upper``'s prior slot via ``Upper.conjugation_parameters``.
-
-        The returned vector lives in ``Upper.dim`` shape and is suitable for direct use with :meth:`Upper.sample` and :meth:`Upper.log_density`: those methods read from the prior slot (which now carries the $\\rho_Z(x)$ correction subtracted out) and the likelihood slot (which carries the X-shifted Y-bias). ``Upper``'s rho slot is zeroed in the returned vector since its role has been absorbed into the prior.
-        """
-        upr_params, lwr_lkl, _ = self.split_coords(params)
-        rho_y, phi = self.split_conjugation_params(params)
-
-        # Decompose upper's params
-        upr_prior, upr_lkl, _ = self.upr_hrm.split_coords(upr_params)
-        upr_obs_p, upr_int_p = self.upr_hrm.gen_hrm.lkl_fun_man.split_coords(upr_lkl)
-
-        # Compute Δ_Y(x) = s_X(x) · Θ_XY (Y-bias contribution from x via lower's interaction).
-        s_x = self.lwr_hrm.obs_man.sufficient_statistic(x)
-        _, lwr_int_p = self.lwr_hrm.gen_hrm.lkl_fun_man.split_coords(lwr_lkl)
-        delta_y_from_x = self.lwr_hrm.gen_hrm.int_man.transpose_apply(lwr_int_p, s_x)
-
-        # Shifted Y-bias: η̂_Y(x) = η_Y + Δ_Y(x) - ρ_Y.
-        hat_eta_y = upr_obs_p + delta_y_from_x - rho_y
-
-        # Input-dependent ρ_Z(x) via the rho-map, then embedded into Upper's prr_man-shape
-        # via Upper's own conjugation_parameters (which applies any analytic structural
-        # completion appropriate to Upper's graphical form, e.g. mixture completion).
-        rho_z_x = self.rho_map(phi, hat_eta_y)
-        synth_for_rho = self.upr_hrm.join_coords(upr_prior, upr_lkl, rho_z_x)
-        rho_z_in_prr = self.upr_hrm.conjugation_parameters(synth_for_rho)
-
-        # Fold the rho correction into the prior so that Upper.sample / Upper.log_density
-        # (which read from the prior slot only) reflect the recognition's shifted distribution.
-        recog_prior = upr_prior - rho_z_in_prr
-        new_upr_lkl = self.upr_hrm.gen_hrm.lkl_fun_man.join_coords(hat_eta_y, upr_int_p)
-        zero_rho = jnp.zeros(self.upr_hrm.cnj_man.dim)
-        return self.upr_hrm.join_coords(recog_prior, new_upr_lkl, zero_rho)
-
-    @override
-    def approximate_posterior_at(self, params: Array, x: Array) -> Array:
-        """Recognition harmonium parameters (in ``Upper``-shape) at observation $x$.
-
-        The returned vector is a valid set of natural parameters for ``Upper``: passing it to :meth:`Upper.sample` yields joint $(y, z)$ samples from the recognition $q(Y, Z \\mid x)$, and passing it to :meth:`Upper.log_density` yields $\\log q(y, z \\mid x)$.
-        """
-        return self._shifted_upper_params(params, x)
-
-    # Hierarchical conjugation parameters
-
-    @override
-    def conjugation_parameters(self, params: Array, x: Array | None = None) -> Array:
-        """Return the hierarchical conjugation correction in ``Upper`` shape.
-
-        Composes:
-
-        - $\\rho_Y$ embedded into ``Upper``'s observable-bias slot via :class:`~goal.geometry.exponential_family.graphical.ObservableEmbedding` (analogous to :meth:`~goal.geometry.exponential_family.graphical.AnalyticHierarchical.conjugation_parameters`), and
-        - $\\rho_Z(x)$ computed by :attr:`rho_map` at $\\hat\\theta_Y(x)$, embedded into ``Upper``'s rho slot via :meth:`Upper.conjugation_parameters` so that the analytic completion appropriate to ``Upper``'s graphical structure (mixture, hierarchical, ...) is applied.
-
-        Requires ``x``; raises ``ValueError`` if ``x`` is ``None``.
-        """
-        if x is None:
-            raise ValueError(
-                "VariationalHierarchical.conjugation_parameters requires x to evaluate the input-dependent rho-map."
-            )
-        rho_y, phi = self.split_conjugation_params(params)
-
-        # ρ_Y embedded into upper's observable slot (zero elsewhere)
-        rho_y_in_upr = ObservableEmbedding(self.upr_hrm.gen_hrm).embed(rho_y)
-
-        # ρ_Z(x) via rho_map, then sent through upper's conjugation_parameters to apply
-        # upper's own analytic completion (mixture-shape, etc.).
-        upr_params, lwr_lkl, _ = self.split_coords(params)
-        upr_prior, upr_lkl, _ = self.upr_hrm.split_coords(upr_params)
-        upr_obs_p, _ = self.upr_hrm.gen_hrm.lkl_fun_man.split_coords(upr_lkl)
-        s_x = self.lwr_hrm.obs_man.sufficient_statistic(x)
-        _, lwr_int_p = self.lwr_hrm.gen_hrm.lkl_fun_man.split_coords(lwr_lkl)
-        delta_y_from_x = self.lwr_hrm.gen_hrm.int_man.transpose_apply(lwr_int_p, s_x)
-        hat_eta_y = upr_obs_p + delta_y_from_x - rho_y
-        rho_z_x = self.rho_map(phi, hat_eta_y)
-
-        # Embed ρ_Z(x) into upper-shape via a synthetic upr_params with rho_z_x in upper's
-        # rho slot; upr.conjugation_parameters applies upper's structural completion.
-        synth_upr = self.upr_hrm.join_coords(upr_prior, upr_lkl, rho_z_x)
-        rho_z_in_upr = self.upr_hrm.conjugation_parameters(synth_upr)
-
-        return rho_y_in_upr + rho_z_in_upr
-
-    # Conjugation residuals
-
-    def lower_conjugation_residual(self, params: Array, y: Array) -> Array:
-        """Lower-boundary residual $r_Y(y) = \\rho_Y \\cdot s_Y(y) - \\psi_X(\\theta_X + \\Theta_{XY} \\cdot s_Y(y)) + \\psi_X(\\theta_X)$ at a $Y$ sample."""
-        _, lwr_lkl, _ = self.split_coords(params)
-        rho_y, _ = self.split_conjugation_params(params)
-        # Build a synthetic Lower-params vector with ρ_Y and current lkl. Lower's
-        # prior slot is irrelevant for the residual computation.
-        zero_prior = jnp.zeros(self.lwr_hrm.prr_man.dim)
-        synth_lwr = self.lwr_hrm.join_coords(zero_prior, lwr_lkl, rho_y)
-        return self.lwr_hrm.conjugation_residual(synth_lwr, y)
-
-    def upper_conjugation_residual(self, params: Array, z: Array, x: Array) -> Array:
-        """Upper-boundary residual $r_Z(z; x) = \\rho_Z(x) \\cdot s_Z(z) - \\psi_Y(\\hat\\theta_Y(x) + \\Theta_{YZ} \\cdot s_Z(z)) + \\psi_Y(\\hat\\theta_Y(x))$ at a $Z$ sample, evaluated at the X-shifted Y-bias."""
-        shifted = self._shifted_upper_params(params, x)
-        return self.upr_hrm.conjugation_residual(shifted, z)
-
-    @override
-    def conjugation_residual(
-        self, params: Array, z: Array, x: Array | None = None
-    ) -> Array:
-        """Joint hierarchical residual $r(y, z; x) = r_Y(y) + r_Z(z; x)$.
-
-        Sums the lower-boundary $r_Y$ (input-independent) and upper-boundary $r_Z$ (input-dependent through $\\rho_Z(x)$). Variance under joint samples gives the aggregate conjugation regularizer used by :meth:`prior_conjugation_loss` and :meth:`recognition_conjugation_loss_at`; for per-level diagnostics use :meth:`lower_conjugation_residual` / :meth:`upper_conjugation_residual` directly.
-        """
-        if x is None:
-            raise ValueError(
-                "VariationalHierarchical.conjugation_residual requires x to evaluate"
-                + " the upper-boundary residual via the input-dependent rho-map."
-            )
-        y_data_dim = self.upr_hrm.obs_man.data_dim
-        y = z[..., :y_data_dim]
-        z_inner = z[..., y_data_dim:]
-        return self.lower_conjugation_residual(params, y) + self.upper_conjugation_residual(
-            params, z_inner, x
-        )
-
-    # Conjugation regularizers (per level)
-
-    def lower_recognition_conjugation_loss_at(
-        self, key: Array, params: Array, x: Array, n_samples: int
-    ) -> Array:
-        """Variance of the lower-boundary residual $r_Y(Y)$ under joint recognition samples $(Y, Z) \\sim q$.
-
-        Marginalizes Z out by sampling jointly and computing $r_Y$ on the $Y$ component only. Same diagnostic role as :meth:`VariationalConjugated.recognition_conjugation_loss_at` --- vanishes when the X-Y boundary is exactly conjugate, and uses the same ``direct + score - sg(score)`` surrogate so the gradient picks up both the direct piece through $r_Y$ and the score-function correction through $q(Y, Z \\mid x)$.
-        """
-        recog_params = self._shifted_upper_params(params, x)
-        yz_samples = jax.lax.stop_gradient(
-            self.upr_hrm.sample(key, recog_params, n_samples)
-        )
-        y_data_dim = self.upr_hrm.obs_man.data_dim
-        y_samples = yz_samples[:, :y_data_dim]
-        r_vals = jax.vmap(lambda y: self.lower_conjugation_residual(params, y))(
-            y_samples
-        )
-        log_q_vals = jax.vmap(lambda yz: self.upr_hrm.log_density(recog_params, yz))(
-            yz_samples
-        )
-        return _variance_with_score_correction(r_vals, log_q_vals)
-
-    def upper_recognition_conjugation_loss_at(
-        self, key: Array, params: Array, x: Array, n_samples: int
-    ) -> Array:
-        """Variance of the upper-boundary residual $r_Z(Z; x)$ under joint recognition samples $(Y, Z) \\sim q$.
-
-        Same surrogate as :meth:`lower_recognition_conjugation_loss_at`; score correction targets $q(Y, Z \\mid x)$.
-        """
-        recog_params = self._shifted_upper_params(params, x)
-        yz_samples = jax.lax.stop_gradient(
-            self.upr_hrm.sample(key, recog_params, n_samples)
-        )
-        y_data_dim = self.upr_hrm.obs_man.data_dim
-        z_samples = yz_samples[:, y_data_dim:]
-        r_vals = jax.vmap(lambda z: self.upper_conjugation_residual(params, z, x))(
-            z_samples
-        )
-        log_q_vals = jax.vmap(lambda yz: self.upr_hrm.log_density(recog_params, yz))(
-            yz_samples
-        )
-        return _variance_with_score_correction(r_vals, log_q_vals)
-
-    # ELBO divergence (β-warmup KL)
-
-    def elbo_divergence(
-        self, key: Array, params: Array, x: Array, n_samples: int
-    ) -> Array:
-        """Partial-MC joint KL $\\mathrm{KL}(q(Y, Z \\mid x) \\Vert p(Y, Z))$ via chain rule on $(Y, Z)$:
-
-        $$\\mathrm{KL}(q \\Vert p) = \\mathrm{KL}(q(Z \\mid x) \\Vert p(Z)) + \\mathbb{E}_{q(Z \\mid x)}\\left[\\mathrm{KL}(q(Y \\mid Z, x) \\Vert p(Y \\mid Z))\\right].$$
-
-        The outer $Z$-marginal KL is closed-form (Upper's prior and Upper's $\\rho$-shifted prior are both :class:`Differentiable` exponential families, so :meth:`Upper.prr_man.relative_entropy` applies). The inner per-$Z$ KL between $q(Y \\mid Z, x)$ and $p(Y \\mid Z)$ is also closed-form (same family, differing only by an additive shift in the natural parameters) but requires sampling $Z$ from $q(Z \\mid x)$ to average over.
-
-        Different signature from :meth:`VariationalDifferentiable.elbo_divergence` --- this one requires ``key`` and ``n_samples`` for the MC over $Z$. $\\beta$-warmup callers on a :class:`VariationalHierarchical` pass these alongside the usual ``params, x``.
-
-        Requires both ``Upper.prr_man`` and ``Upper.gen_hrm.obs_man`` to be :class:`Differentiable`. For deeper recursion (``Upper`` itself :class:`VariationalHierarchical`), this method falls back to a full-MC estimator via :meth:`Upper.elbo_divergence` recursively.
-        """
-        # q's Upper-shape recognition and p's Upper-shape prior
-        recog_params = self._shifted_upper_params(params, x)
-        upr_params = self.prior_params(params)
-
-        # Outer KL_Z: closed-form between two Upper-prior-shaped densities.
-        # Upper's prior_params(...) extracts θ_Z (the Z-marginal natural params).
-        q_z_params = self.upr_hrm.prior_params(recog_params)
-        p_z_params = self.upr_hrm.prior_params(upr_params)
-        kl_z = self.upr_hrm.prr_man.relative_entropy(q_z_params, p_z_params)
-
-        # Inner E_{q(Z|x)}[KL(q(Y|Z,x) || p(Y|Z))]: sample Z from q's Z-marginal,
-        # compute per-Z closed-form KL on Y given Z.
-        z_samples = jax.lax.stop_gradient(
-            self.upr_hrm.prr_man.sample(key, q_z_params, n_samples)
-        )
-
-        # Y-bias shifts. For each Z sample, q(Y|Z,x) and p(Y|Z) differ only by the
-        # additive shift (Δ_Y(x) - ρ_Y) in the Y natural parameters. Both share the
-        # same Θ_YZ · s_Z(z) contribution.
-        q_obs_p, q_int_p = self.upr_hrm.gen_hrm.lkl_fun_man.split_coords(
-            self.upr_hrm.likelihood_function(recog_params)
-        )
-        p_obs_p, p_int_p = self.upr_hrm.gen_hrm.lkl_fun_man.split_coords(
-            self.upr_hrm.likelihood_function(upr_params)
-        )
-
-        def kl_y_given_z(z: Array) -> Array:
-            s_z = self.upr_hrm.prr_man.sufficient_statistic(z)
-            q_y_params = self.upr_hrm.gen_hrm.lkl_fun_man(
-                self.upr_hrm.gen_hrm.lkl_fun_man.join_coords(q_obs_p, q_int_p), s_z
-            )
-            p_y_params = self.upr_hrm.gen_hrm.lkl_fun_man(
-                self.upr_hrm.gen_hrm.lkl_fun_man.join_coords(p_obs_p, p_int_p), s_z
-            )
-            return self.upr_hrm.gen_hrm.obs_man.relative_entropy(q_y_params, p_y_params)
-
-        kl_y_vals = jax.vmap(kl_y_given_z)(z_samples)
-        return kl_z + jnp.mean(kl_y_vals)
-
-    # Generative
-
-    @override
-    def likelihood_at(self, params: Array, z: Array) -> Array:
-        """Natural parameters of $p(x \\mid y)$ at a joint $(y, z')$ sample --- only $y$ is used, $z'$ is sliced away.
-
-        Signature matches the base :meth:`VariationalConjugated.likelihood_at` so the inherited :meth:`sample`, :meth:`log_density`, and :meth:`elbo_at` work uniformly on the joint latent.
-        """
-        y_data_dim = self.upr_hrm.obs_man.data_dim
-        y = z[..., :y_data_dim]
-        lkl = self.likelihood_function(params)
-        s_y = self.lwr_hrm.pst_man.sufficient_statistic(y)
-        return self.lwr_hrm.gen_hrm.lkl_fun_man(lkl, s_y)
-
-    # Initialization
-
-    @override
-    def initialize(
-        self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Array:
-        """Initialize with random Upper params, random Lower likelihood, zero $\\rho_Y$, and Glorot-initialized rho-map (if it supports it) else zero."""
-        keys = jax.random.split(key, 4)
-        upr_params = self.upr_hrm.initialize(keys[0], location, shape)
-        lwr_full = self.lwr_hrm.initialize(keys[1], location, shape)
-        # Strip lower's prior and rho slots, keep only lkl.
-        _, lwr_lkl, _ = self.lwr_hrm.split_coords(lwr_full)
-        rho_y = jnp.zeros(self.lwr_hrm.cnj_man.dim)
-        phi = _initialize_map_params(self.rho_map, keys[2])
-        cnj_params = self.cnj_man.join_coords(rho_y, phi)
-        return self.join_coords(upr_params, lwr_lkl, cnj_params)
-
-    @override
-    def initialize_from_sample(
-        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Array:
-        """Initialize using sample data to inform the lower harmonium's observable bias."""
-        keys = jax.random.split(key, 4)
-        upr_params = self.upr_hrm.initialize(keys[0], location, shape)
-        lwr_full = self.lwr_hrm.initialize_from_sample(keys[1], sample, location, shape)
-        _, lwr_lkl, _ = self.lwr_hrm.split_coords(lwr_full)
-        rho_y = jnp.zeros(self.lwr_hrm.cnj_man.dim)
-        phi = _initialize_map_params(self.rho_map, keys[2])
-        cnj_params = self.cnj_man.join_coords(rho_y, phi)
-        return self.join_coords(upr_params, lwr_lkl, cnj_params)
-
-
-def _initialize_map_params(rho_map: Map[Any, Any], key: Array) -> Array:
-    """Initialize a Map's parameters; uses Glorot if available, otherwise small-scale Gaussian."""
-    if hasattr(rho_map, "glorot_initialize"):
-        return rho_map.glorot_initialize(key)  # pyright: ignore[reportAttributeAccessIssue]
-    return jax.random.normal(key, shape=(rho_map.dim,)) * 0.01
 
 
 def _variance_with_score_correction(r_vals: Array, log_q_vals: Array) -> Array:
@@ -972,7 +514,7 @@ def regress_conjugation_parameters[
 ) -> tuple[Array, Array, Array, Array]:
     """Fit the variationally-learned $\\rho$ by least-squares regression against samples from the prior.
 
-    Solves $\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\iota(\\rho) \\cdot \\phi(s_Z(z_k)) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$, where $\\iota = $ :meth:`conjugation_parameters` (applied to a synthetic ``params`` with the candidate $\\rho$ swapped in) and $\\phi = $ :meth:`pst_prr_emb.embed`. The design matrix is obtained by linearizing the (linear) dependence of $\\iota(\\rho)\\cdot\\phi(s_Z)$ on the stored $\\rho$ via :func:`jax.grad`, which lets the same regression code work whether ``conjugation_parameters`` is identity (simple symmetric case) or a richer analytic completion (mixture/hierarchical case). The constant offset from the rho-independent part of $\\iota(\\rho)\\cdot\\phi(s_Z)$ (e.g. the analytic categorical contribution in a mixture) is subtracted from the regression target.
+    Solves $\\rho = \\arg\\min_\\rho \\sum_k (\\chi + \\iota(\\rho) \\cdot \\phi(s_Z(z_k)) - \\psi_X(\\theta_X + \\Theta \\cdot s_Z(z_k)))^2$, where $\\iota = $ :meth:`conjugation_parameters` (applied to a synthetic ``params`` with the candidate $\\rho$ swapped in) and $\\phi = $ :meth:`pst_prr_emb.embed`. The design matrix is obtained by linearizing the (linear) dependence of $\\iota(\\rho)\\cdot\\phi(s_Z)$ on the stored $\\rho$ via :func:`jax.grad`, which lets the same regression code work whether ``conjugation_parameters`` is identity (simple symmetric case) or a richer analytic completion (e.g. mixture completion). The constant offset from the rho-independent part of $\\iota(\\rho)\\cdot\\phi(s_Z)$ (e.g. the analytic categorical contribution in a mixture) is subtracted from the regression target.
 
     Returns ``(rho, r_squared, chi, residual_var)`` where ``chi`` is the intercept and ``residual_var`` is the conjugation error $\\mathrm{Var}[r]$ estimated from the regression samples. The intercept absorbs the $z$-independent $\\psi_X(\\theta_X)$ shift in :meth:`conjugation_residual`, so the regression is invariant to that shift.
 
@@ -1078,7 +620,7 @@ def reconstruct[
 ) -> Array:
     """Reconstruct observable means via mean-field approximation: posterior mean stats through likelihood.
 
-    Requires ``Posterior: Differentiable`` for the closed-form ``to_mean`` --- defined on :class:`VariationalDifferentiable` only. For :class:`VariationalHierarchical`, reconstruction must be MC-based (sample $y \\sim q(Y \\mid x)$, average $s_Y$, apply lower likelihood); not yet implemented.
+    Requires ``Posterior: Differentiable`` for the closed-form ``to_mean`` --- defined on :class:`VariationalDifferentiable` only.
     """
     q_params = model.approximate_posterior_at(params, x)
     z_mean_stats = model.pst_man.to_mean(q_params)

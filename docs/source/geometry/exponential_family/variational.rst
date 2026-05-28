@@ -32,19 +32,6 @@ Variational Conjugated
    :undoc-members:
    :show-inheritance:
 
-Hierarchical Composition
-------------------------
-
-.. autoclass:: goal.geometry.exponential_family.variational.VariationalHierarchical
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.exponential_family.variational.HierarchicalConjugated
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Helpers
 -------
 
