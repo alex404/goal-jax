@@ -16,7 +16,9 @@ from ....geometry import (
     Symmetric,
 )
 from ..categorical import Bernoulli, Bernoullis
+from ._jt_inference import jt_log_partition, jt_sample
 from .generalized import Euclidean, GeneralizedGaussian
+from .junction_tree import JunctionTree
 
 
 @dataclass(frozen=True)
@@ -382,3 +384,205 @@ class Boltzmann(
     def states(self) -> Array:
         """All possible binary states."""
         return self.shp_man.states
+
+
+@dataclass(frozen=True)
+class ChordalCouplingMatrix(Differentiable):
+    """Exponential family over chordal-pattern moment matrices $x \\otimes x$.
+
+    Analog of ``CouplingMatrix`` parametrised only on the chordal sparsity pattern of
+    a ``JunctionTree``: the parameter vector is $[\\theta_{ii}, \\theta_{ij}]$ with
+    diagonal entries first ($n$ values), then off-diagonal couplings for chordal
+    edges in canonical order ($n_\\text{chordal\\_edges}$ values).
+
+    Distribution: $p(x) \\propto \\exp(\\sum_i \\theta_{ii} x_i + \\sum_{(i,j) \\in E^\\star} \\theta_{ij} x_i x_j)$
+    where $E^\\star$ is the chordal completion edge set. Exact $\\log Z$ and exact
+    ancestral sampling via junction-tree sum-product in $O(n \\cdot 2^{w+1})$ time.
+    """
+
+    # Fields
+
+    junction_tree: JunctionTree
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.junction_tree.n_params
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        return self.junction_tree.n_neurons
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Array:
+        """Diagonal $x_i$ entries followed by $x_i x_j$ for each chordal edge."""
+        edges = self.junction_tree.chordal_edges_arr
+        if edges.shape[0] == 0:
+            return x
+        off_diag = x[edges[:, 0]] * x[edges[:, 1]]
+        return jnp.concatenate([x, off_diag])
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        return jnp.array(0.0)
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        diag, off_diag = self._split(params)
+        return jt_log_partition(self.junction_tree, diag, off_diag)
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        """Draw $n$ exact i.i.d. samples via junction-tree ancestral sampling."""
+        diag, off_diag = self._split(params)
+        keys = jax.random.split(key, n)
+
+        def sample_one(k: Array) -> Array:
+            return jt_sample(self.junction_tree, diag, off_diag, k)
+
+        return jax.vmap(sample_one)(keys)
+
+    # Methods
+
+    @property
+    def n_neurons(self) -> int:
+        return self.junction_tree.n_neurons
+
+    def _split(self, params: Array) -> tuple[Array, Array]:
+        n = self.junction_tree.n_neurons
+        return params[:n], params[n:]
+
+    def to_matrix(self, params: Array) -> Array:
+        """Scatter chordal-pattern parameters into a dense symmetric $n \\times n$ matrix."""
+        n = self.junction_tree.n_neurons
+        diag, off_diag = self._split(params)
+        mat = jnp.zeros((n, n))
+        mat = mat.at[jnp.arange(n), jnp.arange(n)].set(diag)
+        edges = self.junction_tree.chordal_edges_arr
+        if edges.shape[0] > 0:
+            i = jnp.asarray(edges[:, 0])
+            j = jnp.asarray(edges[:, 1])
+            mat = mat.at[i, j].set(off_diag)
+            mat = mat.at[j, i].set(off_diag)
+        return mat
+
+    def from_matrix(self, matrix: Array) -> Array:
+        """Gather chordal-pattern parameters from a dense matrix; off-pattern entries are dropped."""
+        diag = jnp.diag(matrix)
+        edges = self.junction_tree.chordal_edges_arr
+        if edges.shape[0] == 0:
+            return diag
+        i = jnp.asarray(edges[:, 0])
+        j = jnp.asarray(edges[:, 1])
+        off_diag = 0.5 * (matrix[i, j] + matrix[j, i])
+        return jnp.concatenate([diag, off_diag])
+
+
+@dataclass(frozen=True)
+class ChordalBoltzmann(
+    GeneralizedGaussian[Bernoullis, ChordalCouplingMatrix],
+    Differentiable,
+):
+    """Boltzmann machine with couplings restricted to a chordal sparsity pattern.
+
+    Exact $\\log Z$ and exact i.i.d. sampling via junction-tree sum-product in
+    $O(n \\cdot 2^{w+1})$ time, where $w$ is the treewidth of the chordal completion.
+    The parameter vector is $[\\theta_{ii}, \\theta_{ij}]$ — diagonal entries first
+    ($n$ values), then off-diagonal couplings for chordal edges in canonical order.
+
+    Within the chordal sparsity constraint this preserves the full pairwise
+    expressiveness of ``Boltzmann`` while inheriting the exactness of
+    ``DiagonalBoltzmann`` — no Gibbs burn-in, no MC variance.
+    """
+
+    # Fields
+
+    junction_tree: JunctionTree
+
+    # Constructors
+
+    @staticmethod
+    def from_edges(
+        n_neurons: int,
+        edges,
+        max_treewidth: int | None = None,
+    ) -> ChordalBoltzmann:
+        """Build a ChordalBoltzmann from a graph on ``n_neurons`` nodes with the given edge list."""
+        return ChordalBoltzmann(JunctionTree.from_edges(n_neurons, edges, max_treewidth))
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.junction_tree.n_params
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        return self.junction_tree.n_neurons
+
+    @property
+    @override
+    def loc_man(self) -> Bernoullis:
+        return Bernoullis(self.junction_tree.n_neurons)
+
+    @property
+    @override
+    def shp_man(self) -> ChordalCouplingMatrix:
+        return ChordalCouplingMatrix(self.junction_tree)
+
+    @override
+    def sufficient_statistic(self, x: Array) -> Array:
+        return self.shp_man.sufficient_statistic(x)
+
+    @override
+    def log_base_measure(self, x: Array) -> Array:
+        return jnp.array(0.0)
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        return self.shp_man.log_partition_function(params)
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        return self.shp_man.sample(key, params, n)
+
+    @override
+    def split_location_precision(self, params: Array) -> tuple[Array, Array]:
+        """Location is absorbed into precision; off-diagonals are scaled by $\\tfrac{1}{2}$ to match $x^T \\Theta x$."""
+        n = self.junction_tree.n_neurons
+        diag = params[:n]
+        off_diag = params[n:]
+        precision = jnp.concatenate([-2.0 * diag, -off_diag])
+        return jnp.zeros(n), precision
+
+    @override
+    def join_location_precision(self, location: Array, precision: Array) -> Array:
+        """Inverse of ``split_location_precision`` with bias absorbed into the diagonal."""
+        n = self.junction_tree.n_neurons
+        diag_prec = precision[:n]
+        off_prec = precision[n:]
+        diag_params = -0.5 * diag_prec + location
+        off_params = -off_prec
+        return jnp.concatenate([diag_params, off_params])
+
+    @override
+    def split_mean_second_moment(self, means: Array) -> tuple[Array, Array]:
+        """For binary variables $x_i^2 = x_i$, so the first moment is the diagonal of the second."""
+        n = self.junction_tree.n_neurons
+        return means[:n], means
+
+    @override
+    def join_mean_second_moment(self, mean: Array, second_moment: Array) -> Array:
+        """Second moment already contains the first moment on its diagonal."""
+        return second_moment
+
+    # Methods
+
+    @property
+    def n_neurons(self) -> int:
+        return self.junction_tree.n_neurons

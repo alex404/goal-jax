@@ -21,7 +21,7 @@ from .model import MixtureModel, create_model
 from .train import DEFAULT_N_TRIALS, load_mnist
 
 
-def diagnose_trained_model(mode: str = "gradient"):
+def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
     """Diagnose a trained model by loading its parameters."""
     jax.config.update("jax_platform_name", "gpu")
     paths = example_paths(__file__)
@@ -88,19 +88,34 @@ def diagnose_trained_model(mode: str = "gradient"):
         f"Observable bias: min={float(obs_bias.min()):.4f}, max={float(obs_bias.max()):.4f}, mean={float(obs_bias.mean()):.4f}"
     )
 
-    lat_dim = model.bas_lat_man.dim
+    lat_dim = model.bas_lat_man.dim  # param dim (= n + n_chordal_edges for ChordalBoltzmann)
+    lat_data_dim = model.bas_lat_man.data_dim  # sample dim (= n binary units)
     int_matrix = int_params.reshape(model.obs_man.dim, lat_dim)
     print(
         f"Interaction matrix: shape={int_matrix.shape}, norm={float(jnp.linalg.norm(int_matrix)):.4f}, mean={float(int_matrix.mean()):.6f}, std={float(int_matrix.std()):.6f}"
     )
+    if lat_dim != lat_data_dim:
+        # ChordalBoltzmann: first lat_data_dim columns are unit interactions
+        # x_i, remainder are pair interactions x_i * x_j over chordal edges.
+        unit_block = int_matrix[:, :lat_data_dim]
+        pair_block = int_matrix[:, lat_data_dim:]
+        print(
+            f"  unit cols: shape={unit_block.shape}, norm={float(jnp.linalg.norm(unit_block)):.4f}"
+        )
+        print(
+            f"  pair cols: shape={pair_block.shape}, norm={float(jnp.linalg.norm(pair_block)):.4f}"
+        )
 
     # Sample from prior
     print("\n--- PRIOR SAMPLES ---")
     key, sample_key = jax.random.split(key)
     z_samples_prior = model.mix_man.sample(sample_key, lat_params, 100)
-    # Extract y and k components (k is a scalar category index)
-    y_samples = z_samples_prior[:, :lat_dim]
-    k_samples = z_samples_prior[:, lat_dim].astype(jnp.int32)
+    # Extract y and k components (k is a scalar category index). y has length
+    # ``lat_data_dim`` (number of binary units); ChordalBoltzmann's larger
+    # ``lat_dim`` (n + n_chordal_edges) is the parameter dimension, not the
+    # sample dimension.
+    y_samples = z_samples_prior[:, :lat_data_dim]
+    k_samples = z_samples_prior[:, lat_data_dim].astype(jnp.int32)
 
     print(
         f"y samples: mean={float(y_samples.mean()):.4f}, fraction 1s={float((y_samples > 0.5).mean()):.4f}"
@@ -138,7 +153,7 @@ def diagnose_trained_model(mode: str = "gradient"):
         q_params = model.approximate_posterior_at(params, x_sample)
         key, sub_key = jax.random.split(key)
         z_post = model.mix_man.sample(sub_key, q_params, 10)
-        y_post = z_post[:, :lat_dim]
+        y_post = z_post[:, :lat_data_dim]
         all_y_post.append(y_post)
 
         lkl_params_post = jax.vmap(get_lkl_params)(y_post)
@@ -290,10 +305,7 @@ def diagnose_trained_model(mode: str = "gradient"):
     # 3. Effective dimensionality via participation ratio
     total_var = float(jnp.sum(latent_variances))
     sum_var_sq = float(jnp.sum(latent_variances**2))
-    if sum_var_sq > 1e-12:
-        participation_ratio = (total_var**2) / sum_var_sq
-    else:
-        participation_ratio = 0.0
+    participation_ratio = (total_var**2) / sum_var_sq if sum_var_sq > 1e-12 else 0.0
 
     print(
         f"\n  Effective dimensionality (participation ratio): {participation_ratio:.1f}/{n_latent_dims}"
@@ -302,7 +314,7 @@ def diagnose_trained_model(mode: str = "gradient"):
 
     # 4. Histogram of activation rates
     activation_rate_per_latent = latent_means  # For Bernoulli, mean = P(y=1)
-    print(f"\nActivation rate distribution:")
+    print("\nActivation rate distribution:")
     bins = [0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0]
     for i in range(len(bins) - 1):
         count = int(

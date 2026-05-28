@@ -10,3 +10,4 @@ Gaussian-family distributions: generalized Gaussians, normal distributions with 
    generalized
    normal
    boltzmann
+   junction_tree

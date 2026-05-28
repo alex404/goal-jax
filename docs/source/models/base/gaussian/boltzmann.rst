@@ -37,3 +37,21 @@ Boltzmann
    :members:
    :undoc-members:
    :show-inheritance:
+
+Chordal Coupling Matrix
+-----------------------
+
+.. autoclass:: goal.models.base.gaussian.boltzmann.ChordalCouplingMatrix
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Chordal Boltzmann
+-----------------
+
+.. autoclass:: goal.models.base.gaussian.boltzmann.ChordalBoltzmann
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+See :doc:`junction_tree` for the static topology object that backs ``ChordalBoltzmann``.

@@ -143,6 +143,18 @@ def parse_args() -> argparse.Namespace:
         help="Interaction mode: 'hierarchical' (X<->(Y,K)) or 'full' (X<->Y<->K three-block)",
     )
     parser.add_argument(
+        "--latent",
+        choices=["bernoullis", "chordal_boltzmann"],
+        default="bernoullis",
+        help="Base latent kind: 'bernoullis' (independent units) or 'chordal_boltzmann' (chordal pairwise couplings, exact JT inference)",
+    )
+    parser.add_argument(
+        "--latent-graph",
+        choices=["chain"],
+        default="chain",
+        help="Sparsity pattern for chordal_boltzmann latent (only 'chain' is wired up)",
+    )
+    parser.add_argument(
         "--analytical-samples-mult",
         type=int,
         default=ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
@@ -718,6 +730,9 @@ def main():
     print(f"  Conj weight: {args.conj_weight}")
     print(f"  Conj mode: {args.conj_mode}")
     print(f"  Interaction: {args.interaction}")
+    print(f"  Latent: {args.latent}")
+    if args.latent == "chordal_boltzmann":
+        print(f"  Latent graph: {args.latent_graph}")
     print(f"  KL warmup steps: {args.kl_warmup_steps}")
     print(f"  LR warmup steps: {args.lr_warmup_steps}")
     print(f"  Conj warmup steps: {args.conj_warmup_steps}")
@@ -744,6 +759,8 @@ def main():
         observable_type=args.observable,
         n_trials=DEFAULT_N_TRIALS,
         interaction=args.interaction,
+        latent=args.latent,
+        latent_graph=args.latent_graph,
     )
     print(f"Model dim: {model.dim}")
     print(f"  Rho params: {model.cnj_man.dim}")
@@ -799,6 +816,8 @@ def main():
             "conj_mode": args.conj_mode,
             "analytical_samples_mult": args.analytical_samples_mult,
             "interaction": args.interaction,
+            "latent": args.latent,
+            "latent_graph": args.latent_graph,
             "kl_warmup_steps": args.kl_warmup_steps,
             "lr_warmup_steps": args.lr_warmup_steps,
             "conj_warmup_steps": args.conj_warmup_steps,

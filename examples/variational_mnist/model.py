@@ -35,6 +35,7 @@ from goal.geometry.manifold.map import LinearMap
 from goal.models import (
     Bernoullis,
     Binomials,
+    ChordalBoltzmann,
     CompleteMixture,
     CompleteMixtureOfHarmoniums,
     Poissons,
@@ -207,11 +208,23 @@ type PoissonBernoulliHierarchical = ConcreteVariationalHierarchicalMixture[
 ]
 type BinomialBernoulliFull = VariationalFullMixture[Binomials, Bernoullis]
 type PoissonBernoulliFull = VariationalFullMixture[Poissons, Bernoullis]
+type BinomialChordalHierarchical = ConcreteVariationalHierarchicalMixture[
+    Binomials, ChordalBoltzmann
+]
+type PoissonChordalHierarchical = ConcreteVariationalHierarchicalMixture[
+    Poissons, ChordalBoltzmann
+]
+type BinomialChordalFull = VariationalFullMixture[Binomials, ChordalBoltzmann]
+type PoissonChordalFull = VariationalFullMixture[Poissons, ChordalBoltzmann]
 type MixtureModel = (
     BinomialBernoulliHierarchical
     | PoissonBernoulliHierarchical
     | BinomialBernoulliFull
     | PoissonBernoulliFull
+    | BinomialChordalHierarchical
+    | PoissonChordalHierarchical
+    | BinomialChordalFull
+    | PoissonChordalFull
 )
 
 
@@ -243,12 +256,36 @@ def _full_base_harmonium(
     return ConcreteHarmonium(int_man)
 
 
+def _chain_edges(n: int) -> list[tuple[int, int]]:
+    """1D nearest-neighbour edges along a line of ``n`` nodes."""
+    return [(i, i + 1) for i in range(n - 1)]
+
+
+def _build_base_latent(
+    n_latent: int,
+    latent: Literal["bernoullis", "chordal_boltzmann"],
+    latent_graph: Literal["chain"],
+) -> Any:
+    """Construct the base latent manifold given the requested kind and graph.
+
+    ``latent`` and ``latent_graph`` are both Literal-typed; argparse validates the
+    CLI input against the same choices, so there is no runtime fallback path.
+    """
+    if latent == "bernoullis":
+        return Bernoullis(n_latent)
+    # latent == "chordal_boltzmann"; only "chain" is a valid latent_graph today.
+    _ = latent_graph
+    return ChordalBoltzmann.from_edges(n_latent, _chain_edges(n_latent))
+
+
 def create_model(
     n_latent: int = DEFAULT_N_LATENT,
     n_clusters: int = DEFAULT_N_CLUSTERS,
     observable_type: Literal["binomial", "poisson"] = "binomial",
     n_trials: int = DEFAULT_N_TRIALS,
     interaction: Literal["hierarchical", "full"] = "full",
+    latent: Literal["bernoullis", "chordal_boltzmann"] = "bernoullis",
+    latent_graph: Literal["chain"] = "chain",
 ) -> MixtureModel:
     """Create a mixture model with the specified observable type and interaction mode.
 
@@ -260,11 +297,17 @@ def create_model(
         interaction: Interaction mode:
             - "hierarchical": X<->(Y,K) with interaction restricted to Y component
             - "full": X<->Y<->K with three-block interaction (xy, xyk, xk)
+        latent: Base latent kind. ``"bernoullis"`` (default) is independent
+            binary units. ``"chordal_boltzmann"`` is a Boltzmann machine with
+            chordal pairwise couplings, with exact junction-tree inference.
+        latent_graph: For ``latent="chordal_boltzmann"``, the sparsity pattern
+            of the couplings. Currently only ``"chain"`` is supported (1D
+            nearest-neighbour, treewidth 1). Ignored for ``latent="bernoullis"``.
 
     Returns:
         MixtureModel instance
     """
-    base_lat_man = Bernoullis(n_latent)
+    base_lat_man = _build_base_latent(n_latent, latent, latent_graph)
     obs_man: Any
     if observable_type == "poisson":
         obs_man = Poissons(N_OBSERVABLE)
@@ -296,8 +339,21 @@ def reconstruct(model: MixtureModel, params: Array, x: Array) -> Array:
 def normalized_reconstruction_error(
     model: MixtureModel, params: Array, xs: Array, scale: float = 1.0
 ) -> Array:
-    """Compute normalized MSE between inputs and their reconstructions."""
-    recons = jax.vmap(lambda x: reconstruct(model, params, x))(xs)
+    """Compute normalized MSE between inputs and their reconstructions.
+
+    Reconstructions are computed in fixed-size chunks via ``jax.lax.map`` so
+    that latent-prior models with non-trivial ``to_mean`` (e.g. ChordalBoltzmann,
+    whose log-partition autodiff retains the full junction-tree scan history)
+    do not materialise the full batched backward at once. For Bernoullis the
+    chunking is a small constant-factor overhead and the chunk size is large
+    enough that XLA still vectorises within a chunk.
+    """
+    chunk_size = 256
+
+    def recon_one(x: Array) -> Array:
+        return reconstruct(model, params, x)
+
+    recons = jax.lax.map(recon_one, xs, batch_size=chunk_size)
     return jnp.mean(((xs - recons) / scale) ** 2)
 
 
