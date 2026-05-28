@@ -192,8 +192,14 @@ class TestBoltzmannEmbedding:
         assert jnp.allclose(translated, expected, rtol=RTOL, atol=ATOL)
 
 
-def _bf_log_partition(n: int, jt: JunctionTree, params: jnp.ndarray) -> jnp.ndarray:
-    """Brute-force log partition via enumeration over all $2^n$ binary states."""
+def _bf_log_partition(
+    n: int, jt: JunctionTree, params: jnp.ndarray
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Brute-force log partition via enumeration over all $2^n$ binary states.
+
+    Returns ``(log_z, all_states, energies)`` so callers can reuse the enumerated
+    states and per-state energies for marginal / density tests.
+    """
     diag = params[:n]
     off = params[n:]
     edges = jt.chordal_edges

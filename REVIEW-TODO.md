@@ -4,6 +4,8 @@ Pending hand-review checklists for in-flight PRs. Each section is a self-contain
 
 ## Topic 1 — manuscript-aligned variational rewrite
 
+**Status:** already pushed to `origin/main`; this checklist tracks hand-review of that earlier PR, not anything in the currently-unpushed commits. The `a11f2ab` parking commit trimmed away the hierarchical-extension bullets that used to live in this section.
+
 Tracking checklist for hand-review of the `variational.py` migration to manuscript §4.2 standard form. Plan: `/home/alex404/.claude-work/plans/alright-so-exponential-family-variationa-zany-balloon.md`.
 
 ### Automated verification (already run)
@@ -108,6 +110,8 @@ Tracking checklist for hand-review of the `variational.py` migration to manuscri
 
 Tracking checklist for hand-review of the chordal Boltzmann implementation (junction-tree topology + exact sum-product inference + ancestral sampling). Plan: `/home/alex404/.claude-work/plans/cozy-crafting-brooks.md`.
 
+> **Note on line numbers.** The `lax.scan` refactor in Topic 3 moved several helpers and renumbered most functions in `_jt_inference.py` and `junction_tree.py`. The L## references in this section are pre-refactor; treat them as historical pointers and use the file/function names plus Topic 3's notes for current-state navigation. In particular, `_clique_bits` and `_sep_state_map` (originally in `_jt_inference.py`) are now the cached property `JunctionTree.bits_table` and the module-level helper `_build_sep_state_map` respectively, both in `junction_tree.py`.
+
 ### Automated verification (already run)
 
 - `uvx basedpyright src/` → 0 errors, 0 warnings.
@@ -124,6 +128,11 @@ Tracking checklist for hand-review of the chordal Boltzmann implementation (junc
 - [ ] **`log_partition_function` matches brute-force enumeration.** `tests/boltzmann.py:288-297` parametrises over chain / 4-cycle / 5-cycle / irregular sparse with `rtol=1e-5, atol=1e-7`. The K4 case is also checked against the original `Boltzmann.log_partition_function` to verify the layout conversion is correct.
 - [ ] **Ancestral sampling is exact.** `_jt_inference.py:137-180` walks the rooted JT in pre-order, sampling each clique conditional on the separator with its parent (which has already been sampled). For the root, the full $2^{|C_\text{root}|}$ categorical is used; for child cliques, logits are masked to states consistent with the already-drawn separator values via `jnp.where(mask, logits, -jnp.inf)`. Empirical-vs-exact first-moment test at `tests/boltzmann.py:340-352` (`test_exact_sampling_matches_enumeration`) with 20k samples on a 5-node triangulated cycle, `atol=0.02`.
 - [ ] **`to_mean` via autodiff matches empirical sampling.** Standard exponential-family identity $\eta = \nabla\psi(\theta)$. `tests/boltzmann.py:329-338` verifies on a 4-cycle, 20k samples, `atol=0.03`.
+
+### Code-review findings (already addressed in-place)
+
+- [ ] **Dead-code cleanup in `junction_tree.py::owned_edge_arrays`.** Removed an unused `edge_to_idx = self.edge_param_index` assignment and the dangling `del edge_to_idx  # only used to assert presence` at the end of the cached property. No behaviour change; the cached property still returns the same arrays. Worth a glance to confirm I read the intent correctly.
+- [ ] **`tests/boltzmann.py::_bf_log_partition` return annotation.** The helper returns `(log_z, all_states, energies)`; the original `-> jnp.ndarray` annotation was wrong. Corrected to `tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]` and a one-line docstring addition explaining the tuple shape.
 
 ### Architectural deviation from plan — please flag
 

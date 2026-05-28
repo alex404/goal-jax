@@ -410,7 +410,6 @@ class JunctionTree:
         ``max_clique_size * (max_clique_size - 1) // 2``.
         """
         per_clique: list[list[tuple[int, int, int]]] = [[] for _ in range(self.n_cliques)]
-        edge_to_idx = self.edge_param_index
         for k, (vi, vj) in enumerate(self.chordal_edges):
             owner = self.edge_owner[k]
             clique = self.cliques[owner]
@@ -432,7 +431,6 @@ class JunctionTree:
                 eidx[c, slot] = k
                 ei[c, slot] = pi
                 ej[c, slot] = pj
-        del edge_to_idx  # only used to assert presence
         return eidx, ei, ej
 
     @cached_property
