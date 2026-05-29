@@ -40,6 +40,7 @@ from goal.models import (
     CompleteMixtureOfHarmoniums,
     Poissons,
     VariationalHierarchicalMixture,
+    diagonal_normal,
 )
 
 # MNIST dimensions
@@ -281,7 +282,7 @@ def _build_base_latent(
 def create_model(
     n_latent: int = DEFAULT_N_LATENT,
     n_clusters: int = DEFAULT_N_CLUSTERS,
-    observable_type: Literal["binomial", "poisson"] = "binomial",
+    observable_type: Literal["binomial", "poisson", "normal"] = "binomial",
     n_trials: int = DEFAULT_N_TRIALS,
     interaction: Literal["hierarchical", "full"] = "full",
     latent: Literal["bernoullis", "chordal_boltzmann"] = "bernoullis",
@@ -292,8 +293,12 @@ def create_model(
     Args:
         n_latent: Number of latent units (default: 1024)
         n_clusters: Number of mixture components (default: 10)
-        observable_type: Type of observable distribution ("binomial" or "poisson")
-        n_trials: Binomial discretization level (default: 16, only used for binomial)
+        observable_type: Observable distribution: ``"binomial"`` and
+            ``"poisson"`` are count-style; ``"normal"`` is a
+            :class:`DiagonalNormal` continuous observable (the theoretically
+            conjugated case when combined with a Boltzmann latent).
+        n_trials: Binomial discretization level (default: 16, only used for
+            ``"binomial"``; ignored for ``"poisson"`` and ``"normal"``).
         interaction: Interaction mode:
             - "hierarchical": X<->(Y,K) with interaction restricted to Y component
             - "full": X<->Y<->K with three-block interaction (xy, xyk, xk)
@@ -311,6 +316,8 @@ def create_model(
     obs_man: Any
     if observable_type == "poisson":
         obs_man = Poissons(N_OBSERVABLE)
+    elif observable_type == "normal":
+        obs_man = diagonal_normal(N_OBSERVABLE)
     else:
         obs_man = Binomials(N_OBSERVABLE, n_trials)
 
@@ -328,12 +335,19 @@ def create_model(
 
 
 def reconstruct(model: MixtureModel, params: Array, x: Array) -> Array:
-    """Reconstruct an observation via posterior mean."""
+    """Reconstruct an observation via posterior mean.
+
+    For Bernoulli/Binomial/Poisson observables ``obs_man.to_mean`` already
+    returns a vector in the data space. For GeneralizedGaussian observables
+    (Normal) it returns first *and* second moments stacked; we slice off the
+    first ``data_dim`` entries so the result lives in the data space.
+    """
     q_params = model.approximate_posterior_at(params, x)
     z_mean_stats = model.pst_man.to_mean(q_params)
     _, lkl, _ = model.split_coords(params)
     lkl_natural = model.gen_hrm.lkl_fun_man(lkl, z_mean_stats)
-    return model.obs_man.to_mean(lkl_natural)
+    means = model.obs_man.to_mean(lkl_natural)
+    return means[..., : model.obs_man.data_dim]
 
 
 def normalized_reconstruction_error(

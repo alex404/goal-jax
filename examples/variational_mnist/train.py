@@ -8,9 +8,10 @@ Both modes support --conj-weight to regularize the generative model
 parameters with the conjugation variance (Var[r]).
 Set --conj-weight 0 for no regularization (default), or positive for regularized.
 
-Supports two observable types:
+Supports three observable types:
 - binomial: Discretized pixels in [0, n_trials] (default)
 - poisson: Count data with unbounded support
+- normal: DiagonalNormal continuous observable (pixels rescaled to [0,1])
 
 Usage:
     python -m examples.variational_mnist.train
@@ -25,6 +26,7 @@ Usage:
 
 import argparse
 import json
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -132,9 +134,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--observable",
-        choices=["binomial", "poisson"],
+        choices=["binomial", "poisson", "normal"],
         default="binomial",
-        help="Observable distribution type: 'binomial' (bounded) or 'poisson' (unbounded)",
+        help=(
+            "Observable distribution type: 'binomial' (bounded counts), "
+            "'poisson' (unbounded counts), or 'normal' (DiagonalNormal "
+            "continuous observable; pixels rescaled to [0,1] floats; "
+            "--n-trials is ignored)"
+        ),
     )
     parser.add_argument(
         "--interaction",
@@ -199,23 +206,30 @@ def load_mnist_sklearn() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
 
 def load_mnist(
     n_trials: int = DEFAULT_N_TRIALS,
-    observable_type: Literal["binomial", "poisson"] = "binomial",
+    observable_type: Literal["binomial", "poisson", "normal"] = "binomial",
 ) -> tuple[Array, Array, Array, Array]:
     """Load MNIST and split into train/test with labels.
 
     Args:
-        n_trials: Discretization level (both binomial and poisson scale to [0, n_trials])
-        observable_type: Type of observable distribution
+        n_trials: Discretization level for the count-style observables
+            (``binomial``, ``poisson``); ignored for ``normal``.
+        observable_type: Type of observable distribution.
 
     Returns:
         Tuple of (train_data, train_labels, test_data, test_labels)
     """
-    print(f"Loading MNIST data ({observable_type}, scaled to [0, {n_trials}])...")
+    if observable_type == "normal":
+        print("Loading MNIST data (normal, rescaled to [0, 1] floats)...")
+    else:
+        print(f"Loading MNIST data ({observable_type}, scaled to [0, {n_trials}])...")
     data, labels = load_mnist_sklearn()
 
     labels = labels.astype(np.int32)
-    # Scale to [0, n_trials] for both types to prevent Poisson rates from exploding
-    data = np.round(data * n_trials / 255.0).astype(np.float32)
+    if observable_type == "normal":
+        data = (data / 255.0).astype(np.float32)
+    else:
+        # Scale to [0, n_trials] for count-style observables.
+        data = np.round(data * n_trials / 255.0).astype(np.float32)
 
     train_data = jnp.array(data[:N_TRAIN])
     train_labels = jnp.array(labels[:N_TRAIN])
@@ -261,7 +275,7 @@ def train_model(  # noqa: C901
     entropy_weight: float,
     conj_weight: float,
     conj_mode: str,
-    observable_type: Literal["binomial", "poisson"] = "binomial",
+    observable_type: Literal["binomial", "poisson", "normal"] = "binomial",
     n_trials: int = DEFAULT_N_TRIALS,
     analytical_samples_mult: int = ANALYTICAL_RHO_SAMPLES_MULTIPLIER,
     posterior_entropy_weight: float = DEFAULT_ENTROPY_WEIGHT,
@@ -535,6 +549,9 @@ def train_model(  # noqa: C901
     conj_stds: list[float] = []
     conj_r2s: list[float] = []
     rho_norms: list[float] = []
+    # Per-step wallclock in seconds; step 0 includes JIT compile cost,
+    # subsequent steps measure the warm step cost.
+    step_times: list[float] = []
 
     key, train_key = jax.random.split(key)
     current_params = params
@@ -569,6 +586,7 @@ def train_model(  # noqa: C901
         beta = jnp.array(min(1.0, step / max(kl_warmup_steps, 1)))
         conj_beta = jnp.array(min(1.0, step / max(conj_warmup_steps, 1)))
 
+        step_start = time.perf_counter()
         if use_analytical_rho:
             (current_gen_params, current_opt_state, train_key, _), metrics = train_step(
                 (current_gen_params, current_opt_state, train_key, train_data),
@@ -577,6 +595,7 @@ def train_model(  # noqa: C901
                 conj_beta=conj_beta,
             )
             elbo, conj_var, rho_star = metrics
+            jax.block_until_ready(elbo)
             current_params = model.join_coords(
                 current_gen_params[:prior_dim],
                 current_gen_params[prior_dim:],
@@ -590,6 +609,8 @@ def train_model(  # noqa: C901
                 conj_beta=conj_beta,
             )
             elbo, conj_var = metrics
+            jax.block_until_ready(elbo)
+        step_times.append(time.perf_counter() - step_start)
 
         elbos.append(float(elbo))
         conj_vars.append(float(conj_var))
@@ -665,8 +686,9 @@ def train_model(  # noqa: C901
     xz_samples = model.sample(sample_key, final_params, n=20)
     x_samples = xz_samples[:, :model.obs_man.dim]
 
-    # Clip samples for visualization (especially important for Poisson)
-    x_samples = jnp.clip(x_samples, 0, n_trials)
+    # Clip samples for visualization; range depends on observable type.
+    clip_max = 1.0 if observable_type == "normal" else float(n_trials)
+    x_samples = jnp.clip(x_samples, 0, clip_max)
 
     # Also generate mean-based samples (expected values, not sampled)
     key, mean_key = jax.random.split(key)
@@ -679,8 +701,8 @@ def train_model(  # noqa: C901
 
     x_mean_samples = jax.vmap(get_mean_image)(z_mean_samples)
 
-    # Clip mean samples for visualization (especially important for Poisson)
-    x_mean_samples = jnp.clip(x_mean_samples, 0, n_trials)
+    # Clip mean samples for visualization; matches the observable range.
+    x_mean_samples = jnp.clip(x_mean_samples, 0, clip_max)
 
     # Cluster prototypes
     cluster_prototypes: list[list[float]] = []
@@ -692,8 +714,17 @@ def train_model(  # noqa: C901
             prototype = jnp.zeros(N_OBSERVABLE)
         cluster_prototypes.append(prototype.tolist())
 
+    # Split step wallclock series: step 0 is JIT compile + first step;
+    # the rest are warm steps used for the per-step throughput metric.
+    jit_compile_seconds = step_times[0] if step_times else 0.0
+    warm_step_times = step_times[1:] if len(step_times) > 1 else []
+    mean_warm_step_seconds = (
+        float(sum(warm_step_times) / len(warm_step_times)) if warm_step_times else 0.0
+    )
+
     results = {
         "mode": mode,
+        "observable_type": observable_type,
         "training_elbos": elbos,
         "generated_samples_mean": x_mean_samples.tolist(),
         "conjugation_vars": conj_vars,
@@ -708,6 +739,9 @@ def train_model(  # noqa: C901
         "cluster_assignments": assignments.tolist(),
         "generated_samples": x_samples.tolist(),
         "cluster_prototypes": cluster_prototypes,
+        "step_times_seconds": step_times,
+        "jit_compile_seconds": jit_compile_seconds,
+        "mean_warm_step_seconds": mean_warm_step_seconds,
     }
 
     return final_params, results
@@ -794,7 +828,8 @@ def main():
         return reconstruct(model, params, x)
 
     reconstructions = jax.vmap(get_recon)(test_data[:20])
-    reconstructions = jnp.clip(reconstructions, 0, DEFAULT_N_TRIALS)
+    recon_clip_max = 1.0 if args.observable == "normal" else float(DEFAULT_N_TRIALS)
+    reconstructions = jnp.clip(reconstructions, 0, recon_clip_max)
 
     # Save results
     output = {
@@ -850,6 +885,12 @@ def main():
     if results['conjugation_r2s']:
         print(f"{'Final R^2':<22} {results['conjugation_r2s'][-1]:>14.4f}")
     print(f"{'Final ||rho||':<22} {results['rho_norms'][-1]:>14.4f}")
+    print(
+        f"{'JIT compile (s)':<22} {results['jit_compile_seconds']:>14.4f}"
+    )
+    print(
+        f"{'Mean warm step (s)':<22} {results['mean_warm_step_seconds']:>14.4f}"
+    )
 
 
 if __name__ == "__main__":

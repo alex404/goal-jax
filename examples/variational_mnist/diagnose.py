@@ -3,7 +3,9 @@
 This investigates the gap between reconstruction (posterior-based) and
 generation (prior-based) in the trained model.
 
-Supports both Binomial and Poisson observable types.
+Supports Binomial, Poisson, and Normal (DiagonalNormal) observable types.
+When the trained latent is ``ChordalBoltzmann``, also writes a coupling-
+pattern visualisation alongside the standard diagnostic output.
 """
 
 # pyright: reportAttributeAccessIssue=false
@@ -14,9 +16,11 @@ from typing import Literal
 
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import numpy as np
+from jax import Array
 
-from ..shared import example_paths
+from ..shared import example_paths, model_color
 from .model import MixtureModel, create_model
 from .train import DEFAULT_N_TRIALS, load_mnist
 
@@ -53,10 +57,14 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
     n_latent = config.get("n_latent", 1024)
     n_clusters = config.get("n_clusters", 10)
     n_trials = config.get("n_trials", DEFAULT_N_TRIALS)
-    observable_type: Literal["binomial", "poisson"] = config.get(
+    observable_type: Literal["binomial", "poisson", "normal"] = config.get(
         "observable_type", "binomial"
     )
     interaction: Literal["hierarchical", "full"] = config.get("interaction", "full")
+    latent: Literal["bernoullis", "chordal_boltzmann"] = config.get(
+        "latent", "bernoullis"
+    )
+    latent_graph: Literal["chain"] = config.get("latent_graph", "chain")
 
     # Load test data
     _, _, test_data, _ = load_mnist(n_trials, observable_type=observable_type)
@@ -68,6 +76,8 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
         observable_type=observable_type,
         n_trials=n_trials,
         interaction=interaction,
+        latent=latent,
+        latent_graph=latent_graph,
     )
 
     key = jax.random.PRNGKey(42)
@@ -90,11 +100,25 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
 
     lat_dim = model.bas_lat_man.dim  # param dim (= n + n_chordal_edges for ChordalBoltzmann)
     lat_data_dim = model.bas_lat_man.data_dim  # sample dim (= n binary units)
-    int_matrix = int_params.reshape(model.obs_man.dim, lat_dim)
-    print(
-        f"Interaction matrix: shape={int_matrix.shape}, norm={float(jnp.linalg.norm(int_matrix)):.4f}, mean={float(int_matrix.mean()):.6f}, std={float(int_matrix.std()):.6f}"
-    )
-    if lat_dim != lat_data_dim:
+    # The naive ``(obs_dim, lat_dim)`` reshape assumes the entire ``int_params``
+    # vector is a single ``xy`` block. In ``full`` interaction mode it actually
+    # contains three concatenated blocks (xy, xyk, xk) and the sizes will not
+    # match. Skip the reshape-based diagnostic in that case rather than aborting
+    # the whole script — the per-component prior analysis below still runs.
+    int_matrix = None
+    expected_size = int(model.obs_man.dim) * int(lat_dim)
+    if int_params.size == expected_size:
+        int_matrix = int_params.reshape(model.obs_man.dim, lat_dim)
+        print(
+            f"Interaction matrix: shape={int_matrix.shape}, norm={float(jnp.linalg.norm(int_matrix)):.4f}, mean={float(int_matrix.mean()):.6f}, std={float(int_matrix.std()):.6f}"
+        )
+    else:
+        print(
+            f"Interaction params size {int_params.size} != obs_dim*lat_dim"
+            + f" ({expected_size}); skipping single-block interaction-matrix"
+            + " diagnostic (full-interaction model packs xy/xyk/xk blocks)."
+        )
+    if int_matrix is not None and lat_dim != lat_data_dim:
         # ChordalBoltzmann: first lat_data_dim columns are unit interactions
         # x_i, remainder are pair interactions x_i * x_j over chordal edges.
         unit_block = int_matrix[:, :lat_data_dim]
@@ -105,6 +129,58 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
         print(
             f"  pair cols: shape={pair_block.shape}, norm={float(jnp.linalg.norm(pair_block)):.4f}"
         )
+
+    # ChordalBoltzmann-only: visualise learned off-diagonal couplings.
+    # ``lat_dim > lat_data_dim`` is the structural signature: the extra entries
+    # are the coupling weights on the chordal edges (``n_latent - 1`` for a chain).
+    # Hoisted before prior sampling so the visualisation still produces output
+    # even if downstream analyses fail for some model configurations.
+    if lat_dim != lat_data_dim:
+        n_edges = lat_dim - lat_data_dim
+        print(
+            f"\n--- CHORDAL COUPLINGS ({n_edges} edges,"
+            + f" graph={latent_graph}) ---"
+        )
+        early_components, _ = model.mix_man.split_natural_mixture(lat_params)
+        early_comp_params_2d = model.mix_man.cmp_man.to_2d(early_components)
+        couplings_per_component = []
+        for k in range(model.n_categories):
+            comp_natural = early_comp_params_2d[k]
+            couplings = np.asarray(comp_natural[lat_data_dim:])
+            couplings_per_component.append(couplings)
+        couplings_arr = np.stack(couplings_per_component)
+        print(
+            "  Coupling magnitudes per component:"
+            + f" mean |c|={float(np.mean(np.abs(couplings_arr))):.4f},"
+            + f" max |c|={float(np.max(np.abs(couplings_arr))):.4f}"
+        )
+
+        fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+        edge_idx = np.arange(n_edges)
+        for k in range(model.n_categories):
+            axes[0].plot(
+                edge_idx,
+                couplings_arr[k],
+                color=model_color(k),
+                alpha=0.7,
+                label=f"comp {k}",
+            )
+        axes[0].axhline(0.0, color="gray", linestyle="--", alpha=0.5)
+        axes[0].set_ylabel("Coupling weight")
+        axes[0].set_title(
+            f"Learned chordal couplings per component ({latent_graph} graph)"
+        )
+        axes[0].legend(ncol=5, fontsize=7)
+        agg = np.mean(np.abs(couplings_arr), axis=0)
+        axes[1].plot(edge_idx, agg, color=model_color(0))
+        axes[1].set_xlabel("Edge index (along chain)")
+        axes[1].set_ylabel("Mean |coupling|")
+        axes[1].set_title("Mean coupling magnitude across components")
+        coupling_plot_path = paths.results_dir / f"couplings_{mode}.png"
+        fig.tight_layout()
+        fig.savefig(coupling_plot_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"  Coupling visualisation saved to {coupling_plot_path}")
 
     # Sample from prior
     print("\n--- PRIOR SAMPLES ---")
@@ -123,17 +199,23 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
     print(f"k samples: distribution={[int((k_samples == k).sum()) for k in range(10)]}")
 
     # What are the likelihood parameters for prior samples?
-    def get_lkl_params(y):
-        return model.likelihood_at(params, y)
+    # ``likelihood_at`` takes the posterior-shaped latent ``z``. In hierarchical
+    # mode that is just ``y``; in full mode it is the joint ``(y, k)`` row that
+    # ``mix_man.sample`` already produces.
+    def get_lkl_params(z: Array) -> Array:
+        return model.likelihood_at(params, z)
 
-    lkl_params_prior = jax.vmap(get_lkl_params)(y_samples)
+    lkl_params_prior = jax.vmap(get_lkl_params)(z_samples_prior)
     print("\nLikelihood natural params (prior samples):")
     print(
         f"  min={float(lkl_params_prior.min()):.4f}, max={float(lkl_params_prior.max()):.4f}, mean={float(lkl_params_prior.mean()):.4f}"
     )
 
-    # Convert to means (expected pixel values)
-    lkl_means_prior = jax.vmap(model.obs_man.to_mean)(lkl_params_prior)
+    # Convert to means (expected pixel values). For Normal observables the
+    # mean vector packs both first and second moments; slice to data_dim so
+    # the printed stats live in the pixel space.
+    lkl_means_prior_full = jax.vmap(model.obs_man.to_mean)(lkl_params_prior)
+    lkl_means_prior = lkl_means_prior_full[..., : model.obs_man.data_dim]
     print("Expected pixel values (prior samples):")
     print(
         f"  min={float(lkl_means_prior.min()):.4f}, max={float(lkl_means_prior.max()):.4f}, mean={float(lkl_means_prior.mean()):.4f}"
@@ -156,8 +238,10 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
         y_post = z_post[:, :lat_data_dim]
         all_y_post.append(y_post)
 
-        lkl_params_post = jax.vmap(get_lkl_params)(y_post)
-        lkl_means_post = jax.vmap(model.obs_man.to_mean)(lkl_params_post)
+        lkl_params_post = jax.vmap(get_lkl_params)(z_post)
+        lkl_means_post_full = jax.vmap(model.obs_man.to_mean)(lkl_params_post)
+        # Slice to data_dim for Normal observables; identity for count obs.
+        lkl_means_post = lkl_means_post_full[..., : model.obs_man.data_dim]
         all_lkl_means_post.append(lkl_means_post)
 
     all_y_post = jnp.concatenate(all_y_post)
@@ -237,22 +321,24 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
     print("\n--- LATENT CODE COLLAPSE DIAGNOSTICS ---")
 
     # 1. Analyze interaction weight distribution per latent dimension
-    weight_norms_per_latent = jnp.linalg.norm(int_matrix, axis=0)  # (n_latent,)
-    _ = jnp.abs(int_matrix).mean(axis=0)  # (n_latent,)
+    # Only runs in hierarchical mode where ``int_matrix`` is a single block.
+    if int_matrix is not None:
+        weight_norms_per_latent = jnp.linalg.norm(int_matrix, axis=0)  # (n_latent,)
+        _ = jnp.abs(int_matrix).mean(axis=0)  # (n_latent,)
 
-    print(
-        f"\nInteraction weight norms per latent dim ({model.obs_man.dim} obs -> {lat_dim} latent dims):"
-    )
-    print(
-        f"  min={float(weight_norms_per_latent.min()):.4f}, max={float(weight_norms_per_latent.max()):.4f}, mean={float(weight_norms_per_latent.mean()):.4f}, std={float(weight_norms_per_latent.std()):.4f}"
-    )
+        print(
+            f"\nInteraction weight norms per latent dim ({model.obs_man.dim} obs -> {lat_dim} latent dims):"
+        )
+        print(
+            f"  min={float(weight_norms_per_latent.min()):.4f}, max={float(weight_norms_per_latent.max()):.4f}, mean={float(weight_norms_per_latent.mean()):.4f}, std={float(weight_norms_per_latent.std()):.4f}"
+        )
 
-    # Count "dead" latents (very small weight norm)
-    dead_threshold = 0.1 * float(weight_norms_per_latent.mean())
-    n_dead_latents = int(jnp.sum(weight_norms_per_latent < dead_threshold))
-    print(
-        f"  'Dead' latent dims (norm < 10% of mean): {n_dead_latents}/{lat_dim} ({100 * n_dead_latents / lat_dim:.1f}%)"
-    )
+        # Count "dead" latents (very small weight norm)
+        dead_threshold = 0.1 * float(weight_norms_per_latent.mean())
+        n_dead_latents = int(jnp.sum(weight_norms_per_latent < dead_threshold))
+        print(
+            f"  'Dead' latent dims (norm < 10% of mean): {n_dead_latents}/{lat_dim} ({100 * n_dead_latents / lat_dim:.1f}%)"
+        )
 
     # 2. Analyze posterior activation variance across test data
     print("\nPosterior latent activation analysis (100 test images):")
