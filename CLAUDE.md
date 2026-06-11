@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 goal-jax is a JAX implementation of information geometric algorithms and exponential families. The library provides geometric optimization tools for statistical models, focusing on manifold-based optimization and exponential family distributions.
 
+### Library boundaries (goal-jax vs goal-apps)
+
+goal-jax is the **core library**; `../goal-apps` is the application layer built on top of it (CLI training framework with plugin-based models/datasets, Hydra configs, W&B integration). The division of responsibility:
+
+- **Core model classes stay mathematically exact.** A `log_partition_function` computes the actual log-partition; closed-form duals and autodiff gradients agree everywhere. Do NOT bake training-stability policy into core classes — no clamps, floors, or clipping controlled by construction-time state (a `precision_floor` field on `Normal` was rejected for exactly this reason).
+- **Core may expose explicit, caller-invoked regularization tools** (e.g. `Normal.regularize_covariance(means, jitter, min_var)`, `Covariance.add_jitter`). The tool lives in core; the *decision to use it* does not.
+- **Stability policy lives in the application layer**: goal-apps trainer configs carry `min_var`/`jitter_var`/`grad_clip` and trainers apply bounds at the right points in the loop. Within this repo, examples may define local shims (e.g. a subclass overriding `log_partition_function` with a floor) — see `examples/variational_mnist/model.py::FlooredDiagonalNormal`.
+
+### Experimental code: examples/variational_mnist
+
+`examples/variational_mnist` is an experimental block slated to be factored out of the library (eventually into goal-apps). Its standards are deliberately looser than core: local model subclasses with stability shims, dataclass-field defaults, extra diagnostic scripts, and CLI surface area are all acceptable there but should not migrate into `src/goal/`.
+
 ## Development Environment
 
 This project uses `uv` for Python environment and dependency management. Use `uv run` to execute commands within the project environment — do not manually activate the venv.

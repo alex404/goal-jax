@@ -14,10 +14,12 @@ import pytest
 from goal.geometry import Symmetric
 from goal.models import (
     Bernoullis,
-    Boltzmann,
     BoltzmannEmbedding,
+    ChainBoltzmann,
+    ChainTree,
     ChordalBoltzmann,
     DiagonalBoltzmann,
+    FullBoltzmann,
     JunctionTree,
 )
 
@@ -33,12 +35,12 @@ class TestBoltzmann:
 
     @pytest.mark.parametrize("n", [3, 4])
     def test_dimensions(self, n: int) -> None:
-        model = Boltzmann(n)
+        model = FullBoltzmann(n)
         assert model.dim == n * (n + 1) // 2
         assert model.data_dim == n
 
     def test_sufficient_statistic(self) -> None:
-        model = Boltzmann(4)
+        model = FullBoltzmann(4)
         state = jax.random.bernoulli(jax.random.PRNGKey(42), 0.5, (4,))
         suff_stat = model.sufficient_statistic(state)
         expected = Symmetric().from_matrix(jnp.outer(state, state))
@@ -47,7 +49,7 @@ class TestBoltzmann:
     @pytest.mark.parametrize("n", [3, 4])
     def test_density_normalizes(self, n: int) -> None:
         """Densities sum to 1 over all binary states."""
-        model = Boltzmann(n)
+        model = FullBoltzmann(n)
         params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0)
         densities = jax.vmap(lambda s: model.density(params, s))(model.states)
         assert jnp.allclose(jnp.sum(densities), 1.0, rtol=RTOL, atol=ATOL)
@@ -55,27 +57,30 @@ class TestBoltzmann:
     @pytest.mark.parametrize("n", [3, 4])
     def test_log_partition_matches_sum(self, n: int) -> None:
         """Log partition equals log sum over all states."""
-        model = Boltzmann(n)
+        model = FullBoltzmann(n)
         params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0)
         log_z = model.log_partition_function(params)
         energies = jax.vmap(lambda s: jnp.dot(params, model.sufficient_statistic(s)))(model.states)
         assert jnp.allclose(log_z, jax.scipy.special.logsumexp(energies), rtol=RTOL, atol=ATOL)
 
+    def test_location_precision_energy_identity(self) -> None:
+        _assert_location_precision_identity(FullBoltzmann(4), jax.random.PRNGKey(31))
+
     def test_split_join_round_trip(self) -> None:
-        model = Boltzmann(4)
+        model = FullBoltzmann(4)
         params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0)
         loc, prec = model.split_location_precision(params)
         recovered = model.join_location_precision(loc, prec)
         assert jnp.allclose(params, recovered, rtol=RTOL, atol=ATOL)
 
     def test_loc_man_is_bernoullis(self) -> None:
-        model = Boltzmann(4)
+        model = FullBoltzmann(4)
         assert isinstance(model.loc_man, Bernoullis)
         assert model.loc_man.n_neurons == 4
 
     def test_unit_conditional_prob(self) -> None:
         """unit_conditional_prob matches direct energy-difference computation."""
-        model = Boltzmann(4)
+        model = FullBoltzmann(4)
         coupling = model.shp_man
         key = jax.random.PRNGKey(42)
         params = jax.random.uniform(key, (model.dim,), minval=-2.0, maxval=2.0)
@@ -98,7 +103,7 @@ class TestBoltzmann:
 
     def test_to_mean_via_autodiff(self) -> None:
         """to_mean (autodiff of log_partition) matches stochastic_to_mean (Gibbs sampling)."""
-        model = Boltzmann(3)
+        model = FullBoltzmann(3)
         params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-1.0, maxval=1.0)
         autodiff_means = model.to_mean(params)
         stochastic_means = model.stochastic_to_mean(jax.random.PRNGKey(7), params, 50_000)
@@ -106,7 +111,7 @@ class TestBoltzmann:
 
     def test_gibbs_sampling(self) -> None:
         """Gibbs samples produce correct equilibrium distribution."""
-        model = Boltzmann(3)
+        model = FullBoltzmann(3)
         params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-1.0, maxval=1.0)
         samples = model.sample(jax.random.PRNGKey(0), params, 50_000)
         assert samples.shape == (50_000, model.data_dim)
@@ -138,6 +143,9 @@ class TestDiagonalBoltzmann:
         recovered = model.join_location_precision(loc, prec)
         assert jnp.allclose(params, recovered, rtol=RTOL, atol=ATOL)
 
+    def test_location_precision_energy_identity(self) -> None:
+        _assert_location_precision_identity(DiagonalBoltzmann(4), jax.random.PRNGKey(32))
+
     def test_split_join_mean_second_moment(self) -> None:
         """For independent binary, first and second moments are identical."""
         model = DiagonalBoltzmann(3)
@@ -154,14 +162,14 @@ class TestBoltzmannEmbedding:
 
     @pytest.mark.parametrize("n", [2, 4])
     def test_manifolds(self, n: int) -> None:
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), Boltzmann(n))
+        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
         assert emb.sub_man.dim == n
         assert emb.amb_man.dim == n * (n + 1) // 2
 
     def test_embed_zero_coupling(self) -> None:
         """Embedding creates zero off-diagonal coupling."""
         n = 3
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), Boltzmann(n))
+        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
         biases = jax.random.normal(jax.random.PRNGKey(42), (n,))
         boltz_params = emb.embed(biases)
         full_matrix = emb.amb_man.shp_man.to_matrix(boltz_params)
@@ -171,7 +179,7 @@ class TestBoltzmannEmbedding:
     def test_project_embed_round_trip(self) -> None:
         """project(embed(natural)) recovers original in mean coordinates."""
         n = 3
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), Boltzmann(n))
+        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
         probs = jax.random.uniform(jax.random.PRNGKey(42), (n,), minval=0.1, maxval=0.9)
         natural_params = emb.sub_man.to_natural(probs)
         boltz_natural = emb.embed(natural_params)
@@ -182,7 +190,7 @@ class TestBoltzmannEmbedding:
     def test_translate(self) -> None:
         """Translate correctly adds delta to location/bias."""
         n = 3
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), Boltzmann(n))
+        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
         key1, key2 = jax.random.split(jax.random.PRNGKey(42))
         biases = jax.random.normal(key1, (n,))
         delta = jax.random.normal(key2, (n,))
@@ -190,6 +198,51 @@ class TestBoltzmannEmbedding:
         translated = emb.translate(boltz_params, delta)
         expected = emb.embed(biases + delta)
         assert jnp.allclose(translated, expected, rtol=RTOL, atol=ATOL)
+
+
+def _assert_location_precision_identity(
+    model: DiagonalBoltzmann | FullBoltzmann | ChordalBoltzmann, key: jnp.ndarray
+) -> None:
+    """Pin the (location, precision) convention semantically.
+
+    Round-trip tests cannot catch a consistent sign or factor-of-two error in
+    the precision scaling (it survives split-then-join). This asserts the
+    Gaussian-form energy identity on binary states,
+
+        theta . s(x) == location . x - (1/2) x^T Lambda x,
+
+    where Lambda has the precision coordinates' diagonal entries on the
+    diagonal and each off-diagonal coordinate symmetrically at (i, j) and
+    (j, i). The quadratic form is derived independently of the conversion
+    under test: for binary x, prec . s(x) counts the diagonal once and each
+    off-diagonal pair once, so x^T Lambda x = 2 prec . s(x) - diag(prec) . x.
+    """
+    k1, k2, k3, k4 = jax.random.split(key, 4)
+    xs = jax.random.bernoulli(k1, 0.5, (8, model.data_dim)).astype(jnp.float64)
+
+    def quad(prec: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+        pd, _ = model.split_couplings(prec)
+        return 2.0 * jnp.dot(prec, model.sufficient_statistic(x)) - jnp.dot(pd, x)
+
+    params = jax.random.normal(k2, (model.dim,))
+    loc0, prec0 = model.split_location_precision(params)
+    location = jax.random.normal(k3, (model.data_dim,))
+    precision = jax.random.normal(k4, (model.dim,))
+    joined = model.join_location_precision(location, precision)
+    for x in xs:
+        s = model.sufficient_statistic(x)
+        assert jnp.allclose(
+            jnp.dot(params, s),
+            jnp.dot(loc0, x) - 0.5 * quad(prec0, x),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            jnp.dot(joined, s),
+            jnp.dot(location, x) - 0.5 * quad(precision, x),
+            rtol=RTOL,
+            atol=ATOL,
+        )
 
 
 def _bf_log_partition(
@@ -249,6 +302,16 @@ class TestJunctionTree:
         with pytest.raises(ValueError, match="treewidth"):
             JunctionTree.from_edges(4, edges, max_treewidth=2)
 
+    def test_disconnected_graph_links_to_single_tree(self) -> None:
+        """A disconnected graph's clique forest is linked into one spanning tree
+        via empty-separator edges, so collect reaches every clique."""
+        jt = JunctionTree.from_edges(5, [(0, 1), (3, 4)])  # two edges + isolated node 2
+        assert set(jt.cliques) == {(0, 1), (2,), (3, 4)}
+        assert len(jt.tree_edges) == jt.n_cliques - 1
+        assert len(jt.collect_order) == jt.n_cliques - 1
+        # Every clique is reachable from the root.
+        assert set(jt.pre_order) == set(range(jt.n_cliques))
+
     def test_each_param_owned_once(self) -> None:
         """Every node and every chordal edge is attributed to exactly one clique."""
         jt = JunctionTree.from_edges(5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 4), (1, 3)])
@@ -289,6 +352,11 @@ class TestChordalBoltzmann:
             (4, [(0, 1), (1, 2), (2, 3), (0, 3)]),
             (5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)]),
             (6, [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (0, 5), (1, 4)]),
+            (3, []),  # fully isolated (log Z must sum over components)
+            (5, [(0, 1), (3, 4)]),  # two components + isolated node
+            (8, [(i, i + k) for k in (1, 2) for i in range(8 - k)]),  # band-2 (tw 2 path)
+            (5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]),  # heterogeneous separators
+            (5, [(0, k) for k in range(1, 5)]),  # hub (clique tree may branch)
         ],
     )
     def test_log_partition_matches_enumeration(
@@ -317,7 +385,7 @@ class TestChordalBoltzmann:
         n = 4
         edges = [(i, j) for i in range(n) for j in range(i + 1, n)]
         cb = ChordalBoltzmann.from_edges(n, edges)
-        b_full = Boltzmann(n)
+        b_full = FullBoltzmann(n)
         assert cb.dim == b_full.dim
 
         params_c = jax.random.uniform(
@@ -356,6 +424,48 @@ class TestChordalBoltzmann:
         exact_first = probs @ all_states
         assert jnp.allclose(empirical_first, exact_first, atol=0.02)
 
+    def test_disconnected_sampling_matches_marginals(self) -> None:
+        """Ancestral sampling must visit every component of a disconnected graph."""
+        n = 5
+        cb = ChordalBoltzmann.from_edges(n, [(0, 1), (3, 4)])
+        params = jax.random.uniform(
+            jax.random.PRNGKey(3), (cb.dim,), minval=-1.0, maxval=1.0
+        )
+        samples = cb.sample(jax.random.PRNGKey(2), params, n=20_000)
+        empirical_first = jnp.mean(samples, axis=0)
+        log_z, all_states, energies = _bf_log_partition(n, cb.junction_tree, params)
+        probs = jnp.exp(energies - log_z)
+        exact_first = probs @ all_states
+        assert jnp.allclose(empirical_first, exact_first, atol=0.02)
+
+    @pytest.mark.parametrize(
+        "n,edges",
+        [
+            (5, [(0, k) for k in range(1, 5)]),  # hub: branching clique tree
+            (5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]),  # mixed seps
+        ],
+    )
+    def test_sampling_matches_joint_distribution(
+        self, n: int, edges: list[tuple[int, int]]
+    ) -> None:
+        """Empirical state frequencies match the exact joint over all $2^n$ states.
+
+        Stronger than the moment checks: sufficient statistics only pin the
+        chordal-edge moments, while the histogram certifies the entire joint
+        --- non-adjacent correlations and higher-order structure included."""
+        cb = ChordalBoltzmann.from_edges(n, edges)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(21), (cb.dim,), minval=-1.0, maxval=1.0
+        )
+        n_samples = 50_000
+        samples = cb.sample(jax.random.PRNGKey(22), params, n=n_samples)
+        # LSB-first packing matches the state order of _bf_log_partition.
+        codes = jnp.sum(samples.astype(jnp.int32) << jnp.arange(n), axis=1)
+        freqs = jnp.bincount(codes, length=1 << n) / n_samples
+        log_z, _all_states, energies = _bf_log_partition(n, cb.junction_tree, params)
+        probs = jnp.exp(energies - log_z)
+        assert jnp.allclose(freqs, probs, atol=0.01)
+
     def test_split_join_location_precision_round_trip(self) -> None:
         cb = ChordalBoltzmann.from_edges(4, [(0, 1), (1, 2), (2, 3), (0, 3)])
         params = jax.random.uniform(
@@ -365,6 +475,31 @@ class TestChordalBoltzmann:
         assert jnp.allclose(loc, jnp.zeros(cb.n_neurons))
         recovered = cb.join_location_precision(loc, prec)
         assert jnp.allclose(params, recovered, rtol=RTOL, atol=ATOL)
+
+    def test_location_precision_energy_identity(self) -> None:
+        cb = ChordalBoltzmann.from_edges(
+            5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]
+        )
+        _assert_location_precision_identity(cb, jax.random.PRNGKey(33))
+
+    def test_to_from_matrix_round_trip(self) -> None:
+        """to_matrix/from_matrix round-trip on the chordal pattern; dense
+        matrices are symmetrized and off-pattern entries dropped."""
+        cb = ChordalBoltzmann.from_edges(
+            5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]
+        )
+        cm = cb.shp_man
+        params = jax.random.normal(jax.random.PRNGKey(7), (cb.dim,))
+        mat = cm.to_matrix(params)
+        assert jnp.allclose(mat, mat.T)
+        assert jnp.allclose(cm.from_matrix(mat), params, rtol=RTOL, atol=ATOL)
+        # Off-pattern entries are dropped: (0, 4) is not a chordal edge here.
+        assert (0, 4) not in cb.junction_tree.chordal_edges
+        perturbed = mat.at[0, 4].add(3.0).at[4, 0].add(3.0)
+        assert jnp.allclose(cm.from_matrix(perturbed), params, rtol=RTOL, atol=ATOL)
+        # Asymmetric input: off-diagonal couplings read the symmetrized average.
+        skewed = mat.at[0, 1].add(1.0).at[1, 0].add(-1.0)
+        assert jnp.allclose(cm.from_matrix(skewed), params, rtol=RTOL, atol=ATOL)
 
     def test_split_join_mean_second_moment(self) -> None:
         cb = ChordalBoltzmann.from_edges(4, [(0, 1), (1, 2), (2, 3), (0, 3)])
@@ -444,3 +579,136 @@ class TestChordalBoltzmann:
         log_z_jit = jax.jit(cb.log_partition_function)(params)
         log_z = cb.log_partition_function(params)
         assert jnp.allclose(log_z_jit, log_z, rtol=RTOL, atol=ATOL)
+
+
+class TestChainBoltzmann:
+    """ChainBoltzmann: path validation and the associative-scan kernel."""
+
+    def test_chain_tree_clique_path(self) -> None:
+        ct = ChainTree.from_edges(5, [(0, 1), (1, 2), (2, 3), (3, 4)])
+        assert isinstance(ct, JunctionTree)
+        assert set(ct.clique_path) == set(range(ct.n_cliques))
+
+    def test_branching_clique_tree_raises(self) -> None:
+        """A star graph's clique tree branches at the hub clique."""
+        with pytest.raises(ValueError, match="not a path"):
+            ChainTree.from_edges(5, [(0, k) for k in range(1, 5)])
+        with pytest.raises(ValueError, match="not a path"):
+            ChainBoltzmann.from_edges(5, [(0, k) for k in range(1, 5)])
+
+    @pytest.mark.parametrize(
+        "n,edges",
+        [
+            (12, [(i, i + 1) for i in range(11)]),  # chain
+            (8, [(i, i + k) for k in (1, 2) for i in range(8 - k)]),  # band-2
+            (5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]),  # mixed sep sizes
+        ],
+    )
+    def test_matches_chordal(self, n: int, edges: list[tuple[int, int]]) -> None:
+        """The associative-scan kernel agrees with the sequential collect in
+        value and gradient (gradients must stay finite through the clamped
+        empty separator-state segments)."""
+        chain = ChainBoltzmann.from_edges(n, edges)
+        chordal = ChordalBoltzmann.from_edges(n, edges)
+        assert chain.dim == chordal.dim
+
+        params = jax.random.uniform(
+            jax.random.PRNGKey(11), (chain.dim,), minval=-1.5, maxval=1.5
+        )
+        assert jnp.allclose(
+            chain.log_partition_function(params),
+            chordal.log_partition_function(params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        g_chain = jax.grad(chain.log_partition_function)(params)
+        g_chordal = jax.grad(chordal.log_partition_function)(params)
+        assert jnp.all(jnp.isfinite(g_chain))
+        assert jnp.allclose(g_chain, g_chordal, rtol=RTOL, atol=ATOL)
+
+    @pytest.mark.parametrize(
+        "n,edges",
+        [
+            (16, [(i, i + 1) for i in range(15)]),  # plain chain
+            # band-2 head + chain tail: heterogeneous separator sizes (2 and 1)
+            # at a size far beyond enumeration reach
+            (
+                20,
+                [(i, i + k) for k in (1, 2) for i in range(10 - k)]
+                + [(i, i + 1) for i in range(9, 19)],
+            ),
+        ],
+    )
+    def test_sampling_matches_chain_to_mean(
+        self, n: int, edges: list[tuple[int, int]]
+    ) -> None:
+        """Parallel backward sampling is consistent with the chain kernel's
+        to_mean (autodiff of the associative-scan log-partition) on the *full*
+        sufficient statistics --- pair moments included. to_mean is exact at
+        any size, so this extends the enumeration sampling tests past their
+        2^n ceiling; the heterogeneous case exercises the clamped
+        empty-segment regime end to end."""
+        cb = ChainBoltzmann.from_edges(n, edges)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(5), (cb.dim,), minval=-0.5, maxval=0.5
+        )
+        samples = cb.sample(jax.random.PRNGKey(6), params, n=20_000)
+        empirical = cb.average_sufficient_statistic(samples)
+        assert jnp.allclose(empirical, cb.to_mean(params), atol=0.02)
+
+    @pytest.mark.parametrize(
+        "n,edges",
+        [
+            (3, [(0, 1), (1, 2), (0, 2)]),  # single clique (K = 1)
+            (4, [(0, 1), (1, 2), (2, 3), (0, 3)]),  # two cliques (K = 2)
+            (5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]),  # mixed sep sizes
+            (8, [(i, i + k) for k in (1, 2) for i in range(8 - k)]),  # band-2
+        ],
+    )
+    def test_sampling_matches_enumeration(
+        self, n: int, edges: list[tuple[int, int]]
+    ) -> None:
+        """Parallel backward sampling matches exact sufficient-statistic means
+        from enumeration --- including pair statistics, which would expose any
+        error in the backward messages or the random-map composition."""
+        cb = ChainBoltzmann.from_edges(n, edges)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(13), (cb.dim,), minval=-1.0, maxval=1.0
+        )
+        samples = cb.sample(jax.random.PRNGKey(14), params, n=20_000)
+        empirical = cb.average_sufficient_statistic(samples)
+        log_z, all_states, energies = _bf_log_partition(n, cb.junction_tree, params)
+        probs = jnp.exp(energies - log_z)
+        exact = probs @ jax.vmap(cb.sufficient_statistic)(all_states)
+        assert jnp.allclose(empirical, exact, atol=0.02)
+
+    @pytest.mark.parametrize(
+        "n,edges",
+        [
+            (5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]),  # mixed seps
+            (4, [(0, 1), (1, 2), (2, 3), (0, 3)]),  # 4-cycle, K = 2
+            (6, [(i, i + 1) for i in range(5)]),  # plain chain, K = 5
+        ],
+    )
+    def test_sampling_matches_joint_distribution(
+        self, n: int, edges: list[tuple[int, int]]
+    ) -> None:
+        """Empirical state frequencies match the exact joint over all $2^n$ states.
+
+        The strongest black-box certificate for the random-map sampler: moment
+        tests only pin chordal-edge statistics, while the histogram certifies
+        the entire joint --- non-adjacent correlations (e.g. $E[x_0 x_5]$ on
+        the chain) and higher-order structure, where an error in the shared
+        Gumbel / map-composition argument would hide from moment checks."""
+        cb = ChainBoltzmann.from_edges(n, edges)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(23), (cb.dim,), minval=-1.0, maxval=1.0
+        )
+        n_samples = 50_000
+        samples = cb.sample(jax.random.PRNGKey(24), params, n=n_samples)
+        # LSB-first packing matches the state order of _bf_log_partition.
+        codes = jnp.sum(samples.astype(jnp.int32) << jnp.arange(n), axis=1)
+        freqs = jnp.bincount(codes, length=1 << n) / n_samples
+        log_z, _all_states, energies = _bf_log_partition(n, cb.junction_tree, params)
+        probs = jnp.exp(energies - log_z)
+        assert jnp.allclose(freqs, probs, atol=0.01)

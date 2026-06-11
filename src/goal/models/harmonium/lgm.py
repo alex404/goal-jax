@@ -24,7 +24,7 @@ from ...geometry import (
     Scale,
     SymmetricConjugated,
 )
-from ..base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann
+from ..base.gaussian.boltzmann import DiagonalBoltzmann, FullBoltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
@@ -140,7 +140,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefini
 
 
 @dataclass(frozen=True)
-class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, Boltzmann]):
+class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, FullBoltzmann]):
     """Embedding of DiagonalBoltzmann (mean-field) into full Boltzmann.
 
     This embedding connects the mean-field approximation (independent binary units)
@@ -156,7 +156,7 @@ class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, Boltzmann]):
     _sub_man: DiagonalBoltzmann
     """The mean-field Boltzmann (diagonal/independent units)."""
 
-    _amb_man: Boltzmann
+    _amb_man: FullBoltzmann
     """The full Boltzmann machine with coupling."""
 
     @property
@@ -166,7 +166,7 @@ class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, Boltzmann]):
 
     @property
     @override
-    def amb_man(self) -> Boltzmann:
+    def amb_man(self) -> FullBoltzmann:
         return self._amb_man
 
     @override
@@ -414,8 +414,8 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
 @dataclass(frozen=True)
 class BoltzmannLGM[ObsRep: PositiveDefinite](
-    SymmetricConjugated[Normal[ObsRep], Boltzmann],
-    LGM[ObsRep, Boltzmann, Boltzmann],
+    SymmetricConjugated[Normal[ObsRep], FullBoltzmann],
+    LGM[ObsRep, FullBoltzmann, FullBoltzmann],
 ):
     """Differentiable Linear Gaussian Model with Boltzmann latent variables.
 
@@ -435,13 +435,13 @@ class BoltzmannLGM[ObsRep: PositiveDefinite](
 
     @property
     @override
-    def pst_man(self) -> Boltzmann:
+    def pst_man(self) -> FullBoltzmann:
         """Override to construct directly from fields, avoiding circular dependency."""
-        return Boltzmann(self.lat_dim)
+        return FullBoltzmann(self.lat_dim)
 
     @property
     @override
-    def pst_prr_emb(self) -> LinearEmbedding[Boltzmann, Boltzmann]:
+    def pst_prr_emb(self) -> LinearEmbedding[FullBoltzmann, FullBoltzmann]:
         """Embedding of posterior Boltzmann into prior Boltzmann.
 
         For Boltzmann machines, both posterior and prior use the same manifold
@@ -452,14 +452,14 @@ class BoltzmannLGM[ObsRep: PositiveDefinite](
 
     @property
     @override
-    def lat_man(self) -> Boltzmann:
+    def lat_man(self) -> FullBoltzmann:
         """The latent manifold is a Boltzmann machine."""
-        return Boltzmann(self.lat_dim)
+        return FullBoltzmann(self.lat_dim)
 
 
 @dataclass(frozen=True)
 class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
-    LGM[ObsRep, DiagonalBoltzmann, Boltzmann],
+    LGM[ObsRep, DiagonalBoltzmann, FullBoltzmann],
 ):
     """Differentiable Linear Gaussian Model with mean-field Boltzmann latent variables.
 
@@ -481,7 +481,7 @@ class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
     @override
     def pst_prr_emb(self) -> BoltzmannEmbedding:
         """Embedding from mean-field DiagonalBoltzmann to full Boltzmann."""
-        return BoltzmannEmbedding(self.pst_man, Boltzmann(self.lat_dim))
+        return BoltzmannEmbedding(self.pst_man, FullBoltzmann(self.lat_dim))
 
 
 @dataclass(frozen=True)

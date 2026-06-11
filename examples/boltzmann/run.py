@@ -8,15 +8,15 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from goal.models.base.gaussian.boltzmann import Boltzmann
+from goal.models.base.gaussian.boltzmann import FullBoltzmann
 
 from ..shared import example_paths, jax_cli
 from .types import BoltzmannPatternResults
 
 
-def create_ground_truth_model() -> tuple[Boltzmann, Array]:
+def create_ground_truth_model() -> tuple[FullBoltzmann, Array]:
     """Create ground truth Boltzmann machine with structured correlations."""
-    model = Boltzmann(n_neurons=4)
+    model = FullBoltzmann(n_neurons=4)
     params = jnp.array(
         [
             0.5,  # bias for unit 0
@@ -36,9 +36,9 @@ def create_ground_truth_model() -> tuple[Boltzmann, Array]:
 
 def fit_boltzmann(
     training_data: Array, n_steps: int = 2000, learning_rate: float = 0.01
-) -> tuple[Boltzmann, Array, Array]:
+) -> tuple[FullBoltzmann, Array, Array]:
     """Fit Boltzmann machine to training data."""
-    model = Boltzmann(n_neurons=4)
+    model = FullBoltzmann(n_neurons=4)
     key = jax.random.PRNGKey(42)
     init_params = jax.random.normal(key, (model.dim,)) * 0.1
 
@@ -61,7 +61,7 @@ def fit_boltzmann(
     return model, final_params, losses
 
 
-def evaluate_model(model: Boltzmann, params: Array) -> tuple[Array, Array, Array]:
+def evaluate_model(model: FullBoltzmann, params: Array) -> tuple[Array, Array, Array]:
     """Evaluate model on all possible states."""
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))
     log_probs = jax.vmap(model.log_density, in_axes=(None, 0))(params, all_states)
@@ -72,7 +72,7 @@ def evaluate_model(model: Boltzmann, params: Array) -> tuple[Array, Array, Array
 
 
 def test_sampling_convergence(
-    key: Array, model: Boltzmann, params: Array
+    key: Array, model: FullBoltzmann, params: Array
 ) -> tuple[list[int], list[int], list[list[float]]]:
     """Test Gibbs sampling convergence to exact probabilities."""
     all_states = jnp.array(list(itertools.product([0, 1], repeat=4)))

@@ -4,6 +4,8 @@ Pending hand-review checklists for in-flight PRs. Each section is a self-contain
 
 ## Topic 1 — manuscript-aligned variational rewrite
 
+**Status: review complete 2026-06-11 — all items ticked; skip unless revisiting.**
+
 **Status:** already pushed to `origin/main`; this checklist tracks hand-review of that earlier PR, not anything in the currently-unpushed commits. The `a11f2ab` parking commit trimmed away the hierarchical-extension bullets that used to live in this section.
 
 Tracking checklist for hand-review of the `variational.py` migration to manuscript §4.2 standard form. Plan: `/home/alex404/.claude-work/plans/alright-so-exponential-family-variationa-zany-balloon.md`.
@@ -116,177 +118,75 @@ Tracking checklist for hand-review of the `variational.py` migration to manuscri
 - Rao-Blackwellize $\rho \cdot s_Z$ in `elbo_at` if the MC variance shows up empirically.
 - Optional: lift the inline `prior_conjugation_loss` pattern out of `examples/pendulum/run.py` and `examples/torus_poisson/run.py` to call the new method directly. Pure cleanup; no behavior change.
 
-## Topic 2 — tree-width-bounded Boltzmann via junction-tree inference
+## Topic 2 — chordal & chain Boltzmann machines
 
-Tracking checklist for hand-review of the chordal Boltzmann implementation (junction-tree topology + exact sum-product inference + ancestral sampling). Plan: `/home/alex404/.claude-work/plans/cozy-crafting-brooks.md`.
+**Status: review complete 2026-06-11 — all items closed (hand-review + test certification); skip unless revisiting. Working tree not yet committed at close-out.**
 
-> **Note on line numbers.** The `lax.scan` refactor in Topic 3 moved several helpers and renumbered most functions in `_jt_inference.py` and `junction_tree.py`. The L## references in this section are pre-refactor; treat them as historical pointers and use the file/function names plus Topic 3's notes for current-state navigation. In particular, `_clique_bits` and `_sep_state_map` (originally in `_jt_inference.py`) are now the cached property `JunctionTree.bits_table` and the module-level helper `_build_sep_state_map` respectively, both in `junction_tree.py`.
+**Status:** substantially redesigned live during the 2026-06-11 review session; this checklist describes the **current working tree**. The pre-redesign checklists (and the original AI-gen code they tracked) are in git history: `git show HEAD:REVIEW-TODO.md`. Original plan: `/home/alex404/.claude-work/plans/cozy-crafting-brooks.md` (historical).
 
-### Automated verification (already run)
+**Session changelog** (each round discussed and approved in-session):
 
-- `uvx basedpyright src/` → 0 errors, 0 warnings.
-- `uvx ruff check src/goal/models/base/gaussian/ tests/boltzmann.py` → all checks passed.
-- `uv run python -m pytest tests/` → **291/291 passed** in 303s. New tests: `TestJunctionTree` (5 tests) and `TestChordalBoltzmann` (13 tests) in `tests/boltzmann.py`. Smoke-verified end-to-end: `log_partition_function` matches brute-force enumeration to machine precision on chain / 4-cycle / triangulated 5-cycle / irregular sparse 6-node graphs; `ChordalBoltzmann` with a fully-connected (K4) chordal pattern matches the original `Boltzmann.log_partition_function` to numerical precision.
-
-### Mathematical / algorithmic correctness — sanity-check
-
-- [ ] **Min-fill triangulation is correct.** `_min_fill_triangulation` greedily picks the unmarked vertex with fewest fill-in edges and returns the perfect elimination order + completed chordal edge set. Greedy heuristic — not optimal treewidth but standard practice. Sanity unit tests: chain (no fill-in), 4-cycle (adds one diagonal), K4 (no fill-in, already chordal). `tests/boltzmann.py:215-258` covers these.
-- [ ] **Maximal-clique extraction from PEO.** For each $v$ in PEO, $C_v = \{v\} \cup \{\text{later neighbours of } v\}$ in the chordal graph; non-maximal cliques discarded. The "later neighbours" definition is the standard one — verify the PEO position lookup is correct (`junction_tree.py:87-112`).
-- [ ] **Junction tree = maximum-weight spanning tree of the clique graph weighted by separator size.** Standard result for chordal graphs: max-weight spanning tree of the clique graph satisfies the running-intersection property automatically. Kruskal's implementation at `junction_tree.py:115-147`. Not unit-tested explicitly beyond "tree edges count = n_cliques − 1" — worth a glance.
-- [ ] **Bias / edge ownership invariants.** Each bias parameter and each chordal-edge coupling is attributed to *exactly one* clique that contains it (first clique in canonical order). Required so that the energy is summed exactly once across the JT. `tests/boltzmann.py:248-258` (`test_each_param_owned_once`) checks both invariants.
-- [ ] **Collect pass formula** at `_jt_inference.py:86-110`: $m_{C \to \text{parent}}(x_S) = \log \sum_{x_{C \setminus S}} \exp(\phi_C(x_C) + \text{incoming})$. Implemented via `_segment_logsumexp` over the precomputed clique-state → separator-state mapping. The mapping is built from bit-extraction in `_sep_state_map` — sanity check the LSB-first convention is consistent between clique-state encoding and separator-state encoding.
-- [ ] **`log_partition_function` matches brute-force enumeration.** `tests/boltzmann.py:288-297` parametrises over chain / 4-cycle / 5-cycle / irregular sparse with `rtol=1e-5, atol=1e-7`. The K4 case is also checked against the original `Boltzmann.log_partition_function` to verify the layout conversion is correct.
-- [ ] **Ancestral sampling is exact.** `_jt_inference.py:137-180` walks the rooted JT in pre-order, sampling each clique conditional on the separator with its parent (which has already been sampled). For the root, the full $2^{|C_\text{root}|}$ categorical is used; for child cliques, logits are masked to states consistent with the already-drawn separator values via `jnp.where(mask, logits, -jnp.inf)`. Empirical-vs-exact first-moment test at `tests/boltzmann.py:340-352` (`test_exact_sampling_matches_enumeration`) with 20k samples on a 5-node triangulated cycle, `atol=0.02`.
-- [ ] **`to_mean` via autodiff matches empirical sampling.** Standard exponential-family identity $\eta = \nabla\psi(\theta)$. `tests/boltzmann.py:329-338` verifies on a 4-cycle, 20k samples, `atol=0.03`.
-
-### Code-review findings (already addressed in-place)
-
-- [ ] **Dead-code cleanup in `junction_tree.py::owned_edge_arrays`.** Removed an unused `edge_to_idx = self.edge_param_index` assignment and the dangling `del edge_to_idx  # only used to assert presence` at the end of the cached property. No behaviour change; the cached property still returns the same arrays. Worth a glance to confirm I read the intent correctly.
-- [ ] **`tests/boltzmann.py::_bf_log_partition` return annotation.** The helper returns `(log_z, all_states, energies)`; the original `-> jnp.ndarray` annotation was wrong. Corrected to `tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]` and a one-line docstring addition explaining the tuple shape.
-
-### Architectural deviation from plan — please flag
-
-- [ ] **`ChordalSymmetric` `MatrixRep` was skipped.** Rationale: the existing `MatrixRep` system (`src/goal/geometry/manifold/matrix.py`) is built on stateless `@classmethod`s — instances are stateless and compared by type. A `MatrixRep` subclass holding a `JunctionTree` would need instance state, which would have to override classmethods with instance methods (works in Python but violates LSP and confuses basedpyright). Instead, `ChordalCouplingMatrix` holds the `JunctionTree` directly as a dataclass field and implements `to_matrix` / `from_matrix` / `sufficient_statistic` itself. The Gaussian-MRF reuse case the plan called out as future work remains open — see the open follow-ups section. Worth flagging if the user wants the MatrixRep treatment in this PR rather than later.
-
-### `src/goal/models/base/gaussian/junction_tree.py` (new file, ~280 lines pure Python)
-
-- [ ] **Module docstring** (L1-19): min-fill triangulation, maximal cliques, max-weight spanning tree, frozen hashable result. No JAX dependency, no networkx.
-- [ ] **`_min_fill_triangulation`** (L31-85): standard greedy min-fill. Returns `(peo, chordal_edges)` where edges are sorted `(i, j)` tuples with `i < j`. `# noqa: C901` for ruff complexity (15 > 10) — algorithm is inherently nested-loopy.
-- [ ] **`_maximal_cliques`** (L87-112): builds candidate cliques from PEO, then filters by strict subset check. Dedup via frozenset. O(n²) in worst case — acceptable since topology is built once.
-- [ ] **`_max_spanning_tree`** (L115-147): Kruskal's MST on the clique graph with `weight = |C_i ∩ C_j|`. Sorts candidate edges descending by weight. Stops once `len(edges) == n_cliques - 1`.
-- [ ] **`_root_and_collect_order`** (L150-178): roots the JT, computes `parent_of` array, and builds a post-order traversal for the collect pass (leaves before parents). Uses an iterative DFS — no recursion-depth concerns.
-- [ ] **`JunctionTree` dataclass fields** (L186-225): everything stored as hashable tuples (no JAX arrays, no dicts). `chordal_edge_index` provides the canonical `(i, j) → param_idx` mapping needed by `_clique_potential`. The cached property `chordal_edges_arr` converts to a numpy `int32` array on demand for vectorised gather operations in `ChordalCouplingMatrix`.
-- [ ] **`from_edges`** (L229-289): the user-facing constructor. Edge format is undirected `(i, j)` pairs; self-loops are ignored. The `max_treewidth` parameter raises `ValueError` when the triangulation exceeds the bound — this is the intended failure mode the plan called out (user can then either accept fill-in or modify the graph).
-- [ ] **Edge case — disconnected graph with isolated nodes.** Handled at L249-251: isolated nodes become their own size-1 cliques. Verify this doesn't break the JT structure for a fully-isolated graph (e.g., `JunctionTree.from_edges(3, [])`).
-  - *Claude pre-check 2026-06-11: this case is BROKEN — disconnected graphs yield a clique forest (Kruskal only links cliques with non-empty separators), and both collect and walk-down only traverse the root's component. `from_edges(3, [])` gives log Z = log 2 instead of 3 log 2; sampling freezes unreached components at 0. (Also: the L249-251 fallback is dead code — `_maximal_cliques` always emits singleton cliques for isolated nodes.) Verified fix parked at `/tmp/chordal-disconnected-fix.patch`: link forest components with zero-weight empty-separator edges in `_max_spanning_tree` (downstream machinery already handles empty separators exactly), plus tests. To apply when this section is reviewed.*
-- [ ] **Hashability invariant.** All fields are tuples / ints, so `JunctionTree` is hashable by default. This matters because it's a frozen dataclass field of `ChordalCouplingMatrix` / `ChordalBoltzmann`, which JAX traces as static topology.
-
-### `src/goal/models/base/gaussian/_jt_inference.py` (new file, ~180 lines)
-
-- [ ] **Module docstring** (L1-10): two public functions, complexity $O(n \cdot 2^{w+1})$, fixed input layout (diag first, off-diag second).
-- [ ] **`_clique_bits`** (L25-29, `@functools.cache`): static numpy table mapping clique-state index → binary values for each clique-local position. Cached on `k` only.
-- [ ] **`_sep_state_map`** (L32-45): static numpy array `(2^|C|,)` mapping each clique state to its separator state. Encoding is LSB-first in both clique and separator. **Verify this encoding is consistent throughout** — used in both `_collect` (broadcast messages) and `jt_sample` (build target separator state from sampled values).
-- [ ] **`_segment_logsumexp`** (L48-53): standard 3-step logsumexp implementation using `jax.ops.segment_max`/`segment_sum`. Numerically stable by max-shifting per segment.
-- [ ] **`_clique_potential`** (L59-83): builds $\phi_C$ as a flat array of length $2^{|C|}$ by iterating over owned biases and owned chordal edges within this clique. Python-loop unrolling — fine because clique sizes are small ($\le 2^w$).
-- [ ] **`_collect`** (L86-110): post-order Python loop over `jt.collect_order`. Each step marginalises the child's accumulated total via segment-logsumexp and broadcasts the resulting message into the parent's total. Handles the degenerate empty-separator case (child marginalises to a scalar).
-- [ ] **`jt_log_partition`** (L113-118): trivial public wrapper. `logsumexp(totals[root])` after collect.
-- [ ] **`jt_sample`** (L137-180): collect + walk-down. The walk-down at each clique:
-  1. Get logits from `totals[c]`.
-  2. If the clique has a parent and a non-empty separator, mask logits to states consistent with the already-sampled separator values (via `_sep_state_map` comparison + `jnp.where(..., -inf)`).
-  3. `jax.random.categorical` over the masked logits.
-  4. Decode the sampled state into binary values for clique nodes, but only set nodes not already set (the `set_mask` machinery preserves the parent's separator values exactly).
-  - **Subtle**: the `set_mask` is dynamic JAX state but read inside the Python loop. Confirm this trace pattern is what's intended — the bitwise OR/shift on `target` and the `jnp.where(set_mask[v], ...)` are all per-node-in-clique inside a Python for-loop, which JAX unrolls statically.
-
-### `src/goal/models/base/gaussian/boltzmann.py` (modified — appended classes)
-
-- [ ] **New imports** (L1-19): adds `_jt_inference` (free functions) and `junction_tree` (`JunctionTree`). The existing `Boltzmann`, `DiagonalBoltzmann`, `CouplingMatrix`, `BoltzmannEmbedding` are unchanged.
-- [ ] **`ChordalCouplingMatrix`** (L390-483, subclass of `Differentiable`): the chordal analog of `CouplingMatrix`, but **not** a subclass of `SquareMap`/`EmbeddedMap` (see the architectural deviation note above). Fields: just `junction_tree`. Param vector layout: `[θ_ii (n,), θ_ij (n_chordal_edges,)]`.
-  - `sufficient_statistic(x)` (L420-424): diagonal `x` followed by `x[i] * x[j]` for each chordal edge.
-  - `log_partition_function(params)` (L432-434): delegates to `jt_log_partition`.
-  - `sample(key, params, n)` (L437-444): vmap over `n` keys of `jt_sample` — confirms i.i.d. exact sampling, no Gibbs.
-  - `to_matrix` (L456-468) / `from_matrix` (L470-479): scatter / gather against the chordal sparsity pattern. `from_matrix` symmetrises off-pattern entries via `0.5 * (M[i,j] + M[j,i])`. Off-pattern entries are *dropped* during gather (the projection semantics).
-- [ ] **`ChordalBoltzmann`** (L485-585, `GeneralizedGaussian[Bernoullis, ChordalCouplingMatrix] + Differentiable`): mirror of `Boltzmann`. Fields: just `junction_tree`. `loc_man = Bernoullis(n)`, `shp_man = ChordalCouplingMatrix(jt)`.
-  - `from_edges` static constructor (L505-512): one-line convenience over `JunctionTree.from_edges`.
-  - `split_location_precision` (L549-555): loc = zeros, precision = `[-2 * diag, -off_diag]`. The off-diagonal scaling matches the convention in the original `Boltzmann.split_location_precision` — diagonals scaled by 2, off-diagonals by 1, all negated. Round-trip tested at `tests/boltzmann.py:354-362`.
-  - `split_mean_second_moment` (L568-571): first moment is the diagonal slice (since $x_i^2 = x_i$ for binary, the diagonal of the moment matrix *is* $E[x_i]$). Verified at `tests/boltzmann.py:364-373`.
-  - **No `to_natural` override** — same status as the original `Boltzmann`. Per memory `feedback-boltzmann-to-natural`, not adding it even for the tractable case.
-  - **Not `Analytic`, only `Differentiable`** — `to_mean` comes via autodiff of `log_partition_function`. Matches the original `Boltzmann`.
-
-### Re-exports (`src/goal/models/__init__.py`)
-
-- [ ] Adds `ChordalBoltzmann`, `ChordalCouplingMatrix`, `JunctionTree` to both the `from` import and the `__all__` list. Otherwise unchanged.
-
-### `tests/boltzmann.py` (modified — appended two test classes)
-
-- [ ] **`_bf_log_partition` helper** (L209-225, module-level): brute-force enumeration over all $2^n$ binary states using the chordal-edge layout. Returns `(log_z, all_states, energies)` for reuse across multiple tests.
-- [ ] **`TestJunctionTree`** (L215-258, 5 tests): chain, 4-cycle, K4, `max_treewidth` failure, parameter-ownership invariant. Hand-checked topologies — no MC.
-- [ ] **`TestChordalBoltzmann`** (L261+, 13 tests): dimensions (parametrised), `log_partition_function` matches enumeration (parametrised over chain / 4-cycle / 5-cycle / irregular sparse), density normalises, K4-pattern matches original `Boltzmann`, `to_mean` via autodiff matches MC, exact sampling matches enumeration, split/join round-trips, JIT composes.
-- [ ] **MC tolerances are loose** (`atol=0.02-0.03`) per project convention for sampling-based tests with 20k samples. Match the existing `TestBoltzmann.test_to_mean_via_autodiff` tolerance (0.05) and `TestBoltzmann.test_gibbs_sampling` (0.05). The chordal tests use tighter 0.02-0.03 because JT sampling is *exact* (no autocorrelation), only standard MC variance.
-
-### Documentation
-
-- [ ] **`docs/source/models/base/gaussian/boltzmann.rst`**: added `autoclass` blocks for `ChordalCouplingMatrix` and `ChordalBoltzmann`, plus a one-line cross-reference to the new `junction_tree.rst`. The class hierarchy diagram in this file points at `Differentiable`/`ExponentialFamily` as top classes, which already covers the new chordal classes — no diagram edit needed.
-- [ ] **`docs/source/models/base/gaussian/junction_tree.rst`** (new): per project convention (1:1 module-to-RST mapping), `JunctionTree` gets its own page. The `_jt_inference.py` module is intentionally not documented (underscore-prefixed, internal — matches the `manifold/util.py` exception in the docs style guide).
-- [ ] **`docs/source/models/base/gaussian/index.rst`**: added `junction_tree` to the toctree.
-- [ ] **Render check**: build docs and confirm both new classes appear in `boltzmann.html`, that `junction_tree.html` renders with the dataclass field documentation, and that the cross-reference link works.
-
-### Open follow-ups (deferred from this PR per plan)
-
-- **`ChordalSymmetric` MatrixRep** for Gaussian-MRF reuse. Open question: does the `MatrixRep` interface need a redesign to allow instance state, or should we introduce a parallel `IndexedSymmetric` system? Either way, not blocking this PR.
-- **Distribute pass + per-clique calibrated beliefs.** Currently `jt_sample` walks down without an explicit distribute pass — it uses `phi_C + collected_messages` directly, which is correct for sampling but doesn't expose per-clique marginals. If anyone wants per-clique marginal queries (e.g., for diagnostics), add a distribute pass returning `beta_C` per clique.
-- **`BoltzmannLGM` widening to accept `ChordalBoltzmann`.** Currently the LGM is typed against `Boltzmann` specifically (`src/goal/models/harmonium/lgm.py:416-461`). A small refactor widens the bound; not done here because no example currently exercises it.
-- **Variable-size cliques + `lax.scan`.** Done as part of Topic 3 — see Topic 3's "JT inference refactor" section.
-
-## Topic 3 — Variational MNIST with a ChordalBoltzmann latent prior
-
-Tracking checklist for hand-review of the chordal-Boltzmann integration into `variational_mnist`, including the prerequisite `lax.scan` refactor of `_jt_inference.py`. Plan: `/home/alex404/.claude-work/plans/cozy-crafting-brooks.md` (overwritten — same filename as Topic 2's original plan).
+1. `junction_tree.py` rewritten: 4 identity fields, one inlined `from_edges` (vectorized incremental min-fill, co-occurrence MST), plain uncached properties, disconnected-graph bug fixed, `n_neurons` → `n_nodes`. Build 25x faster at n=4096.
+2. `gaussian/chordal/` subpackage (`junction_tree.py` + `sum_product.py`, both public); `boltzmann.py` deduplicated via abstract `Boltzmann[Shape]` with a `split_couplings`/`join_couplings` layout contract; concrete dense machine renamed `Boltzmann` → **`FullBoltzmann`**.
+3. `ChainTree` / `ChainCouplingMatrix` / `ChainBoltzmann` reify the path-decomposition case (validation at construction, no silent dispatch); `chain_log_partition` via associative-scan transfer matrices — grad(logZ) 36.9 → 0.28 ms at n=1024.
+4. `chain_sample`: parallel forward-filtering backward-sampling via random-map composition — posterior sampling 49 → 13 ms; **full mnist training step 516 → 104 ms (~5x vs Chordal)**, now observable-bound.
+5. Package restructure (post-review round): `chordal/` → `coupling/`, now kernels-only — `dense.py` (enumeration + Gibbs free functions, extracted from `CouplingMatrix`), `junction_tree.py`, `sum_product.py`. ALL classes (models + the three coupling-matrix shape manifolds, each a thin wrapper over the kernels) live in `boltzmann.py`. Public API unchanged; ticked items above reference the old `chordal/` paths. Gate: 91/91 boltzmann+lgm, ruff/pyright/sphinx -W clean.
 
 ### Automated verification (already run)
 
-- `uvx basedpyright src/ examples/variational_mnist/` → 0 errors, 0 warnings.
-- `uvx ruff check src/ examples/variational_mnist/ tests/boltzmann.py` → all checks passed (one pre-existing SIM108 in `diagnose.py` cleaned up as collateral; one pre-existing C901 acknowledged with `# noqa`).
-- `uv run python -m pytest tests/boltzmann.py` → all green, including 2 new chain-scale tests at n_neurons = 64.
-- `uv run python -m pytest tests/` → see Topic-3-end automated sweep.
-- **Smoke run**: `uv run python -m examples.variational_mnist.train --latent chordal_boltzmann --latent-graph chain --n-steps 200` completed end-to-end on GPU (RTX 3090). 200 steps in ~3 minutes wallclock. ELBO went from −2763.71 (step 0) → −1620.52 (final). Post-training metrics: **NMI 0.4814, purity 47.5%, accuracy 47.5%**. Conjugation barely moved (R² 0.0486, ||rho|| 10.4) because 200 steps is well short of the KL/conj warmups (1000/2000) — long-run behaviour is out of scope for the smoke test.
-- **Compile-time spot-checks at n_latent = 1024 chain**: JT construction 0.4s; `jax.jit(log_partition)` first call 0.4s; `jax.jit(grad(log_partition))` first call 0.5s. Steady-state log_partition 13 ms, grad 40 ms. All well within XLA's normal operating regime.
+- `uv run python -m pytest tests/` → **321/321** (full-suite rerun 2026-06-11 after the `from_edges` split, `jt_sample` rewrite, and categorical simplification; the chain-sampling test added afterwards brings the expected total to 322 — `tests/boltzmann.py` reran green, now at 69/69). `tests/boltzmann.py` (69 tests): logZ and sampling vs brute-force enumeration over 10+ topologies (chains, cycles, bands, K4, irregular, isolated nodes, two components, mixed separator sizes, hub), Chain-vs-Chordal equality in value *and gradient*, sampling pair statistics vs enumeration (caught a real reverse-scan orientation bug during development), split/join round-trips, JIT composition.
+- `uvx basedpyright src/` → 0 errors 0 warnings; `uvx ruff check src/` clean; sphinx builds clean with the new `chordal/` pages.
+- mnist chain smoke: 200 steps end-to-end, exit 0, NMI 0.4744 (pre-rewrite reference: 0.4814).
+- Benchmarks: `/tmp/bench_current.txt` (baseline), `/tmp/bench_integrated.txt`, `/tmp/bench_mnist_chain.py` output in conversation.
 
-### JT inference refactor (`src/goal/models/base/gaussian/_jt_inference.py` + `junction_tree.py`)
+### Core arguments worth hand-checking first (math, not code)
 
-- [ ] **No raw Python `for` loops over cliques or tree edges.** `_collect` and `jt_sample` are now `lax.scan` over precomputed static topology arrays on the `JunctionTree`. Inner per-clique-position update inside `jt_sample` uses `lax.fori_loop` (sequential semantics — avoids the duplicate-index `.at[].set` race that a vectorised scatter would have when padded slots collide on index 0).
-- [ ] **Padded shape convention.** Every per-clique array is shape `(n_cliques, 2^max_clique_size, ...)`; clique states $s \geq 2^{|C|}$ are masked to `-inf` via `clique_state_mask` so they fall out of `logsumexp`. For a 1D chain (the only `latent_graph` wired up today) every clique is size 2, no padding kicks in, and the general code reduces to what a chain-specialised implementation would emit.
-- [ ] **Static topology arrays** added as `@cached_property`s on `JunctionTree` (`junction_tree.py:325+`): `bits_table`, `clique_state_mask`, `owned_bias_arrays`, `owned_edge_arrays`, `collect_step_arrays`, `pre_order`, `walk_step_arrays`. All numpy-typed (so the JT remains hashable and JIT-static).
-- [ ] **Separator-state map handles padded entries safely** (`junction_tree.py::_build_sep_state_map`): real clique states $s < 2^{|C|}$ are packed by bit extraction; padded states are mapped to separator-state $0$ so `segment_logsumexp` never sees an all-padded segment (which would produce `NaN`).
-- [ ] **`_clique_potentials` vmaps cleanly.** Sentinel `-1` in owned-bias/edge index arrays is handled by `params[idx + 1]` against a leading-zero-padded params vector; equivalent to mask-and-zero but cheaper. Inspect the gather/multiply structure in `_jt_inference.py:60-90`.
-- [ ] **Correctness vs the previous Python-loop implementation**: existing `tests/boltzmann.py::TestChordalBoltzmann` (chain / 4-cycle / 5-cycle / 6-node irregular / K4) all pass without tolerance changes. Two new tests (`test_long_chain_log_partition_matches_dp` and `test_long_chain_sampling_matches_marginals`) exercise the scan at n_neurons = 64 chain.
-- [ ] **Numerical-guard sanity-check.** `_segment_logsumexp` (now also used at scale) is bog-standard max-shift + `segment_sum`. Padded `-inf` values are absorbed into segments that already contain a finite contribution, so the formula stays well-defined.
+- [x] **Incremental min-fill update.** Fill counts are recomputed only for `touched` vertices after eliminating $v$: claim — $\mathrm{fill}(w)$ changes only if $w$ lost $v$ as a neighbour or an edge was added within $N(w)$ (i.e. $w$ adjacent to both endpoints of a fill-in). `junction_tree.py::from_edges`, triangulation section.
+- [x] **Maximal-clique criterion.** Candidate $K_v = \{v\} \cup \{\text{later nbrs}\}$ is non-maximal iff contained in an *earlier-eliminated, kept* candidate containing $v$. Proof sketch: a maximal $C \supseteq K_v$ equals $K_u$ for $u$ = its earliest-eliminated member; $u \neq v$ (else $C = K_v$); $K_u$ maximal hence never dropped.
+- [x] **MST + forest links.** Max-weight spanning tree of the clique graph satisfies running intersection (standard); zero-weight empty-separator links between components make sum-product multiply per-component partition functions and sampling treat them independently.
+- [x] **Transfer-matrix logZ** (`chain_log_partition`): *(closed 2026-06-11: clamp justified in-session — value-exact, no policy knob, restores finite true gradients; convention-compliance now documented at the `_LOG_ZERO` definition; pinned vs enumeration + Chain≡Chordal value/grad tests.)* collect along a path = product of $2^{|S|} \times 2^{|S|}$ matrices in the log-semiring; `_LOG_ZERO = -1e30` clamp keeps gradients NaN-free through genuinely empty separator-state segments (heterogeneous separators) without changing values.
+- [x] **`chain_sample` exactness — the subtlest new math.** *(2026-06-11: hand-walking this is now optional — `test_sampling_matches_joint_distribution` compares empirical frequencies against exact probabilities over ALL 2^n states (3 topologies: mixed seps, 4-cycle, plain chain), so the entire joint is certified, not just moments; nothing distributional is left for a bug to hide behind. The docstring argument remains worth reading for understanding, not for verification.)* (a) FFBS telescoping: conditionals $\propto \phi_k \cdot \beta_k(\text{out})$ masked to the incoming separator state multiply to the joint. (b) Shared-Gumbel random maps: one Gumbel vector per clique resolves the conditional draw for *every* possible incoming separator state, defining $F_k : s_{k-1} \mapsto s_k$; Gumbels independent across cliques and the realized chain consumes $F_k$ at a point independent of clique $k$'s Gumbels, so composing the maps (associative) realizes the joint exactly.
+- [x] **Scan orientations.** Forward `associative_scan` feeds the lower-index product as the combine's first argument; `reverse=True` feeds the *higher*-index product. Both combines therefore multiply the new element on the left. The reverse case was initially wrong — caught by the band-2/chain-16 pair-statistics tests, now pinned (and further by the full-joint histogram tests added 2026-06-11).
 
-### `src/goal/models/base/gaussian/junction_tree.py` (modified — append-only)
+### `src/goal/models/base/gaussian/chordal/junction_tree.py` (~360 lines)
 
-- [ ] **New cached properties.** `n_clique_states`, `max_separator_size`, `n_separator_states`, `bits_table`, `clique_state_mask`, `owned_bias_arrays`, `owned_edge_arrays`, `collect_step_arrays`, `pre_order`, `walk_step_arrays`. Plus a module-level helper `_build_sep_state_map`. All pure-numpy, computed lazily on first access.
-- [ ] **`walk_step_arrays` returns a dict** (not a namedtuple) because the consumer `_jt_inference.jt_sample` unpacks specific keys; a flat dict was simpler than designing a one-off NamedTuple type. Reasonable?
-- [ ] **`pre_order` cached** as a tuple. Previously this was a local helper in `_jt_inference.py:_pre_order`; lifting it to the JT lets the inference module stay shape-stable across calls.
+- [x] Module + `JunctionTree` docstrings: 4 identity fields = `__eq__`/`__hash__`/JIT cache key; raw constructor does no validation; everything else derived on demand (uncached — recompute is cheap, hoist out of loops). *(Amended mid-review 2026-06-11: opening expanded with junction-tree context; new "seed, not preserved topology" paragraph — the model is the chordal completion, fill-ins become real couplings; binary qualifier on the cost statement; stale `_jt_inference` reference fixed.)*
+- [x] `_triangulate` (was the inline triangulation section; split out with `_maximal_cliques`/`_spanning_tree` to retire the `noqa: C901`): `fill_in` closure over the zeroed-row elimination graph; `touched` superset maintenance; `argmin` deterministic lowest-index tie-break; **new**: out-of-range endpoint `ValueError` (numpy negative-index wraparound would otherwise build a wrong graph silently).
+- [x] `_maximal_cliques`: `node_cliques` index makes the containment check $O(\text{cliques} \ni v)$.
+- [x] `_spanning_tree`: separator weights via per-node clique co-occurrence counts; Kruskal; forest linking (the disconnected fix). `from_edges` is now a short orchestrator: validate $n$ → triangulate → cliques → treewidth gate → MST; its docstring states the seed semantics, determinism, and that `max_treewidth` bounds the *heuristic* triangulation, not the true treewidth.
+- [x] Derived properties: `chordal_edges` canonical sorted order **is the off-diagonal parameter layout**; `pre_order`/`parent_of`/`collect_order` mutual consistency; `bias_owner`/`edge_owner` first-clique attribution.
+- [x] `ChainTree`: `__post_init__` degree-2 validation (runs on *any* construction), `clique_path`, docstring honesty (path decomposition / pathwidth / interval graphs; PQ-tree recognition gap — chains and bands always recognized). *(Amended 2026-06-11: comment now states the check assumes the spanning-tree field invariant — for a tree, degree ≤ 2 ⟺ path; raw-construction validation is out of scope, as in the base class.)*
 
-### `src/goal/models/base/gaussian/_jt_inference.py` (modified — full rewrite of the two main passes)
+### `src/goal/models/base/gaussian/chordal/sum_product.py` (~470 lines)
 
-- [ ] **`_clique_potentials` (~lines 50–90).** Vmap over cliques, gather + multiply pattern. Confirm the sentinel handling (`+ 1` offset, leading-zero padded params) does what you'd expect; an alternative would be explicit `jnp.where(mask, ...)` if you find this clearer.
-- [ ] **`_collect` (~lines 100–125).** Single `lax.scan` over the precomputed `(child_idx, parent_idx, sep_maps)` tuple. The scan body does one `_segment_logsumexp` per step plus a `totals.at[parent].add(...)`.
-- [ ] **`jt_sample` (~lines 140–215).** Outer `lax.scan` over the pre-order, inner `lax.fori_loop` to set the clique's variables in `x`. The inner loop is sequential (max_clique_size iterations, small static int).
-- [ ] **No public API changes.** `jt_log_partition(jt, diag, off_diag)` and `jt_sample(jt, diag, off_diag, key)` keep the same signatures; downstream callers (`ChordalCouplingMatrix.log_partition_function`, `.sample`) are unaffected.
+- [x] Module docstring: four public functions; numpy tables built at trace time ("the compilation cache is the only cache"); LSB-first encoding stated once. *(Amended 2026-06-11 after external-review triage: "compile time constant in n_cliques" corrected to "not unrolled over cliques" — table sizes do grow compile time; speedup claim anchored to the measured ~100x figure.)*
+- [x] `_sep_state_map`: padded states map to separator state 0 (never an all-padded segment); `_segment_logsumexp` $-\infty$ absorption.
+- [x] `_ownership_tables` + `_clique_potentials`: sentinel `-1` + leading-zero-padded params gather trick.
+- [x] `_collect`: sequential leaves-to-root scan (the general-tree kernel; also feeds `jt_sample`).
+- [x] `chain_log_partition`: prefix scan; K=1 and K=2 short-circuits. *(Joint-histogram + equality tests certify; K=1/K=2 short-circuits separately parametrized.)*
+- [x] `chain_sample`: suffix scan for $\beta$; conditional-logits tensor (clique 0's zero in-map row makes $t=0$ the unconditional draw; last clique's zero $\beta$ row); Gumbel argmax over `(K, S, 2^m)`; map-composition scan; sentinel-row scatter (overlapping writes agree by separator consistency).
+- [x] `jt_sample`: collect + pre-order walk-down (general-tree sampler, still used by `ChordalCouplingMatrix`). *(Rewritten 2026-06-11: the dynamic `set_mask` + `fori_loop` writes replaced by static per-clique new-node tables — by running intersection, the already-assigned nodes at each clique are exactly the parent separator, so each node is written exactly once by its first pre-order clique (sentinel-row scatter, as in `chain_sample`). Hand-check the RIP argument in the docstring; 63/63 tests incl. hub/branching + disconnected sampling-vs-enumeration.)*
 
-### `examples/variational_mnist/model.py` (modified)
+### `src/goal/models/base/gaussian/boltzmann.py` (~640 lines)
 
-- [ ] **`_chain_edges(n)` helper** (one-liner). Returns the 1D nearest-neighbour edge list.
-- [ ] **`_build_base_latent(n_latent, latent, latent_graph) -> Any`.** Dispatches on the `latent` Literal. `latent_graph` is currently a fixed `Literal["chain"]`; the function asserts no other path is reachable via the type system (no runtime fallback `raise`).
-- [ ] **`create_model` signature widened** with `latent` and `latent_graph` kwargs, both with sensible Bernoullis defaults. Docstring updated.
-- [ ] **Type aliases extended.** `BinomialChordalHierarchical`, `PoissonChordalHierarchical`, `BinomialChordalFull`, `PoissonChordalFull` added to the `MixtureModel` union. No runtime impact — just keeps the return-type union accurate.
-- [ ] **`normalized_reconstruction_error` chunked via `jax.lax.map`** with `batch_size=256`. Reason: the previous `jax.vmap(reconstruct)` over all 10k test samples materialised a single batched backward through the chordal `log_partition_function`'s `lax.scan` — that OOM'd the GPU at ~1.4 GiB per chunk on top of the existing model footprint (verified empirically; first smoke run failed here, second with `lax.map` succeeded). For `Bernoullis` this is a small constant-factor overhead; for `ChordalBoltzmann` it's necessary.
+- [x] **`Boltzmann[Shape]` ABC**: *(closed by test certification — energy-identity test pins the convention; hand re-derivation waived per 2026-06-11 close-out.)* the $x^2 = x$ doctrine stated once (absorbed bias, zero location, first moment = diagonal of second, $-2/-1$ precision convention); the four GeneralizedGaussian conversions expressed through `split_couplings`/`join_couplings`. Equivalence to the old per-class code is round-trip-tested; worth one hand re-derivation of `join_location_precision`. *(2026-06-11: the sign/factor-of-two convention is now also pinned semantically — `test_location_precision_energy_identity` (Diagonal/Full/Chordal) asserts theta·s(x) = loc·x − ½xᵀΛx on binary states with the quadratic form derived independently of the conversion under test; a consistent convention error can no longer survive. Hand re-derivation now optional.)*
+- [x] Layout contracts: *(round-trip + energy-identity tested across all three layouts.)* `DiagonalBoltzmann` (identity / empty off-diag), `FullBoltzmann` (packed-triu via static numpy indices), `ChordalBoltzmann` (slice/concat).
+- [x] `FullBoltzmann` rename fallout: *(count-asserted replacements; full suite + pyright green.)* `lgm.py` (`BoltzmannEmbedding`, `BoltzmannLGM` internals — 12 sites), `models/__init__.py` exports both `Boltzmann` (ABC) and `FullBoltzmann`, `examples/boltzmann/run.py`.
+- [x] `CouplingMatrix` / `ChordalCouplingMatrix` bodies — provenance corrected 2026-06-11: `CouplingMatrix` is Sacha's own pre-chordal code (commit `4849946`), long vetted; only `ChordalCouplingMatrix` is from the AI PR (`f40c382`). Both lightly touched (2026-06-11, external-review round): `_gibbs_step` splits the permutation key from the per-unit update keys (was reusing one key for both — hygiene, statistically harmless); `log_partition_function` enumeration rewritten as a dense quadratic-form einsum (2–8x at n=16–20, values agree to 1e-10, pinned by `test_log_partition_matches_sum` + K4 equivalence); `_unit_conditional_energy_diff` comment sharpened with the x_k-cancellation algebra; `ChordalCouplingMatrix.sample` docstring notes the vmap-hoisted collect (verified by XLA cost analysis: 256 draws cost 48x one draw). The last unread AI-gen lines (`ChordalCouplingMatrix.to_matrix`/`from_matrix`) closed by `test_to_from_matrix_round_trip` 2026-06-11: round-trip, symmetrization of asymmetric input, off-pattern dropping — `from_matrix` previously had zero callers anywhere.
+- [x] `ChainCouplingMatrix` / `ChainBoltzmann`: narrowed `ChainTree` field, kernel overrides only; Liskov-clean by construction (identical layout and distribution).
 
-### `examples/variational_mnist/train.py` (modified)
+### Tests, example, docs
 
-- [ ] **CLI**: new `--latent {bernoullis,chordal_boltzmann}` (default `bernoullis`) and `--latent-graph {chain}` (default `chain`). Both validated by argparse `choices`, so `_build_base_latent`'s Literal-narrowing is safe.
-- [ ] **Banner + config dict** carry the two new fields. `latent_graph` is only logged in the banner when `--latent chordal_boltzmann` is selected (avoids visual clutter for the default path).
-- [ ] **`create_model` call** at the bottom of `main()` passes both flags through.
-- [ ] **Bernoullis baseline unchanged.** Default invocation (`uv run python -m examples.variational_mnist.train`) constructs the same model as pre-PR — verify by a smoke run with `--n-steps 50` and a fixed seed.
+- [x] `tests/boltzmann.py`: `TestJunctionTree` (incl. disconnected linking), `TestChordalBoltzmann` (10-topology enumeration parametrization), `TestChainBoltzmann` (validation, Chain≡Chordal value+grad, sampling vs enumeration incl. pair statistics, K=1/K=2 edge cases). Tolerances per project convention (exact: 1e-5/1e-7; 20k-sample MC: 0.02). *(Strengthened 2026-06-11: new `test_sampling_matches_joint_distribution` for both samplers — empirical frequencies vs exact probabilities over all 2^n states (jt_sample: branching hub + mixed seps; chain_sample: mixed seps, 4-cycle, chain-6), certifying the full joint incl. non-adjacent correlations that moment tests can't see; 50k samples, atol 0.01 ≈ 4.5 sigma. Also `test_sampling_matches_chain_to_mean` now checks full sufficient statistics (pairs included) vs exact to_mean, parametrized over a plain chain (n=16) and a band-2-head/chain-tail topology (n=20, separator sizes 2 and 1) — extends sampler coverage past the enumeration 2^n ceiling and through the `_LOG_ZERO` regime; measured max deviation 0.007 vs atol 0.02.)*
+- [x] `examples/variational_mnist` (experimental standards): *(closed 2026-06-11 without hand-review per decision — low-priority experimental code, covered by smoke runs; the git stash "precision_floor in core (superseded)" is dead code and safe to drop at leisure.)* `_build_base_latent` → `ChainBoltzmann` for the chain graph; two assignment computations chunked via `lax.map(batch_size=256)` (OOM fix); `FlooredDiagonalNormal` shim in `model.py` (precision floor relocated out of core `Normal`; drop the git stash "precision_floor in core (superseded)" once reviewed); pre-existing `--optimizer adamw`/`--weight-decay` CLI rode along unreviewed.
+- [x] Docs render check: *(waived in favor of the `sphinx -W` gate (warnings-as-errors, green after the coupling restructure) plus the earlier render checks; pages now: `boltzmann.html` (all 8 classes), `coupling/{dense,junction_tree,sum_product}.html`.)* `boltzmann.html` (ABC + Diagonal/Full/Chordal/Chain + both coupling matrices), `chordal/junction_tree.html` (incl. `ChainTree`), `chordal/sum_product.html` (four functions).
 
-### `examples/variational_mnist/diagnose.py` (modified)
+### Open follow-ups (deferred)
 
-- [ ] **`lat_dim` vs `lat_data_dim` split.** `lat_dim = model.bas_lat_man.dim` (= n + n_chordal_edges for `ChordalBoltzmann`) is used to reshape the interaction matrix; `lat_data_dim = model.bas_lat_man.data_dim` (= n) is used to slice prior/posterior samples (which are concatenated `[y, k]`). For `Bernoullis` they coincide so this is a no-op.
-- [ ] **Optional unit/pair block breakdown.** When `lat_dim != lat_data_dim`, prints separate norms for the first `lat_data_dim` interaction columns (unit interactions, $x_i$) vs. the rest (pair interactions, $x_i x_j$). Quick visual sanity check that both signal types are picked up by the interaction matrix.
-- [ ] **Collateral cleanup**: SIM108 ternary fix at the participation-ratio calculation; `# noqa: C901` on the function header (the +1 branch I added pushed complexity 15 → 16). No behaviour change.
-
-### `tests/boltzmann.py` (modified)
-
-- [ ] **`test_long_chain_log_partition_matches_dp`** (n_neurons = 64 chain). Compares the `lax.scan` collect against a Python-loop dynamic-programming reference (the standard forward sweep on a chain).
-- [ ] **`test_long_chain_sampling_matches_marginals`** (n_neurons = 64 chain, 20k samples). Empirical first moments match `to_mean` (autodiff of `log_partition_function`) to `atol = 0.02`.
-- [ ] Existing tests untouched and still passing.
-
-### `src/goal/models/__init__.py`
-
-- [ ] Imports re-sorted by ruff `--fix`. No new symbols beyond what Topic 2 added.
-
-### Open follow-ups (deferred from this PR)
-
-- **Richer graph topologies**: 1D band (configurable width), 2D grid, user-supplied edge list. The general `lax.scan` code path supports them already; just need the CLI plumbing and treewidth budgets.
-- **Reconstruction error scale on `ChordalBoltzmann`.** The MSE-recon error is computed against `obs_man.to_mean` of the *expected* likelihood under the variational posterior, which in turn calls `pst_man.to_mean` (autodiff of `log_partition_function`). At n_latent = 1024 chain this is currently the slowest post-training step (~10s for 10k test images at `batch_size = 256`). Could be sped up by caching JIT-compiled `to_mean` and/or reducing the test-set size for during-training diagnostics.
-- **Initial-parameter scale for `ChordalBoltzmann`.** Currently inherits `Differentiable.initialize` (random normal × shape 0.1). For long runs we may want to start the chordal couplings at zero (so the prior begins close to Bernoullis) and let them grow as training learns them. Not a blocker for the smoke run.
-- **Longer training comparison.** The 200-step smoke run hit NMI 0.48 with R² ≈ 0.05; a proper comparison vs. the Bernoullis baseline needs ≥ several thousand steps with the conjugation regulariser engaged (`--conj-weight > 0`). Out of scope for this PR.
+- **`BoltzmannLGM` widening**: still typed against `FullBoltzmann`; accepting `ChordalBoltzmann`/`ChainBoltzmann` latents needs the bound widened (no example exercises it yet).
+- **Stateful-`MatrixRep` / `ChordalSymmetric` design question**: unchanged — revisit if a Gaussian chordal MRF materializes (at which point `junction_tree.py` may move to a neutral home).
+- **Graph-representation future (long-range)**: when harmoniums move from recursive nesting to a proper graph representation, `from_edges` is the seam — its body can delegate to a structure library (networkx/rustworkx) while `JunctionTree` stays the frozen/hashable boundary object defining the parameter layout. Inference stays JAX-native.
+- **Richer mnist topologies**: band width / user edge lists — kernels already support them, CLI plumbing only.
+- **PQ-tree interval-graph recognition**: only if hub-like topologies ever need the chain kernel.
+- **Distribute pass / per-clique marginals**: if diagnostics ever want calibrated beliefs.
+- **Levelized collect/sample for branching trees**: process tree levels with `vmap` + scatter-add to cut depth from $O(n_\text{cliques})$ to $O(\text{height})$ — only worthwhile if a bushy-tree workload materializes; chains already have their own kernels.

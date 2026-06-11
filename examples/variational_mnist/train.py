@@ -150,6 +150,19 @@ def parse_args() -> argparse.Namespace:
         help="Interaction mode: 'hierarchical' (X<->(Y,K)) or 'full' (X<->Y<->K three-block)",
     )
     parser.add_argument(
+        "--normal-precision-floor",
+        type=float,
+        default=1e-3,
+        help=(
+            "Per-coordinate floor on the natural-parameter precision of the "
+            "DiagonalNormal observable. Caps per-pixel variance at "
+            "1/<floor> and prevents the log_partition NaN that the affine "
+            "likelihood b+L(s(z)) can trigger when an interaction-driven "
+            "precision crosses zero for some posterior-sampled z. Only used "
+            "with --observable normal."
+        ),
+    )
+    parser.add_argument(
         "--latent",
         choices=["bernoullis", "chordal_boltzmann"],
         default="bernoullis",
@@ -184,6 +197,26 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_CONJ_WARMUP_STEPS,
         help="Steps to linearly ramp the conjugation regularizer from 0 to conj_weight",
+    )
+    parser.add_argument(
+        "--optimizer",
+        choices=["adam", "adamw"],
+        default="adam",
+        help=(
+            "Outer optimizer. ``adam`` is the historical default. ``adamw`` "
+            "adds decoupled weight decay (set ``--weight-decay`` to control "
+            "the strength) which acts as L2 regularization on the natural "
+            "parameters."
+        ),
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=0.0,
+        help=(
+            "Decoupled weight-decay coefficient for AdamW. Ignored when "
+            "``--optimizer adam``. Typical values 1e-5 to 1e-3."
+        ),
     )
     return parser.parse_args()
 
@@ -282,6 +315,8 @@ def train_model(  # noqa: C901
     kl_warmup_steps: int = DEFAULT_KL_WARMUP_STEPS,
     lr_warmup_steps: int = DEFAULT_LR_WARMUP_STEPS,
     conj_warmup_steps: int = DEFAULT_CONJ_WARMUP_STEPS,
+    optimizer_name: Literal["adam", "adamw"] = "adam",
+    weight_decay: float = 0.0,
 ) -> tuple[Array, dict[str, Any]]:
     """Train a model with specified mode.
 
@@ -369,7 +404,10 @@ def train_model(  # noqa: C901
         ],
         boundaries=[lr_warmup_steps],
     )
-    optimizer = optax.adam(lr_schedule)
+    if optimizer_name == "adamw":
+        optimizer = optax.adamw(lr_schedule, weight_decay=weight_decay)
+    else:
+        optimizer = optax.adam(lr_schedule)
     prior_dim = model.prr_man.dim
     init_prior, init_lkl, _ = model.split_coords(params)
     gen_params = jnp.concatenate([init_prior, init_lkl])
@@ -420,7 +458,8 @@ def train_model(  # noqa: C901
             - posterior_entropy_weight * posterior_entropy
             + conj_loss
         )
-        return loss, (elbo, conj_var)
+        # Report the true (beta=1) ELBO; the beta-scaled value lives only in the loss.
+        return loss, (elbo_1, conj_var)
 
     # Loss function for analytical rho (computed via lstsq each step)
     # NOTE: Gradients flow through lstsq via JAX implicit differentiation
@@ -479,7 +518,8 @@ def train_model(  # noqa: C901
             - posterior_entropy_weight * posterior_entropy
             + conj_loss
         )
-        return loss, (elbo, conj_var, rho_star)
+        # Report the true (beta=1) ELBO; the beta-scaled value lives only in the loss.
+        return loss, (elbo_1, conj_var, rho_star)
 
     # Training step functions
     # beta is passed as a traced Array to avoid JIT recompilation per step
@@ -570,7 +610,10 @@ def train_model(  # noqa: C901
             probs = model.get_cluster_probs(q_params)
             return jnp.argmax(probs)
 
-        return jax.vmap(get_assignment)(xs)
+        # Chunked like normalized_reconstruction_error: a full-test-set vmap
+        # materializes the latent log-partition workspace per lane and OOMs
+        # with the ChainBoltzmann associative-scan kernel at n_latent=1024.
+        return jax.lax.map(get_assignment, xs, batch_size=256)
 
     # JIT-compile diagnostic metrics (called only at LOG_INTERVAL)
     @jax.jit
@@ -646,7 +689,8 @@ def train_model(  # noqa: C901
         probs = model.get_cluster_probs(q_params)
         return jnp.argmax(probs)
 
-    assignments = jax.vmap(get_assignment)(test_data)
+    # Chunked for the same reason as get_assignments_batch above.
+    assignments = jax.lax.map(get_assignment, test_data, batch_size=256)
 
     # Import evaluation metrics
     from .evaluate import (
@@ -795,6 +839,7 @@ def main():
         interaction=args.interaction,
         latent=args.latent,
         latent_graph=args.latent_graph,
+        normal_precision_floor=args.normal_precision_floor,
     )
     print(f"Model dim: {model.dim}")
     print(f"  Rho params: {model.cnj_man.dim}")
@@ -821,6 +866,8 @@ def main():
         kl_warmup_steps=args.kl_warmup_steps,
         lr_warmup_steps=args.lr_warmup_steps,
         conj_warmup_steps=args.conj_warmup_steps,
+        optimizer_name=args.optimizer,
+        weight_decay=args.weight_decay,
     )
 
     # Reconstructions
@@ -856,6 +903,9 @@ def main():
             "kl_warmup_steps": args.kl_warmup_steps,
             "lr_warmup_steps": args.lr_warmup_steps,
             "conj_warmup_steps": args.conj_warmup_steps,
+            "optimizer": args.optimizer,
+            "weight_decay": args.weight_decay,
+            "normal_precision_floor": args.normal_precision_floor,
         },
     }
 

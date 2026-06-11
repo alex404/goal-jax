@@ -20,6 +20,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
+    Diagonal,
     Differentiable,
     EmbeddedMap,
     Harmonium,
@@ -35,12 +36,13 @@ from goal.geometry.manifold.map import LinearMap
 from goal.models import (
     Bernoullis,
     Binomials,
+    ChainBoltzmann,
     ChordalBoltzmann,
     CompleteMixture,
     CompleteMixtureOfHarmoniums,
+    Normal,
     Poissons,
     VariationalHierarchicalMixture,
-    diagonal_normal,
 )
 
 # MNIST dimensions
@@ -54,6 +56,38 @@ DEFAULT_N_TRIALS = 16
 
 # Default multiplier for n_samples = multiplier * bas_lat_man.dim
 ANALYTICAL_RHO_SAMPLES_MULTIPLIER = 5
+
+
+### Floored DiagonalNormal (training-stability shim, local to this example) ###
+
+
+@dataclass(frozen=True)
+class FlooredDiagonalNormal(Normal[Diagonal]):
+    """DiagonalNormal whose log-partition clamps the precision diagonal from below.
+
+    The Normal natural-parameter manifold requires a strictly positive-definite
+    precision, but the affine likelihood ``b + L(s(z))`` can push individual
+    precision components across zero mid-training, producing NaN from
+    ``inverse(precision)`` / ``logdet(precision)``. Clamping at
+    ``precision_floor`` caps per-pixel variance at ``1 / precision_floor``;
+    the zero gradient of ``jnp.maximum`` in the clamped region acts as a soft
+    barrier. This deliberately makes ``log_partition_function`` inexact below
+    the floor, so it stays out of the core library --- the exact-model
+    invariants (e.g. closed-form ``to_mean`` agreeing with the gradient of the
+    log-partition) do not hold in the clamped region.
+    """
+
+    precision_floor: float = 1e-3
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        loc, precision = self.split_location_precision(params)
+        floored = self.cov_man.map_diagonal(
+            precision, lambda x: jnp.maximum(x, self.precision_floor)
+        )
+        return super().log_partition_function(
+            self.join_location_precision(loc, floored)
+        )
 
 
 ### Concrete harmonium ###
@@ -276,7 +310,7 @@ def _build_base_latent(
         return Bernoullis(n_latent)
     # latent == "chordal_boltzmann"; only "chain" is a valid latent_graph today.
     _ = latent_graph
-    return ChordalBoltzmann.from_edges(n_latent, _chain_edges(n_latent))
+    return ChainBoltzmann.from_edges(n_latent, _chain_edges(n_latent))
 
 
 def create_model(
@@ -287,6 +321,7 @@ def create_model(
     interaction: Literal["hierarchical", "full"] = "full",
     latent: Literal["bernoullis", "chordal_boltzmann"] = "bernoullis",
     latent_graph: Literal["chain"] = "chain",
+    normal_precision_floor: float = 1e-3,
 ) -> MixtureModel:
     """Create a mixture model with the specified observable type and interaction mode.
 
@@ -308,6 +343,13 @@ def create_model(
         latent_graph: For ``latent="chordal_boltzmann"``, the sparsity pattern
             of the couplings. Currently only ``"chain"`` is supported (1D
             nearest-neighbour, treewidth 1). Ignored for ``latent="bernoullis"``.
+        normal_precision_floor: Per-coordinate floor on the natural-parameter
+            precision of the ``DiagonalNormal`` observable. Caps per-pixel
+            variance at ``1 / normal_precision_floor`` and prevents the
+            ``log_partition_function`` NaN that otherwise arises when the
+            affine likelihood ``b + L(s(z))`` pushes a precision component
+            across zero for an individual posterior-sampled ``z``. Only used
+            when ``observable_type == "normal"`` (default: ``1e-3``).
 
     Returns:
         MixtureModel instance
@@ -317,7 +359,9 @@ def create_model(
     if observable_type == "poisson":
         obs_man = Poissons(N_OBSERVABLE)
     elif observable_type == "normal":
-        obs_man = diagonal_normal(N_OBSERVABLE)
+        obs_man = FlooredDiagonalNormal(
+            N_OBSERVABLE, Diagonal(), precision_floor=normal_precision_floor
+        )
     else:
         obs_man = Binomials(N_OBSERVABLE, n_trials)
 

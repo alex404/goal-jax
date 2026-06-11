@@ -28,15 +28,21 @@ regression at each training step, which prevents the optimizer from
    failure mode: in observed cases ``conj_var`` was still finite at the very
    step the ELBO went NaN. Counting observables (``Binomials``,
    ``Poissons``) have bounded log-partition for all finite natural parameters
-   and do not exhibit this failure, even with ``ChordalBoltzmann`` latents at
-   ``||rho||`` orders of magnitude past the Normal failure threshold.
+   and do not exhibit this failure.
 
-   Practical workarounds when staying with the Normal head:
-   ``--grad-clip-norm 1.0`` (slows precision drift enough that no single Adam
-   step crosses zero), or a precision floor inside
-   ``Normal.log_partition_function`` (one-line clamp). See
-   ``examples/variational_mnist/diag_stability.py`` for an instrumented
-   trainer that reproduces, probes, and validates the mitigation.
+   This example defines a local ``FlooredDiagonalNormal`` (in ``model.py``)
+   whose ``log_partition_function`` clamps the precision diagonal at
+   ``precision_floor`` (default ``1e-3``, overridable via
+   ``--normal-precision-floor`` on ``train.py``), capping per-pixel variance
+   at ``1e3`` and clamping any precision component the affine likelihood
+   would otherwise push across zero. The shim lives here rather than on the
+   core ``Normal`` because it deliberately makes the log-partition inexact
+   below the floor — core model classes stay mathematically exact, and
+   stability policy belongs to the application layer.
+   Empirically this lets the chordal-Boltzmann + Normal path train past
+   ``||rho||=65`` (vs the original NaN at ``||rho||≈14.5``) without
+   incident. See ``examples/variational_mnist/diag_stability.py`` for the
+   instrumented trainer used to localise the failure mode.
 
 Single-run workflow:
     python -m examples.variational_mnist.train
