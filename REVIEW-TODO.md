@@ -8,6 +8,10 @@ Pending hand-review checklists for in-flight PRs. Each section is a self-contain
 
 Tracking checklist for hand-review of the `variational.py` migration to manuscript §4.2 standard form. Plan: `/home/alex404/.claude-work/plans/alright-so-exponential-family-variationa-zany-balloon.md`.
 
+> **Note on drift (added 2026-06-10).** Commits `a6d2ee5`/`dfac625` reworked `variational.py` *after* this checklist was written: the single class is now a hierarchy `VariationalConjugated` (Generative-only base with a new full-$f$ score-function `elbo_at` — new code not tracked by any item below) → `VariationalDifferentiable` (the $c(x) + \mathbb{E}_q[r]$ form, `elbo_divergence`) → `VariationalSymmetric` (the class the graphical section calls `SymmetricVariationalConjugated`). `conjugation_residual`/`conjugation_parameters` gained an optional `x` argument (input-dependent $\rho_Z(x)$ hook for manuscript §4.2.7). All L## references below are pre-rework; navigate by name. Items whose *descriptions* are stale carry inline notes.
+>
+> **Update 2026-06-11.** The base full-$f$ `elbo_at` is gone again: it was sample-for-sample identical to the standard form (the sample-mean baseline absorbs $c(x)$ exactly — verified by quadrature), unreachable by any concrete model, and duck-typed `log_density` on `Generative`-bounded latents. `elbo_at`/`mean_elbo`/`recognition_conjugation_loss_at`/`mean_recognition_conjugation_loss` now live on `VariationalDifferentiable`; the base keeps structure, sampling, `conjugation_residual`, and `prior_conjugation_loss`. New `tests/variational.py` (8 tests) verifies every estimator's value *and* gradient against exact quadrature ground truth on a 1-latent VonMises model, pinning the stop_gradient policy (mutation-tested: un-sg'ing $r$, dropping the score correction, leaking the score into the value, and sg'ing $\log q$ each break the suite). The stop_gradient audit item below is superseded by these tests.
+
 ### Automated verification (already run)
 
 - `uvx basedpyright src/` → 0 errors, 0 warnings.
@@ -28,6 +32,7 @@ Tracking checklist for hand-review of the `variational.py` migration to manuscri
 - [x] **`elbo_at` decomposition $c(x) + \mathbb{E}_q[r(Z)]$ matches manuscript Eq.~43–44.**
   - Code: `src/goal/geometry/exponential_family/variational.py:173-227`
   - $c(x)$ in code = `s_X·θ_X + ψ_Z(θ̂_{Z|X}) − ψ_Z(θ_Z) − ψ_X(θ_X) + log h_X(x)`. Derivation: expand $\log p(x|z) + \log p(z) - \log q(z|x)$, cancel shared $s_Z·θ_Z$ and $s_X·Θ·s_Z$ terms, separate $z$-dependent ($r$) from $x$-dependent ($c$) pieces. The $±ψ_X(θ_X)$ is a convention to make $r$ vanish exactly at conjugation.
+  - *Claude re-verify 2026-06-10 (corrected same day): both are right — the manuscript defines densities wrt the base measure ($q_X = dQ_X/d\mu_X$, Eq. 1), so its $c(x)$ correctly has no $\log h_X$ term; the code reports densities wrt counting/Lebesgue measure, so its $+\log h_X(x)$ is the convention translation, not an erratum. Gradients identical; ELBO values differ by the constant $\log \mu_X(x)$.*
 - [x] **Score-function gradient matches manuscript Eq.~51.**
   - Surrogate: `c_x + direct + score - sg(score)`.
   - Direct gradient: `direct = mean(r_vals)` autodiff at sg'd $z$ gives $\mathbb{E}_q[\nabla r]$.
@@ -41,22 +46,27 @@ Tracking checklist for hand-review of the `variational.py` migration to manuscri
 
 ### `src/goal/geometry/exponential_family/variational.py` (main rewrite)
 
-- [ ] **Module docstring** (L1-9): manuscript §4.2 reference, $r$ as central object, β handled externally.
-- [ ] **`VariationalConjugated` class docstring** (L25-58): unchanged from previous version except surrounding context. Worth a glance to confirm it still reads coherently next to the new method order.
-- [ ] **`conjugation_residual` method** (L154-171, replaces `reduced_learning_signal`):
+> Ticked 2026-06-11: covered in the review session — every estimator re-derived against the manuscript and verified against quadrature ground truth (`tests/variational.py`), all docstrings rewritten per the new module-as-flow-document design (new text reviewable via the working-tree diff), orphan greps clean. Manuscript references removed; docs are standalone.
+
+- [x] **Module docstring** (L1-9): manuscript §4.2 reference, $r$ as central object, β handled externally. *(Rewritten: now displays the conjugation equation, the recognition model, the residual, and the $f = c + r$ split, and names the "standard form"; manuscript reference removed.)*
+- [x] **`VariationalConjugated` class docstring** (L25-58): unchanged from previous version except surrounding context. Worth a glance to confirm it still reads coherently next to the new method order. *(Rewritten: model definition + type-parameter roles; ELBO machinery moved out per the 2026-06-11 consolidation.)*
+- [x] **`conjugation_residual` method** (L154-171, replaces `reduced_learning_signal`):
   - Renamed in code, added `+ self.obs_man.log_partition_function(obs_params)` shift.
   - Compare to old body (in git: `git show HEAD:src/goal/geometry/exponential_family/variational.py | sed -n '246,259p'`). Only difference: the added shift term.
-- [ ] **`elbo_at` body** (L173-227): full rewrite. The surrogate `c_x + direct + score - sg(score)` is value-correct as an MC estimate and gradient-correct under autodiff. Three stop-gradients (samples, $r$ inside score correction, `sg(score)`) documented in the method docstring.
-- [ ] **`mean_elbo`** (L229-239): no `kl_weight` parameter; otherwise unchanged.
-- [ ] **`elbo_divergence`** (L241-249): unchanged body; docstring updated to note it's no longer on the critical path of `elbo_at` but is the lever for external β-warmup.
-- [ ] **Removed: `elbo_reconstruction_term`.** Was unused outside `elbo_at`; grep before/after to confirm no orphan reference.
-- [ ] **`prior_conjugation_loss`** (L253-263): $\mathcal{R}_p = \mathrm{Var}_{p_Z}[r(Z)]$. Sg on prior samples; gradient flows through `params` in `conjugation_residual` at fixed $z$. Mirrors the inline pattern callers were already using.
-- [ ] **`recognition_conjugation_loss_at`** (L265-275): $\mathcal{R}_q(x) = \mathrm{Var}_{q(Z|X=x)}[r(Z)]$. Same sg policy as the prior version, but samples from the recognition model. New to the codebase — not yet called anywhere.
-- [ ] **`mean_recognition_conjugation_loss`** (L277-285): batch mean of the per-$x$ recognition loss. Mirrors `mean_elbo` convention.
-- [ ] **`conjugation_metrics`** (free function, L367-396): refactored to delegate to `prior_conjugation_loss` for `var_f`; keeps inline $\mathrm{Var}_p[\psi_X]$ for the $R^2$ ratio. Public signature `(var_f, std_f, r_squared)` preserved; all six callers untouched.
-- [ ] **`regress_conjugation_parameters`** (L309-365): body unchanged. Docstring updated to mention the shift-invariance of the intercept-absorbed regression.
-- [ ] **`reconstruct` / `reconstruction_error`** (L399-425): unchanged.
-- [ ] **`stop_gradient` audit (manuscript-correctness).** Five sg sites total, all annotated in code:
+- [x] **`elbo_at` body** (L173-227): full rewrite. The surrogate `c_x + direct + score - sg(score)` is value-correct as an MC estimate and gradient-correct under autodiff. Three stop-gradients (samples, $r$ inside score correction, `sg(score)`) documented in the method docstring. *(Quadrature-verified value + gradient; mutation-tested.)*
+- [x] **`mean_elbo`** (L229-239): no `kl_weight` parameter; otherwise unchanged. *(Moved to `VariationalDifferentiable`.)*
+- [x] **`elbo_divergence`** (L241-249): unchanged body; docstring updated to note it's no longer on the critical path of `elbo_at` but is the lever for external β-warmup. *(Argument order verified = KL(q‖p); quadrature-tested.)*
+- [x] **Removed: `elbo_reconstruction_term`.** Was unused outside `elbo_at`; grep before/after to confirm no orphan reference. *(Grep clean across src/examples/tests/docs.)*
+- [x] **`prior_conjugation_loss`** (L253-263): $\mathcal{R}_p = \mathrm{Var}_{p_Z}[r(Z)]$. Sg on prior samples; gradient flows through `params` in `conjugation_residual` at fixed $z$. Mirrors the inline pattern callers were already using.
+- [x] **`recognition_conjugation_loss_at`** (L265-275): $\mathcal{R}_q(x) = \mathrm{Var}_{q(Z|X=x)}[r(Z)]$. Same sg policy as the prior version, but samples from the recognition model. New to the codebase — not yet called anywhere.
+  - *Stale description (post-`a6d2ee5`): no longer the same sg policy as the prior version. Now delegates to the new `_variance_with_score_correction` helper, which adds the score-function term $\mathbb{E}_q[(r-\bar r)^2 \nabla \log q]$ — more manuscript-faithful (§4.2.6 says $\mathcal{R}_q$ "relies on the same score-function gradient machinery as the ELBO"), but review the helper too. Still uncalled (verified by grep 2026-06-10).*
+- [x] **`mean_recognition_conjugation_loss`** (L277-285): batch mean of the per-$x$ recognition loss. Mirrors `mean_elbo` convention. *(Moved to `VariationalDifferentiable`.)*
+- [x] **`conjugation_metrics`** (free function, L367-396): refactored to delegate to `prior_conjugation_loss` for `var_f`; keeps inline $\mathrm{Var}_p[\psi_X]$ for the $R^2$ ratio. Public signature `(var_f, std_f, r_squared)` preserved; all six callers untouched.
+- [x] **`regress_conjugation_parameters`** (L309-365): body unchanged. Docstring updated to mention the shift-invariance of the intercept-absorbed regression.
+  - *Stale description (post-`a6d2ee5`): body NOT unchanged anymore. The design matrix is now built by linearizing $\iota(\rho)\cdot\phi(s_Z)$ through `conjugation_parameters` via `jax.grad` at $\rho = 0$, with a $\rho$-independent offset subtracted from the target — so the same regression works for richer completions (mixture completion etc.). Needs a fresh read, not a rubber stamp.*
+- [x] **`reconstruct` / `reconstruction_error`** (L399-425): unchanged.
+- [x] **`stop_gradient` audit (manuscript-correctness).** Five sg sites total, all annotated in code:
+  - *Stale count (post-`a6d2ee5`): more than five sites now — the base-class `elbo_at` (samples, `f_sg`, `sg(score)`) and `_variance_with_score_correction` (`r_sg`, `g_sg`, `sg(score)`) add their own. Each is annotated in code; audit by reading each `stop_gradient` call site rather than the list below.*
   1. `regress_conjugation_parameters` — sampler may be non-differentiable.
   2. `elbo_at` z-samples — same reason.
   3. `elbo_at` `r_sg = sg(r_vals)` — prevents double-counting direct gradient in score correction.
@@ -65,41 +75,41 @@ Tracking checklist for hand-review of the `variational.py` migration to manuscri
 
 ### `src/goal/geometry/exponential_family/dynamical.py`
 
-- [ ] **`VariationalLatentProcess.filter`** (L438-475): `kl_weight` parameter removed; docstring updated to point at external β-warmup via `ems_hrm.elbo_divergence`. Pendulum is the sole caller and uses defaults — `test_filter_shapes` and `test_grad_descent_reduces_loss` in `tests/dynamical.py` exercise this and pass.
-- [ ] **`VariationalLatentProcess.mean_elbo`** (L477-491): `kl_weight` removed; same notes.
+- [x] **`VariationalLatentProcess.filter`** (L438-475): `kl_weight` parameter removed; docstring updated to point at external β-warmup via `ems_hrm.elbo_divergence`. Pendulum is the sole caller and uses defaults — `test_filter_shapes` and `test_grad_descent_reduces_loss` in `tests/dynamical.py` exercise this and pass. *(Reviewed 2026-06-11. Soft point: the docstring's β-warmup recipe needs per-step predicted priors, which `filter` doesn't return — a caller would re-walk the chain. Fine until a real caller wants it.)*
+- [x] **`VariationalLatentProcess.mean_elbo`** (L477-491): `kl_weight` removed; same notes. *(Reviewed 2026-06-11; signature has no defaults — pendulum passes all four args positionally.)*
 
 ### `src/goal/models/graphical/variational.py` (no code edits — review for cascade-correctness)
 
-- [ ] **`VariationalHierarchicalMixture`** inherits all ELBO machinery from `SymmetricVariationalConjugated`. The new `elbo_at`/`conjugation_residual`/`*_conjugation_loss` methods are inherited unchanged.
+- [x] **`VariationalHierarchicalMixture`** inherits all ELBO machinery from `SymmetricVariationalConjugated`. The new `elbo_at`/`conjugation_residual`/`*_conjugation_loss` methods are inherited unchanged. *(Reviewed 2026-06-11: shape cascade traced (cnj_man dim 8 vs mixture prior dim 26, zero-pad bridges); manual check run on `ConcreteVariationalHierarchicalMixture` — Var[r]=0.0033 at random init, Var[r]→0/R²→1 after `regress_conjugation_parameters`, and r ≡ 0 exactly with interaction+rho zeroed.)*
   - Its override of `conjugation_parameters` returns a Prior-shaped $\rho$ via `ObservableEmbedding(mix_man).embed(rho)` — this composes correctly with `conjugation_residual` (which consumes `pst_prr_emb.embed(s_z) ⋅ conjugation_parameters(params)` for the $\rho$ term).
   - `tests/hmog.py` (22 tests) exercises the analytic hierarchical path; the variational path is exercised end-to-end via `examples/variational_mnist`. Both pass.
-  - Suggested manual check: pick one concrete instance (e.g., `BinomialHierarchicalMixture` in the mnist example), call `model.conjugation_residual(params, z)` and `model.prior_conjugation_loss(key, params, n_samples)` interactively, and confirm the values look sensible (Var[r] is non-trivial when conjugation is imperfect, near zero when perfect).
+  - Suggested manual check: pick one concrete instance (e.g., `BinomialHierarchicalMixture` in the mnist example), call `model.conjugation_residual(params, z)` and `model.prior_conjugation_loss(key, params, n_samples)` interactively, and confirm the values look sensible (Var[r] is non-trivial when conjugation is imperfect, near zero when perfect). *(Codified 2026-06-11 as `TestVariationalHierarchicalMixture` in `tests/variational.py` — 3 tests: zero-pad structure of `conjugation_parameters`, r ≡ 0 at exact conjugation, regression beats rho=0 on the prior loss.)*
 
 ### Callers (renames only, no semantic change)
 
-- [ ] **`examples/pendulum/run.py:397`**: `reduced_learning_signal` → `conjugation_residual` inside the regularized-mode loss function. Verified by smoke run.
-- [ ] **`examples/torus_poisson/run.py:308, 337`**: same rename in both `loss_fn_regularized` and `loss_fn_analytical`. Verified by smoke run across all three modes.
+- [x] **`examples/pendulum/run.py:397`**: `reduced_learning_signal` → `conjugation_residual` inside the regularized-mode loss function. Verified by smoke run. *(Re-verified 2026-06-11: now at run.py:422 inside `loss_fn_reg`; zero orphan references to the old name across src/examples/tests/docs.)*
+- [x] **`examples/torus_poisson/run.py:308, 337`**: same rename in both `loss_fn_regularized` and `loss_fn_analytical`. Verified by smoke run across all three modes. *(Re-verified 2026-06-11: line numbers still accurate.)*
 
 ### `examples/variational_mnist/train.py` (β-warmup externalized — most invasive caller change)
 
-- [ ] **`loss_fn_gradient`** (L348-389): `mean_elbo` called without `kl_weight`; `elbo_divergence` vmapped over the batch for `mean_kl`; `elbo = elbo_1 + (1.0 - beta) * mean_kl`. Logged `elbo` is the β-scaled value, matching prior semantics.
-- [ ] **`loss_fn_analytical`** (L392-443): same pattern, with `params_with_rho` (not `params`) in both `mean_elbo` and the vmapped `elbo_divergence`. Verify the `params` variable used in both calls is the same.
-- [ ] Cross-check: at $\beta = 1$, the new code should yield exactly the same `elbo` as the old code (within MC noise). Quick local test: snapshot the elbo trajectory before and after, with a fixed seed and `--kl-warmup-steps 0` (so β=1 from step 0).
-- [ ] Sign convention: $\beta < 1$ during warmup should *increase* `elbo` (looser KL penalty). The smoke run shows step 0 with β=0.000, which makes `elbo = elbo_1 + 1.0*KL = E_q[log p(x|z)]` — confirm this matches intent.
+- [x] **`loss_fn_gradient`** (L348-389): `mean_elbo` called without `kl_weight`; `elbo_divergence` vmapped over the batch for `mean_kl`; `elbo = elbo_1 + (1.0 - beta) * mean_kl`. Logged `elbo` is the β-scaled value, matching prior semantics. *(Formula verified against manuscript §4.2.1, 2026-06-10. Amended 2026-06-11: metrics now report the unscaled `elbo_1` — see the sign-convention item.)*
+- [x] **`loss_fn_analytical`** (L392-443): same pattern, with `params_with_rho` (not `params`) in both `mean_elbo` and the vmapped `elbo_divergence`. Verify the `params` variable used in both calls is the same. *(Verified: `params_with_rho` in both calls, 2026-06-10.)*
+- [x] Cross-check: at $\beta = 1$, the new code should yield exactly the same `elbo` as the old code (within MC noise). Quick local test: snapshot the elbo trajectory before and after, with a fixed seed and `--kl-warmup-steps 0` (so β=1 from step 0). *(Done 2026-06-11, stronger form: rebuilt the old recon−KL estimator from current APIs and compared against `elbo_at` on the full-mixture mnist model (n_latent=16, 64 MC samples, 20 seeds) — means differ by 0.0055 ± 0.0060 on an ELBO of −3847, i.e. indistinguishable. At β=1 train.py reduces to plain `mean_elbo`, so this is the whole check. Side-finding: new-form value std is ~4× the old (0.026 vs 0.007) — see variance-regression section.)*
+- [x] Sign convention: $\beta < 1$ during warmup should *increase* `elbo` (looser KL penalty). The smoke run shows step 0 with β=0.000, which makes `elbo = elbo_1 + 1.0*KL = E_q[log p(x|z)]` — confirm this matches intent. *(Resolved 2026-06-11: math confirmed (KL ≥ 0 so β<1 strictly inflates the scaled value), and per review decision the logging was changed — both loss fns now report the true `elbo_1` in metrics while the β-scaled `elbo` lives only inside the loss. Smoke-verified, 30 steps.)*
 
 ### `docs/source/geometry/exponential_family/variational.rst`
 
-- [ ] **No edits required.** The `autoclass :members:` directive auto-includes the new methods (`conjugation_residual`, `prior_conjugation_loss`, `recognition_conjugation_loss_at`, `mean_recognition_conjugation_loss`). Sphinx build succeeded with no warnings. Worth a render check: open `docs/build/geometry/exponential_family/variational.html` and confirm the new methods appear in the class docs with their docstrings.
+- [x] **No edits required.** The `autoclass :members:` directive auto-includes the new methods (`conjugation_residual`, `prior_conjugation_loss`, `recognition_conjugation_loss_at`, `mean_recognition_conjugation_loss`). Sphinx build succeeded with no warnings. Worth a render check: open `docs/build/geometry/exponential_family/variational.html` and confirm the new methods appear in the class docs with their docstrings. *(Render check done 2026-06-11: all nine method anchors present in the built HTML, standard-form prose renders.)*
 
 ### Variance regression (the main empirical risk)
 
-- [ ] The plan explicitly accepts a small gradient-variance increase: the old recon+KL form Rao-Blackwellized the $\rho \cdot s_Z$ piece via the closed-form KL, while the new standard form estimates it via MC (bounded by $|\rho|^2 \cdot \mathrm{Var}_q[s_Z]/K$).
-- [ ] **Compare training trajectories** on a representative example (torus_poisson with fixed seed is the cleanest test — three modes, well-instrumented). Run with the previous commit on `main` once for baseline, then with `HEAD`. Expectation: ELBO and conjugation-variance trajectories track within MC noise. If they diverge meaningfully, the followup is to Rao-Blackwellize $\rho \cdot s_Z$ in `elbo_at` (recovers the old form's variance without giving up the residual API).
-- [ ] If variance is observably worse and matters for training stability, consider raising `n_mc_samples` (cheap workaround) or implementing the Rao-Blackwellized variant (proper fix).
+- [x] The plan explicitly accepts a small gradient-variance increase: the old recon+KL form Rao-Blackwellized the $\rho \cdot s_Z$ piece via the closed-form KL, while the new standard form estimates it via MC (bounded by $|\rho|^2 \cdot \mathrm{Var}_q[s_Z]/K$). *(Quantified 2026-06-11: direct estimator comparison on the mnist full-mixture model shows ~4× value-noise (std 0.026 vs 0.007 over 20 seeds, 64 MC samples) — relative noise ~7e-6 of the ELBO magnitude.)*
+- [x] **Compare training trajectories** on a representative example (torus_poisson with fixed seed is the cleanest test — three modes, well-instrumented). Run with the previous commit on `main` once for baseline, then with `HEAD`. Expectation: ELBO and conjugation-variance trajectories track within MC noise. If they diverge meaningfully, the followup is to Rao-Blackwellize $\rho \cdot s_Z$ in `elbo_at` (recovers the old form's variance without giving up the residual API). *(Done 2026-06-11: baseline = `a6d2ee5~1` (last commit with the old `elbo_reconstruction_term` form) in a worktree vs current tree, full 4000-step runs, all three modes, seed 42. free/regularized: pointwise near-identical (ELBO RMS diff ~0.01 vs per-step noise 0.72). analytical: transient mid-run divergence (RMS 2.15) but identical endpoints — ELBO −115.88 both, R² 0.972 vs 0.974. Baseline data: `/tmp/torus_baseline_analysis.json`, logs `/tmp/torus_{baseline,head}.log`.)*
+- [x] If variance is observably worse and matters for training stability, consider raising `n_mc_samples` (cheap workaround) or implementing the Rao-Blackwellized variant (proper fix). *(Moot — no observable trajectory degradation; no action.)*
 
 ### Documentation / docstring consistency
 
-- [ ] `elbo_divergence` docstring positions itself as "not on the critical path" — confirm this matches your mental model. It's the public API for callers wanting β-VAE and for KL diagnostics, and that's its sole reason for existing post-rewrite.
+- [x] `elbo_divergence` docstring positions itself as "not on the critical path" — confirm this matches your mental model. It's the public API for callers wanting β-VAE and for KL diagnostics, and that's its sole reason for existing post-rewrite. *(Docstring rewritten in the 2026-06-10/11 pass with exactly this positioning.)*
 
 ### Followups deferred from this PR (per plan)
 
@@ -148,6 +158,7 @@ Tracking checklist for hand-review of the chordal Boltzmann implementation (junc
 - [ ] **`JunctionTree` dataclass fields** (L186-225): everything stored as hashable tuples (no JAX arrays, no dicts). `chordal_edge_index` provides the canonical `(i, j) → param_idx` mapping needed by `_clique_potential`. The cached property `chordal_edges_arr` converts to a numpy `int32` array on demand for vectorised gather operations in `ChordalCouplingMatrix`.
 - [ ] **`from_edges`** (L229-289): the user-facing constructor. Edge format is undirected `(i, j)` pairs; self-loops are ignored. The `max_treewidth` parameter raises `ValueError` when the triangulation exceeds the bound — this is the intended failure mode the plan called out (user can then either accept fill-in or modify the graph).
 - [ ] **Edge case — disconnected graph with isolated nodes.** Handled at L249-251: isolated nodes become their own size-1 cliques. Verify this doesn't break the JT structure for a fully-isolated graph (e.g., `JunctionTree.from_edges(3, [])`).
+  - *Claude pre-check 2026-06-11: this case is BROKEN — disconnected graphs yield a clique forest (Kruskal only links cliques with non-empty separators), and both collect and walk-down only traverse the root's component. `from_edges(3, [])` gives log Z = log 2 instead of 3 log 2; sampling freezes unreached components at 0. (Also: the L249-251 fallback is dead code — `_maximal_cliques` always emits singleton cliques for isolated nodes.) Verified fix parked at `/tmp/chordal-disconnected-fix.patch`: link forest components with zero-weight empty-separator edges in `_max_spanning_tree` (downstream machinery already handles empty separators exactly), plus tests. To apply when this section is reviewed.*
 - [ ] **Hashability invariant.** All fields are tuples / ints, so `JunctionTree` is hashable by default. This matters because it's a frozen dataclass field of `ChordalCouplingMatrix` / `ChordalBoltzmann`, which JAX traces as static topology.
 
 ### `src/goal/models/base/gaussian/_jt_inference.py` (new file, ~180 lines)

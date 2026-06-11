@@ -188,6 +188,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `lgm.py` | `models/harmonium/lgm.py` |
 | `population_codes.py` | `models/harmonium/population_codes.py` |
 | `graphical_mixture.py` | `models/graphical/mixture.py` |
+| `variational.py` | `geometry/exponential_family/variational.py` and `models/graphical/variational.py` (estimator values + gradients vs quadrature ground truth; VariationalHierarchicalMixture conjugation cascade) |
 | `hmog.py` | `models/graphical/hmog.py` (AnalyticHMoG, DifferentiableHMoG) |
 | `dynamical.py` | `geometry/exponential_family/dynamical.py` and `models/dynamical/` (`AnalyticTransition` over both kernel types, `KalmanFilter`, `HiddenMarkovModel`, and `MultilayerPerceptron[L, L]` as a transition map) |
 | `whitening.py` | Cross-cutting: whitening on FA, MFA, HMoG |
