@@ -147,9 +147,7 @@ class Categorical(Analytic):
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        array = jnp.concatenate([jnp.array([0.0]), params])
-        max_val = jnp.max(array)
-        return max_val + jax.nn.logsumexp(array - max_val)
+        return jax.nn.logsumexp(jnp.concatenate([jnp.array([0.0]), params]))
 
     @override
     def negative_entropy(self, means: Array) -> Array:
