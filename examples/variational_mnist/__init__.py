@@ -41,8 +41,7 @@ regression at each training step, which prevents the optimizer from
    stability policy belongs to the application layer.
    Empirically this lets the chordal-Boltzmann + Normal path train past
    ``||rho||=65`` (vs the original NaN at ``||rho||≈14.5``) without
-   incident. See ``examples/variational_mnist/diag_stability.py`` for the
-   instrumented trainer used to localise the failure mode.
+   incident.
 
 Single-run workflow:
     python -m examples.variational_mnist.train
