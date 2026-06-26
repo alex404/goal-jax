@@ -27,6 +27,16 @@ Classes
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.models.harmonium.population_codes.BoltzmannNormalHarmonium
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.models.harmonium.population_codes.BoltzmannPopulationCode
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Factory Functions
 -----------------
 
@@ -34,6 +44,10 @@ Factory Functions
 
 .. autofunction:: goal.models.harmonium.population_codes.com_poisson_mixture
 
+.. autofunction:: goal.models.harmonium.population_codes.chordal_boltzmann_population_code
+
+.. autofunction:: goal.models.harmonium.population_codes.diagonal_boltzmann_population_code
+
 .. seealso::
 
-   :doc:`/examples` --- **population_codes**: Bayesian stimulus decoding from cosine-tuned neural responses; **poisson_mixture**: Poisson vs CoM-Poisson spike count mixtures.
+   :doc:`/examples` --- **population_codes**: Bayesian stimulus decoding from cosine-tuned neural responses; **poisson_mixture**: Poisson vs CoM-Poisson spike count mixtures; **chordal_boltzmann_ppc**: a chordal Boltzmann PPC that stays conjugate to a Gaussian latent while learning data.

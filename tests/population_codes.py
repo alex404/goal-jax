@@ -1,9 +1,12 @@
 """Tests for models/harmonium/population_codes.py.
 
-Covers PoissonVonMisesHarmonium and VonMisesPopulationCode. Verifies dimensions,
+Covers PoissonVonMisesHarmonium / VonMisesPopulationCode and the Boltzmann-
+observable / Gaussian-latent BoltzmannPopulationCode. Verifies dimensions,
 tuning curves, posterior computation, sampling, conjugation regression, and
 basic harmonium initialization.
 """
+
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -11,10 +14,18 @@ import pytest
 from jax import Array
 
 from goal.geometry.exponential_family.variational import (
+    conjugation_metrics,
     reconstruct,
     regress_conjugation_parameters,
 )
-from goal.models import PoissonVonMisesHarmonium, VonMisesPopulationCode
+from goal.models import (
+    BoltzmannPopulationCode,
+    PoissonVonMisesHarmonium,
+    VonMisesPopulationCode,
+    chordal_boltzmann_population_code,
+    diagonal_boltzmann_population_code,
+    full_normal,
+)
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -130,6 +141,83 @@ class TestVonMisesPopulationCodeConjugation:
             model, reg_key, params, 5000
         )
         assert jnp.linalg.norm(rho) > 0.01 or float(r_squared) > 0.3
+
+
+def _make_boltzmann_pc(
+    kind: str, n: int, d: int, key: Array, *, n_reg: int = 1500
+) -> tuple[BoltzmannPopulationCode[Any], Array]:
+    """Build a chain-chordal or diagonal Boltzmann PPC with rho seeded by regression."""
+    edges = [(i, i + 1) for i in range(n - 1)]
+    model: BoltzmannPopulationCode[Any]
+    if kind == "chordal":
+        model = chordal_boltzmann_population_code(n, edges, d)
+    else:
+        model = diagonal_boltzmann_population_code(n, d)
+    params = model.initialize(key, location=0.0, shape=0.3)
+    rho, _, _, _ = regress_conjugation_parameters(
+        model, jax.random.fold_in(key, 1), params, n_reg
+    )
+    prior_p, lkl_p, _ = model.split_coords(params)
+    return model, model.join_coords(prior_p, lkl_p, rho)
+
+
+class TestBoltzmannPopulationCode:
+    """Test the Boltzmann-observable / Gaussian-latent population code."""
+
+    @pytest.mark.parametrize("kind", ["chordal", "diagonal"])
+    def test_dimensions(self, kind: str) -> None:
+        model, _ = _make_boltzmann_pc(kind, 6, 2, jax.random.PRNGKey(0))
+        # the interaction carries the FULL Gaussian sufficient statistic (z, zz^T)
+        assert model.gen_hrm.int_man.matrix_shape == (model.obs_man.dim, full_normal(2).dim)
+        assert model.cnj_man.dim == model.lat_man.dim
+        assert model.n_neurons == 6
+        assert model.n_latent == 2
+
+    def test_conjugation_residual_matches_recompute(self) -> None:
+        """conjugation_residual equals an independent recompute from the public API."""
+        model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(1))
+        z = 0.5 * jax.random.normal(jax.random.PRNGKey(2), (2,))
+        r_model = model.conjugation_residual(params, z)
+        _, lkl, _ = model.split_coords(params)
+        s_z = model.lat_man.sufficient_statistic(z)
+        psi_z = model.obs_man.log_partition_function(model.gen_hrm.lkl_fun_man(lkl, s_z))
+        obs_p, _ = model.gen_hrm.lkl_fun_man.split_coords(lkl)
+        psi_b = model.obs_man.log_partition_function(obs_p)
+        r_direct = jnp.dot(model.conjugation_parameters(params), s_z) - psi_z + psi_b
+        assert jnp.allclose(r_model, r_direct, rtol=RTOL, atol=ATOL)
+
+    @pytest.mark.parametrize("kind", ["chordal", "diagonal"])
+    def test_conjugation_regression_high_r2(self, kind: str) -> None:
+        """The quadratic-in-z tuning makes the PPC nearly conjugate after regression."""
+        model, params = _make_boltzmann_pc(kind, 6, 2, jax.random.PRNGKey(3), n_reg=4000)
+        _, _, r2 = conjugation_metrics(model, jax.random.PRNGKey(4), params, 1000)
+        assert float(r2) > 0.85
+
+    def test_posterior_precision_is_data_dependent(self) -> None:
+        """The second-order interaction gives the posterior an x-dependent precision."""
+        model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(5))
+        q0 = model.approximate_posterior_at(params, jnp.zeros(6))
+        q1 = model.approximate_posterior_at(params, jnp.ones(6))
+        _, prec0 = model.lat_man.split_location_precision(q0)
+        _, prec1 = model.lat_man.split_location_precision(q1)
+        assert jnp.all(jnp.isfinite(q0))
+        assert not jnp.allclose(prec0, prec1)
+
+    def test_sample_observable_binary(self) -> None:
+        model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(6))
+        s = model.sample(jax.random.PRNGKey(7), params, 16)
+        assert s.shape == (16, model.obs_man.data_dim + model.lat_man.data_dim)
+        x = s[:, : model.obs_man.data_dim]
+        assert jnp.all((x == 0) | (x == 1))
+
+    def test_elbo_finite_and_reconstruct(self) -> None:
+        model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(8))
+        data = model.sample(jax.random.PRNGKey(9), params, 32)[:, : model.obs_man.data_dim]
+        elbo = model.mean_elbo(jax.random.PRNGKey(10), params, data, 8)
+        assert jnp.isfinite(elbo)
+        recon = reconstruct(model, params, data[0])
+        assert recon.shape == (model.obs_man.dim,)
+        assert jnp.all(jnp.isfinite(recon))
 
 
 class TestPoissonVonMisesHarmonium:

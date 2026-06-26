@@ -67,7 +67,7 @@ This is a **library**, not an application. The dependency policy is:
 Examples are located in the `examples/` directory and organized by topic:
 - Run example: `uv run python -m examples.multivariate.run`
 - Generate plots: `uv run python -m examples.multivariate.plot`
-- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
+- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, chordal_boltzmann_ppc, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
 
 ### Documentation
 - Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`

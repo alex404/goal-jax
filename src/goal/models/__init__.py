@@ -66,11 +66,15 @@ from .harmonium.lgm import (
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 from .harmonium.population_codes import (
+    BoltzmannNormalHarmonium,
+    BoltzmannPopulationCode,
     CoMPoissonMixture,
     PoissonMixture,
     PoissonVonMisesHarmonium,
     VonMisesPopulationCode,
+    chordal_boltzmann_population_code,
     com_poisson_mixture,
+    diagonal_boltzmann_population_code,
     poisson_mixture,
 )
 
@@ -85,6 +89,8 @@ __all__ = [
     "Boltzmann",
     "BoltzmannEmbedding",
     "BoltzmannLGM",
+    "BoltzmannNormalHarmonium",
+    "BoltzmannPopulationCode",
     "Categorical",
     "ChainBoltzmann",
     "ChainCouplingMatrix",
@@ -132,7 +138,9 @@ __all__ = [
     "VonMisesPopulationCode",
     "VonMisesProduct",
     "analytic_hmog",
+    "chordal_boltzmann_population_code",
     "com_poisson_mixture",
+    "diagonal_boltzmann_population_code",
     "diagonal_normal",
     "differentiable_hmog",
     "factor_analysis",
