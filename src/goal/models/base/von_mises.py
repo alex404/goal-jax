@@ -32,7 +32,7 @@ class VonMises(Differentiable):
     - Base measure: $\\mu(x) = -\\log(2\\pi)$
     - Natural parameters: $\\theta = \\kappa(\\cos(\\mu), \\sin(\\mu))$
 
-    Note that $\\Vert \\mathbf s(x) \\Vert = 1$ everywhere, so $\\mathbf s$ has no zero. Used as a latent family this removes the usual shortcut for the conjugation constant: no $z_0$ makes the interaction term vanish, so $\\chi$ need not equal $\\psi_X(\\theta_X)$ (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). Conjugation itself is unaffected and $\\chi$ remains unique --- a von Mises-von Mises harmonium with $\\theta_X = 0$ and $\\Theta^{\\top}\\Theta = \\kappa^2 I$ is exactly conjugated with $\\rho = 0$ and $\\chi = \\log I_0(\\kappa)$, while $\\psi_X(\\theta_X) = 0$.
+    Note that $\\Vert \\mathbf s(x) \\Vert = 1$ everywhere, so $\\mathbf s$ has no zero. Used as a latent family this removes the usual shortcut for the conjugation constant: no $z_0$ makes the interaction term vanish, so $\\chi$ need not equal $\\psi_X(\\theta_X)$ and :meth:`~goal.geometry.exponential_family.harmonium.Conjugated.conjugation_offset` needs overriding. Conjugation itself is unaffected and $\\chi$ remains unique --- a von Mises-von Mises harmonium with $\\theta_X = 0$ and $\\Theta^{\\top}\\Theta = \\kappa^2 I$ is exactly conjugated with $\\rho = 0$ and $\\chi = \\log I_0(\\kappa)$, while $\\psi_X(\\theta_X) = 0$.
     """
 
     # Methods

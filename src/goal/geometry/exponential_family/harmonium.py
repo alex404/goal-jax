@@ -240,7 +240,7 @@ class Conjugated[
 ):
     """A harmonium whose prior $p(z)$ belongs to the same exponential family as the posterior $p(z \\mid x)$, enabling exact computation of the prior via conjugation parameters $\\rho$.
 
-    Mathematically, conjugation holds when $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho \\cdot \\mathbf s_Z(z) + \\chi$ for all $z$. Evaluating at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which the subclasses here assume."""
+    Mathematically, conjugation holds when $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho \\cdot \\mathbf s_Z(z) + \\chi$ for all $z$, with $\\rho$ from :meth:`conjugation_parameters` and $\\chi$ from :meth:`conjugation_offset`."""
 
     # Contract
 
@@ -254,6 +254,14 @@ class Conjugated[
         """Compute conjugation parameters $\\rho$ from the given likelihood natural parameters."""
 
     # Methods
+
+    def conjugation_offset(self, lkl_params: Array) -> Array:
+        """Compute the conjugation offset $\\chi$ from the given likelihood natural parameters.
+
+        Evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. Override in models whose latent sufficient statistic has no zero --- :class:`~goal.models.base.von_mises.VonMises` and :class:`~goal.models.base.dirichlet.Dirichlet` --- where $\\chi$ must be solved for alongside $\\rho$.
+        """
+        obs_params, _ = self.lkl_fun_man.split_coords(lkl_params)
+        return self.obs_man.log_partition_function(obs_params)
 
     @property
     def prr_man(self) -> Prior:
@@ -319,11 +327,11 @@ class DifferentiableConjugated[
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Compute $\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\chi$ at the given natural parameters, taking $\\chi = \\psi_X(\\theta_X)$ (see :class:`Conjugated`)."""
+        """Compute $\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\chi$ at the given natural parameters, with $\\chi$ from :meth:`Conjugated.conjugation_offset`."""
         obs_params, int_params, lat_params = self.split_coords(params)
         lkl_params = self.lkl_fun_man.join_coords(obs_params, int_params)
 
-        chi = self.obs_man.log_partition_function(obs_params)
+        chi = self.conjugation_offset(lkl_params)
         rho = self.conjugation_parameters(lkl_params)
         adjusted_lat = self.pst_prr_emb.translate(rho, lat_params)
 
@@ -335,7 +343,7 @@ class DifferentiableConjugated[
         """Compute log marginal density $\\log p(x)$ at the given natural parameters by integrating out the latent variable analytically."""
         obs_params, _, _ = self.split_coords(params)
 
-        chi = self.obs_man.log_partition_function(obs_params)
+        chi = self.conjugation_offset(self.likelihood_function(params))
         obs_stats = self.obs_man.sufficient_statistic(x)
         prr = self.prior(params)
 

@@ -172,6 +172,15 @@ class VariationalConjugated[
 
     # Conjugation residual
 
+    def conjugation_offset(self, params: Array) -> Array:
+        """Compute the conjugation offset $\\chi$ at the given natural parameters.
+
+        Mirrors :meth:`~goal.geometry.exponential_family.harmonium.Conjugated.conjugation_offset`: evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. It is the constant at which :meth:`conjugation_residual` and :meth:`conjugation_baseline` are split, and it cancels between them, so the ELBO is unaffected by the choice.
+        """
+        _, lkl, _ = self.split_coords(params)
+        obs_params, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
+        return self.obs_man.log_partition_function(obs_params)
+
     def conjugation_residual(
         self, params: Array, z: Array, x: Array | None = None
     ) -> Array:
@@ -182,15 +191,13 @@ class VariationalConjugated[
         ``x`` is forwarded to :meth:`conjugation_parameters` for input-dependent corrections and ignored otherwise. In the asymmetric case both $\\rho_Z$ and $\\mathbf s_Z(z)$ are taken in Prior space, via :meth:`conjugation_parameters` and :attr:`pst_prr_emb` respectively.
         """
         _, lkl, _ = self.split_coords(params)
-        obs_params, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
         rho_full = self.conjugation_parameters(params, x)
         s_z = self.pst_man.sufficient_statistic(z)
         s_z_in_prior = self.pst_prr_emb.embed(s_z)
         rho_term = jnp.dot(rho_full, s_z_in_prior)
         lkl_params_at_z = self.gen_hrm.lkl_fun_man(lkl, s_z)
         psi_at_z = self.obs_man.log_partition_function(lkl_params_at_z)
-        psi_at_bias = self.obs_man.log_partition_function(obs_params)
-        return rho_term - psi_at_z + psi_at_bias
+        return rho_term - psi_at_z + self.conjugation_offset(params)
 
     # Conjugation regularizers
 
@@ -321,7 +328,7 @@ class VariationalDifferentiable[
             jnp.dot(s_x, obs_p)
             + self.prr_man.log_partition_function(q_in_prior)
             - self.prr_man.log_partition_function(prior_p)
-            - self.obs_man.log_partition_function(obs_p)
+            - self.conjugation_offset(params)
             + self.obs_man.log_base_measure(x)
         )
 
