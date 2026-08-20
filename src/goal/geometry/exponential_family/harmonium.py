@@ -238,7 +238,9 @@ class Conjugated[
     Generative,
     ABC,
 ):
-    """A harmonium whose prior $p(z)$ belongs to the same exponential family as the posterior $p(z \\mid x)$, enabling exact computation of the prior via conjugation parameters $\\rho$."""
+    """A harmonium whose prior $p(z)$ belongs to the same exponential family as the posterior $p(z \\mid x)$, enabling exact computation of the prior via conjugation parameters $\\rho$.
+
+    Mathematically, conjugation holds when $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho \\cdot \\mathbf s_Z(z) + \\chi$ for all $z$. Evaluating at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which the subclasses here assume."""
 
     # Contract
 
@@ -317,7 +319,7 @@ class DifferentiableConjugated[
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        """Compute $\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\psi_X(\\theta_X)$ at the given natural parameters."""
+        """Compute $\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\chi$ at the given natural parameters, taking $\\chi = \\psi_X(\\theta_X)$ (see :class:`Conjugated`)."""
         obs_params, int_params, lat_params = self.split_coords(params)
         lkl_params = self.lkl_fun_man.join_coords(obs_params, int_params)
 

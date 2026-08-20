@@ -131,9 +131,7 @@ class DifferentiablePair[A: Differentiable, B: Differentiable](
         ) + self.snd_man.log_partition_function(snd_params)
 
 
-class AnalyticPair[A: Analytic, B: Analytic](
-    DifferentiablePair[A, B], Analytic, ABC
-):
+class AnalyticPair[A: Analytic, B: Analytic](DifferentiablePair[A, B], Analytic, ABC):
     """Heterogeneous EF pair with negative entropy summed across slots."""
 
     # Overrides
@@ -141,12 +139,14 @@ class AnalyticPair[A: Analytic, B: Analytic](
     @override
     def negative_entropy(self, means: Array) -> Array:
         fst_means, snd_means = self.split_coords(means)
-        return self.fst_man.negative_entropy(
-            fst_means
-        ) + self.snd_man.negative_entropy(snd_means)
+        return self.fst_man.negative_entropy(fst_means) + self.snd_man.negative_entropy(
+            snd_means
+        )
 
 
-class ExponentialFamilyProduct[M: ExponentialFamily](Replicated[M], ExponentialFamily, ABC):
+class ExponentialFamilyProduct[M: ExponentialFamily](
+    Replicated[M], ExponentialFamily, ABC
+):
     """Product of ``n_reps`` independent copies of the same exponential family.
 
     The sufficient statistic and base measure decompose across replicates. If the base family supports ``StatisticalMoments``, the product exposes composed mean and block-diagonal covariance.
@@ -250,7 +250,9 @@ class GenerativeProduct[M: Generative](ExponentialFamilyProduct[M], Generative, 
         return jnp.reshape(jnp.moveaxis(samples, 1, 0), (n, -1))
 
 
-class DifferentiableProduct[M: Differentiable](Differentiable, GenerativeProduct[M], ABC):
+class DifferentiableProduct[M: Differentiable](
+    Differentiable, GenerativeProduct[M], ABC
+):
     """Product of differentiable exponential families, with log-partition function summed across replicates."""
 
     # Overrides

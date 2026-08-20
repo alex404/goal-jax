@@ -2,9 +2,9 @@
 
 A harmonium is exactly conjugated when the conjugation equation
 
-$$\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\psi_X(\\theta_X)$$
+$$\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\chi$$
 
-holds for some conjugation parameters $\\rho_Z$; the posterior then stays in the prior family with natural parameters affine in $\\mathbf s_X(x)$ (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). When no exact $\\rho_Z$ exists or it cannot be computed, this module keeps the conjugate functional form and learns the correction instead: the recognition model is
+holds for some conjugation parameters $\\rho_Z$ and constant $\\chi$. Evaluating at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, the form assumed throughout; :class:`~goal.models.base.von_mises.VonMises` is the one latent family here whose $\\mathbf s_Z$ has no zero. The posterior then stays in the prior family with natural parameters affine in $\\mathbf s_X(x)$ (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). When no exact $\\rho_Z$ exists or it cannot be computed, this module keeps the conjugate functional form and learns the correction instead: the recognition model is
 
 $$q(z \\mid x) = p(z; \\hat\\theta_{Z \\mid X}(x)), \\qquad \\hat\\theta_{Z \\mid X}(x) = \\theta_Z - \\rho_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ},$$
 
@@ -14,7 +14,7 @@ The central object of the module is the **conjugation residual**
 
 $$r(z) = \\rho_Z \\cdot \\mathbf s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X),$$
 
-the pointwise difference between the two sides of the conjugation equation: $r \\equiv 0$ iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$. Substituting the exponential-family forms into the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ cancels every term that couples $x$ and $z$, splitting it as
+the pointwise difference between the two sides of the conjugation equation, written with the $\\chi = \\psi_X(\\theta_X)$ convention: $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$, and vanishes when that convention is exact. Every consumer below uses $r$ only through its variance, so the constant never matters. Substituting the exponential-family forms into the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ cancels every term that couples $x$ and $z$, splitting it as
 
 $$f(x, z) = c(x) + r(z), \\qquad \\mathcal{L}(x) = c(x) + \\mathbb{E}_{q(z \\mid x)}[r(Z)],$$
 
@@ -177,7 +177,7 @@ class VariationalConjugated[
     ) -> Array:
         """Evaluate the conjugation residual $r(z) = \\rho_Z \\cdot \\mathbf s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X)$ at the given natural parameters.
 
-        Mathematically, $r$ is the difference between the two sides of the conjugation equation $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\psi_X(\\theta_X)$, so $r \\equiv 0$ iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$. It is the per-sample summand of the standard-form ELBO and the integrand of both conjugation regularizers (see module docstring).
+        Mathematically, $r$ is the difference between the two sides of the conjugation equation $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\psi_X(\\theta_X)$, so $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$, and vanishes when $\\chi = \\psi_X(\\theta_X)$. It is the per-sample summand of the standard-form ELBO and the integrand of both conjugation regularizers (see module docstring).
 
         ``x`` is forwarded to :meth:`conjugation_parameters` for input-dependent corrections and ignored otherwise. In the asymmetric case both $\\rho_Z$ and $\\mathbf s_Z(z)$ are taken in Prior space, via :meth:`conjugation_parameters` and :attr:`pst_prr_emb` respectively.
         """
@@ -351,7 +351,9 @@ class VariationalDifferentiable[
 
         # E_q[r(Z)] via MC + score-function correction
         r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z, x))(z_samples)
-        log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(z_samples)
+        log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(
+            z_samples
+        )
 
         direct = jnp.mean(r_vals)
         r_sg = jax.lax.stop_gradient(r_vals)
@@ -396,7 +398,9 @@ class VariationalDifferentiable[
         q_params = self.approximate_posterior_at(params, x)
         z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
         r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z, x))(z_samples)
-        log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(z_samples)
+        log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(
+            z_samples
+        )
         return _variance_with_score_correction(r_vals, log_q_vals)
 
     def mean_recognition_conjugation_loss(

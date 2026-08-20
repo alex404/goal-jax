@@ -295,7 +295,9 @@ class FullBoltzmann(
     @override
     def split_couplings(self, coords: Array) -> tuple[Array, Array]:
         rows, cols = np.triu_indices(self.n_neurons)
-        return coords[np.flatnonzero(rows == cols)], coords[np.flatnonzero(rows != cols)]
+        return coords[np.flatnonzero(rows == cols)], coords[
+            np.flatnonzero(rows != cols)
+        ]
 
     @override
     def join_couplings(self, diag: Array, off_diag: Array) -> Array:
@@ -475,7 +477,9 @@ class ChordalBoltzmann(
         of the model --- ``dim`` reflects the completion, not the input list.
         Already-chordal seeds (chains, trees, bands) incur no fill-in.
         """
-        return ChordalBoltzmann(JunctionTree.from_edges(n_neurons, edges, max_treewidth))
+        return ChordalBoltzmann(
+            JunctionTree.from_edges(n_neurons, edges, max_treewidth)
+        )
 
     # Overrides
 

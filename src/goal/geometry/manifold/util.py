@@ -37,5 +37,3 @@ def batched_mean(f: Callable[[Array], Array], xs: Array, batch_size: int) -> Arr
         total_sum = batch_sums
 
     return total_sum / n_samples
-
-

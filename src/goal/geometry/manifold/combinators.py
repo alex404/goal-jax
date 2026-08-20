@@ -133,9 +133,9 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
 
 
 @dataclass(frozen=True)
-class Quadruple[
-    First: Manifold, Second: Manifold, Third: Manifold, Fourth: Manifold
-](Tuple, ABC):
+class Quadruple[First: Manifold, Second: Manifold, Third: Manifold, Fourth: Manifold](
+    Tuple, ABC
+):
     """Product of four manifolds, with coordinates stored as ``[fst | snd | trd | fth]``."""
 
     # Contract
@@ -166,12 +166,7 @@ class Quadruple[
     @override
     def dim(self) -> int:
         """Total dimension is the sum of component dimensions."""
-        return (
-            self.fst_man.dim
-            + self.snd_man.dim
-            + self.trd_man.dim
-            + self.fth_man.dim
-        )
+        return self.fst_man.dim + self.snd_man.dim + self.trd_man.dim + self.fth_man.dim
 
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array, Array, Array]:

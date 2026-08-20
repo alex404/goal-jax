@@ -257,9 +257,7 @@ def chain_log_partition(
         _sep_state_map(cliques[order[k]], seps[k - 1], m) for k in range(1, k_total)
     ]
 
-    msg = _segment_logsumexp(
-        phi[order[0]], jnp.asarray(out_maps[0]), n_sep_states
-    )
+    msg = _segment_logsumexp(phi[order[0]], jnp.asarray(out_maps[0]), n_sep_states)
     msg = jnp.maximum(msg, _LOG_ZERO)
 
     if k_total > 2:
@@ -269,9 +267,9 @@ def chain_log_partition(
         )
         phi_mid = phi[jnp.asarray(np.array(order[1:-1], dtype=np.int32))]
         transfer = jax.vmap(
-            lambda p, i: _segment_logsumexp(
-                p, i, n_sep_states * n_sep_states
-            ).reshape(n_sep_states, n_sep_states)
+            lambda p, i: _segment_logsumexp(p, i, n_sep_states * n_sep_states).reshape(
+                n_sep_states, n_sep_states
+            )
         )(phi_mid, jnp.asarray(ids))
         transfer = jnp.maximum(transfer, _LOG_ZERO)
 
@@ -285,9 +283,7 @@ def chain_log_partition(
         msg = jax.scipy.special.logsumexp(prod + msg[None, :], axis=-1)
         msg = jnp.maximum(msg, _LOG_ZERO)
 
-    return jax.scipy.special.logsumexp(
-        phi[order[-1]] + msg[jnp.asarray(in_maps[-1])]
-    )
+    return jax.scipy.special.logsumexp(phi[order[-1]] + msg[jnp.asarray(in_maps[-1])])
 
 
 def chain_sample(
@@ -348,17 +344,15 @@ def chain_sample(
 
     # Backward messages beta_k (k = 0..K-2) via suffix products of the
     # transfer matrices M_k[t_in, t_out].
-    last_vec = _segment_logsumexp(
-        phi_path[-1], jnp.asarray(in_maps[-1]), n_sep_states
-    )
+    last_vec = _segment_logsumexp(phi_path[-1], jnp.asarray(in_maps[-1]), n_sep_states)
     if k_total > 2:
         ids = np.stack(
             [in_maps[j] * n_sep_states + out_maps[j + 1] for j in range(k_total - 2)]
         )
         transfer = jax.vmap(
-            lambda p, i: _segment_logsumexp(
-                p, i, n_sep_states * n_sep_states
-            ).reshape(n_sep_states, n_sep_states)
+            lambda p, i: _segment_logsumexp(p, i, n_sep_states * n_sep_states).reshape(
+                n_sep_states, n_sep_states
+            )
         )(phi_path[1:-1], jnp.asarray(ids))
 
         def logmm(acc: Array, elem: Array) -> Array:
@@ -413,7 +407,11 @@ def chain_sample(
     states = jnp.take_along_axis(sampled, t_prev[:, None], axis=1)[:, 0]  # (K,)
 
     vals = bits[states].astype(jnp.float32).reshape(-1)
-    x = jnp.zeros(n + 1, dtype=jnp.float32).at[jnp.asarray(var_idx).reshape(-1)].set(vals)
+    x = (
+        jnp.zeros(n + 1, dtype=jnp.float32)
+        .at[jnp.asarray(var_idx).reshape(-1)]
+        .set(vals)
+    )
     return x[:n]
 
 

@@ -257,7 +257,10 @@ class JunctionTree:
         off-diagonal parameter vector.
         """
         pairs = {
-            (vi, vj) for c in self.cliques for x, vi in enumerate(c) for vj in c[x + 1 :]
+            (vi, vj)
+            for c in self.cliques
+            for x, vi in enumerate(c)
+            for vj in c[x + 1 :]
         }
         return tuple(sorted(pairs))
 
@@ -310,9 +313,7 @@ class JunctionTree:
     def collect_order(self) -> tuple[tuple[int, int], ...]:
         """(child, parent) clique pairs in post-order --- leaves before the root."""
         parent = self.parent_of
-        return tuple(
-            (c, parent[c]) for c in reversed(self.pre_order) if parent[c] >= 0
-        )
+        return tuple((c, parent[c]) for c in reversed(self.pre_order) if parent[c] >= 0)
 
     @property
     def bias_owner(self) -> tuple[int, ...]:

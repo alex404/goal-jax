@@ -98,7 +98,12 @@ def _matmat(
                     left_params_t = rep.transpose(shape, params)
                     left_shape_t = (shape[1], shape[0])
                     result_rep, result_shape, result_params = _matmat(
-                        right_rep, right_shape, right_params, rep, left_shape_t, left_params_t
+                        right_rep,
+                        right_shape,
+                        right_params,
+                        rep,
+                        left_shape_t,
+                        left_params_t,
                     )
                     result_params_t = result_rep.transpose(result_shape, result_params)
                     result_shape_t = (result_shape[1], result_shape[0])

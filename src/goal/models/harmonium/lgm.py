@@ -283,9 +283,7 @@ class LGM[
 
         im = self.int_man
         int_mat_trn = im.transpose(int_mat)
-        rho_mean = im.trn_man.rep.matvec(
-            im.trn_man.matrix_shape, int_mat_trn, obs_mean
-        )
+        rho_mean = im.trn_man.rep.matvec(im.trn_man.matrix_shape, int_mat_trn, obs_mean)
 
         _, rho_shape = _change_of_basis(
             im.matrix_shape,
@@ -507,7 +505,9 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
 
     @property
     @override
-    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PositiveDefinite, PositiveDefinite]:
+    def pst_prr_emb(
+        self,
+    ) -> NormalCovarianceEmbedding[PositiveDefinite, PositiveDefinite]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         prior_gau = full_normal(self.lat_dim)
         return NormalCovarianceEmbedding(self.pst_man, prior_gau)
@@ -618,7 +618,9 @@ def factor_analysis(obs_dim: int, lat_dim: int) -> FactorAnalysis:
     return NormalAnalyticLGM(obs_dim, Diagonal(), lat_dim)
 
 
-def principal_component_analysis(obs_dim: int, lat_dim: int) -> PrincipalComponentAnalysis:
+def principal_component_analysis(
+    obs_dim: int, lat_dim: int
+) -> PrincipalComponentAnalysis:
     """Create a principal component analysis model."""
     return NormalAnalyticLGM(obs_dim, Scale(), lat_dim)
 
