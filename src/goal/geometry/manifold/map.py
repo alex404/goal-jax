@@ -14,10 +14,10 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..algebra.matrix import MatrixRep, Square
 from .base import Manifold
 from .combinators import Pair
 from .embedding import IdentityEmbedding, LinearComposedEmbedding, LinearEmbedding
-from .matrix import MatrixRep, Square
 
 ### Maps ###
 

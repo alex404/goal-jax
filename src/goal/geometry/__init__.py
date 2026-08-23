@@ -1,3 +1,14 @@
+from .algebra.clique import CliqueSet
+from .algebra.matrix import (
+    Diagonal,
+    Identity,
+    MatrixRep,
+    PositiveDefinite,
+    Rectangular,
+    Scale,
+    Square,
+    Symmetric,
+)
 from .exponential_family.base import (
     Analytic,
     Differentiable,
@@ -72,16 +83,6 @@ from .manifold.map import (
     MultilayerPerceptron,
     SquareMap,
 )
-from .manifold.matrix import (
-    Diagonal,
-    Identity,
-    MatrixRep,
-    PositiveDefinite,
-    Rectangular,
-    Scale,
-    Square,
-    Symmetric,
-)
 
 __all__ = [
     "AffineMap",
@@ -92,6 +93,7 @@ __all__ = [
     "AnalyticPair",
     "AnalyticProduct",
     "BlockMap",
+    "CliqueSet",
     "ComposedEmbedding",
     "Conjugated",
     "Diagonal",

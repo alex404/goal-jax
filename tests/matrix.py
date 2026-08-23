@@ -1,4 +1,4 @@
-"""Tests for geometry/manifold/matrix.py.
+"""Tests for geometry/algebra/matrix.py.
 
 Verifies embed/project round-trips, embedding composition, and matrix conversion
 for Identity, Scale, Diagonal, and PositiveDefinite representations.

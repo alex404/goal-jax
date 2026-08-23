@@ -1,14 +1,14 @@
 Matrix Representations
 ======================
 
-.. automodule:: goal.geometry.manifold.matrix
+.. automodule:: goal.geometry.algebra.matrix
    :noindex:
    :no-members:
 
 Class Hierarchy
 ---------------
 
-.. inheritance-diagram:: goal.geometry.manifold.matrix
+.. inheritance-diagram:: goal.geometry.algebra.matrix
    :parts: 2
 
 \
@@ -16,17 +16,17 @@ Class Hierarchy
 Base Matrix Classes
 -------------------
 
-.. autoclass:: goal.geometry.manifold.matrix.MatrixRep
+.. autoclass:: goal.geometry.algebra.matrix.MatrixRep
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.matrix.Rectangular
+.. autoclass:: goal.geometry.algebra.matrix.Rectangular
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.matrix.Square
+.. autoclass:: goal.geometry.algebra.matrix.Square
    :members:
    :undoc-members:
    :show-inheritance:
@@ -34,12 +34,12 @@ Base Matrix Classes
 Structured Matrices
 -------------------
 
-.. autoclass:: goal.geometry.manifold.matrix.Symmetric
+.. autoclass:: goal.geometry.algebra.matrix.Symmetric
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.matrix.PositiveDefinite
+.. autoclass:: goal.geometry.algebra.matrix.PositiveDefinite
    :members:
    :undoc-members:
    :show-inheritance:
@@ -47,17 +47,17 @@ Structured Matrices
 Specialized Structures
 ----------------------
 
-.. autoclass:: goal.geometry.manifold.matrix.Diagonal
+.. autoclass:: goal.geometry.algebra.matrix.Diagonal
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.matrix.Scale
+.. autoclass:: goal.geometry.algebra.matrix.Scale
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.matrix.Identity
+.. autoclass:: goal.geometry.algebra.matrix.Identity
    :members:
    :undoc-members:
    :show-inheritance:
