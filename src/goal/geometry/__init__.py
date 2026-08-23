@@ -58,6 +58,7 @@ from .manifold.base import (
     Manifold,
 )
 from .manifold.combinators import (
+    CliqueManifold,
     Null,
     Pair,
     Quadruple,
@@ -65,6 +66,8 @@ from .manifold.combinators import (
     Triple,
 )
 from .manifold.embedding import (
+    CliqueEmbedding,
+    CliqueSetEmbedding,
     ComposedEmbedding,
     Embedding,
     IdentityEmbedding,
@@ -93,7 +96,10 @@ __all__ = [
     "AnalyticPair",
     "AnalyticProduct",
     "BlockMap",
+    "CliqueEmbedding",
+    "CliqueManifold",
     "CliqueSet",
+    "CliqueSetEmbedding",
     "ComposedEmbedding",
     "Conjugated",
     "Diagonal",

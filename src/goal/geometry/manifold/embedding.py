@@ -7,13 +7,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 from jax import Array
 
 from .base import Manifold
-from .combinators import Null, Tuple
+from .combinators import CliqueManifold, Null, Tuple
 
 ### Linear Subspaces ###
 
@@ -292,3 +292,108 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         components = list(self.amb_man.split_coords(p_coords))
         components[self.tup_idx] = components[self.tup_idx] + q_coords
         return self.amb_man.join_coords(*components)
+
+
+### Clique Embeddings ###
+
+
+@dataclass(frozen=True)
+class CliqueEmbedding[CliqueMan: CliqueManifold](TupleEmbedding[Manifold, CliqueMan]):
+    """Embeds one clique's block into the full clique manifold.
+
+    Projection extracts that block; embedding sets it and zeros every other clique. This
+    generalizes the observable/interaction/posterior slot embeddings of a harmonium,
+    which are the three blocks of a two-node clique set.
+
+    The block manifold is erased to ``Manifold``, since a clique set holds node manifolds
+    and interaction maps side by side. Where the block type is known and callers need it
+    --- a harmonium's own slot embeddings --- write a ``TupleEmbedding`` that names it and
+    take ``tup_idx`` from ``block_index``.
+    """
+
+    # Fields
+
+    _amb_man: CliqueMan
+    """The clique manifold being embedded into."""
+
+    clique: tuple[int, ...]
+    """The clique whose block this embedding selects. A singleton picks out a node's own manifold, i.e. the slot its biases occupy."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(self) -> int:
+        return self._amb_man.block_index(self.clique)
+
+    @property
+    @override
+    def amb_man(self) -> CliqueMan:
+        return self._amb_man
+
+    @property
+    @override
+    def sub_man(self) -> Manifold:
+        return self._amb_man.clq_man(self.clique)
+
+
+@dataclass(frozen=True)
+class CliqueSetEmbedding[Sub: CliqueManifold, Ambient: CliqueManifold](
+    LinearEmbedding[Sub, Ambient]
+):
+    """Embeds one clique manifold into another over the same clique set, block by block.
+
+    Use this when two models share a graph but parameterize some node more richly than
+    the other --- a posterior restricted to diagonal covariance sitting inside a prior
+    with full covariance. Blocks with no embedding pass through unchanged, which is the
+    common case: only the node whose representation differs needs one.
+    """
+
+    # Fields
+
+    _sub_man: Sub
+    """The clique manifold with the restricted blocks."""
+
+    _amb_man: Ambient
+    """The clique manifold with the full blocks."""
+
+    block_embs: tuple[LinearEmbedding[Any, Any] | None, ...]
+    """One entry per clique in canonical order; ``None`` passes that block through."""
+
+    def __post_init__(self) -> None:
+        if self.sub_man.clq_set != self.amb_man.clq_set:
+            raise ValueError(
+                f"sub and ambient manifolds must share a clique set: {self.sub_man.clq_set} vs {self.amb_man.clq_set}"
+            )
+
+    # Overrides
+
+    @property
+    @override
+    def sub_man(self) -> Sub:
+        return self._sub_man
+
+    @property
+    @override
+    def amb_man(self) -> Ambient:
+        return self._amb_man
+
+    @override
+    def project(self, coords: Array) -> Array:
+        blocks = self.amb_man.split_coords(coords)
+        return self.sub_man.join_coords(
+            *(
+                b if emb is None else emb.project(b)
+                for emb, b in zip(self.block_embs, blocks, strict=True)
+            )
+        )
+
+    @override
+    def embed(self, coords: Array) -> Array:
+        blocks = self.sub_man.split_coords(coords)
+        return self.amb_man.join_coords(
+            *(
+                b if emb is None else emb.embed(b)
+                for emb, b in zip(self.block_embs, blocks, strict=True)
+            )
+        )

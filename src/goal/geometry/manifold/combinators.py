@@ -1,6 +1,6 @@
 """Combinators for building complex manifolds from simpler ones.
 
-Provides product manifolds (`Pair`, `Triple`), homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
+Provides product manifolds of fixed arity (`Pair`, `Triple`, `Quadruple`), the clique-indexed `CliqueManifold` whose arity is read off a graph, homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..algebra.clique import CliqueSet
 from .base import Manifold
 
 
@@ -192,6 +193,75 @@ class Quadruple[First: Manifold, Second: Manifold, Third: Manifold, Fourth: Mani
     ) -> Array:
         """Concatenate component coordinates."""
         return jnp.concatenate([fst_coords, snd_coords, trd_coords, fth_coords])
+
+
+@dataclass(frozen=True)
+class CliqueManifold(Tuple, ABC):
+    """Product manifold with one block per clique, in canonical clique order.
+
+    Unlike ``Pair`` and ``Triple``, the arity is not fixed by the class: it is the number
+    of cliques in the graph. Subclasses declare the clique set and say what manifold each
+    clique contributes; dimension, splitting, and joining follow.
+    """
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def clq_set(self) -> CliqueSet:
+        """The graph skeleton whose cliques index this manifold's blocks."""
+
+    @abstractmethod
+    def clq_man(self, clique: tuple[int, ...]) -> Manifold:
+        """The manifold a clique contributes.
+
+        A singleton ``(i,)`` contributes node $i$'s own manifold, holding its biases; a
+        larger clique contributes the manifold of the interaction among its members,
+        typically a ``LinearMap``.
+        """
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        """Total dimension is the sum of the block dimensions."""
+        return sum(man.dim for man in self.clq_mans)
+
+    @override
+    def split_coords(self, coords: Array) -> tuple[Array, ...]:
+        """Split coordinates into one array per clique, in canonical order."""
+        blocks: list[Array] = []
+        start = 0
+        for man in self.clq_mans:
+            blocks.append(coords[start : start + man.dim])
+            start += man.dim
+        return tuple(blocks)
+
+    @override
+    def join_coords(self, *components: Array) -> Array:
+        """Concatenate one array per clique, in canonical order."""
+        n_cliques = len(self.clq_set.canonical_cliques)
+        if len(components) != n_cliques:
+            raise ValueError(
+                f"expected {n_cliques} clique blocks, got {len(components)}"
+            )
+        return jnp.concatenate(components)
+
+    # Methods
+
+    @property
+    def clq_mans(self) -> tuple[Manifold, ...]:
+        """The block manifolds, in canonical clique order."""
+        return tuple(self.clq_man(c) for c in self.clq_set.canonical_cliques)
+
+    def block_index(self, clique: tuple[int, ...]) -> int:
+        """Position of a clique's block in the flat layout."""
+        key = tuple(sorted(clique))
+        cliques = self.clq_set.canonical_cliques
+        if key not in cliques:
+            raise ValueError(f"{key} is not a clique of {self.clq_set}")
+        return cliques.index(key)
 
 
 @dataclass(frozen=True)

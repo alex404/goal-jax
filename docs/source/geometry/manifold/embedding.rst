@@ -58,3 +58,16 @@ Algebraic Embeddings
    :show-inheritance:
 
 
+
+Clique Embeddings
+-----------------
+
+.. autoclass:: goal.geometry.manifold.embedding.CliqueEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.embedding.CliqueSetEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
