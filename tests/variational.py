@@ -32,9 +32,9 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    EmbeddedMap,
+    AmbientMap,
     Harmonium,
-    IdentityEmbedding,
+    LinearMap,
     ObservableEmbedding,
     Rectangular,
 )
@@ -268,11 +268,11 @@ class TestPriorConjugationLoss:
 class _ConcreteHarmonium(Harmonium[Binomials, Any]):
     """Harmonium with interaction restricted to the BaseLatent slot of the mixture."""
 
-    _int_man: EmbeddedMap[Any, Binomials]
+    _int_man: LinearMap[Any, Binomials]
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[Any, Binomials]:
+    def int_man(self) -> LinearMap[Any, Binomials]:
         return self._int_man
 
 
@@ -292,10 +292,8 @@ def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
     """Small instance: 6 Binomial(3) observables, 3 Bernoulli latents, 3 clusters."""
     obs_man = Binomials(6, 3)
     mix_man = CompleteMixture(Bernoullis(3), 3)
-    int_man = EmbeddedMap(
-        Rectangular(),
-        ObservableEmbedding(mix_man),
-        IdentityEmbedding(obs_man),
+    int_man = AmbientMap(Rectangular(), mix_man.obs_man, obs_man).prepend_embedding(
+        ObservableEmbedding(mix_man)
     )
     return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(int_man))
 
