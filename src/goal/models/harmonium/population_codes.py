@@ -10,6 +10,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
+    CliqueSet,
     EmbeddedMap,
     IdentityEmbedding,
     Rectangular,
@@ -48,6 +49,12 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
     """Number of VonMises latent dimensions."""
 
     # Overrides
+
+    @property
+    @override
+    def clq_set(self) -> CliqueSet:
+        """The two-node graph $x - z$: a Poisson population and a von Mises stimulus."""
+        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override
@@ -171,6 +178,12 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
     """Dimension of the Gaussian latent."""
 
     # Overrides
+
+    @property
+    @override
+    def clq_set(self) -> CliqueSet:
+        """The two-node graph $x - z$: a Boltzmann population and a Gaussian stimulus."""
+        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override

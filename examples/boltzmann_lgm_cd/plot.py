@@ -31,7 +31,15 @@ def main():
     ax = axes[0, 1]
     init_density = np.array(results["initial_density"])
     heatmap = ax.contourf(xx, yy, init_density, levels=100, cmap="viridis")
-    ax.scatter(obs[:, 0], obs[:, 1], alpha=0.5, s=10, c="white", edgecolors="black", linewidths=0.5)
+    ax.scatter(
+        obs[:, 0],
+        obs[:, 1],
+        alpha=0.5,
+        s=10,
+        c="white",
+        edgecolors="black",
+        linewidths=0.5,
+    )
     ax.set_xlabel("$x_1$")
     ax.set_ylabel("$x_2$")
     ax.set_title("Initial Density")
@@ -42,7 +50,15 @@ def main():
     ax = axes[1, 0]
     exact_density = np.array(results["exact_density"])
     heatmap = ax.contourf(xx, yy, exact_density, levels=100, cmap="viridis")
-    ax.scatter(obs[:, 0], obs[:, 1], alpha=0.5, s=10, c="white", edgecolors="black", linewidths=0.5)
+    ax.scatter(
+        obs[:, 0],
+        obs[:, 1],
+        alpha=0.5,
+        s=10,
+        c="white",
+        edgecolors="black",
+        linewidths=0.5,
+    )
     ax.set_xlabel("$x_1$")
     ax.set_ylabel("$x_2$")
     final_exact_nll = results["exact_nlls"][-1]
@@ -54,7 +70,15 @@ def main():
     ax = axes[1, 1]
     cd_density = np.array(results["cd_density"])
     heatmap = ax.contourf(xx, yy, cd_density, levels=100, cmap="viridis")
-    ax.scatter(obs[:, 0], obs[:, 1], alpha=0.5, s=10, c="white", edgecolors="black", linewidths=0.5)
+    ax.scatter(
+        obs[:, 0],
+        obs[:, 1],
+        alpha=0.5,
+        s=10,
+        c="white",
+        edgecolors="black",
+        linewidths=0.5,
+    )
     ax.set_xlabel("$x_1$")
     ax.set_ylabel("$x_2$")
     final_cd_nll = results["cd_nlls"][-1]

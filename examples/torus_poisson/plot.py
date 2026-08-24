@@ -20,7 +20,9 @@ from scipy.optimize import linear_sum_assignment
 from ..shared import apply_style, colors, example_paths, get_pi_ticks, model_color
 
 
-def circular_distance(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
+def circular_distance(
+    a: NDArray[np.float64], b: NDArray[np.float64]
+) -> NDArray[np.float64]:
     """Compute minimum angular distance, handling wrap-around."""
     diff = np.abs(a - b)
     return np.minimum(diff, 2 * np.pi - diff)
@@ -51,7 +53,7 @@ def find_optimal_matching(
         matching_indices[i] = j means GT neuron i matches learned neuron j
     """
     n_neurons = len(gt_theta1)
-    best_cost = float('inf')
+    best_cost = float("inf")
     best_matching = np.arange(n_neurons)
     best_offset1, best_offset2 = 0.0, 0.0
     best_swapped = False
@@ -144,7 +146,7 @@ def main():
     ax1.set_xlabel("Training Step")
     ax1.set_ylabel("ELBO")
     ax1.set_title("Training (ELBO)")
-    ax1.legend(loc='lower right')
+    ax1.legend(loc="lower right")
 
     # =========================================================================
     # Panel B (TR): Conjugation Quality (var[CR])
@@ -157,18 +159,25 @@ def main():
             n_total = len(history["elbos"])
             log_interval = n_total // len(var_cr_data) if len(var_cr_data) > 0 else 1
             steps = [j * log_interval for j in range(len(var_cr_data))]
-            ax2.plot(steps, var_cr_data, color=model_color(i), linewidth=1.5, label=mode)
+            ax2.plot(
+                steps, var_cr_data, color=model_color(i), linewidth=1.5, label=mode
+            )
 
     # GT reference line
     if gt_var_cr is not None:
-        ax2.axhline(y=gt_var_cr, color=colors["ground_truth"], linestyle="--",
-                   linewidth=2, label=f"GT optimal")
+        ax2.axhline(
+            y=gt_var_cr,
+            color=colors["ground_truth"],
+            linestyle="--",
+            linewidth=2,
+            label="GT optimal",
+        )
     ax2.axhline(y=0.0, color="gray", linestyle=":", alpha=0.5)
 
     ax2.set_xlabel("Training Step")
     ax2.set_ylabel("Var[Conj. Err.]")
     ax2.set_title("Conjugation Error")
-    ax2.legend(loc='upper right')
+    ax2.legend(loc="upper right")
 
     # =========================================================================
     # Panel C (BL): Tuning Curve Locations on 2D Manifold
@@ -188,17 +197,37 @@ def main():
     matching, offset1, offset2, swapped = find_optimal_matching(
         gt_theta1, gt_theta2, learned_theta1, learned_theta2
     )
-    aligned1, aligned2 = apply_alignment(learned_theta1, learned_theta2, offset1, offset2, swapped)
+    aligned1, aligned2 = apply_alignment(
+        learned_theta1, learned_theta2, offset1, offset2, swapped
+    )
     matched_theta1 = aligned1[matching]
     matched_theta2 = aligned2[matching]
 
     # Plot GT locations
-    ax3.scatter(gt_theta1, gt_theta2, c=colors["ground_truth"], s=50, alpha=0.8,
-                marker='o', label='Ground Truth', edgecolors='white', linewidths=0.5)
+    ax3.scatter(
+        gt_theta1,
+        gt_theta2,
+        c=colors["ground_truth"],
+        s=50,
+        alpha=0.8,
+        marker="o",
+        label="Ground Truth",
+        edgecolors="white",
+        linewidths=0.5,
+    )
 
     # Plot learned locations (aligned)
-    ax3.scatter(matched_theta1, matched_theta2, c=model_color(0), s=50, alpha=0.8,
-                marker='^', label=f'Learned ({best_mode})', edgecolors='white', linewidths=0.5)
+    ax3.scatter(
+        matched_theta1,
+        matched_theta2,
+        c=model_color(0),
+        s=50,
+        alpha=0.8,
+        marker="^",
+        label=f"Learned ({best_mode})",
+        edgecolors="white",
+        linewidths=0.5,
+    )
 
     ax3.set_xlabel(r"$\theta_1$")
     ax3.set_ylabel(r"$\theta_2$")
@@ -206,7 +235,7 @@ def main():
     ax3.set_ylim(0, 2 * np.pi)
     ax3.set_aspect("equal")
     ax3.set_title("Preferred Locations")
-    ax3.legend(loc='upper right')
+    ax3.legend(loc="upper right")
     ax3.set_xticks(pi_ticks)
     ax3.set_xticklabels(pi_labels)
     ax3.set_yticks(pi_ticks)
@@ -226,25 +255,37 @@ def main():
         std_log_probs = evidence_results["std_log_probs"]
 
         # Plot log probability of true z under posterior
-        ax4.errorbar(n_obs_list, mean_log_probs,
-                    yerr=std_log_probs,
-                    marker='o', capsize=3, color=model_color(0), linewidth=1.5,
-                    markersize=8)
+        ax4.errorbar(
+            n_obs_list,
+            mean_log_probs,
+            yerr=std_log_probs,
+            marker="o",
+            capsize=3,
+            color=model_color(0),
+            linewidth=1.5,
+            markersize=8,
+        )
 
         ax4.set_xlabel("Number of Observations")
         ax4.set_ylabel("Log p(z* | x)")
         ax4.set_title("Evidence Accumulation")
         ax4.set_xticks(n_obs_list)
     else:
-        ax4.text(0.5, 0.5, "Evidence accumulation\ndata not available",
-                ha='center', va='center', transform=ax4.transAxes)
+        ax4.text(
+            0.5,
+            0.5,
+            "Evidence accumulation\ndata not available",
+            ha="center",
+            va="center",
+            transform=ax4.transAxes,
+        )
         ax4.set_title("Evidence Accumulation")
 
     paths.save_plot(fig)
     print(f"Plot saved to {paths.plot_path}")
 
 
-def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | None:
+def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | None:  # noqa: C901
     """Compute evidence accumulation showing posterior concentrates with more observations.
 
     Uses the best model's learned parameters. For conjugate inference,
@@ -257,6 +298,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         import jax
         import jax.numpy as jnp
         from scipy.special import i0 as bessel_i0
+
         from goal.models import PoissonVonMisesHarmonium, VonMisesPopulationCode
 
         config = results["config"]
@@ -272,9 +314,11 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         elif best_mode in models:
             mode_to_use = best_mode
         else:
-            mode_to_use = list(models.keys())[0]
+            mode_to_use = next(iter(models.keys()))
 
-        var_model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, n_latent))
+        var_model = VonMisesPopulationCode(
+            _gen_hrm=PoissonVonMisesHarmonium(n_neurons, n_latent)
+        )
 
         # Get learned parameters
         learned_weights = np.array(models[mode_to_use]["learned_weight_matrix"])
@@ -301,9 +345,8 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
             """Numerically stable log I_0(\\kappa)."""
             if kappa < 500:
                 return float(np.log(bessel_i0(kappa)))
-            else:
-                # Asymptotic: I_0(\kappa) \approx exp(\kappa) / sqrt(2 \pi \kappa)
-                return kappa - 0.5 * np.log(2 * np.pi * kappa)
+            # Asymptotic: I_0(\kappa) \approx exp(\kappa) / sqrt(2 \pi \kappa)
+            return kappa - 0.5 * np.log(2 * np.pi * kappa)
 
         def von_mises_log_prob(z, theta) -> float:
             """Log probability of z under VonMises product with natural params theta."""
@@ -356,19 +399,23 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
                 all_log_probs[n_obs].append(log_prob)
 
         mean_log_probs = np.array([np.mean(all_log_probs[n]) for n in n_obs_list])
-        std_log_probs = np.array([np.std(all_log_probs[n]) / np.sqrt(n_trials) for n in n_obs_list])
+        std_log_probs = np.array(
+            [np.std(all_log_probs[n]) / np.sqrt(n_trials) for n in n_obs_list]
+        )
 
+    except Exception as e:
+        print(f"Evidence accumulation failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+    else:
         return {
             "n_observations": n_obs_list,
             "mean_log_probs": mean_log_probs,
             "std_log_probs": std_log_probs,
         }
-
-    except Exception as e:
-        print(f"Evidence accumulation failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
 
 
 if __name__ == "__main__":

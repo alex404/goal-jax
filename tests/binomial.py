@@ -93,7 +93,10 @@ class TestBinomial:
                 atol=ATOL,
             )
             assert jnp.allclose(
-                binomial.to_mean(params), bernoulli.to_mean(params), rtol=RTOL, atol=ATOL
+                binomial.to_mean(params),
+                bernoulli.to_mean(params),
+                rtol=RTOL,
+                atol=ATOL,
             )
 
 

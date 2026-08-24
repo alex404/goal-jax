@@ -72,7 +72,9 @@ N_DECODE = 300  # test latents for the decoding check
 def grid_locations_2d(side: int) -> tuple[Array, list[tuple[int, int]]]:
     """``side x side`` neurons on a 2D grid plus 4-neighbour adjacency edges."""
     coords = jnp.linspace(-1.6, 1.6, side)
-    pref = jnp.stack(jnp.meshgrid(coords, coords, indexing="ij"), axis=-1).reshape(-1, 2)
+    pref = jnp.stack(jnp.meshgrid(coords, coords, indexing="ij"), axis=-1).reshape(
+        -1, 2
+    )
     edges: list[tuple[int, int]] = []
     for r in range(side):
         for c in range(side):
@@ -99,7 +101,9 @@ def make_data(key: Array, pref: Array, n: int) -> tuple[Array, Array, Array, flo
     """
     k_centers, k_w, k_train, k_test = jax.random.split(key, 4)
     lo, hi = float(pref.min()), float(pref.max())
-    centers = jax.random.uniform(k_centers, (N_COMPONENTS, pref.shape[1]), minval=lo, maxval=hi)
+    centers = jax.random.uniform(
+        k_centers, (N_COMPONENTS, pref.shape[1]), minval=lo, maxval=hi
+    )
     d2 = jnp.sum((pref[None, :, :] - centers[:, None, :]) ** 2, axis=-1)
     probs = P_LO + (P_HI - P_LO) * jnp.exp(-d2 / (2 * BLOB_WIDTH**2))
     weights = jax.nn.softmax(0.5 * jax.random.normal(k_w, (N_COMPONENTS,)))
@@ -110,10 +114,13 @@ def make_data(key: Array, pref: Array, n: int) -> tuple[Array, Array, Array, flo
         return (jax.random.uniform(kb, (m, n)) < probs[comp]).astype(jnp.float64)
 
     train, test = sample(k_train, N_TRAIN), sample(k_test, N_TEST)
-    log_comp = test[:, None, :] * jnp.log(probs)[None] + (1 - test[:, None, :]) * jnp.log1p(
-        -probs
-    )[None]
-    ceiling = float(jnp.mean(logsumexp(jnp.log(weights)[None] + log_comp.sum(-1), axis=1)))
+    log_comp = (
+        test[:, None, :] * jnp.log(probs)[None]
+        + (1 - test[:, None, :]) * jnp.log1p(-probs)[None]
+    )
+    ceiling = float(
+        jnp.mean(logsumexp(jnp.log(weights)[None] + log_comp.sum(-1), axis=1))
+    )
     return train, test, corr_of(train), ceiling
 
 
@@ -212,7 +219,9 @@ def fit_family(
         conj = model.prior_conjugation_loss(c_key, params, CONJ_SAMPLES)
         return -elbo + conj_beta * LAMBDA * conj
 
-    def step(carry: tuple[Any, Any, Array], gstep: Array) -> tuple[tuple[Any, Any, Array], None]:
+    def step(
+        carry: tuple[Any, Any, Array], gstep: Array
+    ) -> tuple[tuple[Any, Any, Array], None]:
         params, opt_state, k = carry
         conj_beta = jnp.minimum(1.0, gstep / CONJ_WARMUP)  # linear ramp 0 -> 1
         k, b_key, l_key = jax.random.split(k, 3)
@@ -231,7 +240,9 @@ def fit_family(
         gsteps = jnp.arange(c * LOG_EVERY, (c + 1) * LOG_EVERY)
         carry, _ = jax.lax.scan(step, carry, gsteps)
         params = carry[0]
-        elbo_train.append(float(model.mean_elbo(k_etr, params, train[:512], MC_SAMPLES)))
+        elbo_train.append(
+            float(model.mean_elbo(k_etr, params, train[:512], MC_SAMPLES))
+        )
         elbo_test.append(float(model.mean_elbo(k_ete, params, test, MC_SAMPLES)))
         _, _, r2 = conjugation_metrics(model, k_r2, params, METRIC_SAMPLES)
         conj_r2.append(float(r2))
@@ -243,7 +254,9 @@ def fit_family(
     # Information-content check + learned correlations on the trained model
     d_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, False)
     l_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, True)
-    model_corr = corr_of(model.sample(k_corr, params, CORR_SAMPLES)[:, : model.n_neurons])
+    model_corr = corr_of(
+        model.sample(k_corr, params, CORR_SAMPLES)[:, : model.n_neurons]
+    )
 
     print(
         f"  {name:9s} | ELBO {elbo_train[0]:.3f}->{elbo_train[-1]:.3f} (test {elbo_test[-1]:.3f})"
@@ -296,8 +309,16 @@ def main() -> None:
     print("Fitting Boltzmann population codes to Bernoulli-mixture data:")
     families = {
         name: fit_family(
-            model, name, train, test, data_corr, z_pts, grid, log_prior,
-            x_stars, fam_keys[name],
+            model,
+            name,
+            train,
+            test,
+            data_corr,
+            z_pts,
+            grid,
+            log_prior,
+            x_stars,
+            fam_keys[name],
         )
         for name, model in models.items()
     }

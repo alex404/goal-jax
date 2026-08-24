@@ -12,6 +12,7 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
+    CliqueSet,
     Diagonal,
     DifferentiableConjugated,
     EmbeddedMap,
@@ -257,6 +258,12 @@ class LGM[
 
     @property
     @override
+    def clq_set(self) -> CliqueSet:
+        """The two-node graph $x - z$: an observable Gaussian and a latent one."""
+        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
+
+    @property
+    @override
     def int_man(self) -> EmbeddedMap[PostGaussian, Normal[ObsRep]]:
         return EmbeddedMap(
             Rectangular(),
@@ -343,13 +350,13 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         )
 
         # Construct parameters for transposed model
-        obs_params, int_params, lat_params = self.split_coords(params)
+        obs_params, int_params, lat_params = self.split_level(params)
         nor_man = transposed_lgm.prr_man
         obs_params_emb = self.obs_man.embed_rep(nor_man, obs_params)
         lat_params_emb = self.pst_man.embed_rep(transposed_lgm.obs_man, lat_params)
 
         # Join parameters with interaction matrix transposed
-        transposed_params = transposed_lgm.join_coords(
+        transposed_params = transposed_lgm.join_level(
             lat_params_emb,  # Original latent becomes observable
             self.int_man.transpose(int_params),
             obs_params_emb,
@@ -366,7 +373,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         - lat_means: set to standard_normal() (mean coords of N(0,I))
         - int_means: updated to WL where W \\Sigma_z = E[x \\otimes z] - E[x] \\otimes E[z] and L = chol(\\Sigma_z)
         """
-        obs_means, int_means, lat_means = self.split_coords(means)
+        obs_means, int_means, lat_means = self.split_level(means)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
         lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
 
@@ -380,7 +387,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
         new_int_means = self.int_man.from_matrix(wl_mat)
         new_lat_means = self.prr_man.standard_normal()
-        return self.join_coords(obs_means, new_int_means, new_lat_means)
+        return self.join_level(obs_means, new_int_means, new_lat_means)
 
     def to_normal(self, params: Array) -> Array:
         """Convert to a joint Normal distribution in natural parameters."""
@@ -391,7 +398,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
             lat_dim=lat_dim,
             pst_rep=PositiveDefinite(),
         )
-        obs_params, int_params, lat_params = self.split_coords(params)
+        obs_params, int_params, lat_params = self.split_level(params)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
         emb_lat_params = self.pst_man.embed_rep(new_man.prr_man, lat_params)
 
@@ -562,7 +569,7 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         im = self.int_man
 
         # Deconstruct parameters
-        obs_means, int_means, lat_means = self.split_coords(means)
+        obs_means, int_means, lat_means = self.split_level(means)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - im.rep.outer_product(obs_mean, lat_mean)

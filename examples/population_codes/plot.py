@@ -37,7 +37,15 @@ def main():
         pref = preferred[idx]
         color = neuron_colors[idx]
         ax_polar.plot(grid, tc, color=color, alpha=0.8, linewidth=1.5)
-        ax_polar.scatter([pref], [tc.max()], color=color, s=40, zorder=5, edgecolors="white", linewidths=0.5)
+        ax_polar.scatter(
+            [pref],
+            [tc.max()],
+            color=color,
+            s=40,
+            zorder=5,
+            edgecolors="white",
+            linewidths=0.5,
+        )
 
     ax_polar.set_theta_zero_location("E")  # pyright: ignore[reportAttributeAccessIssue]
     ax_polar.set_rticks([])  # pyright: ignore[reportAttributeAccessIssue]
@@ -67,13 +75,15 @@ def main():
 
     ax_reg = ax_cart.twinx()
     ax_reg.plot(
-        reg_grid, reg_actual,
+        reg_grid,
+        reg_actual,
         color=colors["ground_truth"],
         linewidth=2,
         label=r"$\Sigma$ rates",
     )
     ax_reg.plot(
-        reg_grid, reg_fitted,
+        reg_grid,
+        reg_fitted,
         color=colors["fitted"],
         linewidth=2,
         linestyle="--",
@@ -105,7 +115,7 @@ def main():
 
     # Set y-ticks to show neuron indices (sorted by preference)
     ax_spikes.set_yticks(range(n_neurons))
-    ax_spikes.set_yticklabels([f"N{i+1}" for i in neuron_order])
+    ax_spikes.set_yticklabels([f"N{i + 1}" for i in neuron_order])
 
     # Set x-ticks to show stimulus values
     n_trials = len(true_stim)
@@ -138,7 +148,9 @@ def main():
 
     # Size points by confidence (posterior concentration)
     min_size, max_size = 30, 150
-    sizes = min_size + (max_size - min_size) * (post_kappas - post_kappas.min()) / (post_kappas.max() - post_kappas.min() + 1e-6)
+    sizes = min_size + (max_size - min_size) * (post_kappas - post_kappas.min()) / (
+        post_kappas.max() - post_kappas.min() + 1e-6
+    )
 
     ax_infer.scatter(
         true_stim,
@@ -167,10 +179,12 @@ def main():
 
     # Add error annotation
     ax_infer.text(
-        0.95, 0.05,
+        0.95,
+        0.05,
         f"Mean error: {np.degrees(mean_error):.1f}°",
         transform=ax_infer.transAxes,
-        ha="right", va="bottom",
+        ha="right",
+        va="bottom",
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
     )
 

@@ -38,21 +38,21 @@ def create_ground_truth() -> tuple[KalmanFilter, Array]:
 
     damping = 0.98
     omega = 0.4
-    A = damping * jnp.array(
+    transition = damping * jnp.array(
         [[jnp.cos(omega), -jnp.sin(omega)], [jnp.sin(omega), jnp.cos(omega)]]
     )
-    Q = 0.02 * jnp.eye(2)
-    C = jnp.array([[1.0, 0.0]])
-    R = jnp.array([[0.15]])
-    mu0 = jnp.array([1.0, 0.0])
-    Sigma0 = 0.1 * jnp.eye(2)
+    process_noise = 0.02 * jnp.eye(2)
+    emission = jnp.array([[1.0, 0.0]])
+    observation_noise = jnp.array([[0.15]])
+    prior_mean = jnp.array([1.0, 0.0])
+    prior_cov = 0.1 * jnp.eye(2)
 
-    return model, model.from_standard(A, Q, C, R, mu0, Sigma0)
+    return model, model.from_standard(
+        transition, process_noise, emission, observation_noise, prior_mean, prior_cov
+    )
 
 
-def avg_log_lik(
-    model: KalmanFilter, params: Array, observations_batch: Array
-) -> Array:
+def avg_log_lik(model: KalmanFilter, params: Array, observations_batch: Array) -> Array:
     """Average log-likelihood across a batch of trajectories."""
     return jnp.mean(
         jax.vmap(lambda obs: model.log_observable_density(params, obs))(
@@ -75,9 +75,7 @@ def fit_gradient(
 
     optimizer = optax.adam(learning_rate=1e-2)
 
-    def grad_step(
-        carry: tuple[Array, Any], _: None
-    ) -> tuple[tuple[Array, Any], Array]:
+    def grad_step(carry: tuple[Array, Any], _: None) -> tuple[tuple[Array, Any], Array]:
         params, opt_state = carry
         ll = obj(params)
         grads = jax.grad(obj)(params)

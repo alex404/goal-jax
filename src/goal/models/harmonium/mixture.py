@@ -18,6 +18,7 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
+    CliqueSet,
     Differentiable,
     EmbeddedMap,
     ExponentialFamilyProduct,
@@ -89,6 +90,12 @@ class Mixture[Observable: Differentiable](
     @override
     def lat_man(self) -> Categorical:
         return Categorical(self.n_categories)
+
+    @property
+    @override
+    def clq_set(self) -> CliqueSet:
+        """The two-node graph $x - z$: an observable and a categorical latent."""
+        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override
@@ -167,7 +174,7 @@ class Mixture[Observable: Differentiable](
         # Transpose and convert to int_man storage format
         int_means = projected_comps.T.ravel()
 
-        return self.join_coords(obs_means, int_means, weights)
+        return self.join_level(obs_means, int_means, weights)
 
     def split_natural_mixture(
         self,
@@ -267,7 +274,7 @@ class CompleteMixture[Observable: Differentiable](
             Tuple of (components, weights) where components is a flat 1D array of shape
             ``[n_categories * obs_dim]`` representing parameters on ``cmp_man``.
         """
-        obs_means, int_means, cat_means = self.split_coords(means)
+        obs_means, int_means, cat_means = self.split_level(means)
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
         # Convert to 2D matrix and transpose to get columns as rows [n_categories-1, obs_dim]

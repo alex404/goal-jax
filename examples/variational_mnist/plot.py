@@ -57,7 +57,6 @@ def plot_training_elbos(ax: Axes, models: dict[str, Any]) -> None:
     ax.legend()
 
 
-
 def plot_conjugation_variance(ax: Axes, models: dict[str, Any]) -> None:
     """Plot conjugation error (Var[r]) over time."""
     has_positive = False
@@ -96,7 +95,6 @@ def plot_conjugation_std(ax: Axes, models: dict[str, Any]) -> None:
     ax.legend()
 
 
-
 def plot_conjugation_r2(ax: Axes, models: dict[str, Any]) -> None:
     """Plot R^2 over time."""
     for mode, results in models.items():
@@ -131,7 +129,6 @@ def plot_rho_norm(ax: Axes, models: dict[str, Any]) -> None:
     ax.set_ylabel("||rho||")
     ax.set_title("Rho Norm Over Time")
     ax.legend()
-
 
 
 def plot_metrics_comparison(ax: Axes, models: dict[str, Any]) -> None:
@@ -319,9 +316,7 @@ def plot_compare_rho_norm(ax: Axes, runs: dict[str, dict[str, Any]]) -> None:
     ax.legend()
 
 
-def plot_compare_cluster_metrics(
-    ax: Axes, runs: dict[str, dict[str, Any]]
-) -> None:
+def plot_compare_cluster_metrics(ax: Axes, runs: dict[str, dict[str, Any]]) -> None:
     """Bar chart: cluster purity / NMI / accuracy per run."""
     labels = list(runs.keys())
     x = np.arange(len(labels))
@@ -331,9 +326,13 @@ def plot_compare_cluster_metrics(
     nmi_vals = [100 * float(runs[lbl].get("nmi", 0.0)) for lbl in labels]
     acc_vals = [100 * float(runs[lbl].get("cluster_accuracy", 0.0)) for lbl in labels]
 
-    ax.bar(x - width, purity_vals, width, label="Purity (%)", color=metric_color("purity"))
+    ax.bar(
+        x - width, purity_vals, width, label="Purity (%)", color=metric_color("purity")
+    )
     ax.bar(x, nmi_vals, width, label="NMI (%)", color=metric_color("nmi"))
-    ax.bar(x + width, acc_vals, width, label="Accuracy (%)", color=metric_color("accuracy"))
+    ax.bar(
+        x + width, acc_vals, width, label="Accuracy (%)", color=metric_color("accuracy")
+    )
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
@@ -343,18 +342,14 @@ def plot_compare_cluster_metrics(
     ax.set_axisbelow(True)
 
 
-def plot_compare_wallclock(
-    ax: Axes, runs: dict[str, dict[str, Any]]
-) -> None:
+def plot_compare_wallclock(ax: Axes, runs: dict[str, dict[str, Any]]) -> None:
     """Bar chart: mean warm-step time per run, with JIT compile annotation."""
     labels = list(runs.keys())
     x = np.arange(len(labels))
     warm_means = [
         1000.0 * float(runs[lbl].get("mean_warm_step_seconds", 0.0)) for lbl in labels
     ]
-    jit_seconds = [
-        float(runs[lbl].get("jit_compile_seconds", 0.0)) for lbl in labels
-    ]
+    jit_seconds = [float(runs[lbl].get("jit_compile_seconds", 0.0)) for lbl in labels]
 
     bars = ax.bar(x, warm_means, color=[model_color(i) for i in range(len(labels))])
     for bar, jit in zip(bars, jit_seconds):
@@ -513,7 +508,6 @@ def main():
         f"Variational MNIST Training (Best by NMI: {best_label}, NMI={best_nmi:.3f})",
         y=0.99,
     )
-
 
     paths.save_plot(fig1)
     print(f"Main plot saved to {paths.plot_path}")

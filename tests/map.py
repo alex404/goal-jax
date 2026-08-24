@@ -4,6 +4,7 @@ Confirms LinearMap and matrix-rep machinery still work after the rename, and exe
 """
 
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import override
 
 import jax
@@ -86,9 +87,7 @@ class TestMultilayerPerceptron:
             activation=jax.nn.relu,
         )
         layer_dims = (dom_dim, *hidden, cod_dim)
-        expected = sum(
-            in_d * out_d + out_d for in_d, out_d in zip(layer_dims[:-1], layer_dims[1:])
-        )
+        expected = sum(in_d * out_d + out_d for in_d, out_d in pairwise(layer_dims))
         assert m.dim == expected
 
     @pytest.mark.parametrize(

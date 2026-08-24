@@ -57,7 +57,9 @@ def generate_observations(
     latent_dim = latents.shape[1]
 
     # Random orthogonal-ish projection (scaled for reasonable variance)
-    projection = jax.random.normal(key_proj, (latent_dim, obs_dim)) / jnp.sqrt(latent_dim)
+    projection = jax.random.normal(key_proj, (latent_dim, obs_dim)) / jnp.sqrt(
+        latent_dim
+    )
 
     # Project and add noise
     clean = latents @ projection
@@ -77,20 +79,19 @@ def procrustes_align(source: Array, target: Array) -> Array:
     target_centered = target - jnp.mean(target, axis=0)
 
     # SVD of cross-covariance
-    H = source_centered.T @ target_centered
-    U, _, Vt = jnp.linalg.svd(H)
+    cross_cov = source_centered.T @ target_centered
+    left, _, right_t = jnp.linalg.svd(cross_cov)
 
     # Optimal rotation (allowing reflection)
-    R = Vt.T @ U.T
+    rotation = right_t.T @ left.T
 
     # Scale factor
-    scale = jnp.trace(target_centered.T @ (source_centered @ R.T)) / jnp.trace(
+    scale = jnp.trace(target_centered.T @ (source_centered @ rotation.T)) / jnp.trace(
         source_centered.T @ source_centered
     )
 
     # Apply transformation
-    aligned = scale * (source_centered @ R.T) + jnp.mean(target, axis=0)
-    return aligned
+    return scale * (source_centered @ rotation.T) + jnp.mean(target, axis=0)
 
 
 def fit_factor_analysis(
@@ -193,7 +194,9 @@ def main():
     print(f"  Mean reconstruction error: {mean_error:.4f}")
 
     # Compute alignment quality
-    alignment_error = jnp.sqrt(jnp.mean(jnp.sum((aligned_latents - true_latents) ** 2, axis=1)))
+    alignment_error = jnp.sqrt(
+        jnp.mean(jnp.sum((aligned_latents - true_latents) ** 2, axis=1))
+    )
     print(f"  Latent alignment RMSE: {alignment_error:.4f}")
 
     results = TrajectoryResults(

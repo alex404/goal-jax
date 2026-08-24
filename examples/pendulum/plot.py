@@ -158,7 +158,9 @@ def main() -> None:
     ax_rho = fig.add_subplot(gs[1, 2])
     for i, mode in enumerate(modes):
         rho_norms = np.asarray(results["models"][mode]["history"]["rho_norms"])
-        ax_rho.plot(rho_norms, label=mode, color=model_color(i), marker="o", markersize=3)
+        ax_rho.plot(
+            rho_norms, label=mode, color=model_color(i), marker="o", markersize=3
+        )
     ax_rho.set_xlabel("Logging chunk")
     ax_rho.set_ylabel(r"$\|\rho\|$")
     ax_rho.set_title(r"Conjugation parameter norm")

@@ -13,6 +13,7 @@ from goal.models import BoltzmannLGM
 from ..shared import example_paths, jax_cli
 from .types import GaussianBoltzmannResults
 
+
 def generate_data(
     key: Array,
     obs_dim: int,
@@ -64,7 +65,9 @@ def train_model(
     return final_params, epoch_lls
 
 
-def compute_boltzmann_moments(model: BoltzmannLGM[PositiveDefinite], params: Array) -> Array:
+def compute_boltzmann_moments(
+    model: BoltzmannLGM[PositiveDefinite], params: Array
+) -> Array:
     """Compute E[zz^T] for Boltzmann prior."""
     states = model.lat_man.states
 
@@ -144,7 +147,7 @@ def main():
 
     # Posterior moments for representative observations
     n_per_circle = [int(ratio * n_obs) for ratio in ratios]
-    cumsum = jnp.cumsum(jnp.array([0] + n_per_circle))
+    cumsum = jnp.cumsum(jnp.array([0, *n_per_circle]))
     indices = [
         cumsum[0] + n_per_circle[0] // 2,
         cumsum[1],

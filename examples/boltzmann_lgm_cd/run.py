@@ -18,6 +18,7 @@ from goal.models import DifferentiableBoltzmannLGM
 from ..shared import example_paths, jax_cli
 from .types import BoltzmannCDResults
 
+
 def generate_data(
     key: Array, obs_dim: int, n_obs: int, n_clusters: int, cluster_std: float
 ) -> Array:
@@ -191,13 +192,21 @@ def main():
     print(f"  Final NLL: {nlls_exact[-1]:.4f}")
 
     # Compute exact-trained density
-    _, _, exact_density = compute_density_grid(model, params_exact, plot_range, plot_res)
+    _, _, exact_density = compute_density_grid(
+        model, params_exact, plot_range, plot_res
+    )
 
     # Train with CD
     cd_k = 1
     print(f"\nTraining with CD-{cd_k} ({n_epochs} epochs)...")
     params_cd, nlls_cd = train_cd(
-        key_cd, model, data, init_params, learning_rate, n_epochs, n_steps_per_epoch,
+        key_cd,
+        model,
+        data,
+        init_params,
+        learning_rate,
+        n_epochs,
+        n_steps_per_epoch,
         cd_steps=cd_k,
     )
     print(f"  Final NLL: {nlls_cd[-1]:.4f}")

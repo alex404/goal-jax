@@ -13,7 +13,9 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.combinators import Triple
+from ..algebra.clique import CliqueSet
+from ..manifold.base import Manifold
+from ..manifold.combinators import CliqueManifold
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
@@ -31,15 +33,23 @@ class Harmonium[
     Posterior: Gibbs,
 ](
     Gibbs,
-    Triple[Observable, LinearMap[Posterior, Observable], Posterior],
+    CliqueManifold[Observable, LinearMap[Posterior, Observable], Posterior],
     ABC,
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
+
+    A model declares its graph --- :attr:`clq_set` --- and the interaction manifold :attr:`int_man` that joins the two sides of it. The observable and posterior manifolds are read off the interaction, and the three of them are the root, cross, and deep spans of the graph: :attr:`~goal.geometry.manifold.combinators.CliqueManifold.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three spans stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep span holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
 
     # Contract
+
+    @property
+    @abstractmethod
+    @override
+    def clq_set(self) -> CliqueSet:
+        """The graph this model is defined on."""
 
     @property
     @abstractmethod
@@ -58,6 +68,28 @@ class Harmonium[
         """Manifold of posterior specific latent biases."""
         return self.int_man.dom_man
 
+    # Overrides
+
+    @property
+    @override
+    def root_man(self) -> Observable:
+        """The root span is the observable biases."""
+        return self.obs_man
+
+    @property
+    @override
+    def cross_man(self) -> LinearMap[Posterior, Observable]:
+        """The cross span is the interaction matrix."""
+        return self.int_man
+
+    @property
+    @override
+    def deep_man(self) -> Posterior:
+        """The deep span is the latent side, however deep it goes."""
+        return self.pst_man
+
+    # Methods
+
     @property
     def lkl_fun_man(self) -> AffineMap[Posterior, Observable]:
         """Manifold of likelihood distributions $p(x \\mid z)$."""
@@ -70,12 +102,12 @@ class Harmonium[
 
     def likelihood_function(self, params: Array) -> Array:
         """Extract the likelihood affine map $\\eta \\mapsto \\theta_X + \\Theta_{XZ} \\cdot \\eta$ from the given natural parameters."""
-        obs_params, int_params, _ = self.split_coords(params)
+        obs_params, int_params, _ = self.split_level(params)
         return self.lkl_fun_man.join_coords(obs_params, int_params)
 
     def posterior_function(self, params: Array) -> Array:
         """Extract the posterior affine map $\\eta \\mapsto \\theta_Z + \\Theta_{XZ}^\\top \\cdot \\eta$ from the given natural parameters."""
-        _, int_params, lat_params = self.split_coords(params)
+        _, int_params, lat_params = self.split_level(params)
         int_mat_t = self.int_man.transpose(int_params)
         return self.pst_fun_man.join_coords(lat_params, int_mat_t)
 
@@ -90,21 +122,6 @@ class Harmonium[
         return self.pst_fun_man(self.posterior_function(params), mx)
 
     # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> Observable:
-        return self.obs_man
-
-    @property
-    @override
-    def snd_man(self) -> LinearMap[Posterior, Observable]:
-        return self.int_man
-
-    @property
-    @override
-    def trd_man(self) -> Posterior:
-        return self.pst_man
 
     @property
     @override
@@ -123,7 +140,7 @@ class Harmonium[
 
         int_stats = self.int_man.outer_product(obs_stats, lat_stats)
 
-        return self.join_coords(obs_stats, int_stats, lat_stats)
+        return self.join_level(obs_stats, int_stats, lat_stats)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -148,7 +165,7 @@ class Harmonium[
         scaling = shape / jnp.sqrt(self.int_man.dim)
         int_params = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
 
-        return self.join_coords(obs_params, int_params, lat_params)
+        return self.join_level(obs_params, int_params, lat_params)
 
     @override
     def initialize_from_sample(
@@ -165,7 +182,7 @@ class Harmonium[
         scaling = shape / jnp.sqrt(self.int_man.dim)
         int_params = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
 
-        return self.join_coords(obs_params, int_params, lat_params)
+        return self.join_level(obs_params, int_params, lat_params)
 
     @override
     def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
@@ -270,7 +287,7 @@ class Conjugated[
 
     def prior(self, params: Array) -> Array:
         """Compute prior natural parameters $p(z)$ from the given harmonium natural parameters."""
-        obs_params, int_params, lat_params = self.split_coords(params)
+        obs_params, int_params, lat_params = self.split_level(params)
         lkl_params = self.lkl_fun_man.join_coords(obs_params, int_params)
         rho = self.conjugation_parameters(lkl_params)
         return self.pst_prr_emb.translate(rho, lat_params)
@@ -328,7 +345,7 @@ class DifferentiableConjugated[
     @override
     def log_partition_function(self, params: Array) -> Array:
         """Compute $\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\chi$ at the given natural parameters, with $\\chi$ from :meth:`Conjugated.conjugation_offset`."""
-        obs_params, int_params, lat_params = self.split_coords(params)
+        obs_params, int_params, lat_params = self.split_level(params)
         lkl_params = self.lkl_fun_man.join_coords(obs_params, int_params)
 
         chi = self.conjugation_offset(lkl_params)
@@ -341,7 +358,7 @@ class DifferentiableConjugated[
 
     def log_observable_density(self, params: Array, x: Array) -> Array:
         """Compute log marginal density $\\log p(x)$ at the given natural parameters by integrating out the latent variable analytically."""
-        obs_params, _, _ = self.split_coords(params)
+        obs_params, _, _ = self.split_level(params)
 
         chi = self.conjugation_offset(self.likelihood_function(params))
         obs_stats = self.obs_man.sufficient_statistic(x)
@@ -376,7 +393,7 @@ class DifferentiableConjugated[
         lat_means = self.pst_man.to_mean(lat_params)
 
         int_means = self.int_man.outer_product(obs_stats, lat_means)
-        return self.join_coords(obs_stats, int_means, lat_means)
+        return self.join_level(obs_stats, int_means, lat_means)
 
     def mean_posterior_statistics(
         self,
@@ -432,7 +449,7 @@ class SymmetricConjugated[
         rho = self.conjugation_parameters(lkl_params)
         lat_params = prior_params - rho
         obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
-        return self.join_coords(obs_params, int_params, lat_params)
+        return self.join_level(obs_params, int_params, lat_params)
 
 
 class AnalyticConjugated[
@@ -457,7 +474,7 @@ class AnalyticConjugated[
     def to_natural(self, means: Array) -> Array:
         """Convert harmonium mean parameters to natural parameters."""
         lkl_params = self.to_natural_likelihood(means)
-        mean_lat = self.split_coords(means)[2]
+        mean_lat = self.split_level(means)[2]
         nat_lat = self.pst_man.to_natural(mean_lat)
         return self.join_conjugated(lkl_params, nat_lat)
 
@@ -475,3 +492,106 @@ class AnalyticConjugated[
         """Perform one EM iteration: E-step computes expected sufficient statistics, M-step converts to natural parameters."""
         q = self.mean_posterior_statistics(params, xs)
         return self.to_natural(q)
+
+
+### Block Embeddings ###
+
+
+@dataclass(frozen=True)
+class HarmoniumEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+    Component: Manifold,
+](LinearEmbedding[Component, Harmonium[Observable, Posterior]], ABC):
+    """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
+
+    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.combinators.CliqueManifold.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
+    """
+
+    # Fields
+
+    hrm_man: Harmonium[Observable, Posterior]
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def hrm_idx(self) -> int:
+        """Which block: ``0`` observable, ``1`` interaction, ``2`` posterior."""
+
+    # Overrides
+
+    @property
+    @override
+    def amb_man(self) -> Harmonium[Observable, Posterior]:
+        return self.hrm_man
+
+    @override
+    def project(self, coords: Array) -> Array:
+        return self.hrm_man.split_level(coords)[self.hrm_idx]
+
+    @override
+    def embed(self, coords: Array) -> Array:
+        blocks = list(self.hrm_man.split_level(self.hrm_man.zeros()))
+        blocks[self.hrm_idx] = coords
+        return self.hrm_man.join_level(blocks[0], blocks[1], blocks[2])
+
+
+@dataclass(frozen=True)
+class ObservableEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+](HarmoniumEmbedding[Observable, Posterior, Observable]):
+    """Embeds the observable manifold of a harmonium into the full harmonium space."""
+
+    # Overrides
+
+    @property
+    @override
+    def hrm_idx(self) -> int:
+        return 0
+
+    @property
+    @override
+    def sub_man(self) -> Observable:
+        return self.hrm_man.obs_man
+
+
+@dataclass(frozen=True)
+class InteractionEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+](HarmoniumEmbedding[Observable, Posterior, LinearMap[Posterior, Observable]]):
+    """Embeds the interaction manifold of a harmonium into the full harmonium space."""
+
+    # Overrides
+
+    @property
+    @override
+    def hrm_idx(self) -> int:
+        return 1
+
+    @property
+    @override
+    def sub_man(self) -> LinearMap[Posterior, Observable]:
+        return self.hrm_man.int_man
+
+
+@dataclass(frozen=True)
+class PosteriorEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+](HarmoniumEmbedding[Observable, Posterior, Posterior]):
+    """Embeds the posterior manifold of a harmonium into the full harmonium space."""
+
+    # Overrides
+
+    @property
+    @override
+    def hrm_idx(self) -> int:
+        return 2
+
+    @property
+    @override
+    def sub_man(self) -> Posterior:
+        return self.hrm_man.pst_man

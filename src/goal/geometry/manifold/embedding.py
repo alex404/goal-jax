@@ -294,71 +294,37 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         return self.amb_man.join_coords(*components)
 
 
-### Clique Embeddings ###
+### Span Embeddings ###
 
 
 @dataclass(frozen=True)
-class CliqueEmbedding[CliqueMan: CliqueManifold](TupleEmbedding[Manifold, CliqueMan]):
-    """Embeds one clique's block into the full clique manifold.
+class RootEmbedding[
+    Sub: CliqueManifold[Any, Any, Any],
+    Ambient: CliqueManifold[Any, Any, Any],
+](LinearEmbedding[Sub, Ambient]):
+    """Embeds one clique manifold into another over the same graph, transforming only the root span.
 
-    Projection extracts that block; embedding sets it and zeros every other clique. This
-    generalizes the observable/interaction/posterior slot embeddings of a harmonium,
-    which are the three blocks of a two-node clique set.
+    Use this when two models share a graph but parameterize the root nodes differently ---
+    a posterior restricted to diagonal covariance sitting inside a prior with full
+    covariance. The cross and deep spans pass through unchanged, so a difference deeper in
+    the graph is expressed by nesting: the deep manifolds are themselves clique manifolds
+    related by their own ``RootEmbedding``.
 
-    The block manifold is erased to ``Manifold``, since a clique set holds node manifolds
-    and interaction maps side by side. Where the block type is known and callers need it
-    --- a harmonium's own slot embeddings --- write a ``TupleEmbedding`` that names it and
-    take ``tup_idx`` from ``block_index``.
+    Mathematically, for span coordinates $(r, c, d)$: ``embed`` maps $(r, c, d) \\mapsto
+    (\\phi(r), c, d)$ and ``project`` maps $(r, c, d) \\mapsto (\\pi(r), c, d)$, where
+    $\\phi$ and $\\pi$ are the root embedding's own maps.
     """
 
     # Fields
 
-    _amb_man: CliqueMan
-    """The clique manifold being embedded into."""
-
-    clique: tuple[int, ...]
-    """The clique whose block this embedding selects. A singleton picks out a node's own manifold, i.e. the slot its biases occupy."""
-
-    # Overrides
-
-    @property
-    @override
-    def tup_idx(self) -> int:
-        return self._amb_man.block_index(self.clique)
-
-    @property
-    @override
-    def amb_man(self) -> CliqueMan:
-        return self._amb_man
-
-    @property
-    @override
-    def sub_man(self) -> Manifold:
-        return self._amb_man.clq_man(self.clique)
-
-
-@dataclass(frozen=True)
-class CliqueSetEmbedding[Sub: CliqueManifold, Ambient: CliqueManifold](
-    LinearEmbedding[Sub, Ambient]
-):
-    """Embeds one clique manifold into another over the same clique set, block by block.
-
-    Use this when two models share a graph but parameterize some node more richly than
-    the other --- a posterior restricted to diagonal covariance sitting inside a prior
-    with full covariance. Blocks with no embedding pass through unchanged, which is the
-    common case: only the node whose representation differs needs one.
-    """
-
-    # Fields
+    root_emb: LinearEmbedding[Any, Any]
+    """Embedding of the restricted root manifold into the full one."""
 
     _sub_man: Sub
-    """The clique manifold with the restricted blocks."""
+    """The clique manifold with the restricted root span."""
 
     _amb_man: Ambient
-    """The clique manifold with the full blocks."""
-
-    block_embs: tuple[LinearEmbedding[Any, Any] | None, ...]
-    """One entry per clique in canonical order; ``None`` passes that block through."""
+    """The clique manifold with the full root span."""
 
     def __post_init__(self) -> None:
         if self.sub_man.clq_set != self.amb_man.clq_set:
@@ -380,20 +346,10 @@ class CliqueSetEmbedding[Sub: CliqueManifold, Ambient: CliqueManifold](
 
     @override
     def project(self, coords: Array) -> Array:
-        blocks = self.amb_man.split_coords(coords)
-        return self.sub_man.join_coords(
-            *(
-                b if emb is None else emb.project(b)
-                for emb, b in zip(self.block_embs, blocks, strict=True)
-            )
-        )
+        root, cross, deep = self.amb_man.split_level(coords)
+        return self.sub_man.join_level(self.root_emb.project(root), cross, deep)
 
     @override
     def embed(self, coords: Array) -> Array:
-        blocks = self.sub_man.split_coords(coords)
-        return self.amb_man.join_coords(
-            *(
-                b if emb is None else emb.embed(b)
-                for emb, b in zip(self.block_embs, blocks, strict=True)
-            )
-        )
+        root, cross, deep = self.sub_man.split_level(coords)
+        return self.amb_man.join_level(self.root_emb.embed(root), cross, deep)

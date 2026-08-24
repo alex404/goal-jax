@@ -35,7 +35,9 @@ def main():
     # Likelihood (confidence ellipses)
     ax_lkl = fig.add_subplot(outer_grid[0, 0])
     obs = np.array(results["observations"])
-    ax_lkl.scatter(obs[:, 0], obs[:, 1], color="black", s=10, alpha=0.5, label="Observations")
+    ax_lkl.scatter(
+        obs[:, 0], obs[:, 1], color="black", s=10, alpha=0.5, label="Observations"
+    )
     for i, ellipse in enumerate(results["component_confidence_ellipses"]):
         arr = np.array(ellipse)
         ax_lkl.plot(arr[:, 0], arr[:, 1], label=f"Component {i}")
@@ -48,7 +50,9 @@ def main():
     ax_prior = fig.add_subplot(outer_grid[0, 1])
     prior_moment = np.array(results["prior_moment_matrix"])
     prior_corr = compute_correlation(prior_moment)
-    im_prior = ax_prior.imshow(prior_corr, cmap="RdBu_r", interpolation="nearest", vmin=-1, vmax=1)
+    im_prior = ax_prior.imshow(
+        prior_corr, cmap="RdBu_r", interpolation="nearest", vmin=-1, vmax=1
+    )
     ax_prior.set_xlabel("Neuron Index")
     ax_prior.set_ylabel("Neuron Index")
     ax_prior.set_title("Prior Correlation")
@@ -68,24 +72,44 @@ def main():
     xx, yy = np.meshgrid(plot_xs, plot_ys)
     heatmap = ax_dens.contourf(xx, yy, density, levels=100, cmap="viridis")
     for i, (obs_x, obs_y) in enumerate(posterior_obs):
-        ax_dens.scatter(obs_x, obs_y, color=model_color(i), s=100, edgecolors="white", linewidths=2, zorder=10)
+        ax_dens.scatter(
+            obs_x,
+            obs_y,
+            color=model_color(i),
+            s=100,
+            edgecolors="white",
+            linewidths=2,
+            zorder=10,
+        )
     ax_dens.set_xlabel(r"$x_1$")
     ax_dens.set_ylabel(r"$x_2$")
     ax_dens.set_title("Observable Density")
     plt.colorbar(heatmap, ax=ax_dens, label="Density")
 
     # Posterior moments (2x2 grid)
-    inner_grid = gridspec.GridSpecFromSubplotSpec(2, 2, subplot_spec=outer_grid[1, 1], wspace=0.05, hspace=0.05)
+    inner_grid = gridspec.GridSpecFromSubplotSpec(
+        2, 2, subplot_spec=outer_grid[1, 1], wspace=0.05, hspace=0.05
+    )
     posterior_matrices = results["posterior_moment_matrices"]
     posterior_axes = []
     im = None
     for i, matrix in enumerate(posterior_matrices):
         inner_ax = fig.add_subplot(inner_grid[i])
         posterior_axes.append(inner_ax)
-        im = inner_ax.imshow(np.array(matrix), cmap="viridis", interpolation="nearest", vmin=0, vmax=1)
+        im = inner_ax.imshow(
+            np.array(matrix), cmap="viridis", interpolation="nearest", vmin=0, vmax=1
+        )
         inner_ax.set_xticks([])
         inner_ax.set_yticks([])
-        rect = Rectangle((0, 0), 1, 1, linewidth=5, edgecolor=model_color(i), facecolor="none", transform=inner_ax.transAxes)
+        rect = Rectangle(
+            (0, 0),
+            1,
+            1,
+            linewidth=5,
+            edgecolor=model_color(i),
+            facecolor="none",
+            transform=inner_ax.transAxes,
+        )
         inner_ax.add_patch(rect)
 
     fig.text(0.745, 0.475, "Posterior Moments", ha="center", va="top")

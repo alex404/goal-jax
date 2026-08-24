@@ -10,7 +10,12 @@ import pytest
 from jax import Array
 
 from goal.geometry import Diagonal, Scale
-from goal.models import AnalyticHMoG, DifferentiableHMoG, analytic_hmog, differentiable_hmog
+from goal.models import (
+    AnalyticHMoG,
+    DifferentiableHMoG,
+    analytic_hmog,
+    differentiable_hmog,
+)
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -27,7 +32,12 @@ class TestAnalyticHMoG:
         self, request: pytest.FixtureRequest
     ) -> tuple[AnalyticHMoG[Diagonal], Array]:
         obs_dim, lat_dim, n_components = request.param
-        model = analytic_hmog(obs_dim=obs_dim, obs_rep=Diagonal(), lat_dim=lat_dim, n_components=n_components)
+        model = analytic_hmog(
+            obs_dim=obs_dim,
+            obs_rep=Diagonal(),
+            lat_dim=lat_dim,
+            n_components=n_components,
+        )
         params = model.initialize(jax.random.PRNGKey(42), location=0.0, shape=0.5)
         return model, params
 
@@ -104,7 +114,11 @@ class TestDifferentiableHMoG:
     ) -> tuple[DifferentiableHMoG[Diagonal, Scale], Array]:
         obs_dim, lat_dim, n_components = request.param
         model = differentiable_hmog(
-            obs_dim=obs_dim, obs_rep=Diagonal(), lat_dim=lat_dim, pst_rep=Scale(), n_components=n_components
+            obs_dim=obs_dim,
+            obs_rep=Diagonal(),
+            lat_dim=lat_dim,
+            pst_rep=Scale(),
+            n_components=n_components,
         )
         params = model.initialize(jax.random.PRNGKey(42), location=0.0, shape=0.5)
         return model, params

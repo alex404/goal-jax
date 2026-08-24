@@ -27,10 +27,10 @@ def whiten(
     eigvals, eigvecs = np.linalg.eigh(cov)
     eigvals = np.maximum(eigvals, 1e-10)
     scales = 1.0 / np.sqrt(eigvals)
-    W = (eigvecs * scales) @ eigvecs.T
+    whitener = (eigvecs * scales) @ eigvecs.T
 
-    whitened_means = centered @ W.T
-    whitened_stds = stds * np.sqrt(np.diag(W @ W.T))
+    whitened_means = centered @ whitener.T
+    whitened_stds = stds * np.sqrt(np.diag(whitener @ whitener.T))
 
     return whitened_means, whitened_stds
 
@@ -47,28 +47,42 @@ def plot_inference(
 ) -> None:
     """Plot filtering/smoothing inference on an axis."""
     ax.plot(
-        time, true_latents[1:, dim],
-        color=colors["ground_truth"], linewidth=2, label="True", zorder=4,
+        time,
+        true_latents[1:, dim],
+        color=colors["ground_truth"],
+        linewidth=2,
+        label="True",
+        zorder=4,
     )
     ax.plot(
-        time, filt_means[:, dim],
-        color=colors["initial"], linewidth=1.5, label="Filtered", zorder=3,
+        time,
+        filt_means[:, dim],
+        color=colors["initial"],
+        linewidth=1.5,
+        label="Filtered",
+        zorder=3,
     )
     ax.fill_between(
         time,
         filt_means[:, dim] - 2 * filt_stds[:, dim],
         filt_means[:, dim] + 2 * filt_stds[:, dim],
-        color=colors["initial"], alpha=0.15,
+        color=colors["initial"],
+        alpha=0.15,
     )
     ax.plot(
-        time, smth_means[:, dim],
-        color=colors["fitted"], linewidth=1.5, label="Smoothed", zorder=3,
+        time,
+        smth_means[:, dim],
+        color=colors["fitted"],
+        linewidth=1.5,
+        label="Smoothed",
+        zorder=3,
     )
     ax.fill_between(
         time,
         smth_means[:, dim] - 2 * smth_stds[:, dim],
         smth_means[:, dim] + 2 * smth_stds[:, dim],
-        color=colors["fitted"], alpha=0.15,
+        color=colors["fitted"],
+        alpha=0.15,
     )
     ax.set_xlabel("Time step")
     ax.set_ylabel("Position")
@@ -98,18 +112,26 @@ def plot_whitened_inference(
 
     for d in range(lat_dim):
         ax.plot(
-            time, true_w[:, d],
-            color=dim_colors[d], linewidth=1, alpha=0.4, linestyle="--",
+            time,
+            true_w[:, d],
+            color=dim_colors[d],
+            linewidth=1,
+            alpha=0.4,
+            linestyle="--",
         )
         ax.plot(
-            time, smth_w[:, d],
-            color=dim_colors[d], linewidth=1.5, label=dim_labels[d],
+            time,
+            smth_w[:, d],
+            color=dim_colors[d],
+            linewidth=1.5,
+            label=dim_labels[d],
         )
         ax.fill_between(
             time,
             smth_w[:, d] - 2 * stds_w[:, d],
             smth_w[:, d] + 2 * stds_w[:, d],
-            color=dim_colors[d], alpha=0.12,
+            color=dim_colors[d],
+            alpha=0.12,
         )
 
     ax.set_xlabel("Time step")
@@ -137,12 +159,21 @@ def main():
     # --- Top left: True process + observations ---
     ax = axes[0, 0]
     ax.scatter(
-        time, observations[:, 0],
-        color=colors["initial"], alpha=0.5, s=20, label="Observations", zorder=2,
+        time,
+        observations[:, 0],
+        color=colors["initial"],
+        alpha=0.5,
+        s=20,
+        label="Observations",
+        zorder=2,
     )
     ax.plot(
-        time, true_latents[1:, 0],
-        color=colors["ground_truth"], linewidth=2, label="True position", zorder=3,
+        time,
+        true_latents[1:, 0],
+        color=colors["ground_truth"],
+        linewidth=2,
+        label="True position",
+        zorder=3,
     )
     ax.set_xlabel("Time step")
     ax.set_ylabel("Position")
@@ -155,18 +186,25 @@ def main():
     plot_training_history(ax, results["log_likelihoods"])
     ax.axhline(
         y=results["true_log_lik"],
-        color=colors["ground_truth"], linestyle="--", label="True params",
+        color=colors["ground_truth"],
+        linestyle="--",
+        label="True params",
     )
     ax.axhline(
         y=results["initial_log_lik"],
-        color=colors["initial"], linestyle=":", alpha=0.5, label="Initial",
+        color=colors["initial"],
+        linestyle=":",
+        alpha=0.5,
+        label="Initial",
     )
     ax.set_title("Learning Curves")
     ax.legend()
 
     # --- Top right: Whitened oracle inference ---
     plot_whitened_inference(
-        axes[0, 2], time, true_latents,
+        axes[0, 2],
+        time,
+        true_latents,
         np.array(results["smoothed_means"]),
         np.array(results["smoothed_stds"]),
         "Whitened Oracle Inference",
@@ -178,7 +216,9 @@ def main():
 
     for ax, method in zip(panel_axes, methods):
         plot_whitened_inference(
-            ax, time, true_latents,
+            ax,
+            time,
+            true_latents,
             np.array(results["learned_smoothed_means"][method]),
             np.array(results["learned_smoothed_stds"][method]),
             f"Whitened {method}-Learned Inference",

@@ -44,3 +44,26 @@ Conjugation
    :members:
    :undoc-members:
    :show-inheritance:
+
+Block Embeddings
+----------------
+
+.. autoclass:: goal.geometry.exponential_family.harmonium.HarmoniumEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.harmonium.ObservableEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.harmonium.InteractionEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.harmonium.PosteriorEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:

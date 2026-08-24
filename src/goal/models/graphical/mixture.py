@@ -30,6 +30,7 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     BlockMap,
+    CliqueSet,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
@@ -147,7 +148,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
     @override
     def embed(self, coords: Array) -> Array:
         """Embed by applying base embedding to observable and interaction components."""
-        obs_params, int_params, cat_params = self.sub_man.split_coords(coords)
+        obs_params, int_params, cat_params = self.sub_man.split_level(coords)
 
         # Embed observable component
         emb_obs = self.component_emb.embed(obs_params)
@@ -166,12 +167,12 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
             emb_int = jnp.array([])
 
         # Categorical params unchanged
-        return self.amb_man.join_coords(emb_obs, emb_int, cat_params)
+        return self.amb_man.join_level(emb_obs, emb_int, cat_params)
 
     @override
     def project(self, coords: Array) -> Array:
         """Project by applying base projection to observable and interaction components."""
-        obs_means, int_means, cat_means = self.amb_man.split_coords(coords)
+        obs_means, int_means, cat_means = self.amb_man.split_level(coords)
 
         # Project observable component
         proj_obs = self.component_emb.project(obs_means)
@@ -190,7 +191,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
             proj_int = jnp.array([])
 
         # Categorical params unchanged
-        return self.sub_man.join_coords(proj_obs, proj_int, cat_means)
+        return self.sub_man.join_level(proj_obs, proj_int, cat_means)
 
     @override
     def translate(self, p_coords: Array, q_coords: Array) -> Array:
@@ -278,6 +279,17 @@ class CompleteMixtureOfHarmoniums[
 
     @property
     @override
+    def clq_set(self) -> CliqueSet:
+        """The two-node graph $x - z$, coarsening the latent mixture into one node.
+
+        The refinement into $x - y - k$ needs the three cross cliques of the
+        interaction to be addressable individually, which its ``BlockMap`` does not yet
+        expose.
+        """
+        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
+
+    @property
+    @override
     def int_man(self) -> BlockMap[CompleteMixture[Posterior], Observable]:
         """Interaction matrix with three blocks (mxy, mxyz, mxz).
 
@@ -357,13 +369,11 @@ class CompleteMixtureOfHarmoniums[
         is a block permutation of sufficient statistics, which is the same
         linear operation in both dual spaces.
         """
-        x_coords, int_coords, yk_harm_coords = self.split_coords(coords)
+        x_coords, int_coords, yk_harm_coords = self.split_level(coords)
         xy_coords, xyk_coords, xk_coords = self.int_man.coord_blocks(int_coords)
-        y_coords, yk_int_coords, k_coords = self.bas_pst_man.split_coords(
-            yk_harm_coords
-        )
+        y_coords, yk_int_coords, k_coords = self.bas_pst_man.split_level(yk_harm_coords)
 
-        base_hrm_coords = self.bas_hrm.join_coords(x_coords, xy_coords, y_coords)
+        base_hrm_coords = self.bas_hrm.join_level(x_coords, xy_coords, y_coords)
 
         n_cols = self.n_categories - 1
         xk_matrix = xk_coords.reshape(-1, n_cols)
@@ -371,17 +381,15 @@ class CompleteMixtureOfHarmoniums[
         yk_matrix = yk_int_coords.reshape(-1, n_cols)
         mix_int_coords = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix]).ravel()
 
-        return self.mix_man.join_coords(base_hrm_coords, mix_int_coords, k_coords)
+        return self.mix_man.join_level(base_hrm_coords, mix_int_coords, k_coords)
 
     def from_mixture_coords(self, mix_coords: Array) -> Array:
         """Repack coordinates from mix_man layout to three-block layout.
 
         Works identically in both natural and mean coordinates.
         """
-        base_hrm_coords, mix_int_coords, k_coords = self.mix_man.split_coords(
-            mix_coords
-        )
-        x_coords, xy_coords, y_coords = self.bas_hrm.split_coords(base_hrm_coords)
+        base_hrm_coords, mix_int_coords, k_coords = self.mix_man.split_level(mix_coords)
+        x_coords, xy_coords, y_coords = self.bas_hrm.split_level(base_hrm_coords)
 
         n_cols = self.n_categories - 1
         hrm_int_matrix = mix_int_coords.reshape(-1, n_cols)
@@ -393,8 +401,8 @@ class CompleteMixtureOfHarmoniums[
         yk_int_coords = hrm_int_matrix[obs_dim + int_dim :, :].ravel()
 
         int_coords = jnp.concatenate([xy_coords, xyk_coords, xk_coords])
-        yk_harm_coords = self.bas_pst_man.join_coords(y_coords, yk_int_coords, k_coords)
-        return self.join_coords(x_coords, int_coords, yk_harm_coords)
+        yk_harm_coords = self.bas_pst_man.join_level(y_coords, yk_int_coords, k_coords)
+        return self.join_level(x_coords, int_coords, yk_harm_coords)
 
 
 # Mixture of Conjugated Harmoniums
@@ -471,7 +479,7 @@ class CompleteMixtureOfConjugated[
         # Handle trivial case: n_categories=1 means no mixture
         if self.n_categories == 1:
             # No additional components, return base conjugation with empty interaction/categorical
-            return self.prr_man.join_coords(rho_y, jnp.array([]), jnp.array([]))
+            return self.prr_man.join_level(rho_y, jnp.array([]), jnp.array([]))
 
         # reshape xk_params into (obs_dim, n_categories-1)
         xk_params = xk_params.reshape(-1, self.n_categories - 1)
@@ -505,7 +513,7 @@ class CompleteMixtureOfConjugated[
         # Join into complete mixture coordinates using prr_man (prior manifold)
         # rho_yz has shape (n_categories-1, prr_lat_dim), need to transpose to (prr_lat_dim, n_categories-1)
         # before flattening to match prr_man's expected interaction layout
-        return self.prr_man.join_coords(rho_y, rho_yz.T.ravel(), rho_z)
+        return self.prr_man.join_level(rho_y, rho_yz.T.ravel(), rho_z)
 
 
 @dataclass(frozen=True)

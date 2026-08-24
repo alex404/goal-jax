@@ -376,7 +376,7 @@ def train_model(  # noqa: C901
     )
 
     # For full model, also break symmetry in the xyk and xk interaction blocks
-    if hasattr(model.gen_hrm, 'xyk_man'):
+    if hasattr(model.gen_hrm, "xyk_man"):
         block_int = model.gen_hrm.int_man
         xy_params, xyk_params, xk_params = block_int.coord_blocks(int_params)
         obs_dim = model.obs_man.dim
@@ -423,9 +423,7 @@ def train_model(  # noqa: C901
         key, elbo_key, conj_key = jax.random.split(key, 3)
         # beta-warmup applied externally as L_beta = L_1 + (1-beta)*KL
         elbo_1 = model.mean_elbo(elbo_key, params, batch, DEFAULT_N_MC_SAMPLES)
-        mean_kl = jnp.mean(
-            jax.vmap(lambda x: model.elbo_divergence(params, x))(batch)
-        )
+        mean_kl = jnp.mean(jax.vmap(lambda x: model.elbo_divergence(params, x))(batch))
         elbo = elbo_1 + (1.0 - beta) * mean_kl
 
         prior_entropy = model.prior_entropy(params)
@@ -483,9 +481,7 @@ def train_model(  # noqa: C901
         # Build full params with analytical rho and compute ELBO
         params_with_rho = model.join_coords(prior_p, lkl_p, rho_star)
         # beta-warmup applied externally as L_beta = L_1 + (1-beta)*KL
-        elbo_1 = model.mean_elbo(
-            elbo_key, params_with_rho, batch, DEFAULT_N_MC_SAMPLES
-        )
+        elbo_1 = model.mean_elbo(elbo_key, params_with_rho, batch, DEFAULT_N_MC_SAMPLES)
         mean_kl = jnp.mean(
             jax.vmap(lambda x: model.elbo_divergence(params_with_rho, x))(batch)
         )
@@ -728,7 +724,7 @@ def train_model(  # noqa: C901
     # Generate samples (stochastic)
     key, sample_key = jax.random.split(key)
     xz_samples = model.sample(sample_key, final_params, n=20)
-    x_samples = xz_samples[:, :model.obs_man.dim]
+    x_samples = xz_samples[:, : model.obs_man.dim]
 
     # Clip samples for visualization; range depends on observable type.
     clip_max = 1.0 if observable_type == "normal" else float(n_trials)
@@ -930,17 +926,13 @@ def main():
     print(f"{'NMI':<22} {results['nmi']:>14.4f}")
     print(f"{'Reconstruction error':<22} {results['reconstruction_error']:>14.4f}")
     print(f"{'Final Var[r]':<22} {results['conjugation_vars'][-1]:>14.2f}")
-    if results['conjugation_stds']:
+    if results["conjugation_stds"]:
         print(f"{'Final Std[r]':<22} {results['conjugation_stds'][-1]:>14.2f}")
-    if results['conjugation_r2s']:
+    if results["conjugation_r2s"]:
         print(f"{'Final R^2':<22} {results['conjugation_r2s'][-1]:>14.4f}")
     print(f"{'Final ||rho||':<22} {results['rho_norms'][-1]:>14.4f}")
-    print(
-        f"{'JIT compile (s)':<22} {results['jit_compile_seconds']:>14.4f}"
-    )
-    print(
-        f"{'Mean warm step (s)':<22} {results['mean_warm_step_seconds']:>14.4f}"
-    )
+    print(f"{'JIT compile (s)':<22} {results['jit_compile_seconds']:>14.4f}")
+    print(f"{'Mean warm step (s)':<22} {results['mean_warm_step_seconds']:>14.4f}")
 
 
 if __name__ == "__main__":

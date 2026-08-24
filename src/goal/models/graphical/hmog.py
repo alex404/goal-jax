@@ -31,7 +31,7 @@ for common configurations.
 
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -40,11 +40,14 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
-    AnalyticHierarchical,
+    AnalyticConjugated,
+    CliqueSet,
     DifferentiableConjugated,
-    DifferentiableHierarchical,
+    LinearEmbedding,
+    ObservableEmbedding,
     PositiveDefinite,
-    SymmetricHierarchical,
+    RootEmbedding,
+    SymmetricConjugated,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from ..harmonium.lgm import (
@@ -62,15 +65,75 @@ class _HMoGBase[
     PstUpperHarmonium: CompleteMixture[Any],
     PrrUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
 ](
-    DifferentiableHierarchical[LowerHarmonium, PstUpperHarmonium, PrrUpperHarmonium],
+    DifferentiableConjugated[Any, PstUpperHarmonium, PrrUpperHarmonium],
     ABC,
 ):
     """Abstract base for Hierarchical Mixture of Gaussians models.
 
-    Provides shared posterior and whitening methods for all HMoG variants.
+    Composes a lower harmonium ($x \\to y$) with an upper mixture ($y \\to k$) over the
+    three-node chain. The lower harmonium supplies the root and cross spans, the upper
+    mixture is the deep span, and the upper mixture's own root span is node $y$ --- which
+    is why the two compose without any coordinate translation.
+
     The ``pst_upr_hrm`` is bounded by ``CompleteMixture``, giving access to
     ``split_mean_mixture``, ``join_mean_mixture``, and ``cmp_man``.
     """
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def lwr_hrm(self) -> LowerHarmonium:
+        """Lower harmonium (observable to middle latent)."""
+
+    @property
+    @abstractmethod
+    def pst_upr_hrm(self) -> PstUpperHarmonium:
+        """Posterior upper harmonium (possibly restricted)."""
+
+    @property
+    @abstractmethod
+    def prr_upr_hrm(self) -> PrrUpperHarmonium:
+        """Prior upper harmonium (for conjugation)."""
+
+    # Overrides
+
+    @property
+    @override
+    def clq_set(self) -> CliqueSet:
+        """The three-node chain $x - y - k$."""
+        return CliqueSet(
+            n_nodes=3, n_roots=1, cliques=((0,), (1,), (2,), (0, 1), (1, 2))
+        )
+
+    @property
+    @override
+    def int_man(self) -> Any:
+        """The lower harmonium's interaction, re-aimed at node $y$ inside the upper mixture."""
+        return self.lwr_hrm.int_man.prepend_embedding(
+            ObservableEmbedding(self.pst_upr_hrm)
+        )
+
+    @property
+    @override
+    def pst_prr_emb(self) -> LinearEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
+        """The posterior and prior mixtures differ only at node $y$, i.e. in their root span."""
+        return RootEmbedding(
+            self.lwr_hrm.pst_prr_emb,
+            self.pst_upr_hrm,
+            self.prr_upr_hrm,
+        )
+
+    @override
+    def extract_likelihood_input(self, prr_sample: Array) -> Array:
+        return prr_sample[:, : self.lwr_hrm.prr_man.data_dim]
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array) -> Array:
+        """Place the lower harmonium's conjugation parameters into node $y$'s slot of the upper mixture."""
+        return ObservableEmbedding(self.prr_upr_hrm).embed(
+            self.lwr_hrm.conjugation_parameters(lkl_params)
+        )
 
     # Methods
 
@@ -81,10 +144,10 @@ class _HMoGBase[
         - The lower LGM interaction (loading matrix + observable bias adjustment)
         - Each GMM component (via the existing Normal.whiten relative to GMM marginal)
         """
-        obs_means, lwr_int_means, lat_means = self.split_coords(means)
+        obs_means, lwr_int_means, lat_means = self.split_level(means)
 
         # GMM marginal statistics (obs_means_gmm = E[s_Y(y)] w.r.t. joint)
-        obs_means_gmm, _, cat_means = self.pst_upr_hrm.split_coords(lat_means)
+        obs_means_gmm, _, cat_means = self.pst_upr_hrm.split_level(lat_means)
         lat_mean_y, lat_cov_y = self.pst_upr_hrm.obs_man.split_mean_covariance(
             obs_means_gmm
         )
@@ -110,7 +173,7 @@ class _HMoGBase[
         ).T
         new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)  # pyright: ignore[reportAttributeAccessIssue]
 
-        return self.join_coords(obs_means, new_lwr_int_means, new_lat_means)
+        return self.join_level(obs_means, new_lwr_int_means, new_lat_means)
 
     def posterior_categorical(self, params: Array, x: Array) -> Array:
         """Compute posterior categorical distribution p(Z|x) in natural coordinates."""
@@ -172,8 +235,8 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
 
 class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
+    SymmetricConjugated[Any, Upr],
     _HMoGBase[NormalAnalyticLGM[ObsRep], Upr, Upr],
-    SymmetricHierarchical[NormalAnalyticLGM[ObsRep], Upr],
     ABC,
 ):
     """Symmetric HMoG base class.
@@ -185,11 +248,35 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
     over the latent space, which can be slower than DifferentiableHMoG.
     """
 
+    # Contract
+
+    @property
+    @abstractmethod
+    def upr_hrm(self) -> Upr:
+        """Upper harmonium (middle latent to top latent)."""
+
+    # Overrides
+
+    @property
+    @override
+    def lat_man(self) -> Upr:
+        return self.upr_hrm
+
+    @property
+    @override
+    def pst_upr_hrm(self) -> Upr:
+        return self.upr_hrm
+
+    @property
+    @override
+    def prr_upr_hrm(self) -> Upr:
+        return self.upr_hrm
+
 
 @dataclass(frozen=True)
 class AnalyticHMoG[ObsRep: PositiveDefinite](
     SymmetricHMoG[ObsRep, AnalyticMixture[FullNormal]],
-    AnalyticHierarchical[NormalAnalyticLGM[ObsRep], AnalyticMixture[FullNormal]],
+    AnalyticConjugated[Any, AnalyticMixture[FullNormal]],
 ):
     """Analytic Hierarchical Mixture of Gaussians.
 
@@ -213,6 +300,18 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
     @override
     def upr_hrm(self) -> AnalyticMixture[FullNormal]:
         return self._upr_hrm
+
+    @override
+    def to_natural_likelihood(self, means: Array) -> Array:
+        """Project the mean parameters down onto the lower harmonium and convert there.
+
+        The deep span is the upper mixture; its own root span is node $y$, which is the
+        lower harmonium's latent side. So the projection is one nested root read.
+        """
+        obs_means, lwr_int_means, lat_means = self.split_level(means)
+        lwr_lat_means = ObservableEmbedding(self.upr_hrm).project(lat_means)
+        lwr_means = self.lwr_hrm.join_level(obs_means, lwr_int_means, lwr_lat_means)
+        return self.lwr_hrm.to_natural_likelihood(lwr_means)
 
     @override
     def expectation_maximization(self, params: Array, xs: Array) -> Array:

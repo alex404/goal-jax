@@ -84,7 +84,9 @@ def main():
     ]
     sample_means = np.array(results["sample_stats"]["means"])
     for name, stats, color in models:
-        plot_scatter_comparison(ax_means, sample_means, np.array(stats["means"]), color, name)
+        plot_scatter_comparison(
+            ax_means, sample_means, np.array(stats["means"]), color, name
+        )
     ax_means.set_xlabel("Model Means")
     ax_means.set_ylabel("Sample Means")
     ax_means.legend()
@@ -92,7 +94,9 @@ def main():
     # Covariances comparison
     sample_covs = np.array(results["sample_stats"]["covariances"])
     for name, stats, color in models:
-        plot_scatter_comparison(ax_covs, sample_covs, np.array(stats["covariances"]), color, name)
+        plot_scatter_comparison(
+            ax_covs, sample_covs, np.array(stats["covariances"]), color, name
+        )
     ax_covs.set_xlabel("Model Covariances")
     ax_covs.set_ylabel("Sample Covariances")
     ax_covs.legend()
@@ -111,7 +115,9 @@ def main():
     # Correlation matrices
     im_fa = plot_correlation_matrix(ax_fa, sample_corr, fa_corr, "Sample vs FA")
     im_psn = plot_correlation_matrix(ax_psn, sample_corr, psn_corr, "Sample vs Poisson")
-    im_com = plot_correlation_matrix(ax_com, sample_corr, com_corr, "Sample vs COM-Poisson")
+    im_com = plot_correlation_matrix(
+        ax_com, sample_corr, com_corr, "Sample vs COM-Poisson"
+    )
 
     for ax, im in [(ax_fa, im_fa), (ax_psn, im_psn), (ax_com, im_com)]:
         plt.colorbar(im, ax=ax)

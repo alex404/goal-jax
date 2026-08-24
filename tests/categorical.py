@@ -129,8 +129,12 @@ class TestBernoulli:
 
     def test_sufficient_statistic(self) -> None:
         model = Bernoulli()
-        assert jnp.allclose(model.sufficient_statistic(jnp.array(0.0)), jnp.array([0.0]))
-        assert jnp.allclose(model.sufficient_statistic(jnp.array(1.0)), jnp.array([1.0]))
+        assert jnp.allclose(
+            model.sufficient_statistic(jnp.array(0.0)), jnp.array([0.0])
+        )
+        assert jnp.allclose(
+            model.sufficient_statistic(jnp.array(1.0)), jnp.array([1.0])
+        )
 
     def test_log_partition_matches_softplus(self) -> None:
         model = Bernoulli()

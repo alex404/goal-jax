@@ -76,18 +76,23 @@ class TestVonMisesPopulationCode:
         for i in range(n):
             pref = jnp.array([preferred[i]])
             opp = jnp.array([preferred[i] + jnp.pi])
-            assert model.likelihood_at(params, pref)[i] > model.likelihood_at(
-                params, opp
-            )[i]
+            assert (
+                model.likelihood_at(params, pref)[i]
+                > model.likelihood_at(params, opp)[i]
+            )
 
     def test_firing_rates_positive(self) -> None:
         model, params = _make_population_code(8, jax.random.PRNGKey(42))
         for z_scalar in jnp.linspace(0, 2 * jnp.pi, 10):
-            rates = model.obs_man.to_mean(model.likelihood_at(params, jnp.array([z_scalar])))
+            rates = model.obs_man.to_mean(
+                model.likelihood_at(params, jnp.array([z_scalar]))
+            )
             assert jnp.all(rates > 0)
 
     def test_posterior_valid_vonmises(self) -> None:
-        model, params = _make_population_code(8, jax.random.PRNGKey(42), n_regression_samples=10000)
+        model, params = _make_population_code(
+            8, jax.random.PRNGKey(42), n_regression_samples=10000
+        )
         x = jax.random.poisson(jax.random.PRNGKey(0), 5.0 * jnp.ones(8))
         q_params = model.approximate_posterior_at(params, x)
         assert q_params.shape == (2,)
@@ -95,7 +100,9 @@ class TestVonMisesPopulationCode:
         assert kappa >= 0
 
     def test_posterior_concentration_increases_with_spikes(self) -> None:
-        model, params = _make_population_code(8, jax.random.PRNGKey(42), n_regression_samples=10000)
+        model, params = _make_population_code(
+            8, jax.random.PRNGKey(42), n_regression_samples=10000
+        )
         vm = model.pst_man.rep_man
         _, kappa_low = vm.split_mean_concentration(
             model.approximate_posterior_at(params, jnp.ones(8))
@@ -112,7 +119,9 @@ class TestVonMisesPopulationCode:
 
     def test_reconstruction(self) -> None:
         model, params = _make_population_code(8, jax.random.PRNGKey(42))
-        x = jax.random.poisson(jax.random.PRNGKey(0), 5.0 * jnp.ones(8)).astype(jnp.float32)
+        x = jax.random.poisson(jax.random.PRNGKey(0), 5.0 * jnp.ones(8)).astype(
+            jnp.float32
+        )
         recon = reconstruct(model, params, x)
         assert recon.shape == (8,)
         assert jnp.all(jnp.isfinite(recon))
@@ -133,8 +142,12 @@ class TestVonMisesPopulationCodeConjugation:
         int_col_1 = gains * jnp.cos(preferred)
         int_col_2 = gains * jnp.sin(preferred)
         int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
-        lkl_params = model.gen_hrm.lkl_fun_man.join_coords(jnp.zeros(n_neurons), int_params)
-        params = model.join_coords(jnp.zeros(2), lkl_params, jnp.zeros(model.cnj_man.dim))
+        lkl_params = model.gen_hrm.lkl_fun_man.join_coords(
+            jnp.zeros(n_neurons), int_params
+        )
+        params = model.join_coords(
+            jnp.zeros(2), lkl_params, jnp.zeros(model.cnj_man.dim)
+        )
 
         key, reg_key = jax.random.split(key)
         rho, r_squared, _, _ = regress_conjugation_parameters(
@@ -168,7 +181,10 @@ class TestBoltzmannPopulationCode:
     def test_dimensions(self, kind: str) -> None:
         model, _ = _make_boltzmann_pc(kind, 6, 2, jax.random.PRNGKey(0))
         # the interaction carries the FULL Gaussian sufficient statistic (z, zz^T)
-        assert model.gen_hrm.int_man.matrix_shape == (model.obs_man.dim, full_normal(2).dim)
+        assert model.gen_hrm.int_man.matrix_shape == (
+            model.obs_man.dim,
+            full_normal(2).dim,
+        )
         assert model.cnj_man.dim == model.lat_man.dim
         assert model.n_neurons == 6
         assert model.n_latent == 2
@@ -180,7 +196,9 @@ class TestBoltzmannPopulationCode:
         r_model = model.conjugation_residual(params, z)
         _, lkl, _ = model.split_coords(params)
         s_z = model.lat_man.sufficient_statistic(z)
-        psi_z = model.obs_man.log_partition_function(model.gen_hrm.lkl_fun_man(lkl, s_z))
+        psi_z = model.obs_man.log_partition_function(
+            model.gen_hrm.lkl_fun_man(lkl, s_z)
+        )
         obs_p, _ = model.gen_hrm.lkl_fun_man.split_coords(lkl)
         psi_b = model.obs_man.log_partition_function(obs_p)
         r_direct = jnp.dot(model.conjugation_parameters(params), s_z) - psi_z + psi_b
@@ -189,7 +207,9 @@ class TestBoltzmannPopulationCode:
     @pytest.mark.parametrize("kind", ["chordal", "diagonal"])
     def test_conjugation_regression_high_r2(self, kind: str) -> None:
         """The quadratic-in-z tuning makes the PPC nearly conjugate after regression."""
-        model, params = _make_boltzmann_pc(kind, 6, 2, jax.random.PRNGKey(3), n_reg=4000)
+        model, params = _make_boltzmann_pc(
+            kind, 6, 2, jax.random.PRNGKey(3), n_reg=4000
+        )
         _, _, r2 = conjugation_metrics(model, jax.random.PRNGKey(4), params, 1000)
         assert float(r2) > 0.85
 
@@ -212,7 +232,9 @@ class TestBoltzmannPopulationCode:
 
     def test_elbo_finite_and_reconstruct(self) -> None:
         model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(8))
-        data = model.sample(jax.random.PRNGKey(9), params, 32)[:, : model.obs_man.data_dim]
+        data = model.sample(jax.random.PRNGKey(9), params, 32)[
+            :, : model.obs_man.data_dim
+        ]
         elbo = model.mean_elbo(jax.random.PRNGKey(10), params, data, 8)
         assert jnp.isfinite(elbo)
         recon = reconstruct(model, params, data[0])

@@ -12,7 +12,12 @@ import pytest
 from jax import Array
 
 from goal.geometry import Diagonal
-from goal.models import DiagonalNormal, FullNormal, MixtureOfFactorAnalyzers, factor_analysis
+from goal.models import (
+    DiagonalNormal,
+    FullNormal,
+    MixtureOfFactorAnalyzers,
+    factor_analysis,
+)
 from goal.models.graphical.mixture import (
     CompleteMixtureOfConjugated,
     CompleteMixtureOfSymmetric,
@@ -46,7 +51,9 @@ class TestCompleteMixtureOfSymmetric:
 
     def test_dimension_consistency(
         self,
-        model_and_params: tuple[CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array
+        ],
     ) -> None:
         model, params = model_and_params
         assert params.shape[0] == model.dim
@@ -57,7 +64,9 @@ class TestCompleteMixtureOfSymmetric:
 
     def test_domain_codomain_consistency(
         self,
-        model_and_params: tuple[CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array
+        ],
     ) -> None:
         model, _ = model_and_params
         assert model.int_man.dom_man.dim == model.pst_man.dim
@@ -67,7 +76,9 @@ class TestCompleteMixtureOfSymmetric:
 
     def test_conjugation_parameters_shape(
         self,
-        model_and_params: tuple[CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array
+        ],
     ) -> None:
         model, params = model_and_params
         obs, int_params, _ = model.split_coords(params)
@@ -77,7 +88,9 @@ class TestCompleteMixtureOfSymmetric:
 
     def test_posterior(
         self,
-        model_and_params: tuple[CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array
+        ],
     ) -> None:
         model, params = model_and_params
         obs = jnp.ones(model.obs_man.data_dim)
@@ -93,18 +106,28 @@ class TestCompleteMixtureOfSymmetric:
 
     def test_mixture_round_trip(
         self,
-        model_and_params: tuple[CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array
+        ],
     ) -> None:
         """to_mixture_coords / from_mixture_coords is invertible in both natural and mean coords."""
         model, params = model_and_params
-        assert jnp.allclose(model.from_mixture_coords(model.to_mixture_coords(params)), params, atol=1e-10)
+        assert jnp.allclose(
+            model.from_mixture_coords(model.to_mixture_coords(params)),
+            params,
+            atol=1e-10,
+        )
 
         means = model.to_mean(params)
-        assert jnp.allclose(model.from_mixture_coords(model.to_mixture_coords(means)), means, atol=1e-10)
+        assert jnp.allclose(
+            model.from_mixture_coords(model.to_mixture_coords(means)), means, atol=1e-10
+        )
 
     def test_mixture_means_match(
         self,
-        model_and_params: tuple[CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array
+        ],
     ) -> None:
         """Direct mean conversion matches natural->mean on mix_man."""
         model, params = model_and_params
@@ -115,7 +138,9 @@ class TestCompleteMixtureOfSymmetric:
 
     def test_interaction_blocks(
         self,
-        model_and_params: tuple[CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfSymmetric[DiagonalNormal, FullNormal], Array
+        ],
     ) -> None:
         model, params = model_and_params
         _, int_params, _ = model.split_coords(params)
@@ -132,9 +157,13 @@ class TestCompleteMixtureOfConjugated:
     @pytest.fixture(params=[(3, 2, 2), (4, 2, 3)])
     def model_and_params(
         self, request: pytest.FixtureRequest
-    ) -> tuple[CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal], Array]:
+    ) -> tuple[
+        CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal], Array
+    ]:
         obs_dim, lat_dim, n_cat = request.param
-        base_lgm = NormalLGM(obs_dim=obs_dim, obs_rep=Diagonal(), lat_dim=lat_dim, pst_rep=Diagonal())
+        base_lgm = NormalLGM(
+            obs_dim=obs_dim, obs_rep=Diagonal(), lat_dim=lat_dim, pst_rep=Diagonal()
+        )
         model = CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal](
             n_categories=n_cat, bas_hrm=base_lgm
         )
@@ -143,7 +172,10 @@ class TestCompleteMixtureOfConjugated:
 
     def test_dimension_consistency(
         self,
-        model_and_params: tuple[CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal],
+            Array,
+        ],
     ) -> None:
         model, params = model_and_params
         assert params.shape[0] == model.dim
@@ -154,7 +186,10 @@ class TestCompleteMixtureOfConjugated:
 
     def test_pst_prr_dimensions_differ(
         self,
-        model_and_params: tuple[CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal],
+            Array,
+        ],
     ) -> None:
         model, _ = model_and_params
         assert model.pst_man.dim != model.prr_man.dim
@@ -162,7 +197,10 @@ class TestCompleteMixtureOfConjugated:
 
     def test_conjugation_parameters_in_prr_space(
         self,
-        model_and_params: tuple[CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal],
+            Array,
+        ],
     ) -> None:
         model, params = model_and_params
         obs, int_params, _ = model.split_coords(params)
@@ -172,7 +210,10 @@ class TestCompleteMixtureOfConjugated:
 
     def test_posterior_and_assignments(
         self,
-        model_and_params: tuple[CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal],
+            Array,
+        ],
     ) -> None:
         model, params = model_and_params
         obs = jnp.ones(model.obs_man.data_dim)
@@ -185,7 +226,10 @@ class TestCompleteMixtureOfConjugated:
 
     def test_embedding_roundtrip(
         self,
-        model_and_params: tuple[CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal], Array],
+        model_and_params: tuple[
+            CompleteMixtureOfConjugated[DiagonalNormal, DiagonalNormal, FullNormal],
+            Array,
+        ],
     ) -> None:
         model, _ = model_and_params
         emb = model.pst_prr_emb

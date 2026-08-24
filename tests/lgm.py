@@ -79,7 +79,9 @@ class TestFactorAnalysis:
         cov_mat = nor_man.cov_man.to_matrix(cov)
 
         assert jnp.allclose(mean, means, rtol=RTOL, atol=ATOL)
-        assert jnp.allclose(cov_mat, loadings @ loadings.T + jnp.diag(diags), rtol=RTOL, atol=ATOL)
+        assert jnp.allclose(
+            cov_mat, loadings @ loadings.T + jnp.diag(diags), rtol=RTOL, atol=ATOL
+        )
 
 
 class TestNormalAnalyticLGM:
@@ -113,7 +115,10 @@ class TestNormalAnalyticLGM:
         )
         lgm_ll = lgm.average_log_density(params, samples)
         assert jnp.allclose(
-            lgm_ll, nor_man.average_log_density(nor_params, samples), rtol=RTOL, atol=ATOL
+            lgm_ll,
+            nor_man.average_log_density(nor_params, samples),
+            rtol=RTOL,
+            atol=ATOL,
         )
 
         # Match scipy
@@ -150,8 +155,12 @@ class TestNormalAnalyticLGM:
         iso_natural = iso.to_natural(iso_means)
 
         obs_params, int_params, lat_params = iso.split_coords(iso_natural)
-        dia_natural = dia.join_coords(iso.obs_man.embed_rep(dia.obs_man, obs_params), int_params, lat_params)
-        pod_natural = pod.join_coords(iso.obs_man.embed_rep(pod.obs_man, obs_params), int_params, lat_params)
+        dia_natural = dia.join_coords(
+            iso.obs_man.embed_rep(dia.obs_man, obs_params), int_params, lat_params
+        )
+        pod_natural = pod.join_coords(
+            iso.obs_man.embed_rep(pod.obs_man, obs_params), int_params, lat_params
+        )
 
         iso_lpf = iso.log_partition_function(iso_natural)
         dia_lpf = dia.log_partition_function(dia_natural)
@@ -184,7 +193,9 @@ class TestBoltzmannLGM:
     @pytest.mark.parametrize("obs_dim,lat_dim", [(2, 3), (2, 4)])
     def test_conjugation_equation(self, obs_dim: int, lat_dim: int) -> None:
         """Conjugation equation holds for all Boltzmann states."""
-        model = BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim)
+        model = BoltzmannLGM(
+            obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=lat_dim
+        )
         key = jax.random.PRNGKey(42)
         params = model.initialize(key, location=0.0, shape=0.5)
 
@@ -199,7 +210,9 @@ class TestBoltzmannLGM:
         for idx in range(0, len(states), step):
             state = states[idx]
             s_z = model.lat_man.sufficient_statistic(state)
-            lhs = model.obs_man.log_partition_function(model.lkl_fun_man(lkl_params, state))
+            lhs = model.obs_man.log_partition_function(
+                model.lkl_fun_man(lkl_params, state)
+            )
             rhs = jnp.dot(rho, s_z) + model.obs_man.log_partition_function(obs_params)
             assert jnp.abs(lhs - rhs) < ATOL
 

@@ -167,7 +167,7 @@ class VariationalConjugated[
         rho_full = self.conjugation_parameters(params, x)
         lat_eff = self.pst_prr_emb.project(prior - rho_full)
         obs_params, int_params = self.gen_hrm.lkl_fun_man.split_coords(lkl)
-        hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_eff)
+        hrm_params = self.gen_hrm.join_level(obs_params, int_params, lat_eff)
         return self.gen_hrm.posterior_at(hrm_params, x)
 
     # Conjugation residual
@@ -276,7 +276,7 @@ class VariationalConjugated[
         """
         rho = jnp.zeros(self.cnj_man.dim)
         hrm_params = self.gen_hrm.initialize(key, location, shape)
-        obs_params, int_params, lat_params = self.gen_hrm.split_coords(hrm_params)
+        obs_params, int_params, lat_params = self.gen_hrm.split_level(hrm_params)
         lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
         prior_params = self.pst_prr_emb.embed(lat_params)
         return self.join_coords(prior_params, lkl_params, rho)
@@ -288,7 +288,7 @@ class VariationalConjugated[
         """Initialize parameters using sample data for observable biases."""
         rho = jnp.zeros(self.cnj_man.dim)
         hrm_params = self.gen_hrm.initialize_from_sample(key, sample, location, shape)
-        obs_params, int_params, lat_params = self.gen_hrm.split_coords(hrm_params)
+        obs_params, int_params, lat_params = self.gen_hrm.split_level(hrm_params)
         lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
         prior_params = self.pst_prr_emb.embed(lat_params)
         return self.join_coords(prior_params, lkl_params, rho)

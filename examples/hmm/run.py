@@ -48,9 +48,7 @@ def fit_gradient(
 
     optimizer = optax.adam(learning_rate=2e-2)
 
-    def grad_step(
-        carry: tuple[Array, Any], _: None
-    ) -> tuple[tuple[Array, Any], Array]:
+    def grad_step(carry: tuple[Array, Any], _: None) -> tuple[tuple[Array, Any], Array]:
         params, opt_state = carry
         ll = obj(params)
         grads = jax.grad(obj)(params)
@@ -118,9 +116,9 @@ def main() -> None:
 
     # Sample training trajectories
     keys_sample = jax.random.split(key_sample, N_SEQUENCES)
-    obs_batch, state_batch = jax.vmap(
-        lambda k: model.sample(k, true_params, N_STEPS)
-    )(keys_sample)
+    obs_batch, state_batch = jax.vmap(lambda k: model.sample(k, true_params, N_STEPS))(
+        keys_sample
+    )
 
     observations = obs_batch[0]
     true_states = state_batch[0]
@@ -135,9 +133,7 @@ def main() -> None:
     initial_ll = float(avg_log_lik(model, init_params, obs_batch))
 
     # Training
-    grad_lls, _, grad_final = fit_gradient(
-        key_train, model, obs_batch, N_GRAD_STEPS
-    )
+    grad_lls, _, grad_final = fit_gradient(key_train, model, obs_batch, N_GRAD_STEPS)
     em_lls, _, em_final = fit_em(key_train, model, obs_batch, N_EM_STEPS)
 
     learned: dict[str, tuple[Array, Array]] = {

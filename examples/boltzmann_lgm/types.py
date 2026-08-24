@@ -11,7 +11,9 @@ class GaussianBoltzmannResults(TypedDict):
     plot_range_y: list[float]  # Y coordinates for density plotting
     learned_density: list[list[float]]  # Observable density heatmap
     log_likelihoods: list[float]  # Training log likelihoods
-    component_confidence_ellipses: list[list[list[float]]]  # Confidence ellipses per component
+    component_confidence_ellipses: list[
+        list[list[float]]
+    ]  # Confidence ellipses per component
     prior_moment_matrix: list[list[float]]  # Prior moment matrix
     posterior_observations: list[list[float]]  # Observations used for posterior
     posterior_moment_matrices: list[list[list[float]]]  # Posterior moment matrices

@@ -106,11 +106,18 @@ class TestKalmanFilter:
 
     def test_from_standard_filters(self) -> None:
         kf = KalmanFilter(obs_dim=2, lat_dim=2)
-        A = jnp.array([[0.9, 0.1], [-0.1, 0.9]])
-        Q = 0.05 * jnp.eye(2)
-        C = jnp.eye(2)
-        R = 0.1 * jnp.eye(2)
-        params = kf.from_standard(A, Q, C, R, jnp.zeros(2), jnp.eye(2))
+        transition = jnp.array([[0.9, 0.1], [-0.1, 0.9]])
+        process_noise = 0.05 * jnp.eye(2)
+        emission = jnp.eye(2)
+        observation_noise = 0.1 * jnp.eye(2)
+        params = kf.from_standard(
+            transition,
+            process_noise,
+            emission,
+            observation_noise,
+            jnp.zeros(2),
+            jnp.eye(2),
+        )
         obs, _ = kf.sample(jax.random.PRNGKey(0), params, n_steps=8)
         _, ll = kf.filter(params, obs)
         assert jnp.isfinite(ll)
@@ -191,8 +198,8 @@ class TestHiddenMarkovModel:
 
             return jnp.stack([row(j) for j in range(n_states)])
 
-        A = decoded_rows(trns_p, hmm.trn_map.kernel)
-        B = decoded_rows(ems_p, hmm.ems_hrm)
+        transition = decoded_rows(trns_p, hmm.trn_map.kernel)
+        emission = decoded_rows(ems_p, hmm.ems_hrm)
 
         obs, _ = hmm.sample(jax.random.PRNGKey(7), params, n_steps=20)
         obs_int = obs.reshape(-1).astype(jnp.int32)
@@ -201,7 +208,7 @@ class TestHiddenMarkovModel:
             carry: tuple[Array, Array], o: Array
         ) -> tuple[tuple[Array, Array], None]:
             alpha_prev, ll = carry
-            alpha_unnorm = (alpha_prev @ A) * B[:, o]
+            alpha_unnorm = (alpha_prev @ transition) * emission[:, o]
             scale = jnp.sum(alpha_unnorm)
             return (alpha_unnorm / scale, ll + jnp.log(scale)), None
 

@@ -55,6 +55,7 @@ This is a **library**, not an application. The dependency policy is:
   - `uv run python -m pytest tests/normal.py`
   - `uv run python -m pytest tests/graphical_mixture.py`
   - `uv run python -m pytest tests/matrix.py`
+  - `uv run python -m pytest tests/clique.py` (pure Python, sub-second)
 
 ### Code Quality
 - Type checking: `uvx basedpyright`
@@ -79,8 +80,9 @@ Examples are located in the `examples/` directory and organized by topic:
 The library is organized into three main modules under `src/goal/`:
 
 1. **geometry/**: Core geometric abstractions
-   - `manifold/`: Riemannian manifolds, matrix representations, linear maps, embeddings
-   - `exponential_family/`: Exponential family abstractions, harmoniums, hierarchical models
+   - `algebra/`: Stateless parameter-layout descriptors that never reference `Manifold` (`matrix.py`, `clique.py`)
+   - `manifold/`: Riemannian manifolds, linear maps, embeddings, combinators
+   - `exponential_family/`: Exponential family abstractions and harmoniums (hierarchical models included --- there is no separate `graphical.py`)
 
 2. **models/**: Concrete statistical models
    - `base/`: Fundamental distributions (Normal, Categorical, Poisson, Von Mises)
@@ -201,7 +203,9 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 
 | Test file | Source module(s) |
 |---|---|
-| `matrix.py` | `geometry/manifold/matrix.py` |
+| `matrix.py` | `geometry/algebra/matrix.py` |
+| `clique.py` | `geometry/algebra/clique.py` (`CliqueSet`: levels, canonical order, `ascend_level`) |
+| `combinators.py` | `geometry/manifold/combinators.py` (`CliqueManifold` spans) and `RootEmbedding` in `geometry/manifold/embedding.py` |
 | `map.py` | `geometry/manifold/map.py` (LinearMap rename regression + MultilayerPerceptron) |
 | `normal.py` | `models/base/gaussian/normal.py` |
 | `boltzmann.py` | `models/base/gaussian/boltzmann.py` |

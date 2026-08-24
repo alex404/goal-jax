@@ -196,12 +196,18 @@ class Quadruple[First: Manifold, Second: Manifold, Third: Manifold, Fourth: Mani
 
 
 @dataclass(frozen=True)
-class CliqueManifold(Tuple, ABC):
-    """Product manifold with one block per clique, in canonical clique order.
+class CliqueManifold[Root: Manifold, Cross: Manifold, Deep: Manifold](Tuple, ABC):
+    """Product manifold over a graph, laid out as the three spans of one level ascent.
 
-    Unlike ``Pair`` and ``Triple``, the arity is not fixed by the class: it is the number
-    of cliques in the graph. Subclasses declare the clique set and say what manifold each
-    clique contributes; dimension, splitting, and joining follow.
+    Coordinates are stored as ``[root | cross | deep]``: the parameters carried by the root
+    nodes, the interactions joining the root nodes to the rest of the graph, and everything
+    above. The deep span is laid out exactly as the manifold on ``clq_set.ascend_level()``
+    lays itself out, so the same split applies again one level up --- recursion over the
+    graph is a sequence of these.
+
+    Unlike ``Pair`` and ``Triple``, the components are not arbitrary: the graph says what
+    each one is. A span may hold several cliques --- ``deep`` always does past depth two ---
+    which is why the three spans are named rather than the individual blocks.
     """
 
     # Contract
@@ -209,59 +215,62 @@ class CliqueManifold(Tuple, ABC):
     @property
     @abstractmethod
     def clq_set(self) -> CliqueSet:
-        """The graph skeleton whose cliques index this manifold's blocks."""
+        """The graph this manifold is defined on."""
 
+    @property
     @abstractmethod
-    def clq_man(self, clique: tuple[int, ...]) -> Manifold:
-        """The manifold a clique contributes.
+    def root_man(self) -> Root:
+        """Manifold of the parameters carried by the root nodes."""
 
-        A singleton ``(i,)`` contributes node $i$'s own manifold, holding its biases; a
-        larger clique contributes the manifold of the interaction among its members,
-        typically a ``LinearMap``.
-        """
+    @property
+    @abstractmethod
+    def cross_man(self) -> Cross:
+        """Manifold of the interactions joining the root nodes to the rest of the graph."""
+
+    @property
+    @abstractmethod
+    def deep_man(self) -> Deep:
+        """Manifold of everything above the root level."""
 
     # Overrides
 
     @property
     @override
     def dim(self) -> int:
-        """Total dimension is the sum of the block dimensions."""
-        return sum(man.dim for man in self.clq_mans)
+        """Total dimension is the sum of the three span dimensions."""
+        return self.root_man.dim + self.cross_man.dim + self.deep_man.dim
 
     @override
-    def split_coords(self, coords: Array) -> tuple[Array, ...]:
-        """Split coordinates into one array per clique, in canonical order."""
-        blocks: list[Array] = []
-        start = 0
-        for man in self.clq_mans:
-            blocks.append(coords[start : start + man.dim])
-            start += man.dim
-        return tuple(blocks)
+    def split_coords(self, coords: Array) -> tuple[Array, Array, Array]:
+        """Split coordinates into the root, cross, and deep spans."""
+        root_dim = self.root_man.dim
+        cross_dim = self.cross_man.dim
+        return (
+            coords[:root_dim],
+            coords[root_dim : root_dim + cross_dim],
+            coords[root_dim + cross_dim :],
+        )
 
     @override
     def join_coords(self, *components: Array) -> Array:
-        """Concatenate one array per clique, in canonical order."""
-        n_cliques = len(self.clq_set.canonical_cliques)
-        if len(components) != n_cliques:
-            raise ValueError(
-                f"expected {n_cliques} clique blocks, got {len(components)}"
-            )
+        """Concatenate the root, cross, and deep spans."""
+        if len(components) != 3:
+            raise ValueError(f"expected 3 spans, got {len(components)}")
         return jnp.concatenate(components)
 
     # Methods
 
-    @property
-    def clq_mans(self) -> tuple[Manifold, ...]:
-        """The block manifolds, in canonical clique order."""
-        return tuple(self.clq_man(c) for c in self.clq_set.canonical_cliques)
+    def split_level(self, coords: Array) -> tuple[Array, Array, Array]:
+        """Split off one level: the root span, the cross span, and the deep span.
 
-    def block_index(self, clique: tuple[int, ...]) -> int:
-        """Position of a clique's block in the flat layout."""
-        key = tuple(sorted(clique))
-        cliques = self.clq_set.canonical_cliques
-        if key not in cliques:
-            raise ValueError(f"{key} is not a clique of {self.clq_set}")
-        return cliques.index(key)
+        The domain-facing name for :meth:`split_coords`. A graph of depth one has an empty
+        cross and deep span.
+        """
+        return self.split_coords(coords)
+
+    def join_level(self, root: Array, cross: Array, deep: Array) -> Array:
+        """Concatenate the root, cross, and deep spans."""
+        return self.join_coords(root, cross, deep)
 
 
 @dataclass(frozen=True)

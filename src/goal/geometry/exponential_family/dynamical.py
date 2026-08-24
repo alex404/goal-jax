@@ -35,9 +35,9 @@ def transpose_harmonium[L: Differentiable](
 
     For a symmetric conjugated harmonium over $(L, L)$, returns parameters for the same harmonium with the obs and lat slots swapped and the interaction matrix transposed. Used for the backward step of smoothing.
     """
-    obs_params, int_params, lat_params = hrm.split_coords(params)
+    obs_params, int_params, lat_params = hrm.split_level(params)
     int_params_t = hrm.int_man.transpose(int_params)
-    return hrm.join_coords(lat_params, int_params_t, obs_params)
+    return hrm.join_level(lat_params, int_params_t, obs_params)
 
 
 @dataclass(frozen=True)
@@ -333,7 +333,7 @@ class AnalyticLatentProcess[
             obs_stats = ems_hrm.obs_man.sufficient_statistic(x)
             lat_means = lat_man.to_mean(z_nat)
             int_means = ems_hrm.int_man.outer_product(obs_stats, lat_means)
-            return ems_hrm.join_coords(obs_stats, int_means, lat_means)
+            return ems_hrm.join_level(obs_stats, int_means, lat_means)
 
         ems_means = jnp.mean(jax.vmap(emission_stats)(observations, smoothed), axis=0)
 

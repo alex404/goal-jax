@@ -98,7 +98,9 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
         f"Observable bias: min={float(obs_bias.min()):.4f}, max={float(obs_bias.max()):.4f}, mean={float(obs_bias.mean()):.4f}"
     )
 
-    lat_dim = model.bas_lat_man.dim  # param dim (= n + n_chordal_edges for ChordalBoltzmann)
+    lat_dim = (
+        model.bas_lat_man.dim
+    )  # param dim (= n + n_chordal_edges for ChordalBoltzmann)
     lat_data_dim = model.bas_lat_man.data_dim  # sample dim (= n binary units)
     # The naive ``(obs_dim, lat_dim)`` reshape assumes the entire ``int_params``
     # vector is a single ``xy`` block. In ``full`` interaction mode it actually
@@ -138,8 +140,7 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
     if lat_dim != lat_data_dim:
         n_edges = lat_dim - lat_data_dim
         print(
-            f"\n--- CHORDAL COUPLINGS ({n_edges} edges,"
-            + f" graph={latent_graph}) ---"
+            f"\n--- CHORDAL COUPLINGS ({n_edges} edges," + f" graph={latent_graph}) ---"
         )
         early_components, _ = model.mix_man.split_natural_mixture(lat_params)
         early_comp_params_2d = model.mix_man.cmp_man.to_2d(early_components)
@@ -257,12 +258,8 @@ def diagnose_trained_model(mode: str = "gradient"):  # noqa: C901
 
     # Key comparison
     print("\n--- KEY COMPARISON ---")
-    print(
-        f"Prior y activation rate:     {float((y_samples > 0.5).mean()) * 100:.1f}%"
-    )
-    print(
-        f"Posterior y activation rate: {float((all_y_post > 0.5).mean()) * 100:.1f}%"
-    )
+    print(f"Prior y activation rate:     {float((y_samples > 0.5).mean()) * 100:.1f}%")
+    print(f"Posterior y activation rate: {float((all_y_post > 0.5).mean()) * 100:.1f}%")
     print(f"Prior expected pixel mean:     {float(lkl_means_prior.mean()):.4f}")
     print(f"Posterior expected pixel mean: {float(all_lkl_means_post.mean()):.4f}")
     print(f"Test data actual mean:         {float(test_data.mean()):.4f}")

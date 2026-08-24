@@ -67,7 +67,9 @@ def test_mfa_whiten_preserves_observable_distribution() -> None:
         return fa.to_natural(fa.join_coords(obs_m, int_m, new_lat_m))
 
     perturbed_comp_nats = mfa.mix_man.cmp_man.map(perturb, comp_nats, flatten=True)
-    perturbed_mix_params = mfa.mix_man.join_natural_mixture(perturbed_comp_nats, cat_nat)
+    perturbed_mix_params = mfa.mix_man.join_natural_mixture(
+        perturbed_comp_nats, cat_nat
+    )
 
     perturbed_params = mfa.from_mixture_coords(perturbed_mix_params)
     whitened_means = mfa.whiten_prior(mfa.to_mean(perturbed_params))

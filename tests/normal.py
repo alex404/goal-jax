@@ -131,7 +131,10 @@ class TestNormalWhitening:
 
         assert jnp.allclose(w_mean, jnp.zeros_like(gt_mean), rtol=RTOL, atol=ATOL)
         assert jnp.allclose(
-            model.cov_man.to_matrix(w_cov), jnp.eye(model.data_dim), rtol=RTOL, atol=ATOL
+            model.cov_man.to_matrix(w_cov),
+            jnp.eye(model.data_dim),
+            rtol=RTOL,
+            atol=ATOL,
         )
 
     def test_whiten_different(self, ground_truth: tuple[FullNormal, Array]) -> None:
@@ -190,7 +193,9 @@ class TestNormalSampling:
     """Test sampling produces correct statistics."""
 
     @pytest.mark.parametrize("rep", [Scale(), Diagonal(), PositiveDefinite()])
-    def test_sampling_statistics(self, rep: Scale | Diagonal | PositiveDefinite) -> None:
+    def test_sampling_statistics(
+        self, rep: Scale | Diagonal | PositiveDefinite
+    ) -> None:
         """Empirical sufficient statistics match to_mean at 50k samples."""
         dim = 2
         model = Normal(dim, rep)

@@ -88,12 +88,16 @@ def main():
     grid_points = jnp.stack([g.ravel() for g in jnp.meshgrid(x, y)], axis=1)
     lat_y = jnp.linspace(-6, 6, 100)
 
-    def obs_density[Rep: PositiveDefinite](model: AnalyticHMoG[Rep], params: Array) -> Array:
+    def obs_density[Rep: PositiveDefinite](
+        model: AnalyticHMoG[Rep], params: Array
+    ) -> Array:
         return jax.vmap(model.observable_density, in_axes=(None, 0))(
             params, grid_points
         ).reshape(100, 100)
 
-    def mix_density[Rep: PositiveDefinite](model: AnalyticHMoG[Rep], params: Array) -> Array:
+    def mix_density[Rep: PositiveDefinite](
+        model: AnalyticHMoG[Rep], params: Array
+    ) -> Array:
         mix_params = model.split_conjugated(params)[1]
         return jax.vmap(model.pst_man.observable_density, in_axes=(None, 0))(
             mix_params, lat_y[:, None]

@@ -33,6 +33,7 @@ from jax import Array
 
 from goal.geometry import (
     AmbientMap,
+    CliqueSet,
     Harmonium,
     LinearMap,
     ObservableEmbedding,
@@ -87,9 +88,7 @@ def _recognition_weights(
 def _exact_elbo(model: VonMisesPopulationCode, params: Array) -> Array:
     w, log_q = _recognition_weights(model, params)
     lkl_nat = jax.vmap(lambda z: model.likelihood_at(params, z))(Z_GRID)
-    log_pxz = jax.vmap(model.obs_man.log_density)(
-        lkl_nat, jnp.tile(X_OBS, (N_GRID, 1))
-    )
+    log_pxz = jax.vmap(model.obs_man.log_density)(lkl_nat, jnp.tile(X_OBS, (N_GRID, 1)))
     prior_p = model.prior_params(params)
     log_pz = jax.vmap(lambda z: model.prr_man.log_density(prior_p, z))(Z_GRID)
     return DZ * jnp.sum(w * (log_pxz + log_pz - log_q))
@@ -189,9 +188,9 @@ class TestStandardFormElbo:
 
         q_params = model.approximate_posterior_at(params, X_OBS)
         z_samples = model.pst_man.sample(key, q_params, N_MC)
-        r_vals = jax.vmap(
-            lambda z: model.conjugation_residual(params, z, X_OBS)
-        )(z_samples)
+        r_vals = jax.vmap(lambda z: model.conjugation_residual(params, z, X_OBS))(
+            z_samples
+        )
         clean = model.conjugation_baseline(params, X_OBS) + jnp.mean(r_vals)
         assert jnp.allclose(surrogate, clean, rtol=1e-12, atol=1e-12)
 
@@ -227,9 +226,9 @@ class TestPriorConjugationLoss:
     def test_value_and_gradient_match_frozen_measure_quadrature(self):
         model, params = _setup()
         exact_val = _exact_var_p_r(model, params, freeze_measure=False)
-        exact_grad = jax.grad(
-            lambda p: _exact_var_p_r(model, p, freeze_measure=True)
-        )(params)
+        exact_grad = jax.grad(lambda p: _exact_var_p_r(model, p, freeze_measure=True))(
+            params
+        )
         mc_val, val_se, mc_grad, grad_se = _mc_value_and_grad(
             lambda k, p: model.prior_conjugation_loss(k, p, N_MC), params
         )
@@ -269,6 +268,12 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
     """Harmonium with interaction restricted to the BaseLatent slot of the mixture."""
 
     _int_man: LinearMap[Any, Binomials]
+
+    @property
+    @override
+    def clq_set(self) -> CliqueSet:
+        """The two-node graph $x - z$, coarsening the latent mixture into one node."""
+        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override
@@ -324,9 +329,7 @@ class TestVariationalHierarchicalMixture:
         params = model.initialize(key_init)
         prior_p, lkl_p, _ = model.split_coords(params)
         obs_p, int_p = model.gen_hrm.lkl_fun_man.split_coords(lkl_p)
-        lkl_zero = model.gen_hrm.lkl_fun_man.join_coords(
-            obs_p, jnp.zeros_like(int_p)
-        )
+        lkl_zero = model.gen_hrm.lkl_fun_man.join_coords(obs_p, jnp.zeros_like(int_p))
         params = model.join_coords(prior_p, lkl_zero, jnp.zeros(model.cnj_man.dim))
 
         z_samples = model.prr_man.sample(key_z, prior_p, 20)

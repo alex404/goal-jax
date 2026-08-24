@@ -124,9 +124,9 @@ def compute_normal_panel(key: Array) -> NormalPanel:
     source_density = jax.vmap(multivariate_normal.pdf, in_axes=(0, None, None))(
         flat, source_mean, source_cov
     ).reshape(xs.shape)
-    natural_density = jax.vmap(model.density, in_axes=(None, 0))(fit_natural, flat).reshape(
-        xs.shape
-    )
+    natural_density = jax.vmap(model.density, in_axes=(None, 0))(
+        fit_natural, flat
+    ).reshape(xs.shape)
 
     return NormalPanel(
         samples=samples.tolist(),

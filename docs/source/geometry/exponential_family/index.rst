@@ -1,7 +1,7 @@
 Exponential Family Subpackage
 =============================
 
-Abstract exponential family structure: base classes with increasing capabilities, combinators for location-shape families, harmonium (latent variable) models, and hierarchical graphical models.
+Abstract exponential family structure: base classes with increasing capabilities, combinators for location-shape families, and harmonium (latent variable) models, including the hierarchical case.
 
 An exponential family is a collection of distributions with densities of the form
 
@@ -29,5 +29,4 @@ Harmoniums are the key composed structure: latent-variable models where conjugat
    protocols
    variational
    harmonium
-   graphical
    dynamical

@@ -91,7 +91,7 @@ def create_ground_truth_model(
     key: Array,
     baseline_rate: float,
     gain: float,
-    prior_concentration: float,  # pyright: ignore[reportUnusedParameter]
+    prior_concentration: float,  # noqa: ARG001  # pyright: ignore[reportUnusedParameter]
     distortion: float,
     coverage: float,
     density_kappa1: float,
@@ -111,13 +111,17 @@ def create_ground_truth_model(
         quantiles_1d = jnp.linspace(0, 1, n_per_dim, endpoint=False) + 0.5 / n_per_dim
 
         if density_kappa1 > 0:
-            angles_1d_1 = von_mises_inverse_cdf(quantiles_1d, density_kappa1, density_mu1)
+            angles_1d_1 = von_mises_inverse_cdf(
+                quantiles_1d, density_kappa1, density_mu1
+            )
         else:
             max_angle_1 = 2 * jnp.pi * coverage
             angles_1d_1 = jnp.linspace(0, max_angle_1, n_per_dim, endpoint=False)
 
         if density_kappa2 > 0:
-            angles_1d_2 = von_mises_inverse_cdf(quantiles_1d, density_kappa2, density_mu2)
+            angles_1d_2 = von_mises_inverse_cdf(
+                quantiles_1d, density_kappa2, density_mu2
+            )
         else:
             angles_1d_2 = jnp.linspace(0, 2 * jnp.pi, n_per_dim, endpoint=False)
 
@@ -171,9 +175,7 @@ def create_ground_truth_model(
     return model, params, tuning
 
 
-def extract_tuning_params(
-    model: VonMisesPopulationCode, params: Array
-) -> TuningParams:
+def extract_tuning_params(model: VonMisesPopulationCode, params: Array) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
     _, lkl_params, _ = model.split_coords(params)
     obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
@@ -237,7 +239,7 @@ def compute_gt_conjugation(
     }
 
 
-def train_model(
+def train_model(  # noqa: C901
     key: Array,
     model: VonMisesPopulationCode,
     train_data: Array,
@@ -279,7 +281,9 @@ def train_model(
     if use_analytical_rho:
         # Gradient clipping stabilizes the implicit gradient through lstsq,
         # which can amplify noise early in training.
-        optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(learning_rate))
+        optimizer = optax.chain(
+            optax.clip_by_global_norm(1.0), optax.adam(learning_rate)
+        )
         opt_state = optimizer.init(gen_params)
     else:
         optimizer = optax.adam(learning_rate)
@@ -287,9 +291,7 @@ def train_model(
 
     # --- Loss functions (close over train_data) ---
 
-    def loss_fn_free(
-        params: Array, key: Array, batch: Array
-    ) -> tuple[Array, Array]:
+    def loss_fn_free(params: Array, key: Array, batch: Array) -> tuple[Array, Array]:
         elbo = model.mean_elbo(key, params, batch, n_mc_samples)
         return -elbo, elbo
 
@@ -344,9 +346,7 @@ def train_model(
 
     # --- Training step functions (close over train_data, no @jax.jit - scan handles compilation) ---
 
-    def train_step_analytical(
-        carry: Any, _: None
-    ) -> tuple[Any, tuple[Array, Array]]:
+    def train_step_analytical(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
         gen_params, opt_state, step_key = carry
         step_key, next_key, batch_key = jax.random.split(step_key, 3)
         batch = train_data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
@@ -363,9 +363,7 @@ def train_model(
             rho_star,
         )
 
-    def train_step_regularized(
-        carry: Any, _: None
-    ) -> tuple[Any, tuple[Array, Array]]:
+    def train_step_regularized(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
         params, opt_state, step_key = carry
         step_key, next_key, batch_key = jax.random.split(step_key, 3)
         batch = train_data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
@@ -379,9 +377,7 @@ def train_model(
 
         return (new_params, new_opt_state, step_key), (elbo, conj_var)
 
-    def train_step_free(
-        carry: Any, _: None
-    ) -> tuple[Any, Array]:
+    def train_step_free(carry: Any, _: None) -> tuple[Any, Array]:
         params, opt_state, step_key = carry
         step_key, next_key, batch_key = jax.random.split(step_key, 3)
         batch = train_data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
@@ -536,7 +532,9 @@ def train_model(
 
     # Extract learned parameters
     _, lkl_p, _ = model.split_coords(current_params)
-    learned_baselines, learned_int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_p)
+    learned_baselines, learned_int_params = model.gen_hrm.lkl_fun_man.split_coords(
+        lkl_p
+    )
     learned_weights = learned_int_params.reshape(model.n_neurons, 2 * model.n_latent)
     learned_tuning = extract_tuning_params(model, current_params)
 
@@ -591,7 +589,9 @@ def main():
 
     # Training mode parameters
     conj_weight = 1.0  # Weight for var[CR] penalty in regularized mode
-    analytical_rho_samples_multiplier = 500  # Enough samples for stable lstsq regression
+    analytical_rho_samples_multiplier = (
+        500  # Enough samples for stable lstsq regression
+    )
 
     # Logging
     log_interval = 200
@@ -674,7 +674,9 @@ def main():
     }
 
     # Create variational model for training
-    model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, n_latent))
+    model = VonMisesPopulationCode(
+        _gen_hrm=PoissonVonMisesHarmonium(n_neurons, n_latent)
+    )
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
     print(f"  Rho params: {model.cnj_man.dim}")

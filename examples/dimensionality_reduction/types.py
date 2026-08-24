@@ -16,7 +16,9 @@ class TrajectoryResults(TypedDict):
     aligned_latents: list[list[float]]  # (n_points, 2) - Procrustes-aligned to true
 
     # Reconstruction
-    reconstructions: list[list[float]]  # (n_points, obs_dim) - reconstructed observations
+    reconstructions: list[
+        list[float]
+    ]  # (n_points, obs_dim) - reconstructed observations
     reconstruction_errors: list[float]  # Per-point reconstruction error
 
     # Configuration

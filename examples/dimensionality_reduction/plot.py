@@ -49,7 +49,9 @@ def main():
         s=20,
         alpha=0.8,
     )
-    ax.plot(true_latents[:, 0], true_latents[:, 1], color="gray", alpha=0.3, linewidth=1)
+    ax.plot(
+        true_latents[:, 0], true_latents[:, 1], color="gray", alpha=0.3, linewidth=1
+    )
     ax.set_xlabel("$z_1$")
     ax.set_ylabel("$z_2$")
     ax.set_title("True Latent (colored by position)")
@@ -71,7 +73,9 @@ def main():
     ax.set_aspect("equal")
 
     # Compute alignment RMSE for annotation
-    alignment_rmse = np.sqrt(np.mean(np.sum((aligned_latents - true_latents) ** 2, axis=1)))
+    alignment_rmse = np.sqrt(
+        np.mean(np.sum((aligned_latents - true_latents) ** 2, axis=1))
+    )
     ax.text(
         0.05,
         0.95,

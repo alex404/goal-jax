@@ -22,8 +22,12 @@ def main():
     eval_pts = np.array(vm["eval_points"])
 
     axes[0, 0].hist(samples, bins=30, density=True, alpha=0.3, label="Samples")
-    axes[0, 0].plot(eval_pts, vm["true_density"], color=colors["ground_truth"], label="True")
-    axes[0, 0].plot(eval_pts, vm["fitted_density"], color=colors["fitted"], ls="--", label="Fitted")
+    axes[0, 0].plot(
+        eval_pts, vm["true_density"], color=colors["ground_truth"], label="True"
+    )
+    axes[0, 0].plot(
+        eval_pts, vm["fitted_density"], color=colors["fitted"], ls="--", label="Fitted"
+    )
     axes[0, 0].set_title("von Mises Density")
     axes[0, 0].set_xlabel("Angle (radians)")
     axes[0, 0].set_ylabel("Density")
@@ -44,8 +48,12 @@ def main():
 
     unique, counts = np.unique(samples, return_counts=True)
     axes[1, 0].bar(unique, counts / len(samples), alpha=0.3, label="Samples")
-    axes[1, 0].plot(eval_pts, cp["true_pmf"], color=colors["ground_truth"], label="True")
-    axes[1, 0].plot(eval_pts, cp["fitted_pmf"], color=colors["fitted"], ls="--", label="Fitted")
+    axes[1, 0].plot(
+        eval_pts, cp["true_pmf"], color=colors["ground_truth"], label="True"
+    )
+    axes[1, 0].plot(
+        eval_pts, cp["fitted_pmf"], color=colors["fitted"], ls="--", label="Fitted"
+    )
     axes[1, 0].set_title("COM-Poisson PMF")
     axes[1, 0].set_xlabel("Count")
     axes[1, 0].set_ylabel("Probability")

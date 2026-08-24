@@ -50,7 +50,9 @@ class TestBoltzmann:
     def test_density_normalizes(self, n: int) -> None:
         """Densities sum to 1 over all binary states."""
         model = FullBoltzmann(n)
-        params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0
+        )
         densities = jax.vmap(lambda s: model.density(params, s))(model.states)
         assert jnp.allclose(jnp.sum(densities), 1.0, rtol=RTOL, atol=ATOL)
 
@@ -58,17 +60,25 @@ class TestBoltzmann:
     def test_log_partition_matches_sum(self, n: int) -> None:
         """Log partition equals log sum over all states."""
         model = FullBoltzmann(n)
-        params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0
+        )
         log_z = model.log_partition_function(params)
-        energies = jax.vmap(lambda s: jnp.dot(params, model.sufficient_statistic(s)))(model.states)
-        assert jnp.allclose(log_z, jax.scipy.special.logsumexp(energies), rtol=RTOL, atol=ATOL)
+        energies = jax.vmap(lambda s: jnp.dot(params, model.sufficient_statistic(s)))(
+            model.states
+        )
+        assert jnp.allclose(
+            log_z, jax.scipy.special.logsumexp(energies), rtol=RTOL, atol=ATOL
+        )
 
     def test_location_precision_energy_identity(self) -> None:
         _assert_location_precision_identity(FullBoltzmann(4), jax.random.PRNGKey(31))
 
     def test_split_join_round_trip(self) -> None:
         model = FullBoltzmann(4)
-        params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(42), (model.dim,), minval=-2.0, maxval=2.0
+        )
         loc, prec = model.split_location_precision(params)
         recovered = model.join_location_precision(loc, prec)
         assert jnp.allclose(params, recovered, rtol=RTOL, atol=ATOL)
@@ -100,19 +110,24 @@ class TestBoltzmann:
 
             assert jnp.allclose(prob_fast, prob_direct, rtol=RTOL, atol=ATOL)
 
-
     def test_to_mean_via_autodiff(self) -> None:
         """to_mean (autodiff of log_partition) matches stochastic_to_mean (Gibbs sampling)."""
         model = FullBoltzmann(3)
-        params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-1.0, maxval=1.0)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(42), (model.dim,), minval=-1.0, maxval=1.0
+        )
         autodiff_means = model.to_mean(params)
-        stochastic_means = model.stochastic_to_mean(jax.random.PRNGKey(7), params, 50_000)
+        stochastic_means = model.stochastic_to_mean(
+            jax.random.PRNGKey(7), params, 50_000
+        )
         assert jnp.allclose(autodiff_means, stochastic_means, atol=0.05)
 
     def test_gibbs_sampling(self) -> None:
         """Gibbs samples produce correct equilibrium distribution."""
         model = FullBoltzmann(3)
-        params = jax.random.uniform(jax.random.PRNGKey(42), (model.dim,), minval=-1.0, maxval=1.0)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(42), (model.dim,), minval=-1.0, maxval=1.0
+        )
         samples = model.sample(jax.random.PRNGKey(0), params, 50_000)
         assert samples.shape == (50_000, model.data_dim)
         empirical_means = model.average_sufficient_statistic(samples)
@@ -144,7 +159,9 @@ class TestDiagonalBoltzmann:
         assert jnp.allclose(params, recovered, rtol=RTOL, atol=ATOL)
 
     def test_location_precision_energy_identity(self) -> None:
-        _assert_location_precision_identity(DiagonalBoltzmann(4), jax.random.PRNGKey(32))
+        _assert_location_precision_identity(
+            DiagonalBoltzmann(4), jax.random.PRNGKey(32)
+        )
 
     def test_split_join_mean_second_moment(self) -> None:
         """For independent binary, first and second moments are identical."""
@@ -314,7 +331,9 @@ class TestJunctionTree:
 
     def test_each_param_owned_once(self) -> None:
         """Every node and every chordal edge is attributed to exactly one clique."""
-        jt = JunctionTree.from_edges(5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 4), (1, 3)])
+        jt = JunctionTree.from_edges(
+            5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 4), (1, 3)]
+        )
         # All bias owners are valid clique indices in [0, n_cliques).
         assert all(0 <= o < jt.n_cliques for o in jt.bias_owner)
         assert all(0 <= o < jt.n_cliques for o in jt.edge_owner)
@@ -354,8 +373,14 @@ class TestChordalBoltzmann:
             (6, [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (0, 5), (1, 4)]),
             (3, []),  # fully isolated (log Z must sum over components)
             (5, [(0, 1), (3, 4)]),  # two components + isolated node
-            (8, [(i, i + k) for k in (1, 2) for i in range(8 - k)]),  # band-2 (tw 2 path)
-            (5, [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]),  # heterogeneous separators
+            (
+                8,
+                [(i, i + k) for k in (1, 2) for i in range(8 - k)],
+            ),  # band-2 (tw 2 path)
+            (
+                5,
+                [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)],
+            ),  # heterogeneous separators
             (5, [(0, k) for k in range(1, 5)]),  # hub (clique tree may branch)
         ],
     )
@@ -535,7 +560,9 @@ class TestChordalBoltzmann:
         # Chain dynamic-programming reference: forward sweep over x_0 .. x_{n-1}.
         # State vector indexed by x_i \in {0, 1}; messages accumulate log
         # potentials node by node.
-        msg = jnp.array([0.0, diag[0]])  # x_0 = 0 contributes 0; x_0 = 1 contributes diag[0]
+        msg = jnp.array(
+            [0.0, diag[0]]
+        )  # x_0 = 0 contributes 0; x_0 = 1 contributes diag[0]
         for i in range(1, n):
             # Couple x_{i-1} (msg axis) to x_i via theta_{i-1,i} * x_{i-1}*x_i.
             theta = off[i - 1]

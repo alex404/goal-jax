@@ -59,15 +59,10 @@ Algebraic Embeddings
 
 
 
-Clique Embeddings
------------------
+Span Embeddings
+---------------
 
-.. autoclass:: goal.geometry.manifold.embedding.CliqueEmbedding
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.embedding.CliqueSetEmbedding
+.. autoclass:: goal.geometry.manifold.embedding.RootEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

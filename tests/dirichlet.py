@@ -59,9 +59,7 @@ class TestDirichlet:
         x = jnp.array([0.2, 0.5, 0.3])
         log_beta = jnp.sum(jax.lax.lgamma(alpha)) - jax.lax.lgamma(jnp.sum(alpha))
         expected = jnp.sum((alpha - 1) * jnp.log(x)) - log_beta
-        assert jnp.allclose(
-            model.log_density(alpha, x), expected, rtol=RTOL, atol=ATOL
-        )
+        assert jnp.allclose(model.log_density(alpha, x), expected, rtol=RTOL, atol=ATOL)
 
     def test_uniform_dirichlet_density(self) -> None:
         """Dirichlet(1,...,1) is uniform on the simplex: p(x) = (k-1)!."""
