@@ -68,7 +68,7 @@ This is a **library**, not an application. The dependency policy is:
 Examples are located in the `examples/` directory and organized by topic:
 - Run example: `uv run python -m examples.multivariate.run`
 - Generate plots: `uv run python -m examples.multivariate.plot`
-- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, chordal_boltzmann_ppc, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
+- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, cca, chordal_boltzmann_ppc, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
 
 ### Documentation
 - Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`
@@ -213,6 +213,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `binomial.py` | `models/base/binomial.py` (Binomial, Binomials) |
 | `poisson.py` | `models/base/poisson.py` |
 | `von_mises.py` | `models/base/von_mises.py` |
+| `cca.py` | `models/harmonium/cca.py` (`CanonicalCorrelationAnalysis`: multi-root graph, fork conjugation as a sum) |
 | `lgm.py` | `models/harmonium/lgm.py` |
 | `population_codes.py` | `models/harmonium/population_codes.py` |
 | `graphical_mixture.py` | `models/graphical/mixture.py` |

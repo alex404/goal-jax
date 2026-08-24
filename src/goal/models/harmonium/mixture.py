@@ -18,7 +18,6 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
-    CliqueSet,
     Differentiable,
     EmbeddedMap,
     ExponentialFamilyProduct,
@@ -90,12 +89,6 @@ class Mixture[Observable: Differentiable](
     @override
     def lat_man(self) -> Categorical:
         return Categorical(self.n_categories)
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The two-node graph $x - z$: an observable and a categorical latent."""
-        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override

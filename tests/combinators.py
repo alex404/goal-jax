@@ -1,4 +1,4 @@
-"""Tests for ``CliqueManifold`` in geometry/manifold/combinators.py and ``RootEmbedding``
+"""Tests for ``CompositeClique`` in geometry/manifold/combinators.py and ``RootEmbedding``
 in geometry/manifold/embedding.py.
 
 A clique manifold stores coordinates as the three spans of one level ascent,
@@ -18,8 +18,8 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
-    CliqueManifold,
     CliqueSet,
+    CompositeClique,
     Diagonal,
     InteractionEmbedding,
     Manifold,
@@ -41,7 +41,19 @@ THREE_NODE = CliqueSet(n_nodes=3, n_roots=1, cliques=((0,), (1,), (2,), (0, 1), 
 
 
 @dataclass(frozen=True)
-class _Spans(CliqueManifold[Manifold, Manifold, Manifold]):
+class _Flat(Manifold):
+    """A manifold with no clique structure, used to build a deliberately bad layout."""
+
+    _dim: int
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self._dim
+
+
+@dataclass(frozen=True)
+class _Spans(CompositeClique[Manifold, Manifold, Manifold]):
     """A clique manifold assembled from three explicit span manifolds."""
 
     _clq_set: CliqueSet
@@ -213,3 +225,55 @@ def test_layout_is_jit_static() -> None:
 
     coords = jnp.arange(float(spans.dim))
     assert jnp.allclose(total(coords), jnp.sum(coords[: spans.root_man.dim]))
+
+
+class TestCliqueAddressing:
+    """Per-clique blocks, and re-viewing the layout across an arbitrary node cut."""
+
+    def test_clique_dims_sum_to_dim(self) -> None:
+        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
+        assert sum(model.clique_dims) == model.dim
+
+    def test_one_block_per_clique(self) -> None:
+        """The declared graph and the parameter layout must agree block for block."""
+        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
+        assert len(model.clique_dims) == len(model.clq_set.canonical_cliques)
+
+    def test_split_join_cliques_round_trip(self) -> None:
+        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
+        params = jax.random.normal(jax.random.PRNGKey(0), (model.dim,))
+        assert jnp.allclose(model.join_cliques(*model.split_cliques(params)), params)
+
+    def test_split_cliques_matches_declared_dims(self) -> None:
+        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
+        blocks = model.split_cliques(jnp.zeros(model.dim))
+        assert tuple(b.size for b in blocks) == model.clique_dims
+
+    def test_cut_isolating_the_deepest_node(self) -> None:
+        """x-y-k re-viewed as (x, y) | k: the crossing clique gets one row block."""
+        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
+        cut = model.cut(frozenset({2}))
+        assert cut.n_cols == model.clique_dims[-1]
+        assert len(cut.cross_idx) == 1
+
+    def test_cut_round_trips(self) -> None:
+        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
+        params = jax.random.normal(jax.random.PRNGKey(2), (model.dim,))
+        cut = model.cut(frozenset({2}))
+        assert jnp.allclose(cut.join(*cut.project(params)), params)
+
+    def test_cut_rejects_a_sub_statistic_coupling(self) -> None:
+        """A Gaussian interaction couples part of the latent statistic, so has no view.
+
+        This is why ``cut`` is not a generalization of ``split_level``: the level split's
+        cross span is free to couple a sub-statistic, a single matrix view is not.
+        """
+        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
+        with pytest.raises(ValueError, match="does not couple the whole far side"):
+            model.cut(frozenset({1, 2}))
+
+    def test_cut_rejects_a_layout_that_disagrees_with_the_graph(self) -> None:
+        """The guard that catches a coarsened graph sitting over a finer layout."""
+        spans = _Spans(THREE_NODE, _Flat(2), _Flat(3), _Flat(4))
+        with pytest.raises(ValueError, match="graph and parameter layout disagree"):
+            spans.cut(frozenset({2}))

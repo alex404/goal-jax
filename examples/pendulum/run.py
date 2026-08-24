@@ -26,7 +26,6 @@ import optax
 from jax import Array
 
 from goal.geometry import (
-    CliqueSet,
     DifferentiablePair,
     EmbeddedMap,
     IdentityEmbedding,
@@ -85,12 +84,6 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
     """Poisson observation harmonium over the pendulum latent."""
 
     n_neurons: int
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The two-node graph $x - z$."""
-        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override

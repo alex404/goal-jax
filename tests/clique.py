@@ -156,7 +156,7 @@ class TestTail:
     ) -> None:
         """Ascending shifts every remaining node down exactly one level.
 
-        This is what lets ``CliqueManifold.split_level`` be applied repeatedly. It holds
+        This is what lets ``CompositeClique.split_level`` be applied repeatedly. It holds
         because a clique joining level $k$ to level $k - 1$ for $k \\geq 2$ cannot also
         contain a level-0 node --- that node would be adjacent to a level-$k$ one --- so
         the connectivity that set the level survives the ascent.
@@ -165,6 +165,45 @@ class TestTail:
         node_levels = clique_set.node_levels
         for i, node in enumerate(clique_set.deep_nodes):
             assert above.node_levels[i] == node_levels[node] - 1
+
+
+class TestAtomicShapes:
+    """The two irreducible covers: a lone node, and a lone edge.
+
+    These are the base cases of a self-similar clique manifold. The edge is why a
+    singleton clique cannot be required --- an interaction carries a coupling and no
+    bias, so its cover is one clique with no singletons at all.
+    """
+
+    def test_node_atom(self) -> None:
+        node = CliqueSet(n_nodes=1, n_roots=1, cliques=((0,),))
+        assert node.levels == ((0,),)
+        assert node.edges == ()
+        assert node.canonical_cliques == ((0,),)
+
+    def test_edge_atom(self) -> None:
+        edge = CliqueSet(n_nodes=2, n_roots=1, cliques=((0, 1),))
+        assert edge.levels == ((0,), (1,))
+        assert edge.edges == ((0, 1),)
+        assert edge.canonical_cliques == ((0, 1),)
+        assert edge.root_cliques == ()
+        assert edge.cross_cliques == ((0, 1),)
+        assert edge.deep_cliques == ()
+
+    def test_multi_clique_edge_atom(self) -> None:
+        """A block map over three nodes: the cover MFA's interaction needs."""
+        edge = CliqueSet(n_nodes=3, n_roots=1, cliques=((0, 1), (0, 1, 2), (0, 2)))
+        assert edge.levels == ((0,), (1, 2))
+        assert edge.cross_cliques == ((0, 1), (0, 1, 2), (0, 2))
+
+    def test_reachability_still_holds_without_singletons(self) -> None:
+        with pytest.raises(ValueError, match="node 2 is not reachable"):
+            CliqueSet(3, 1, ((0, 1),))
+
+    def test_singleton_is_optional_not_forbidden(self) -> None:
+        """Dropping the requirement must not make a node-only cover invalid."""
+        mixed = CliqueSet(3, 1, ((0,), (0, 1), (1, 2)))
+        assert mixed.levels == ((0,), (1,), (2,))
 
 
 class TestNormalization:
@@ -189,10 +228,6 @@ class TestValidation:
     def test_out_of_range_node(self) -> None:
         with pytest.raises(ValueError, match="out-of-range node 3"):
             CliqueSet(3, 1, ((0,), (1,), (2,), (0, 3)))
-
-    def test_missing_singleton(self) -> None:
-        with pytest.raises(ValueError, match="node 2 has no singleton clique"):
-            CliqueSet(3, 1, ((0,), (1,), (0, 1), (1, 2)))
 
     def test_unreachable_node(self) -> None:
         with pytest.raises(ValueError, match="node 1 is not reachable"):

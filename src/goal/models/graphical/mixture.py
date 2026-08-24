@@ -30,6 +30,7 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     BlockMap,
+    CliqueCut,
     CliqueSet,
     Diagonal,
     Differentiable,
@@ -202,6 +203,10 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
 # Mixture of Harmoniums
 
 
+_CATEGORY_NODE = 2
+"""Index of the category node $k$ in the $x - y - k$ graph declared below."""
+
+
 @dataclass(frozen=True)
 class CompleteMixtureOfHarmoniums[
     Observable: Differentiable,
@@ -280,13 +285,19 @@ class CompleteMixtureOfHarmoniums[
     @property
     @override
     def clq_set(self) -> CliqueSet:
-        """The two-node graph $x - z$, coarsening the latent mixture into one node.
+        """The three-node graph over $x$, $y$, and $k$, with $x$ the root.
 
-        The refinement into $x - y - k$ needs the three cross cliques of the
-        interaction to be addressable individually, which its ``BlockMap`` does not yet
-        expose.
+        Both $y$ and $k$ are adjacent to $x$, so the levels are $(1, 2)$ rather than a
+        chain: the graph has depth two, not three. The seven cliques are the three biases,
+        the three couplings, and the triple interaction $\\theta_{XYK}$, and their canonical
+        order lines up block for block with the parameter layout --- ``obs_man``, the
+        interaction's three blocks in their existing order, then the mixture's three.
         """
-        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
+        return CliqueSet(
+            n_nodes=3,
+            n_roots=1,
+            cliques=((0,), (1,), (2,), (0, 1), (0, 1, 2), (0, 2), (1, 2)),
+        )
 
     @property
     @override
@@ -362,47 +373,32 @@ class CompleteMixtureOfHarmoniums[
         """
         return CompleteMixture(self.bas_hrm, self.n_categories)  # pyright: ignore[reportArgumentType]
 
-    def to_mixture_coords(self, coords: Array) -> Array:
-        """Repack coordinates from three-block layout to mix_man layout.
+    @property
+    def mix_cut(self) -> CliqueCut:
+        """Re-view of the graph across the cut $\\{x, y\\} \\mid \\{k\\}$.
 
-        Works identically in both natural and mean coordinates: the reorganization
-        is a block permutation of sufficient statistics, which is the same
-        linear operation in both dual spaces.
+        The mixture layout is this model's own layout under a different bipartition: rather
+        than splitting off the root node $x$, it splits off the category node $k$ and
+        gathers everything coupling to it --- $\\theta_{XK}$, $\\theta_{XYK}$,
+        $\\theta_{YK}$ --- into one matrix whose rows follow the base harmonium's clique
+        order. That is exactly ``mix_man``'s three spans.
+
+        Note this is *not* ``levels[-1]``: the graph has depth two, so its deepest level
+        holds both $y$ and $k$, and cutting there would take $y$ with it.
         """
-        x_coords, int_coords, yk_harm_coords = self.split_level(coords)
-        xy_coords, xyk_coords, xk_coords = self.int_man.coord_blocks(int_coords)
-        y_coords, yk_int_coords, k_coords = self.bas_pst_man.split_level(yk_harm_coords)
+        return self.cut(frozenset({_CATEGORY_NODE}))
 
-        base_hrm_coords = self.bas_hrm.join_level(x_coords, xy_coords, y_coords)
+    def to_mixture_coords(self, coords: Array) -> Array:
+        """Repack coordinates from this model's layout to ``mix_man``'s.
 
-        n_cols = self.n_categories - 1
-        xk_matrix = xk_coords.reshape(-1, n_cols)
-        xyk_matrix = xyk_coords.reshape(-1, n_cols)
-        yk_matrix = yk_int_coords.reshape(-1, n_cols)
-        mix_int_coords = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix]).ravel()
-
-        return self.mix_man.join_level(base_hrm_coords, mix_int_coords, k_coords)
+        Works identically in natural and mean coordinates: a ``CliqueCut`` is a block
+        permutation, which is the same linear operation in both dual spaces.
+        """
+        return self.mix_man.join_level(*self.mix_cut.project(coords))
 
     def from_mixture_coords(self, mix_coords: Array) -> Array:
-        """Repack coordinates from mix_man layout to three-block layout.
-
-        Works identically in both natural and mean coordinates.
-        """
-        base_hrm_coords, mix_int_coords, k_coords = self.mix_man.split_level(mix_coords)
-        x_coords, xy_coords, y_coords = self.bas_hrm.split_level(base_hrm_coords)
-
-        n_cols = self.n_categories - 1
-        hrm_int_matrix = mix_int_coords.reshape(-1, n_cols)
-        obs_dim = self.bas_hrm.obs_man.dim
-        int_dim = self.bas_hrm.int_man.dim
-
-        xk_coords = hrm_int_matrix[:obs_dim, :].ravel()
-        xyk_coords = hrm_int_matrix[obs_dim : obs_dim + int_dim, :].ravel()
-        yk_int_coords = hrm_int_matrix[obs_dim + int_dim :, :].ravel()
-
-        int_coords = jnp.concatenate([xy_coords, xyk_coords, xk_coords])
-        yk_harm_coords = self.bas_pst_man.join_level(y_coords, yk_int_coords, k_coords)
-        return self.join_level(x_coords, int_coords, yk_harm_coords)
+        """Repack coordinates from ``mix_man``'s layout back to this model's."""
+        return self.mix_cut.join(*self.mix_man.split_level(mix_coords))
 
 
 # Mixture of Conjugated Harmoniums

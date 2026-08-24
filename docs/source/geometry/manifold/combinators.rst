@@ -46,12 +46,44 @@ Product Manifolds
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.manifold.combinators.Replicated
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+Clique Manifolds
+----------------
+
 .. autoclass:: goal.geometry.manifold.combinators.CliqueManifold
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.combinators.Replicated
+.. autoclass:: goal.geometry.manifold.combinators.Clique
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.combinators.Node
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.combinators.CompositeClique
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+Cut Views
+---------
+
+.. autoclass:: goal.geometry.manifold.combinators.CliqueCut
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autofunction:: goal.geometry.manifold.combinators.span_cover
+
+.. autofunction:: goal.geometry.manifold.combinators.span_blocks

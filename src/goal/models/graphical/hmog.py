@@ -41,7 +41,6 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
-    CliqueSet,
     DifferentiableConjugated,
     LinearEmbedding,
     ObservableEmbedding,
@@ -97,14 +96,6 @@ class _HMoGBase[
         """Prior upper harmonium (for conjugation)."""
 
     # Overrides
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The three-node chain $x - y - k$."""
-        return CliqueSet(
-            n_nodes=3, n_roots=1, cliques=((0,), (1,), (2,), (0, 1), (1, 2))
-        )
 
     @property
     @override

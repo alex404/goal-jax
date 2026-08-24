@@ -9,11 +9,11 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ...geometry import Differentiable
+from ...geometry import Differentiable, Node
 
 
 @dataclass(frozen=True)
-class Dirichlet(Differentiable):
+class Dirichlet(Differentiable, Node):
     """Dirichlet distribution over the probability simplex $\\Delta^{k-1} = \\{x \\in \\mathbb{R}^k : x_i > 0, \\sum_i x_i = 1\\}$.
 
     The density is

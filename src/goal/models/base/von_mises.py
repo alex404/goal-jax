@@ -10,12 +10,12 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import i0e
 
-from ...geometry import Differentiable
+from ...geometry import Differentiable, Node
 from ...geometry.exponential_family.combinators import DifferentiableProduct
 
 
 @dataclass(frozen=True)
-class VonMises(Differentiable):
+class VonMises(Differentiable, Node):
     """The von Mises distribution is a continuous probability distribution on the circle, analogous to the normal distribution on the line. The probability density function is:
 
     $$p(x; \\mu, \\kappa) = \\frac{1}{2\\pi I_0(\\kappa)}\\exp(\\kappa \\cos(x - \\mu))$$

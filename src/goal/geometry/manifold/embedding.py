@@ -13,7 +13,7 @@ import jax
 from jax import Array
 
 from .base import Manifold
-from .combinators import CliqueManifold, Null, Tuple
+from .combinators import CompositeClique, Null, Pair, Tuple
 
 ### Linear Subspaces ###
 
@@ -294,13 +294,77 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
         return self.amb_man.join_coords(*components)
 
 
+@dataclass(frozen=True)
+class FirstEmbedding[Fst: Manifold, PairMan: Pair[Any, Any]](
+    TupleEmbedding[Fst, PairMan]
+):
+    """Embeds the first component of a :class:`~goal.geometry.manifold.combinators.Pair`.
+
+    With :class:`SecondEmbedding`, this is what lets a coupling aim at one node of a
+    two-node span: both blocks of a
+    :class:`~goal.geometry.manifold.map.BlockMap` then share the pair as their codomain
+    while each selects its own side.
+    """
+
+    # Fields
+
+    _amb_man: PairMan
+    """The pair being embedded into."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(self) -> int:
+        return 0
+
+    @property
+    @override
+    def amb_man(self) -> PairMan:
+        return self._amb_man
+
+    @property
+    @override
+    def sub_man(self) -> Fst:
+        return self._amb_man.fst_man
+
+
+@dataclass(frozen=True)
+class SecondEmbedding[Snd: Manifold, PairMan: Pair[Any, Any]](
+    TupleEmbedding[Snd, PairMan]
+):
+    """Embeds the second component of a :class:`~goal.geometry.manifold.combinators.Pair`."""
+
+    # Fields
+
+    _amb_man: PairMan
+    """The pair being embedded into."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(self) -> int:
+        return 1
+
+    @property
+    @override
+    def amb_man(self) -> PairMan:
+        return self._amb_man
+
+    @property
+    @override
+    def sub_man(self) -> Snd:
+        return self._amb_man.snd_man
+
+
 ### Span Embeddings ###
 
 
 @dataclass(frozen=True)
 class RootEmbedding[
-    Sub: CliqueManifold[Any, Any, Any],
-    Ambient: CliqueManifold[Any, Any, Any],
+    Sub: CompositeClique[Any, Any, Any],
+    Ambient: CompositeClique[Any, Any, Any],
 ](LinearEmbedding[Sub, Ambient]):
     """Embeds one clique manifold into another over the same graph, transforming only the root span.
 

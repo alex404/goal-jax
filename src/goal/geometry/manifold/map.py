@@ -14,9 +14,10 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..algebra.clique import CliqueSet
 from ..algebra.matrix import MatrixRep, Square
 from .base import Manifold
-from .combinators import Pair
+from .combinators import Clique, Pair
 from .embedding import IdentityEmbedding, LinearComposedEmbedding, LinearEmbedding
 
 ### Maps ###
@@ -52,7 +53,9 @@ class Map[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
 
 
 @dataclass(frozen=True)
-class LinearMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain], ABC):
+class LinearMap[Domain: Manifold, Codomain: Manifold](
+    Map[Domain, Codomain], Clique, ABC
+):
     """A linear transformation between manifolds.
 
     Adds linear-specific operations to ``Map``: transpose, outer product, and embedding manipulation. Concrete implementations choose how to store and execute the matrix.
@@ -101,6 +104,21 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain], ABC
         This enables operations like tensoring with a new factor by wrapping
         the codomain embedding in a more complex structure.
         """
+
+    # Overrides
+
+    @property
+    @override
+    def clq_set(self) -> CliqueSet:
+        """The two-node clique joining the domain node to the codomain node.
+
+        Node ``0`` is the codomain and node ``1`` the domain, matching the root/deep
+        orientation a harmonium gives its interaction. A :class:`BlockMap` reports the same
+        cover: its blocks share a domain and codomain, so which of their nodes each block
+        couples is not readable from the blocks themselves. See :class:`SquareMap` for the
+        case where the two nodes coincide.
+        """
+        return self.single_cover(2)
 
     # Methods
 
@@ -351,6 +369,19 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
     # Methods
 
+    @property
+    @override
+    def clique_dims(self) -> tuple[int, ...]:
+        """One block per constituent map: a block map is several cliques, not one.
+
+        Its own :attr:`clq_set` still reports the coarse two-node cut, because the blocks
+        share a domain and codomain and so cannot say *which* nodes each couples. The
+        composite that owns the block map supplies those identities; the block map supplies
+        only the sizes. :meth:`~goal.geometry.manifold.combinators.CliqueManifold.cut`
+        checks the two agree.
+        """
+        return tuple(block.dim for block in self.blocks)
+
     def coord_blocks(self, coords: Array) -> list[Array]:
         """Split flat parameters into per-block slices."""
         sections = []
@@ -374,11 +405,27 @@ class AmbientMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codom
 
 @dataclass(frozen=True)
 class SquareMap[M: Manifold](AmbientMap[M, M]):
-    """Square ``AmbientMap`` (domain = codomain), exposing inverse, log-determinant, and positive-definiteness checks."""
+    """Square ``AmbientMap`` (domain = codomain), exposing inverse, log-determinant, and positive-definiteness checks.
+
+    Domain and codomain are the same manifold, so this is a clique of *one* node --- a
+    self-interaction, not a coupling between two --- which is why it overrides
+    :attr:`~goal.geometry.manifold.map.LinearMap.clq_set` back to the one-node cover. This
+    is the shape a node's second moment takes: ``Covariance`` and ``CouplingMatrix`` are
+    both square maps living inside a single node.
+    """
 
     # Fields
 
     rep: Square
+
+    # Overrides
+
+    @property
+    @override
+    def clq_set(self) -> CliqueSet:
+        return self.single_cover(1)
+
+    # Methods
 
     def __init__(self, rep: MatrixRep, dom_man: M):
         # Check that the representation is square

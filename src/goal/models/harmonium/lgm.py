@@ -12,7 +12,6 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
-    CliqueSet,
     Diagonal,
     DifferentiableConjugated,
     EmbeddedMap,
@@ -255,12 +254,6 @@ class LGM[
     def int_pst_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
         """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
         return GeneralizedGaussianLocationEmbedding(self.pst_man)
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The two-node graph $x - z$: an observable Gaussian and a latent one."""
-        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override

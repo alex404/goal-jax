@@ -33,7 +33,6 @@ from jax import Array
 
 from goal.geometry import (
     AmbientMap,
-    CliqueSet,
     Harmonium,
     LinearMap,
     ObservableEmbedding,
@@ -268,12 +267,6 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
     """Harmonium with interaction restricted to the BaseLatent slot of the mixture."""
 
     _int_man: LinearMap[Any, Binomials]
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The two-node graph $x - z$, coarsening the latent mixture into one node."""
-        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override

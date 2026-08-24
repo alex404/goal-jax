@@ -32,9 +32,10 @@ from dataclasses import dataclass
 class CliqueSet:
     """The nodes, root set, and cliques of a graph.
 
-    Cliques are index tuples. Every node must carry a singleton clique, so that the cover
-    addresses each node on its own, and every node must be reachable from the root set, so
-    that its level is defined.
+    Cliques are index tuples. Every node must be reachable from the root set, so that its
+    level is defined. Singleton cliques are *not* required: whether a node carries a bias
+    of its own is a fact about the family occupying it, not about the graph. A lone edge
+    ``((0, 1),)`` is a legitimate cover, and is what an interaction on its own looks like.
 
     Members are sorted within each clique and cliques are sorted among themselves at
     construction, so two equivalent descriptions compare and hash equal. Storage order is
@@ -50,7 +51,7 @@ class CliqueSet:
     """Number of root nodes --- the set the level partition is measured from."""
 
     cliques: tuple[tuple[int, ...], ...]
-    """The interacting groups of nodes, including one singleton per node."""
+    """The interacting groups of nodes. Singletons, where present, are the per-node blocks."""
 
     def __post_init__(self) -> None:
         normalized = tuple(sorted(tuple(sorted(set(c))) for c in self.cliques))
@@ -232,9 +233,6 @@ class CliqueSet:
             raise ValueError(f"duplicate cliques: {duplicates}")
 
     def _validate_nodes(self) -> None:
-        for i in range(self.n_nodes):
-            if (i,) not in self.cliques:
-                raise ValueError(f"node {i} has no singleton clique")
         for i, level in enumerate(self._bfs_levels()):
             if level < 0:
                 raise ValueError(f"node {i} is not reachable from the root nodes")

@@ -20,7 +20,6 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    CliqueSet,
     Diagonal,
     Differentiable,
     EmbeddedMap,
@@ -104,12 +103,6 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
     """
 
     _int_man: EmbeddedMap[Latent, Observable]
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The two-node graph $x - z$."""
-        return CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 
     @property
     @override

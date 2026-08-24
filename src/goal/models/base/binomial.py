@@ -10,12 +10,12 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import gammaln
 
-from ...geometry import Analytic
+from ...geometry import Analytic, Node
 from ...geometry.exponential_family.combinators import AnalyticProduct
 
 
 @dataclass(frozen=True)
-class Binomial(Analytic):
+class Binomial(Analytic, Node):
     """Binomial distribution with fixed number of trials over counts $x \\in \\{0, 1, \\ldots, n\\}$.
 
     $$p(x; \\theta) = \\binom{n}{x} p^x (1-p)^{n-x}$$

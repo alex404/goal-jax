@@ -9,10 +9,13 @@ A harmonium is a latent-variable model where hidden and observed variables have 
 - **Gaussian latent** → factor analysis / PCA (:doc:`lgm`)
 - **Von Mises latent** → population code for circular stimuli (:doc:`population_codes`)
 
+The choice of *graph* matters as much as the choice of latent. All of the above are chains --- one observable, one latent --- while :doc:`cca` is a fork: two observables sharing one latent, and so the first model here over a graph with more than one root.
+
 .. toctree::
    :maxdepth: 1
    :caption: Modules:
 
+   cca
    lgm
    mixture
    population_codes

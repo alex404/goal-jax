@@ -13,9 +13,8 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..algebra.clique import CliqueSet
 from ..manifold.base import Manifold
-from ..manifold.combinators import CliqueManifold
+from ..manifold.combinators import CompositeClique
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
@@ -33,23 +32,17 @@ class Harmonium[
     Posterior: Gibbs,
 ](
     Gibbs,
-    CliqueManifold[Observable, LinearMap[Posterior, Observable], Posterior],
+    CompositeClique[Observable, LinearMap[Posterior, Observable], Posterior],
     ABC,
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares its graph --- :attr:`clq_set` --- and the interaction manifold :attr:`int_man` that joins the two sides of it. The observable and posterior manifolds are read off the interaction, and the three of them are the root, cross, and deep spans of the graph: :attr:`~goal.geometry.manifold.combinators.CliqueManifold.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three spans stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep span holds.
+    A model declares its graph --- :attr:`clq_set` --- and the interaction manifold :attr:`int_man` that joins the two sides of it. The observable and posterior manifolds are read off the interaction, and the three of them are the root, cross, and deep spans of the graph: :attr:`~goal.geometry.manifold.combinators.CompositeClique.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three spans stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep span holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
 
     # Contract
-
-    @property
-    @abstractmethod
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The graph this model is defined on."""
 
     @property
     @abstractmethod
@@ -505,7 +498,7 @@ class HarmoniumEmbedding[
 ](LinearEmbedding[Component, Harmonium[Observable, Posterior]], ABC):
     """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
 
-    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.combinators.CliqueManifold.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
+    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.combinators.CompositeClique.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
     """
 
     # Fields
