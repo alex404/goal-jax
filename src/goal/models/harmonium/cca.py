@@ -38,6 +38,7 @@ from ...geometry import (
     AnalyticPair,
     BlockMap,
     DifferentiableConjugated,
+    EFClique,
     EmbeddedMap,
     FirstEmbedding,
     LinearComposedEmbedding,
@@ -45,6 +46,7 @@ from ...geometry import (
     PositiveDefinite,
     Rectangular,
     SecondEmbedding,
+    block_clique,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from .lgm import (
@@ -132,13 +134,16 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def int_members(self) -> tuple[tuple[int, ...], ...]:
+    def cross_blocks(self) -> tuple[EFClique, ...]:
         """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
 
         Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two
-        roots come from the observable being a pair, so the levels come out $(2, 1)$.
+        roots come from the observable being a pair, so the levels come out $(2, 1)$. Each
+        branch's selectors come from its own block --- the slot embedding picking its side
+        of the observable pair, and the shared latent.
         """
-        return ((0, 2), (1, 2))
+        fst, snd = self.int_man.blocks
+        return (block_clique(fst, (0, 2)), block_clique(snd, (1, 2)))
 
     @property
     @override

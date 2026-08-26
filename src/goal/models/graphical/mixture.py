@@ -7,7 +7,7 @@ observable shifts. That fork --- $y$ and $k$ both adjacent to $x$ --- is why the
 depth two rather than being a chain.
 
 The same coordinates read two ways. :meth:`to_mixture_coords` re-roots the layout at $k$
-via :meth:`~goal.geometry.manifold.graphical.LinearCliques.cut`, turning the model into a
+via :meth:`~goal.geometry.exponential_family.clique.LinearCliques.cut`, turning the model into a
 :class:`~goal.models.harmonium.mixture.CompleteMixture` whose observable is the base
 harmonium; :meth:`from_mixture_coords` inverts it. Conjugation and whitening are written
 against whichever view makes them a one-liner.
@@ -32,6 +32,7 @@ from ...geometry import (
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
+    EFClique,
     EmbeddedMap,
     Harmonium,
     IdentityEmbedding,
@@ -39,6 +40,9 @@ from ...geometry import (
     LinearMap,
     Rectangular,
     SymmetricConjugated,
+    block_clique,
+    join_cut,
+    project_cut,
 )
 from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, Normal
@@ -153,7 +157,8 @@ class CompleteMixtureOfHarmoniums[
 
     Given a base harmonium over (Observable, Posterior), this constructs a harmonium whose
     latent space is ``CompleteMixture[Posterior]`` = $(Y, K)$. The interaction is three
-    cliques rather than one, and their members are what :attr:`int_members` declares:
+    cliques rather than one, and which nodes each couples is what :attr:`cross_blocks`
+    declares:
 
     - ``xy_man`` --- $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
     - ``xyk_man`` --- $\\theta_{XYK}$ on $(x, y, k)$: component-specific interaction offsets
@@ -193,7 +198,7 @@ class CompleteMixtureOfHarmoniums[
     def xy_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
         """$\\theta_{XY}$: the base interaction, aimed at the mixture's $y$ bias block."""
         return self.bas_hrm.int_man.map_domain_embedding(
-            lambda y_sel: CliqueBlockEmbedding(self.bas_pst_man, (0,), (y_sel,))
+            lambda y_sel: CliqueBlockEmbedding((0,), (y_sel,), self.bas_pst_man)
         )
 
     @property
@@ -208,7 +213,7 @@ class CompleteMixtureOfHarmoniums[
         """
         return self.bas_hrm.int_man.map_domain_embedding(
             lambda y_sel: CliqueBlockEmbedding(
-                self.bas_pst_man, (0, 1), (y_sel, self._cat_sel)
+                (0, 1), (y_sel, self._cat_sel), self.bas_pst_man
             )
         )
 
@@ -217,13 +222,13 @@ class CompleteMixtureOfHarmoniums[
         """$\\theta_{XK}$: per-component shifts of the whole observable bias."""
         return EmbeddedMap(
             Rectangular(),
-            CliqueBlockEmbedding(self.bas_pst_man, (1,), (self._cat_sel,)),
+            CliqueBlockEmbedding((1,), (self._cat_sel,), self.bas_pst_man),
             IdentityEmbedding(self.bas_hrm.obs_man),
         )
 
     @property
     @override
-    def int_members(self) -> tuple[tuple[int, ...], ...]:
+    def cross_blocks(self) -> tuple[EFClique, ...]:
         """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
 
         Node $0$ is $x$, node $1$ is $y$, node $2$ is $k$. Everything else about the graph
@@ -232,9 +237,17 @@ class CompleteMixtureOfHarmoniums[
         $y$ and $k$ are adjacent to $x$, so the graph has depth two, not three.
 
         This has to be declared because the blocks share a domain and a codomain: which
-        nodes each couples lives in their domain embeddings, not in the block map.
+        nodes each couples lives in their domain embeddings, not in the block map. The
+        selectors themselves are read off each block --- and the middle one comes out arity
+        three, because its domain addresses the mixture's joint $(y,k)$ block rather than
+        either node alone.
         """
-        return ((0, 1), (0, 1, 2), (0, 2))
+        xy, xyk, xk = self.int_man.blocks
+        return (
+            block_clique(xy, (0, 1)),
+            block_clique(xyk, (0, 1, 2)),
+            block_clique(xk, (0, 2)),
+        )
 
     @property
     @override
@@ -331,11 +344,11 @@ class CompleteMixtureOfHarmoniums[
         Works identically in natural and mean coordinates: a ``CliqueCut`` is a block
         permutation, which is the same linear operation in both dual spaces.
         """
-        return self.mix_man.join_level(*self.mix_cut.project(coords))
+        return self.mix_man.join_level(*project_cut(self.mix_cut, coords))
 
     def from_mixture_coords(self, mix_coords: Array) -> Array:
         """Repack coordinates from ``mix_man``'s layout back to this model's."""
-        return self.mix_cut.join(*self.mix_man.split_level(mix_coords))
+        return join_cut(self.mix_cut, *self.mix_man.split_level(mix_coords))
 
 
 # Mixture of Conjugated Harmoniums

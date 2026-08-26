@@ -156,7 +156,7 @@ class TestValidation:
     """Arity is one fact, so the ways of disagreeing with it are all construction errors.
 
     A selector *is* an axis, so a count mismatch and an axis mismatch are the same error,
-    and ``LinearClique`` raises it once for every clique rather than per subclass.
+    and ``EFClique`` raises it once for every clique, subclasses included.
     """
 
     def test_member_and_selector_counts_must_agree(self) -> None:

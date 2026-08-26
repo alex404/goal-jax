@@ -13,4 +13,3 @@ Users of existing models rarely need to interact with this layer directly --- th
    combinators
    embedding
    map
-   graphical

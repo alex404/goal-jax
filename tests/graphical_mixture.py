@@ -265,8 +265,8 @@ def test_mfa_to_natural_round_trip() -> None:
 class TestMFAGraph:
     """MFA's graph is derived from its coupling pattern, not declared clique by clique.
 
-    The model states only which nodes each interaction block couples --- ``int_members``,
-    three tuples. Node count, root count, the biases, the ``(y, k)`` coupling from the
+    The model states only which nodes each interaction block couples ---
+    ``cross_blocks``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
     mixture one level up, the levels, and the block layout all follow from that. These
     tests pin what follows, because a wrong derivation would be silent: every operation
     below reads the level split, which does not consult the graph.
@@ -406,5 +406,5 @@ class TestDerivedInteractionEmbeddings:
         mix = mfa.pst_man
         with pytest.raises(ValueError, match="no clique on"):
             CliqueBlockEmbedding(
-                mix, (0, 1, 2), (IdentityEmbedding(mix.obs_man),) * 3
+                (0, 1, 2), (IdentityEmbedding(mix.obs_man),) * 3, mix
             ).project(jnp.zeros(mix.dim))

@@ -369,7 +369,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
         A block map is several couplings summed, so when one is used as a level's cross
         span it becomes several cliques rather than one --- see
-        :attr:`~goal.geometry.manifold.graphical.LevelCliques.cross_blocks`. Which *nodes*
+        :attr:`~goal.geometry.exponential_family.clique.LevelCliques.cross_blocks`. Which *nodes*
         each block couples is not readable here, because the blocks share a domain and
         codomain; the model supplies those identities.
         """
@@ -456,8 +456,8 @@ class MultilinearMap(Manifold):
               \\Theta_{j_1 \\ldots i \\ldots j_n} \\prod_{l \\neq k} (v_l)_{j_l}.
 
     Knows nothing about graphs: a
-    :class:`~goal.geometry.manifold.graphical.LinearClique` supplies the graph position --- this
-    is its :attr:`~goal.geometry.manifold.graphical.LinearClique.form` --- and the factor
+    :class:`~goal.geometry.exponential_family.clique.EFClique` supplies the graph position --- this
+    is its :attr:`~goal.geometry.exponential_family.clique.EFClique.form` --- and the factor
     dimensions here are the *selected* sub-statistic dimensions, not the full node
     dimensions.
     """

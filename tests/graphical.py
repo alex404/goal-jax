@@ -1,4 +1,4 @@
-"""Tests for the clique-indexed layouts in geometry/manifold/graphical.py.
+"""Tests for the clique-indexed layouts in geometry/exponential_family/clique.py.
 
 A clique manifold stores coordinates as the three spans of one level ascent,
 ``[root | cross | deep]``. The tests pin that layout against what ``analytic_hmog`` and
@@ -19,13 +19,14 @@ from jax import Array
 
 from goal.geometry import (
     CliqueBlockEmbedding,
-    CliqueSet,
+    Cliques,
     Diagonal,
+    EFClique,
     EmbeddedMap,
+    ExponentialFamily,
     IdentityEmbedding,
     InteractionEmbedding,
     LevelCliques,
-    LinearClique,
     LinearCliques,
     Manifold,
     ObservableEmbedding,
@@ -34,6 +35,9 @@ from goal.geometry import (
     Rectangular,
     RootEmbedding,
     Scale,
+    block_clique,
+    join_cut,
+    project_cut,
 )
 from goal.models import (
     CanonicalCorrelationAnalysis,
@@ -41,44 +45,55 @@ from goal.models import (
     CompleteMixture,
     MixtureOfFactorAnalyzers,
     Normal,
+    Poissons,
     analytic_hmog,
     differentiable_hmog,
     factor_analysis,
 )
 
+
+def _block(members: tuple[int, ...], axes: tuple[int, ...]) -> EFClique:
+    """A clique with the given factor sizes, for building layouts by hand.
+
+    ``Poissons(n)`` has dimension ``n``, so naming the axis sizes is enough --- the nodes
+    it stands them up on are incidental to what these tests check.
+    """
+    return EFClique(members, tuple(IdentityEmbedding(Poissons(n)) for n in axes))
+
+
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
 
-TWO_NODE = CliqueSet(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
+TWO_NODE = Cliques(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
 """x --- z: the graph a plain harmonium lays out on."""
 
-THREE_NODE = CliqueSet(n_nodes=3, n_roots=1, cliques=((0,), (1,), (2,), (0, 1), (1, 2)))
+THREE_NODE = Cliques(n_nodes=3, n_roots=1, cliques=((0,), (1,), (2,), (0, 1), (1, 2)))
 """x --- y --- k: the graph a hierarchical mixture declares."""
 
 
 @dataclass(frozen=True)
-class _Spans(LevelCliques[Manifold, Manifold, Manifold]):
+class _Spans(LevelCliques[ExponentialFamily, Manifold, ExponentialFamily]):
     """A clique manifold assembled from three explicit span manifolds."""
 
-    _clq_set: CliqueSet
-    _root_man: Manifold
+    _clq_set: Cliques
+    _root_man: ExponentialFamily
     _cross_man: Manifold
-    _deep_man: Manifold
-    _cross_blocks: tuple[LinearClique, ...]
+    _deep_man: ExponentialFamily
+    _cross_blocks: tuple[EFClique, ...]
 
     @property
     @override
-    def clq_set(self) -> CliqueSet:
+    def clq_set(self) -> Cliques:
         return self._clq_set
 
     @property
     @override
-    def cross_blocks(self) -> tuple[LinearClique, ...]:
+    def cross_blocks(self) -> tuple[EFClique, ...]:
         return self._cross_blocks
 
     @property
     @override
-    def root_man(self) -> Manifold:
+    def root_man(self) -> ExponentialFamily:
         return self._root_man
 
     @property
@@ -88,7 +103,7 @@ class _Spans(LevelCliques[Manifold, Manifold, Manifold]):
 
     @property
     @override
-    def deep_man(self) -> Manifold:
+    def deep_man(self) -> ExponentialFamily:
         return self._deep_man
 
 
@@ -226,11 +241,11 @@ class TestRootEmbedding:
         q = jax.random.normal(key_q, (model.pst_upr_hrm.dim,))
         assert jnp.allclose(emb.translate(p, q), p + emb.embed(q))
 
-    def test_rejects_mismatched_clique_sets(self) -> None:
+    def test_rejects_mismatched_graphs(self) -> None:
         model, _ = self._asymmetric_pair()
         pst, prr = model.pst_upr_hrm, model.prr_upr_hrm
         odd = _Spans(
-            CliqueSet(2, 2, ((0,), (1,))),
+            Cliques(2, 2, ((0,), (1,))),
             prr.obs_man,
             prr.int_man,
             prr.pst_man,
@@ -285,7 +300,7 @@ class TestCliqueAddressing:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
         params = jax.random.normal(jax.random.PRNGKey(2), (model.dim,))
         cut = model.cut(2)
-        assert jnp.allclose(cut.join(*cut.project(params)), params)
+        assert jnp.allclose(join_cut(cut, *project_cut(cut, params)), params)
 
     def test_cut_rejects_a_sub_statistic_coupling(self) -> None:
         """A Gaussian interaction couples part of the latent statistic, so has no view.
@@ -303,8 +318,8 @@ class TestCliqueAddressing:
         Without this guard the cut has zero columns and every crossing block is read as
         a row band of width nothing --- silently, since no arithmetic contradicts it.
         """
-        blocks = (LinearClique((0,), (2,)), LinearClique((0, 1), (2, 3)))
-        layout = _Layout(CliqueSet(2, 1, ((0,), (0, 1))), blocks)
+        blocks = (_block((0,), (2,)), _block((0, 1), (2, 3)))
+        layout = _Layout(Cliques(2, 1, ((0,), (0, 1))), blocks)
         with pytest.raises(ValueError, match="has no block of its own"):
             layout.cut(1)
 
@@ -410,32 +425,33 @@ class _ReversedCCA(
     """CCA declaring its branches in non-canonical order.
 
     Nothing forbids this: the two branches are symmetric, and a model author has no reason
-    to know that ``CliqueSet`` will sort them.
+    to know that ``Cliques`` will sort them.
     """
 
     @property
     @override
-    def int_members(self) -> tuple[tuple[int, ...], ...]:
-        return ((1, 2), (0, 2))
+    def cross_blocks(self) -> tuple[EFClique, ...]:
+        fst, snd = self.int_man.blocks
+        return (block_clique(fst, (1, 2)), block_clique(snd, (0, 2)))
 
 
 @dataclass(frozen=True)
-class _DerivedSpans(LevelCliques[Manifold, Manifold, Manifold]):
+class _DerivedSpans(LevelCliques[ExponentialFamily, Manifold, ExponentialFamily]):
     """Three explicit spans whose graph is *derived* rather than declared."""
 
-    _root_man: Manifold
+    _root_man: ExponentialFamily
     _cross_man: Manifold
-    _deep_man: Manifold
-    _cross_blocks: tuple[LinearClique, ...]
+    _deep_man: ExponentialFamily
+    _cross_blocks: tuple[EFClique, ...]
 
     @property
     @override
-    def cross_blocks(self) -> tuple[LinearClique, ...]:
+    def cross_blocks(self) -> tuple[EFClique, ...]:
         return self._cross_blocks
 
     @property
     @override
-    def root_man(self) -> Manifold:
+    def root_man(self) -> ExponentialFamily:
         return self._root_man
 
     @property
@@ -445,7 +461,7 @@ class _DerivedSpans(LevelCliques[Manifold, Manifold, Manifold]):
 
     @property
     @override
-    def deep_man(self) -> Manifold:
+    def deep_man(self) -> ExponentialFamily:
         return self._deep_man
 
 
@@ -461,10 +477,10 @@ def _misrooted() -> _DerivedSpans:
     mix = CompleteMixture(Normal(2, Diagonal()), 4)
     cross = EmbeddedMap(
         Rectangular(),
-        CliqueBlockEmbedding(mix, (1,), (IdentityEmbedding(Categorical(4)),)),
+        CliqueBlockEmbedding((1,), (IdentityEmbedding(Categorical(4)),), mix),
         IdentityEmbedding(obs),
     )
-    block = LinearClique((0, 2), (obs.dim, Categorical(4).dim))
+    block = _block((0, 2), (obs.dim, Categorical(4).dim))
     return _DerivedSpans(obs, cross, mix, (block,))
 
 
@@ -482,7 +498,7 @@ class TestDeclarationOrderRegressions:
         )
         params = jnp.arange(float(model.dim))
         declared = model.int_man.coord_blocks(model.split_level(params)[1])
-        # int_members[1] == (0, 2), so the second block is the (0, 2) clique.
+        # cross_blocks[1] is on (0, 2), so the second block is the (0, 2) clique.
         found = model.split_cliques(params)[model.clique_index((0, 2))]
         assert jnp.array_equal(found, declared[1])
 
@@ -499,7 +515,7 @@ class TestDeclarationOrderRegressions:
             _ = _misrooted().clq_set
 
     def test_misrooted_deep_span_labels_its_own_blocks(self) -> None:
-        """Independent of the graph: ``clique_index`` reads the blocks' own members."""
+        """Independent of the clique_set: ``clique_index`` reads the blocks' own members."""
         man = _misrooted()
         params = jnp.arange(float(man.dim))
         deep = man.split_level(params)[2]
@@ -520,8 +536,8 @@ class _Layout(LinearCliques):
     blocks do not cover --- which is what the layout-disagreement guard exists to catch.
     """
 
-    _clq_set: CliqueSet
-    _clique_blocks: tuple[LinearClique, ...]
+    _clq_set: Cliques
+    _clique_blocks: tuple[EFClique, ...]
 
     @property
     @override
@@ -530,12 +546,12 @@ class _Layout(LinearCliques):
 
     @property
     @override
-    def clq_set(self) -> CliqueSet:
+    def clq_set(self) -> Cliques:
         return self._clq_set
 
     @property
     @override
-    def clique_blocks(self) -> tuple[LinearClique, ...]:
+    def clique_blocks(self) -> tuple[EFClique, ...]:
         return self._clique_blocks
 
 
@@ -547,13 +563,13 @@ def _forked() -> _Layout:
     land on different sides and the collision cannot arise.
     """
     blocks = (
-        LinearClique((0,), (2,)),
-        LinearClique((0, 1), (2, 4)),
-        LinearClique((0, 2), (2, 4)),
-        LinearClique((1,), (4,)),
-        LinearClique((2,), (4,)),
+        _block((0,), (2,)),
+        _block((0, 1), (2, 4)),
+        _block((0, 2), (2, 4)),
+        _block((1,), (4,)),
+        _block((2,), (4,)),
     )
-    return _Layout(CliqueSet(3, 1, tuple(b.members for b in blocks)), blocks)
+    return _Layout(Cliques(3, 1, tuple(b.members for b in blocks)), blocks)
 
 
 class TestCutGuards:
@@ -571,15 +587,15 @@ class TestCutGuards:
             cut = man.cut(far)
             assert len(set(cut.cross_rows)) == len(cut.cross_rows)
             coords = jnp.arange(float(man.dim))
-            assert jnp.array_equal(cut.join(*cut.project(coords)), coords)
+            assert jnp.array_equal(join_cut(cut, *project_cut(cut, coords)), coords)
 
     def test_rejects_a_node_outside_the_graph(self) -> None:
         with pytest.raises(ValueError, match="far_node 7 is not one of the graph's 3"):
             _forked().cut(7)
 
     def test_rejects_cutting_the_only_node(self) -> None:
-        blocks = (LinearClique((0,), (4,)),)
-        man = _Layout(CliqueSet(1, 1, ((0,),)), blocks)
+        blocks = (_block((0,), (4,)),)
+        man = _Layout(Cliques(1, 1, ((0,),)), blocks)
         with pytest.raises(ValueError, match="leaves no near side"):
             man.cut(0)
 

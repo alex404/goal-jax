@@ -1,4 +1,4 @@
-from .algebra.clique import CliqueSet
+from .algebra.clique import CliqueCut, Cliques
 from .algebra.matrix import (
     Diagonal,
     Identity,
@@ -17,7 +17,15 @@ from .exponential_family.base import (
     Gibbs,
 )
 from .exponential_family.clique import (
+    CliqueBlockEmbedding,
+    CliqueProduct,
     EFClique,
+    LevelCliques,
+    LinearCliques,
+    RootEmbedding,
+    block_clique,
+    join_cut,
+    project_cut,
 )
 from .exponential_family.combinators import (
     AnalyticPair,
@@ -73,15 +81,6 @@ from .manifold.embedding import (
     TrivialEmbedding,
     TupleEmbedding,
 )
-from .manifold.graphical import (
-    CliqueBlockEmbedding,
-    CliqueCut,
-    CliqueProduct,
-    LevelCliques,
-    LinearClique,
-    LinearCliques,
-    RootEmbedding,
-)
 from .manifold.map import (
     AffineMap,
     AmbientMap,
@@ -105,7 +104,7 @@ __all__ = [
     "CliqueBlockEmbedding",
     "CliqueCut",
     "CliqueProduct",
-    "CliqueSet",
+    "Cliques",
     "ComposedEmbedding",
     "Conjugated",
     "Diagonal",
@@ -130,7 +129,6 @@ __all__ = [
     "IdentityEmbedding",
     "InteractionEmbedding",
     "LevelCliques",
-    "LinearClique",
     "LinearCliques",
     "LinearComposedEmbedding",
     "LinearEmbedding",
@@ -164,4 +162,7 @@ __all__ = [
     "VariationalDifferentiable",
     "VariationalLatentProcess",
     "VariationalSymmetric",
+    "block_clique",
+    "join_cut",
+    "project_cut",
 ]
