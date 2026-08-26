@@ -16,6 +16,9 @@ from .exponential_family.base import (
     Generative,
     Gibbs,
 )
+from .exponential_family.clique import (
+    EFClique,
+)
 from .exponential_family.combinators import (
     AnalyticPair,
     AnalyticProduct,
@@ -53,12 +56,6 @@ from .manifold.base import (
     Manifold,
 )
 from .manifold.combinators import (
-    Clique,
-    CliqueCut,
-    CliqueManifold,
-    CliqueProduct,
-    CompositeClique,
-    Node,
     Null,
     Pair,
     Quadruple,
@@ -72,10 +69,18 @@ from .manifold.embedding import (
     IdentityEmbedding,
     LinearComposedEmbedding,
     LinearEmbedding,
-    RootEmbedding,
     SecondEmbedding,
     TrivialEmbedding,
     TupleEmbedding,
+)
+from .manifold.graphical import (
+    CliqueBlockEmbedding,
+    CliqueCut,
+    CliqueProduct,
+    LevelCliques,
+    LinearClique,
+    LinearCliques,
+    RootEmbedding,
 )
 from .manifold.map import (
     AffineMap,
@@ -85,6 +90,7 @@ from .manifold.map import (
     LinearMap,
     Map,
     MultilayerPerceptron,
+    MultilinearMap,
     SquareMap,
 )
 
@@ -96,19 +102,18 @@ __all__ = [
     "AnalyticPair",
     "AnalyticProduct",
     "BlockMap",
-    "Clique",
+    "CliqueBlockEmbedding",
     "CliqueCut",
-    "CliqueManifold",
     "CliqueProduct",
     "CliqueSet",
     "ComposedEmbedding",
-    "CompositeClique",
     "Conjugated",
     "Diagonal",
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiablePair",
     "DifferentiableProduct",
+    "EFClique",
     "EmbeddedMap",
     "Embedding",
     "ExponentialFamily",
@@ -124,6 +129,9 @@ __all__ = [
     "Identity",
     "IdentityEmbedding",
     "InteractionEmbedding",
+    "LevelCliques",
+    "LinearClique",
+    "LinearCliques",
     "LinearComposedEmbedding",
     "LinearEmbedding",
     "LinearMap",
@@ -132,7 +140,7 @@ __all__ = [
     "Map",
     "MatrixRep",
     "MultilayerPerceptron",
-    "Node",
+    "MultilinearMap",
     "Null",
     "ObservableEmbedding",
     "Pair",

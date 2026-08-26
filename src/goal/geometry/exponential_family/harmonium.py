@@ -7,16 +7,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.combinators import CompositeClique
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
-from ..manifold.map import AffineMap, LinearMap
+from ..manifold.graphical import LevelCliques, LinearClique
+from ..manifold.map import AffineMap, BlockMap, EmbeddedMap, LinearMap, MultilinearMap
 from ..manifold.util import batched_mean
 from .base import (
     Analytic,
@@ -26,18 +26,36 @@ from .base import (
 )
 
 
+def _factor_dims(man: Manifold) -> tuple[int, ...]:
+    """A sub-statistic's factor dimensions: several when it is itself a joint tensor."""
+    return man.sub_dims if isinstance(man, MultilinearMap) else (man.dim,)
+
+
+def _block_axes(block: LinearMap[Any, Any], arity: int) -> tuple[int, ...]:
+    """Factor dimensions of one interaction block, one per coupled node.
+
+    A block whose domain sub-statistic is itself a joint over several nodes --- what a
+    three-way interaction's domain is --- contributes one factor per node.
+    """
+    if arity == 1:
+        return (block.dim,)
+    if isinstance(block, EmbeddedMap):
+        return _factor_dims(block.cod_emb.sub_man) + _factor_dims(block.dom_emb.sub_man)
+    return (block.dim,)
+
+
 @dataclass(frozen=True)
 class Harmonium[
     Observable: Gibbs,
     Posterior: Gibbs,
 ](
     Gibbs,
-    CompositeClique[Observable, LinearMap[Posterior, Observable], Posterior],
+    LevelCliques[Observable, LinearMap[Posterior, Observable], Posterior],
     ABC,
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares its graph --- :attr:`clq_set` --- and the interaction manifold :attr:`int_man` that joins the two sides of it. The observable and posterior manifolds are read off the interaction, and the three of them are the root, cross, and deep spans of the graph: :attr:`~goal.geometry.manifold.combinators.CompositeClique.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three spans stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep span holds.
+    A model declares the interaction manifold :attr:`int_man` that joins the two sides, and which nodes each of its blocks couples (:attr:`int_members`); the graph is *derived* from that. The observable and posterior manifolds are read off the interaction, and the three of them are the root, cross, and deep spans: :attr:`~goal.geometry.manifold.graphical.LevelCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three spans stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep span holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -72,8 +90,47 @@ class Harmonium[
     @property
     @override
     def cross_man(self) -> LinearMap[Posterior, Observable]:
-        """The cross span is the interaction matrix."""
+        """The cross span *is* the interaction. No wrapper."""
         return self.int_man
+
+    @property
+    @override
+    def cross_blocks(self) -> tuple[LinearClique, ...]:
+        """One clique per interaction block, on the nodes :attr:`int_members` names.
+
+        A block's axes come from the sub-statistics its embeddings select: one factor per
+        member, so a domain that is itself a joint over several nodes contributes one factor
+        each rather than one for the group. That is what makes a three-way interaction
+        report arity three.
+        """
+        maps = (
+            self.int_man.blocks
+            if isinstance(self.int_man, BlockMap)
+            else (self.int_man,)
+        )
+        members = self.int_members
+        if len(members) != len(maps):
+            msg = f"{len(members)} member tuples for {len(maps)} interaction blocks"
+            raise ValueError(msg)
+        return tuple(
+            LinearClique(m, _block_axes(block, len(m)))
+            for m, block in zip(members, maps, strict=True)
+        )
+
+    @property
+    def int_members(self) -> tuple[tuple[int, ...], ...]:
+        """Which nodes each interaction block couples, in this model's node frame.
+
+        Root nodes come first, then everything above, so a plain two-node harmonium
+        couples observable $0$ to latent $1$ --- the default, and the only shape a single
+        interaction admits.
+
+        A model with several interaction blocks, or with more than one root, must say:
+        the blocks share a domain and a codomain, so which nodes each couples is not
+        readable from the interaction alone. Declaring this is what lets such a model
+        derive its graph rather than spelling out every clique.
+        """
+        return ((0, 1),)
 
     @property
     @override
@@ -498,7 +555,7 @@ class HarmoniumEmbedding[
 ](LinearEmbedding[Component, Harmonium[Observable, Posterior]], ABC):
     """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
 
-    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.combinators.CompositeClique.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
+    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.graphical.LevelCliques.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
     """
 
     # Fields

@@ -37,7 +37,6 @@ from jax import Array
 from ...geometry import (
     AnalyticPair,
     BlockMap,
-    CliqueSet,
     DifferentiableConjugated,
     EmbeddedMap,
     FirstEmbedding,
@@ -133,16 +132,13 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def clq_set(self) -> CliqueSet:
-        """The fork $x - z - y$, with $x$ and $y$ as the two roots.
+    def int_members(self) -> tuple[tuple[int, ...], ...]:
+        """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
 
-        Declared rather than derived: the glue in
-        :attr:`~goal.geometry.manifold.combinators.CompositeClique.clq_set` assumes a
-        single root node, and this model has two.
+        Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two
+        roots come from the observable being a pair, so the levels come out $(2, 1)$.
         """
-        return CliqueSet(
-            n_nodes=3, n_roots=2, cliques=((0,), (1,), (2,), (0, 2), (1, 2))
-        )
+        return ((0, 2), (1, 2))
 
     @property
     @override
@@ -169,7 +165,7 @@ class CanonicalCorrelationAnalysis[
         each selects its own side of the pair through a slot embedding, which is what lets
         a :class:`~goal.geometry.manifold.map.BlockMap` hold them together.
         """
-        return BlockMap([self._branch_map(0), self._branch_map(1)])
+        return BlockMap((self._branch_map(0), self._branch_map(1)))
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:

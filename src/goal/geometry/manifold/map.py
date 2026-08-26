@@ -8,16 +8,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from math import prod
 from typing import override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..algebra.clique import CliqueSet
 from ..algebra.matrix import MatrixRep, Square
 from .base import Manifold
-from .combinators import Clique, Pair
+from .combinators import Pair
 from .embedding import IdentityEmbedding, LinearComposedEmbedding, LinearEmbedding
 
 ### Maps ###
@@ -53,9 +53,7 @@ class Map[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
 
 
 @dataclass(frozen=True)
-class LinearMap[Domain: Manifold, Codomain: Manifold](
-    Map[Domain, Codomain], Clique, ABC
-):
+class LinearMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain], ABC):
     """A linear transformation between manifolds.
 
     Adds linear-specific operations to ``Map``: transpose, outer product, and embedding manipulation. Concrete implementations choose how to store and execute the matrix.
@@ -104,21 +102,6 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](
         This enables operations like tensoring with a new factor by wrapping
         the codomain embedding in a more complex structure.
         """
-
-    # Overrides
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        """The two-node clique joining the domain node to the codomain node.
-
-        Node ``0`` is the codomain and node ``1`` the domain, matching the root/deep
-        orientation a harmonium gives its interaction. A :class:`BlockMap` reports the same
-        cover: its blocks share a domain and codomain, so which of their nodes each block
-        couples is not readable from the blocks themselves. See :class:`SquareMap` for the
-        case where the two nodes coincide.
-        """
-        return self.single_cover(2)
 
     # Methods
 
@@ -299,8 +282,20 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
     # Fields
 
-    blocks: list[LinearMap[Domain, Codomain]]
-    """The embedded linear maps that compose this block map."""
+    blocks: tuple[LinearMap[Domain, Codomain], ...]
+    """The embedded linear maps that compose this block map, in parameter order."""
+
+    def __post_init__(self) -> None:
+        if not self.blocks:
+            raise ValueError("a block map needs at least one block")
+        head = self.blocks[0]
+        for i, block in enumerate(self.blocks[1:], start=1):
+            if block.dom_man != head.dom_man:
+                msg = f"block {i} has domain {block.dom_man}"
+                raise ValueError(f"{msg}, not {head.dom_man}")
+            if block.cod_man != head.cod_man:
+                msg = f"block {i} has codomain {block.cod_man}"
+                raise ValueError(f"{msg}, not {head.cod_man}")
 
     # Overrides
 
@@ -323,8 +318,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
     @override
     def trn_man(self) -> BlockMap[Codomain, Domain]:
         """Manifold of transposed linear maps."""
-        transposed_blocks = [block.trn_man for block in self.blocks]
-        return BlockMap(transposed_blocks)
+        return BlockMap(tuple(block.trn_man for block in self.blocks))
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
@@ -355,7 +349,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
             [LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]
         ],
     ) -> BlockMap[NewDomain, Codomain]:
-        return BlockMap([block.map_domain_embedding(f) for block in self.blocks])
+        return BlockMap(tuple(block.map_domain_embedding(f) for block in self.blocks))
 
     @override
     def map_codomain_embedding[NewCodomain: Manifold](
@@ -365,20 +359,19 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
             LinearEmbedding[Manifold, NewCodomain],
         ],
     ) -> BlockMap[Domain, NewCodomain]:
-        return BlockMap([block.map_codomain_embedding(f) for block in self.blocks])
+        return BlockMap(tuple(block.map_codomain_embedding(f) for block in self.blocks))
 
     # Methods
 
     @property
-    @override
-    def clique_dims(self) -> tuple[int, ...]:
-        """One block per constituent map: a block map is several cliques, not one.
+    def block_dims(self) -> tuple[int, ...]:
+        """Parameter dimension of each constituent map, in storage order.
 
-        Its own :attr:`clq_set` still reports the coarse two-node cut, because the blocks
-        share a domain and codomain and so cannot say *which* nodes each couples. The
-        composite that owns the block map supplies those identities; the block map supplies
-        only the sizes. :meth:`~goal.geometry.manifold.combinators.CliqueManifold.cut`
-        checks the two agree.
+        A block map is several couplings summed, so when one is used as a level's cross
+        span it becomes several cliques rather than one --- see
+        :attr:`~goal.geometry.manifold.graphical.LevelCliques.cross_blocks`. Which *nodes*
+        each block couples is not readable here, because the blocks share a domain and
+        codomain; the model supplies those identities.
         """
         return tuple(block.dim for block in self.blocks)
 
@@ -407,23 +400,15 @@ class AmbientMap[Domain: Manifold, Codomain: Manifold](EmbeddedMap[Domain, Codom
 class SquareMap[M: Manifold](AmbientMap[M, M]):
     """Square ``AmbientMap`` (domain = codomain), exposing inverse, log-determinant, and positive-definiteness checks.
 
-    Domain and codomain are the same manifold, so this is a clique of *one* node --- a
-    self-interaction, not a coupling between two --- which is why it overrides
-    :attr:`~goal.geometry.manifold.map.LinearMap.clq_set` back to the one-node cover. This
-    is the shape a node's second moment takes: ``Covariance`` and ``CouplingMatrix`` are
-    both square maps living inside a single node.
+    Domain and codomain are the same manifold, so this is a self-interaction *inside* one
+    node rather than a coupling between two --- which is why square maps are never wrapped
+    as cliques. ``Covariance`` and ``CouplingMatrix`` are both of this shape: a node's
+    second moment, and the one place structured matrix representations live.
     """
 
     # Fields
 
     rep: Square
-
-    # Overrides
-
-    @property
-    @override
-    def clq_set(self) -> CliqueSet:
-        return self.single_cover(1)
 
     # Methods
 
@@ -433,8 +418,6 @@ class SquareMap[M: Manifold](AmbientMap[M, M]):
             raise TypeError("SquareMap requires a square matrix representation.")
 
         super().__init__(rep, dom_man, dom_man)
-
-    # Methods
 
     def inverse(self, f_coords: Array) -> Array:
         """Parameters of the inverse matrix."""
@@ -447,6 +430,92 @@ class SquareMap[M: Manifold](AmbientMap[M, M]):
     def is_positive_definite(self, f_coords: Array) -> Array:
         """Check positive definiteness."""
         return self.rep.is_positive_definite(self.matrix_shape, f_coords)
+
+
+### Multilinear Maps ###
+
+
+@dataclass(frozen=True)
+class MultilinearMap(Manifold):
+    """A dense multilinear form over a fixed tuple of factor dimensions.
+
+    Parameters are one coefficient per index tuple, stored row-major --- the arity-$n$
+    generalization of :class:`~goal.geometry.algebra.matrix.Rectangular`, whose layout it
+    reproduces exactly at arity 2. Two operations: build parameters from a tuple of
+    factor vectors (:meth:`tensor`), and contract all factors but one
+    (:meth:`contract`).
+
+    Mathematically, for factor spaces of dimensions $(d_1, \\ldots, d_n)$ the parameters
+    are a tensor $\\Theta \\in \\mathbb R^{d_1 \\times \\cdots \\times d_n}$, and
+
+    .. math::
+        \\mathrm{tensor}(v_1, \\ldots, v_n) = v_1 \\otimes \\cdots \\otimes v_n,
+        \\qquad
+        \\mathrm{contract}(\\Theta, k, \\ldots)_{i}
+            = \\sum_{j_1 \\ldots \\widehat{j_k} \\ldots j_n}
+              \\Theta_{j_1 \\ldots i \\ldots j_n} \\prod_{l \\neq k} (v_l)_{j_l}.
+
+    Knows nothing about graphs: a
+    :class:`~goal.geometry.manifold.graphical.LinearClique` supplies the graph position --- this
+    is its :attr:`~goal.geometry.manifold.graphical.LinearClique.form` --- and the factor
+    dimensions here are the *selected* sub-statistic dimensions, not the full node
+    dimensions.
+    """
+
+    # Fields
+
+    sub_dims: tuple[int, ...]
+    """Dimension of each factor, in index order."""
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return prod(self.sub_dims)
+
+    # Methods
+
+    @property
+    def arity(self) -> int:
+        """Number of factors."""
+        return len(self.sub_dims)
+
+    def to_tensor(self, params: Array) -> Array:
+        """View flat parameters as a tensor of shape :attr:`sub_dims`."""
+        return params.reshape(self.sub_dims)
+
+    def from_tensor(self, tensor: Array) -> Array:
+        """Flatten a tensor of shape :attr:`sub_dims` into parameters."""
+        return tensor.reshape(-1)
+
+    def tensor(self, *vectors: Array) -> Array:
+        """Outer product of one vector per factor, as flat parameters."""
+        if len(vectors) != self.arity:
+            raise ValueError(f"expected {self.arity} factors, got {len(vectors)}")
+        out = vectors[0]
+        for vector in vectors[1:]:
+            out = jnp.tensordot(out, vector, axes=0)
+        return out.reshape(-1)
+
+    def contract(self, params: Array, keep: int, *vectors: Array) -> Array:
+        """Contract every factor except ``keep``, leaving a vector on that factor.
+
+        ``vectors`` supplies one vector per contracted factor, in ascending index order.
+        At arity 2 this is matrix-vector multiplication (``keep=0``) or its transpose
+        (``keep=1``).
+        """
+        if not 0 <= keep < self.arity:
+            msg = f"keep must be in 0..{self.arity - 1}, got {keep}"
+            raise ValueError(msg)
+        others = [axis for axis in range(self.arity) if axis != keep]
+        if len(vectors) != len(others):
+            raise ValueError(f"expected {len(others)} factors, got {len(vectors)}")
+        out = self.to_tensor(params)
+        # Descending order so that contracting one axis does not shift the next.
+        for axis, vector in sorted(zip(others, vectors), key=lambda p: -p[0]):
+            out = jnp.tensordot(out, vector, axes=([axis], [0]))
+        return out
 
 
 ### Affine Maps ###

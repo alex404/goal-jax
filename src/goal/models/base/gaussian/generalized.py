@@ -13,12 +13,11 @@ from jax import Array
 from ....geometry import (
     Differentiable,
     ExponentialFamily,
-    Node,
 )
 
 
 @dataclass(frozen=True)
-class Euclidean(Differentiable, Node):
+class Euclidean(Differentiable):
     """Euclidean space $\\mathbb{R}^n$ of dimension $n$. Euclidean also serves as the location component of a Normal distribution, and on its own we treat it as a normal distribution with unit covariance.
 
     As an exponential family:
@@ -64,7 +63,7 @@ class Euclidean(Differentiable, Node):
 
 
 class GeneralizedGaussian[L: ExponentialFamily, S: ExponentialFamily](
-    Differentiable, Node, ABC
+    Differentiable, ABC
 ):
     """ABC for exponential families with Gaussian-like sufficient statistics $s(x) = (x, x \\\\otimes x)$.
 

@@ -64,3 +64,12 @@ Affine Maps
    :members:
    :undoc-members:
    :show-inheritance:
+
+
+Multilinear Maps
+----------------
+
+.. autoclass:: goal.geometry.manifold.map.MultilinearMap
+   :members:
+   :undoc-members:
+   :show-inheritance:

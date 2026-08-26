@@ -13,7 +13,7 @@ import jax
 from jax import Array
 
 from .base import Manifold
-from .combinators import CompositeClique, Null, Pair, Tuple
+from .combinators import Null, Pair, Tuple
 
 ### Linear Subspaces ###
 
@@ -356,64 +356,3 @@ class SecondEmbedding[Snd: Manifold, PairMan: Pair[Any, Any]](
     @override
     def sub_man(self) -> Snd:
         return self._amb_man.snd_man
-
-
-### Span Embeddings ###
-
-
-@dataclass(frozen=True)
-class RootEmbedding[
-    Sub: CompositeClique[Any, Any, Any],
-    Ambient: CompositeClique[Any, Any, Any],
-](LinearEmbedding[Sub, Ambient]):
-    """Embeds one clique manifold into another over the same graph, transforming only the root span.
-
-    Use this when two models share a graph but parameterize the root nodes differently ---
-    a posterior restricted to diagonal covariance sitting inside a prior with full
-    covariance. The cross and deep spans pass through unchanged, so a difference deeper in
-    the graph is expressed by nesting: the deep manifolds are themselves clique manifolds
-    related by their own ``RootEmbedding``.
-
-    Mathematically, for span coordinates $(r, c, d)$: ``embed`` maps $(r, c, d) \\mapsto
-    (\\phi(r), c, d)$ and ``project`` maps $(r, c, d) \\mapsto (\\pi(r), c, d)$, where
-    $\\phi$ and $\\pi$ are the root embedding's own maps.
-    """
-
-    # Fields
-
-    root_emb: LinearEmbedding[Any, Any]
-    """Embedding of the restricted root manifold into the full one."""
-
-    _sub_man: Sub
-    """The clique manifold with the restricted root span."""
-
-    _amb_man: Ambient
-    """The clique manifold with the full root span."""
-
-    def __post_init__(self) -> None:
-        if self.sub_man.clq_set != self.amb_man.clq_set:
-            raise ValueError(
-                f"sub and ambient manifolds must share a clique set: {self.sub_man.clq_set} vs {self.amb_man.clq_set}"
-            )
-
-    # Overrides
-
-    @property
-    @override
-    def sub_man(self) -> Sub:
-        return self._sub_man
-
-    @property
-    @override
-    def amb_man(self) -> Ambient:
-        return self._amb_man
-
-    @override
-    def project(self, coords: Array) -> Array:
-        root, cross, deep = self.amb_man.split_level(coords)
-        return self.sub_man.join_level(self.root_emb.project(root), cross, deep)
-
-    @override
-    def embed(self, coords: Array) -> Array:
-        root, cross, deep = self.sub_man.split_level(coords)
-        return self.amb_man.join_level(self.root_emb.embed(root), cross, deep)

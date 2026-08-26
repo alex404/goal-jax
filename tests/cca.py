@@ -49,7 +49,7 @@ class TestGraph:
 
     def test_levels_are_depth_two(self) -> None:
         """Both observables sit at level 0; the shared latent is the only deep node."""
-        assert cca().clq_set.levels == ((0, 1), (2,))
+        assert cca().clq_set.level_sets == ((0, 1), (2,))
 
     def test_one_block_per_clique(self) -> None:
         model = cca()
@@ -65,7 +65,7 @@ class TestGraph:
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:
         model = cca(fst_dim=3, snd_dim=2, lat_dim=2)
-        assert model.int_man.clique_dims == (3 * 2, 2 * 2)
+        assert model.int_man.block_dims == (3 * 2, 2 * 2)
 
     def test_branch_maps_share_domain_and_codomain(self) -> None:
         """What lets a single ``BlockMap`` hold both branches."""
@@ -142,7 +142,7 @@ class TestConjugation:
         )
         fst_int, snd_int = model.int_man.coord_blocks(int_params)
         muted = model.lkl_fun_man.join_coords(
-            obs_bias, model.int_man.join_cliques(fst_int, jnp.zeros_like(snd_int))
+            obs_bias, jnp.concatenate([fst_int, jnp.zeros_like(snd_int)])
         )
 
         fst_bias, _ = model.obs_man.split_coords(obs_bias)

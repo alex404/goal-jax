@@ -26,6 +26,7 @@ Harmoniums are the key composed structure: latent-variable models where conjugat
 
    base
    combinators
+   clique
    protocols
    variational
    harmonium

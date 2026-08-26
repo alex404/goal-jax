@@ -56,13 +56,3 @@ Algebraic Embeddings
    :members:
    :undoc-members:
    :show-inheritance:
-
-
-
-Span Embeddings
----------------
-
-.. autoclass:: goal.geometry.manifold.embedding.RootEmbedding
-   :members:
-   :undoc-members:
-   :show-inheritance:

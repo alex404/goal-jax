@@ -15,7 +15,6 @@ from ...geometry import (
     ExponentialFamily,
     ExponentialFamilyProduct,
     LocationShape,
-    Node,
     TupleEmbedding,
 )
 from ...geometry.exponential_family.combinators import (
@@ -25,7 +24,7 @@ from ...geometry.exponential_family.combinators import (
 
 
 @dataclass(frozen=True)
-class Poisson(Analytic, Node):
+class Poisson(Analytic):
     """Standard Poisson distribution for count data with a single rate parameter $\\eta > 0$ where mean equals variance.
 
     As an exponential family:
@@ -95,7 +94,7 @@ class Poisson(Analytic, Node):
 
 
 @dataclass(frozen=True)
-class CoMShape(ExponentialFamily, Node):
+class CoMShape(ExponentialFamily):
     """Shape component of a CoMPoisson distribution with sufficient statistic $\\log(x!)$, capturing deviations from standard Poisson dispersion."""
 
     @property

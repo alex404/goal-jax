@@ -8,11 +8,6 @@ Mixture Conjugation Utilities
 Embeddings
 ----------
 
-.. autoclass:: goal.models.graphical.mixture.RowEmbedding
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. autoclass:: goal.models.graphical.mixture.CompleteMixtureEmbedding
    :members:
    :undoc-members:

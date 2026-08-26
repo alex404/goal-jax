@@ -1,7 +1,7 @@
 """Tests for geometry/algebra/clique.py.
 
-Verifies level derivation by breadth-first search, canonical clique ordering, level
-ascent and reindexing, normalization/hashing, and each validation failure. ``CliqueSet`` is pure
+Verifies levels as distance from the root set, canonical clique ordering, level ascent
+and reindexing, normalization/hashing, and each validation failure. ``CliqueSet`` is pure
 Python, so this file imports no JAX and needs no platform configuration.
 """
 
@@ -57,7 +57,7 @@ class TestLevels:
     def test_levels(
         self, clique_set: CliqueSet, expected: tuple[tuple[int, ...], ...]
     ) -> None:
-        assert clique_set.levels == expected
+        assert clique_set.level_sets == expected
 
     @pytest.mark.parametrize(
         ("clique_set", "expected"),
@@ -66,7 +66,7 @@ class TestLevels:
     def test_level_sizes(
         self, clique_set: CliqueSet, expected: tuple[int, ...]
     ) -> None:
-        assert tuple(len(level) for level in clique_set.levels) == expected
+        assert tuple(len(level) for level in clique_set.level_sets) == expected
 
     def test_edges_are_derived_from_cliques(self) -> None:
         assert HMOG.edges == ((0, 1), (1, 2))
@@ -100,12 +100,11 @@ class TestCanonicalOrder:
         # The deep span of the full layout is byte-identical to the layout the model one
         # level up produces on its own. This is what lets pst_man be a concrete
         # model with no translation.
-        deep_nodes = HMOG.deep_nodes
         deep_span = HMOG.canonical_cliques[
             len(HMOG.root_cliques + HMOG.cross_cliques) :
         ]
         relabelled = tuple(
-            tuple(sorted(deep_nodes[i] for i in c))
+            tuple(i + HMOG.n_roots for i in c)
             for c in HMOG.ascend_level().canonical_cliques
         )
         assert deep_span == relabelled
@@ -123,9 +122,8 @@ class TestCanonicalOrder:
     def test_clique_groups_partition(self) -> None:
         for clique_set in (HMOG, MFA, CCA):
             head = clique_set.root_cliques + clique_set.cross_cliques
-            deep_nodes = clique_set.deep_nodes
             deep = tuple(
-                tuple(sorted(deep_nodes[i] for i in c))
+                tuple(i + clique_set.n_roots for i in c)
                 for c in clique_set.ascend_level().cliques
             )
             assert sorted(head + deep) == sorted(clique_set.cliques)
@@ -138,17 +136,29 @@ class TestTail:
         assert path(3).ascend_level() == path(2)
         assert path(4).ascend_level().ascend_level() == path(2)
 
-    def test_deep_nodes_map_back(self) -> None:
-        assert HMOG.deep_nodes == (1, 2)
-        assert CCA.deep_nodes == (2,)
+    def test_ascent_is_a_shift_not_a_permutation(self) -> None:
+        """Node $i$ one level up is node $i + n_r$ here, because levels ascend with index.
+
+        This is what lets ``LevelCliques`` splice its deep span in by renumbering rather
+        than reordering, so the graph's clique order and the manifold's block order cannot
+        come apart between levels.
+        """
+        for clique_set in (HMOG, MFA, CCA):
+            above = clique_set.ascend_level()
+            offset = clique_set.n_roots
+            assert above.n_nodes == clique_set.n_nodes - offset
+            assert (
+                tuple(tuple(i + offset for i in c) for c in above.cliques)
+                == clique_set.deep_cliques
+            )
 
     def test_ascended_levels_shift_down(self) -> None:
-        assert MFA.ascend_level().levels == ((0, 1),)
+        assert MFA.ascend_level().level_sets == ((0, 1),)
         assert CCA.ascend_level() == CliqueSet(1, 1, ((0,),))
 
     def test_ascended_roots_are_the_boundary_level(self) -> None:
         for clique_set in (HMOG, MFA, CCA):
-            assert clique_set.ascend_level().n_roots == len(clique_set.levels[1])
+            assert clique_set.ascend_level().n_roots == len(clique_set.level_sets[1])
 
     @pytest.mark.parametrize("clique_set", [path(2), path(4), HMOG, MFA, CCA])
     def test_ascended_levels_are_this_graphs_levels_minus_one(
@@ -156,15 +166,15 @@ class TestTail:
     ) -> None:
         """Ascending shifts every remaining node down exactly one level.
 
-        This is what lets ``CompositeClique.split_level`` be applied repeatedly. It holds
+        This is what lets ``LevelCliques.split_level`` be applied repeatedly. It holds
         because a clique joining level $k$ to level $k - 1$ for $k \\geq 2$ cannot also
         contain a level-0 node --- that node would be adjacent to a level-$k$ one --- so
         the connectivity that set the level survives the ascent.
         """
         above = clique_set.ascend_level()
         node_levels = clique_set.node_levels
-        for i, node in enumerate(clique_set.deep_nodes):
-            assert above.node_levels[i] == node_levels[node] - 1
+        for i in range(above.n_nodes):
+            assert above.node_levels[i] == node_levels[i + clique_set.n_roots] - 1
 
 
 class TestAtomicShapes:
@@ -177,13 +187,13 @@ class TestAtomicShapes:
 
     def test_node_atom(self) -> None:
         node = CliqueSet(n_nodes=1, n_roots=1, cliques=((0,),))
-        assert node.levels == ((0,),)
+        assert node.level_sets == ((0,),)
         assert node.edges == ()
         assert node.canonical_cliques == ((0,),)
 
     def test_edge_atom(self) -> None:
         edge = CliqueSet(n_nodes=2, n_roots=1, cliques=((0, 1),))
-        assert edge.levels == ((0,), (1,))
+        assert edge.level_sets == ((0,), (1,))
         assert edge.edges == ((0, 1),)
         assert edge.canonical_cliques == ((0, 1),)
         assert edge.root_cliques == ()
@@ -193,7 +203,7 @@ class TestAtomicShapes:
     def test_multi_clique_edge_atom(self) -> None:
         """A block map over three nodes: the cover MFA's interaction needs."""
         edge = CliqueSet(n_nodes=3, n_roots=1, cliques=((0, 1), (0, 1, 2), (0, 2)))
-        assert edge.levels == ((0,), (1, 2))
+        assert edge.level_sets == ((0,), (1, 2))
         assert edge.cross_cliques == ((0, 1), (0, 1, 2), (0, 2))
 
     def test_reachability_still_holds_without_singletons(self) -> None:
@@ -203,7 +213,7 @@ class TestAtomicShapes:
     def test_singleton_is_optional_not_forbidden(self) -> None:
         """Dropping the requirement must not make a node-only cover invalid."""
         mixed = CliqueSet(3, 1, ((0,), (0, 1), (1, 2)))
-        assert mixed.levels == ((0,), (1,), (2,))
+        assert mixed.level_sets == ((0,), (1,), (2,))
 
 
 class TestNormalization:
@@ -233,6 +243,22 @@ class TestValidation:
         with pytest.raises(ValueError, match="node 1 is not reachable"):
             CliqueSet(3, 1, ((0,), (1,), (2,), (1, 2)))
 
+    def test_nodes_numbered_out_of_level_order(self) -> None:
+        """The path $0 - 2 - 1$ rooted at $\\{0\\}$: node 1 is at level 2, node 2 at level 1.
+
+        Levels then descend with the index, so the cliques one level up would need a
+        *permutation* back into this graph's indices rather than a shift. No manifold
+        laying out ``[root | cross | deep]`` can honour that, which is why the graph is
+        rejected rather than the mismatch tolerated. Renumbering the two nodes fixes it.
+        """
+        with pytest.raises(ValueError, match="number the nodes by level"):
+            CliqueSet(3, 1, ((0,), (1,), (2,), (0, 2), (1, 2)))
+        assert CliqueSet(3, 1, ((0,), (1,), (2,), (0, 1), (1, 2))).node_levels == (
+            0,
+            1,
+            2,
+        )
+
     def test_duplicate_cliques(self) -> None:
         with pytest.raises(ValueError, match="duplicate cliques"):
             CliqueSet(2, 1, ((0,), (1,), (0, 1), (1, 0)))
@@ -243,5 +269,22 @@ class TestValidation:
             CliqueSet(2, n_roots, ((0,), (1,), (0, 1)))
 
     def test_empty_model(self) -> None:
-        with pytest.raises(ValueError, match="n_nodes must be at least 1"):
+        """``n_roots >= 1`` and ``n_roots <= n_nodes`` already forbid an empty node set."""
+        with pytest.raises(ValueError, match=r"n_roots must be in 1\.\.0"):
             CliqueSet(0, 1, ())
+
+
+class TestMemberValidation:
+    """A clique names a non-empty set of distinct nodes.
+
+    Both checks run before normalization: sorting and deduplication would otherwise
+    destroy the evidence and report a clique the caller never wrote.
+    """
+
+    def test_empty_clique(self) -> None:
+        with pytest.raises(ValueError, match="empty clique"):
+            CliqueSet(2, 1, ((0,), (), (0, 1)))
+
+    def test_repeated_member(self) -> None:
+        with pytest.raises(ValueError, match=r"clique \(0, 0\) repeats a node"):
+            CliqueSet(2, 1, ((0, 0), (0, 1)))

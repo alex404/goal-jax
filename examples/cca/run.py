@@ -100,7 +100,7 @@ def main() -> None:
         lat_dim=lat_dim,
         pst_rep=PositiveDefinite(),
     )
-    print(f"CCA over {model.clq_set.n_nodes} nodes, levels {model.clq_set.levels}")
+    print(f"CCA over {model.clq_set.n_nodes} nodes, levels {model.clq_set.level_sets}")
     print(f"  cliques {model.clq_set.canonical_cliques}")
     print(f"  blocks  {model.clique_dims}  (dim {model.dim})")
 

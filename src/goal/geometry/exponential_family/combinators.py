@@ -9,7 +9,8 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.combinators import CliqueProduct, Node, Pair, Replicated
+from ..manifold.combinators import Pair, Replicated
+from ..manifold.graphical import CliqueProduct
 from .base import (
     Analytic,
     Differentiable,
@@ -20,7 +21,7 @@ from .protocols import StatisticalMoments
 
 
 class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
-    Pair[Location, Shape], ExponentialFamily, Node, ABC
+    Pair[Location, Shape], ExponentialFamily, ABC
 ):
     """A product of location and shape exponential families sharing the same data space.
 
@@ -149,7 +150,7 @@ class AnalyticPair[A: Analytic, B: Analytic](DifferentiablePair[A, B], Analytic,
 
 
 class ExponentialFamilyProduct[M: ExponentialFamily](
-    Replicated[M], ExponentialFamily, Node, ABC
+    Replicated[M], ExponentialFamily, ABC
 ):
     """Product of ``n_reps`` independent copies of the same exponential family.
 

@@ -9,12 +9,12 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ...geometry import Analytic, Node
+from ...geometry import Analytic
 from ...geometry.exponential_family.combinators import AnalyticProduct
 
 
 @dataclass(frozen=True)
-class Bernoulli(Analytic, Node):
+class Bernoulli(Analytic):
     """Bernoulli distribution for a single binary variable.
 
     Mathematically equivalent to Categorical(n_categories=2). The distribution over binary values $x \\in \\{0, 1\\}$ is:
@@ -95,7 +95,7 @@ class Bernoulli(Analytic, Node):
 
 
 @dataclass(frozen=True)
-class Categorical(Analytic, Node):
+class Categorical(Analytic):
     """Categorical distribution over $n$ states.
 
     The categorical distribution describes discrete probability distributions over $n$ states with probabilities $\\eta_i$ where $\\sum_{i=0}^n \\eta_i = 1$.

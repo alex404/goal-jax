@@ -1,7 +1,7 @@
 """Clique sets: the combinatorial skeleton of a graph.
 
 A ``CliqueSet`` says which nodes a graph has, which of them are roots, and which groups of
-nodes form cliques. ``CliqueManifold`` in ``manifold/combinators.py`` turns a clique set
+nodes form cliques. ``LinearCliques`` in ``manifold/graphical.py`` turns a clique set
 into a parameter layout; this module is purely about the combinatorics, over integer
 indices, with no JAX.
 
@@ -10,16 +10,29 @@ cover of $V$ by complete subgraphs, and a distinguished root set $R = \\{0, \\ld
 1\\} \\subseteq V$. Edges are *derived*: two nodes are adjacent exactly when some clique
 contains both, so the cover is the primitive and $E$ falls out of it.
 
-Levels are the distance partition of $G$ rooted at $R$, that is $\\ell(v) = \\min_{r \\in R}
-d(v, r)$, computed by breadth-first search. Depth is therefore read off the cover rather
-than declared: the path $0 - 1 - 2$ rooted at $\\{0\\}$ has levels $(1, 1, 1)$; adding the
-clique $\\{0, 1, 2\\}$ makes $0$ adjacent to $2$ and collapses those to $(1, 2)$; the path
-$0 - 2 - 1$ rooted at $\\{0, 1\\}$ gives $(2, 1)$.
+A node's *level* is its distance from the root set, $\\ell(v) = \\min_{r \\in R} d(v, r)$,
+with $d$ the number of edges on a shortest path. The fibres of $\\ell$ are the *level
+sets*, so depth is read off the cover rather than declared --- and because edges are
+derived, a single step crosses a whole clique. The path $0 - 1 - 2$ rooted at $\\{0\\}$
+has three level sets of sizes $(1, 1, 1)$; adding the clique $\\{0, 1, 2\\}$ makes $0$
+adjacent to $2$ and collapses them to $(1, 2)$; the path $0 - 2 - 1$ rooted at
+$\\{0, 1\\}$ gives $(2, 1)$.
 
-Adjacency implies a level gap of at most one, since a shorter route would otherwise exist.
-Because cliques are complete this lifts from edges to cliques, so every clique
-automatically lies within a single level or crosses two consecutive ones; neither
-condition needs checking.
+Adjacency implies a level gap of at most one, since a shorter route would otherwise exist,
+and because cliques are complete this lifts from edges to cliques: every clique lies within
+one level or crosses two consecutive ones. Neither is a condition to check --- no cover can
+describe a graph where it fails.
+
+So the cliques fall into three groups --- wholly root, crossing, and wholly above --- and
+those groups partition the cover. That partition is what makes
+:attr:`CliqueSet.canonical_cliques` a layout listing every clique exactly once.
+
+**Nodes are numbered by level**, roots first: $\\ell$ is non-decreasing in the index. This is
+a numbering convention rather than a restriction --- sorting the nodes by level achieves it
+for any graph --- and it is what makes layout order *readable* rather than computed.
+Dropping the root level becomes a shift by $n_r$ instead of a permutation, so the cliques
+one level up occupy a contiguous suffix at contiguous indices, and a manifold can splice its
+deep span in by renumbering rather than reordering.
 """
 
 from __future__ import annotations
@@ -30,31 +43,41 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class CliqueSet:
-    """The nodes, root set, and cliques of a graph.
+    """A graph as $(V, R, C)$: its nodes, its root set, and its clique cover.
 
-    Cliques are index tuples. Every node must be reachable from the root set, so that its
-    level is defined. Singleton cliques are *not* required: whether a node carries a bias
-    of its own is a fact about the family occupying it, not about the graph. A lone edge
-    ``((0, 1),)`` is a legitimate cover, and is what an interaction on its own looks like.
+    Each clique is the index tuple of the nodes it couples, with no manifold attached ---
+    :class:`~goal.geometry.manifold.graphical.LinearCliques` is what hangs parameters off
+    one. Every node must be reachable from the root set, so that its level is defined.
+    Singleton cliques are *not* required: whether a node carries a bias of its own is a
+    fact about the family occupying it, not about the graph. A lone edge ``((0, 1),)`` is
+    a legitimate cover, and is what an interaction on its own looks like.
 
-    Members are sorted within each clique and cliques are sorted among themselves at
-    construction, so two equivalent descriptions compare and hash equal. Storage order is
-    not layout order: :attr:`canonical_cliques` computes the latter independently.
+    Members are sorted within each clique and the cliques among themselves at construction,
+    so two equivalent descriptions compare and hash equal. That storage order is not layout
+    order --- :attr:`canonical_cliques` is.
+
+    Node indices must ascend with level: roots first, then the boundary, then everything
+    deeper. Renumber if a graph does not already come that way.
     """
 
     # Fields
 
     n_nodes: int
-    """Total number of nodes. Root nodes are ``0`` to ``n_roots - 1``."""
+    """$|V|$. Root nodes are ``0`` to ``n_roots - 1``."""
 
     n_roots: int
-    """Number of root nodes --- the set the level partition is measured from."""
+    """$|R|$. The root set is the origin that levels are measured from."""
 
     cliques: tuple[tuple[int, ...], ...]
-    """The interacting groups of nodes. Singletons, where present, are the per-node blocks."""
+    """$C$, the cover. Singletons, where present, are the per-node blocks."""
 
     def __post_init__(self) -> None:
-        normalized = tuple(sorted(tuple(sorted(set(c))) for c in self.cliques))
+        for clique in self.cliques:
+            if not clique:
+                raise ValueError("empty clique: a clique must name at least one node")
+            if len(set(clique)) != len(clique):
+                raise ValueError(f"clique {clique} repeats a node")
+        normalized = tuple(sorted(tuple(sorted(c)) for c in self.cliques))
         object.__setattr__(self, "cliques", normalized)
         self._validate()
 
@@ -73,15 +96,36 @@ class CliqueSet:
 
     @property
     def node_levels(self) -> tuple[int, ...]:
-        """The breadth-first distance of each node from the root set."""
-        return tuple(self._bfs_levels())
+        """The distance of each node from the root set, $\\min_{r \\in R} d(v, r)$.
+
+        Computed by multi-source breadth-first search: seeding every root at zero means a
+        node's first visit is along a shortest path from the nearest root. Unreachable
+        nodes come back as ``-1``, which construction rejects, so a constructed clique
+        set never holds one.
+        """
+        neighbours: list[set[int]] = [set() for _ in range(self.n_nodes)]
+        for i, j in self.edges:
+            neighbours[i].add(j)
+            neighbours[j].add(i)
+
+        levels = [-1] * self.n_nodes
+        queue = deque(range(self.n_roots))
+        for i in queue:
+            levels[i] = 0
+        while queue:
+            i = queue.popleft()
+            for j in neighbours[i]:
+                if levels[j] < 0:
+                    levels[j] = levels[i] + 1
+                    queue.append(j)
+        return tuple(levels)
 
     @property
-    def levels(self) -> tuple[tuple[int, ...], ...]:
-        """Nodes grouped by breadth-first distance from the root set.
+    def level_sets(self) -> tuple[tuple[int, ...], ...]:
+        """Nodes grouped by distance from the root set --- the fibres of :attr:`node_levels`.
 
-        Level ``0`` is exactly the root nodes; level ``k`` is the nodes first reached
-        after $k$ steps. The length of this tuple is the depth of the graph.
+        Level ``0`` is exactly the root nodes; level ``k`` is the nodes at distance $k$.
+        The length of this tuple is the depth of the graph.
         """
         node_levels = self.node_levels
         depth = max(node_levels) + 1
@@ -100,10 +144,8 @@ class CliqueSet:
     def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
         """Cliques holding both a root node and a non-root node.
 
-        Mathematically, the cut-set of the partition $(R, V \\setminus R)$: the cliques
-        carrying interactions between the root set and everything else. Together with
-        :attr:`root_cliques` and :attr:`deep_cliques` these partition the cliques, which
-        is what makes :attr:`canonical_cliques` a layout of every block exactly once.
+        Mathematically, the cut-set of the partition $(R, V \\setminus R)$ --- the cliques
+        carrying interactions between the root set and everything else.
         """
         node_levels = self.node_levels
         return tuple(
@@ -115,60 +157,46 @@ class CliqueSet:
 
     @property
     def deep_cliques(self) -> tuple[tuple[int, ...], ...]:
-        """Cliques holding no root node at all, in this graph's indices.
+        """Cliques lying wholly outside the root set, in this graph's indices.
 
-        The third group of the partition, alongside :attr:`root_cliques` and
-        :attr:`cross_cliques`. These are exactly the cliques that survive
-        :meth:`ascend_level`, before relabelling; :attr:`canonical_cliques` is what puts
-        them in the ascended graph's own order.
+        Because node indices ascend with level, "outside the root set" is "index at least
+        :attr:`n_roots`". These are exactly the cliques that survive :meth:`ascend_level`,
+        which renumbers them by $-n_r$ and nothing else.
         """
         node_levels = self.node_levels
         return tuple(c for c in self.cliques if all(node_levels[i] > 0 for i in c))
 
     @property
     def boundary(self) -> tuple[int, ...]:
-        """The non-root nodes adjacent to the root set.
+        """The non-root nodes adjacent to the root set --- the root set one level up.
 
         Mathematically, the vertex boundary $\\partial R$ of the root set $R$. Cliques are
-        complete, so these are exactly the non-root members of :attr:`cross_cliques`,
-        and the level gap bound puts them all at level 1.
+        complete, so these are exactly the non-root members of :attr:`cross_cliques`, and
+        the level gap bound puts every one of them at level 1 --- which is what this
+        computes. Empty exactly when the graph has depth one.
         """
         node_levels = self.node_levels
-        return tuple(
-            sorted({i for c in self.cross_cliques for i in c if node_levels[i] > 0})
-        )
-
-    @property
-    def deep_nodes(self) -> tuple[int, ...]:
-        """The non-root nodes, by original index, ordered as :meth:`ascend_level` reindexes them.
-
-        The boundary comes first so that it lands as the new root set, which is why this
-        is not plain index order: it doubles as the map from an index one level up back
-        to the node it came from.
-        """
-        node_levels = self.node_levels
-        level_1 = [i for i in range(self.n_nodes) if node_levels[i] == 1]
-        deep = [i for i in range(self.n_nodes) if node_levels[i] > 1]
-        return tuple(level_1 + deep)
+        return tuple(i for i in range(self.n_nodes) if node_levels[i] == 1)
 
     @property
     def canonical_cliques(self) -> tuple[tuple[int, ...], ...]:
         """The cliques in parameter-layout order.
 
-        Root cliques first, then cross cliques, then the cliques surviving
-        :meth:`ascend_level` relabelled back to this graph's indices --- with the same
-        rule applied recursively one level up. Those three groups partition the cliques,
-        so every clique appears exactly once, and the order nests: the ascended graph's
-        cliques form a contiguous suffix, in precisely the order that graph would put them
-        in on its own.
+        Root cliques first, then cross cliques, then the cliques one level up shifted
+        back into this graph's indices --- the same rule applied recursively. Those three
+        groups partition the cliques, so every clique appears exactly once, and the order
+        nests: the ascended graph's cliques form a contiguous suffix, in precisely the
+        order that graph would put them in on its own.
+
+        Because node indices ascend with level, relabelling is $+ n_r$ and nothing is
+        reordered --- which is what lets a manifold splice its deep span in unchanged.
         """
         head = self.root_cliques + self.cross_cliques
-        if len(self.levels) == 1:
+        if self.n_roots == self.n_nodes:  # depth one: nothing above to recurse into
             return head
-        deep_nodes = self.deep_nodes
-        above = self.ascend_level()
         return head + tuple(
-            tuple(sorted(deep_nodes[i] for i in c)) for c in above.canonical_cliques
+            tuple(i + self.n_roots for i in c)
+            for c in self.ascend_level().canonical_cliques
         )
 
     # Methods
@@ -178,50 +206,31 @@ class CliqueSet:
 
         The boundary becomes the new root set, so the resulting graph's levels are this
         graph's shifted down by one, and ascending repeatedly climbs the graph one level
-        at a time.
+        at a time. Node indices ascend with level here and one level up, so this is a
+        shift by :attr:`n_roots` --- node $i$ above is node $i + n_r$ below.
         """
-        node_levels = self.node_levels
-        deep_nodes = self.deep_nodes
-        index = {node: i for i, node in enumerate(deep_nodes)}
-        cliques = tuple(
-            tuple(index[i] for i in c)
-            for c in self.cliques
-            if all(node_levels[i] >= 1 for i in c)
-        )
-        n_roots = sum(1 for i in deep_nodes if node_levels[i] == 1)
-        return CliqueSet(len(deep_nodes), n_roots, cliques)
+        offset = self.n_roots
+        cliques = tuple(tuple(i - offset for i in c) for c in self.deep_cliques)
+        return CliqueSet(self.n_nodes - offset, len(self.boundary), cliques)
 
     # Private
 
-    def _bfs_levels(self) -> list[int]:
-        neighbours: list[set[int]] = [set() for _ in range(self.n_nodes)]
-        for i, j in self.edges:
-            neighbours[i].add(j)
-            neighbours[j].add(i)
-
-        levels = [-1] * self.n_nodes
-        queue = deque(range(self.n_roots))
-        for i in queue:
-            levels[i] = 0
-        while queue:
-            i = queue.popleft()
-            for j in neighbours[i]:
-                if levels[j] < 0:
-                    levels[j] = levels[i] + 1
-                    queue.append(j)
-        return levels
-
     def _validate(self) -> None:
-        if self.n_nodes < 1:
-            raise ValueError(f"n_nodes must be at least 1, got {self.n_nodes}")
+        """Reject the covers that would be read as some *other* cover.
+
+        Every check here rules out an input that goes on to describe a different graph
+        without failing: an empty clique is vacuously both root and deep, a repeated or
+        negative index silently renames a node, a duplicate clique doubles a parameter
+        block, and an unreachable node has no level and so vanishes from
+        :meth:`ascend_level`. Nodes numbered out of level order make the cliques one level
+        up a *permutation* of an index range rather than a shift of it, which no manifold
+        laying out ``[root | cross | deep]`` can honour. Nothing here guards against an
+        error that would raise on its own.
+        """
         if not 1 <= self.n_roots <= self.n_nodes:
             raise ValueError(
                 f"n_roots must be in 1..{self.n_nodes}, got {self.n_roots}"
             )
-        self._validate_cliques()
-        self._validate_nodes()
-
-    def _validate_cliques(self) -> None:
         for clique in self.cliques:
             for i in clique:
                 if not 0 <= i < self.n_nodes:
@@ -231,8 +240,12 @@ class CliqueSet:
         if len(set(self.cliques)) != len(self.cliques):
             duplicates = sorted({c for c in self.cliques if self.cliques.count(c) > 1})
             raise ValueError(f"duplicate cliques: {duplicates}")
-
-    def _validate_nodes(self) -> None:
-        for i, level in enumerate(self._bfs_levels()):
+        node_levels = self.node_levels
+        for i, level in enumerate(node_levels):
             if level < 0:
                 raise ValueError(f"node {i} is not reachable from the root nodes")
+        for i in range(1, self.n_nodes):
+            if node_levels[i] < node_levels[i - 1]:
+                msg = f"node {i} is at level {node_levels[i]}"
+                msg += f" but node {i - 1} is at level {node_levels[i - 1]}"
+                raise ValueError(f"{msg}: number the nodes by level, roots first")

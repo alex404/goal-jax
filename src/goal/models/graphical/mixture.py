@@ -1,18 +1,16 @@
-"""Mixture model utilities for conjugated harmoniums.
+"""Mixtures over harmoniums, and the mixture of factor analyzers.
 
-This module provides helper functions for computing conjugation parameters in hierarchical
-mixture models, enabling efficient inference in models where conjugated harmoniums are composed
-into mixture structures.
+A :class:`CompleteMixtureOfHarmoniums` puts a categorical node above a base harmonium, so
+the graph gains a third node $k$ and three crossing cliques: $(x,y)$ from the base
+interaction, $(x,y,k)$ for the component-specific coupling, and $(x,k)$ for per-component
+observable shifts. That fork --- $y$ and $k$ both adjacent to $x$ --- is why the graph has
+depth two rather than being a chain.
 
-**Key function**: `harmonium_mixture_conjugation_parameters` decomposes the joint conjugation
-parameters of a mixture of conjugated harmoniums into three components:
-
-1. **Y conjugation biases**: Base conjugation parameters from the first component
-2. **K conjugation biases**: Differences in log partition between components
-3. **K-Y interaction**: Changes in conjugation parameters across components
-
-This decomposition preserves the mixture structure and enables efficient conjugation parameter
-computation for hierarchical models where the upper level is a mixture over harmoniums.
+The same coordinates read two ways. :meth:`to_mixture_coords` re-roots the layout at $k$
+via :meth:`~goal.geometry.manifold.graphical.LinearCliques.cut`, turning the model into a
+:class:`~goal.models.harmonium.mixture.CompleteMixture` whose observable is the base
+harmonium; :meth:`from_mixture_coords` inverts it. Conjugation and whitening are written
+against whichever view makes them a one-liner.
 """
 
 from __future__ import annotations
@@ -26,24 +24,19 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
-    AmbientMap,
     Analytic,
     AnalyticConjugated,
     BlockMap,
+    CliqueBlockEmbedding,
     CliqueCut,
-    CliqueSet,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
     EmbeddedMap,
     Harmonium,
     IdentityEmbedding,
-    InteractionEmbedding,
-    LinearComposedEmbedding,
     LinearEmbedding,
     LinearMap,
-    ObservableEmbedding,
-    PosteriorEmbedding,
     Rectangular,
     SymmetricConjugated,
 )
@@ -53,65 +46,6 @@ from ..harmonium.lgm import NormalAnalyticLGM
 from ..harmonium.mixture import AnalyticMixture, CompleteMixture
 
 # Embeddings
-
-
-@dataclass(frozen=True)
-class RowEmbedding[
-    Domain: Differentiable,
-    Sub: Differentiable,
-    Ambient: Differentiable,
-](LinearEmbedding[EmbeddedMap[Domain, Sub], EmbeddedMap[Domain, Ambient]]):
-    """Embedding that applies a base embedding to each 'row' of a linear map.
-
-    Takes a LinearEmbedding[Sub, Amb] and lifts it to LinearEmbedding[LinearMap[Dom, Sub], LinearMap[Dom, Amb]]
-    by applying the base embedding independently to each component (row) of the linear map.
-
-    **Example**: If we have an embedding Sub -> Ambient and n_categories components,
-    we can create a tensorized embedding LinearMap[Categorical, Sub] -> LinearMap[Categorical, Ambient]
-    that applies the base embedding to each of the n_categories components independently.
-    """
-
-    dom_man: Domain
-    """The domain manifold (determines number of rows)."""
-
-    cod_emb: LinearEmbedding[Sub, Ambient]
-    """The base embedding to apply to each row."""
-
-    @property
-    @override
-    def sub_man(self) -> EmbeddedMap[Domain, Sub]:
-        """LinearMap from Dom to Sub manifold."""
-        return AmbientMap(Rectangular(), self.dom_man, self.cod_emb.sub_man)
-
-    @property
-    @override
-    def amb_man(self) -> EmbeddedMap[Domain, Ambient]:
-        """LinearMap from Dom to Amb manifold."""
-        return AmbientMap(Rectangular(), self.dom_man, self.cod_emb.amb_man)
-
-    @override
-    def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed by applying base embedding to each column."""
-        # Reshape to matrix
-        matrix = self.sub_man.to_matrix(params)
-
-        # Apply base embedding to each column using vmap
-        embedded_matrix = jax.vmap(self.cod_emb.embed, in_axes=1, out_axes=1)(matrix)
-
-        # Flatten back
-        return embedded_matrix.ravel()
-
-    @override
-    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Project by applying base projection to each column."""
-        # Reshape to matrix
-        matrix = self.amb_man.to_matrix(means)
-
-        # Apply base projection to each column using vmap
-        projected_matrix = jax.vmap(self.cod_emb.project, in_axes=1, out_axes=1)(matrix)
-
-        # Flatten back
-        return projected_matrix.ravel()
 
 
 @dataclass(frozen=True)
@@ -215,15 +149,19 @@ class CompleteMixtureOfHarmoniums[
     Harmonium[Observable, CompleteMixture[Posterior]],
     ABC,
 ):
-    """Harmonium with three-block interaction structure X<->Y<->K.
+    """Harmonium over $x$, $y$, and $k$ with a three-clique interaction.
 
-    Given a base harmonium over (Observable, Posterior), this constructs a harmonium
-    where the latent space is CompleteMixture[Posterior] = (Y, K), with a three-block
-    interaction:
+    Given a base harmonium over (Observable, Posterior), this constructs a harmonium whose
+    latent space is ``CompleteMixture[Posterior]`` = $(Y, K)$. The interaction is three
+    cliques rather than one, and their members are what :attr:`int_members` declares:
 
-    - xy: Base harmonium interaction (shared across components)
-    - xyk: Component-specific interaction offsets
-    - xk: Observable bias adjustments per component
+    - ``xy_man`` --- $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
+    - ``xyk_man`` --- $\\theta_{XYK}$ on $(x, y, k)$: component-specific interaction offsets
+    - ``xk_man`` --- $\\theta_{XK}$ on $(x, k)$: per-component observable bias shifts
+
+    The graph is a **fork, not a chain**: both $y$ and $k$ are adjacent to $x$ through the
+    three-way clique, so the levels come out $(1, 2)$ and the depth is two. This matters
+    wherever the deepest level is used --- it holds $y$ as well as $k$.
 
     This class does NOT require conjugation — it provides the pure harmonium
     structure that can be wrapped in either:
@@ -247,57 +185,56 @@ class CompleteMixtureOfHarmoniums[
         return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
 
     @property
+    def _cat_sel(self) -> IdentityEmbedding[Categorical]:
+        """The category node in full: every component gets its own coefficient."""
+        return IdentityEmbedding(Categorical(self.n_categories))
+
+    @property
     def xy_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
-        """Base harmonium interaction embedded into mixture structure."""
-        emb = ObservableEmbedding(self.bas_pst_man)
-        return self.bas_hrm.int_man.prepend_embedding(emb)  # pyright: ignore[reportReturnType]
+        """$\\theta_{XY}$: the base interaction, aimed at the mixture's $y$ bias block."""
+        return self.bas_hrm.int_man.map_domain_embedding(
+            lambda y_sel: CliqueBlockEmbedding(self.bas_pst_man, (0,), (y_sel,))
+        )
 
     @property
     def xyk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
-        """Component-specific interactions embedded into mixture structure."""
+        """$\\theta_{XYK}$: the three-way interaction, aimed at the mixture's $(y,k)$ block.
 
-        def tensorize_emb[SubLatent: Differentiable](
-            emb: LinearEmbedding[SubLatent, Posterior],
-        ) -> LinearEmbedding[
-            LinearMap[Categorical, SubLatent], CompleteMixture[Posterior]
-        ]:
-            tns_emb = RowEmbedding(
-                Categorical(self.n_categories),
-                emb,
+        The clique's two latent members are $y$ and $k$ together, so it reads the block
+        holding their *joint* statistic rather than multiplying two marginals --- which is
+        what keeps it correct in mean coordinates, where
+        $\\mathbb E[\\mathbf s_Y \\otimes \\mathbf s_K] \\neq \\mathbb E[\\mathbf s_Y]
+        \\otimes \\mathbb E[\\mathbf s_K]$.
+        """
+        return self.bas_hrm.int_man.map_domain_embedding(
+            lambda y_sel: CliqueBlockEmbedding(
+                self.bas_pst_man, (0, 1), (y_sel, self._cat_sel)
             )
-            int_emb = InteractionEmbedding(self.bas_pst_man)
-            return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
-                tns_emb,
-                int_emb,
-            )
-
-        return self.bas_hrm.int_man.map_domain_embedding(tensorize_emb)  # pyright: ignore[reportArgumentType]
+        )
 
     @property
     def xk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
-        """Observable bias adjustments per component."""
+        """$\\theta_{XK}$: per-component shifts of the whole observable bias."""
         return EmbeddedMap(
             Rectangular(),
-            PosteriorEmbedding(self.bas_pst_man),
+            CliqueBlockEmbedding(self.bas_pst_man, (1,), (self._cat_sel,)),
             IdentityEmbedding(self.bas_hrm.obs_man),
-        )  # pyright: ignore[reportReturnType]
+        )
 
     @property
     @override
-    def clq_set(self) -> CliqueSet:
-        """The three-node graph over $x$, $y$, and $k$, with $x$ the root.
+    def int_members(self) -> tuple[tuple[int, ...], ...]:
+        """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
 
-        Both $y$ and $k$ are adjacent to $x$, so the levels are $(1, 2)$ rather than a
-        chain: the graph has depth two, not three. The seven cliques are the three biases,
-        the three couplings, and the triple interaction $\\theta_{XYK}$, and their canonical
-        order lines up block for block with the parameter layout --- ``obs_man``, the
-        interaction's three blocks in their existing order, then the mixture's three.
+        Node $0$ is $x$, node $1$ is $y$, node $2$ is $k$. Everything else about the graph
+        follows: the three biases come from the spans, the $(y,k)$ coupling comes from the
+        mixture one level up, and the levels come out $(1, 2)$ rather than a chain --- both
+        $y$ and $k$ are adjacent to $x$, so the graph has depth two, not three.
+
+        This has to be declared because the blocks share a domain and a codomain: which
+        nodes each couples lives in their domain embeddings, not in the block map.
         """
-        return CliqueSet(
-            n_nodes=3,
-            n_roots=1,
-            cliques=((0,), (1,), (2,), (0, 1), (0, 1, 2), (0, 2), (1, 2)),
-        )
+        return ((0, 1), (0, 1, 2), (0, 2))
 
     @property
     @override
@@ -308,7 +245,7 @@ class CompleteMixtureOfHarmoniums[
         - ``mxyk`` --- component-specific interactions $\\theta^0_{XYZ}$
         - ``mxk`` --- observable bias adjustments per component $\\theta_{XZ}$
         """
-        return BlockMap([self.xy_man, self.xyk_man, self.xk_man])
+        return BlockMap((self.xy_man, self.xyk_man, self.xk_man))
 
     def posterior_categorical(self, params: Array, x: Array) -> Array:
         """Compute posterior categorical distribution p(Z|x) in natural coordinates.
@@ -386,7 +323,7 @@ class CompleteMixtureOfHarmoniums[
         Note this is *not* ``levels[-1]``: the graph has depth two, so its deepest level
         holds both $y$ and $k$, and cutting there would take $y$ with it.
         """
-        return self.cut(frozenset({_CATEGORY_NODE}))
+        return self.cut(_CATEGORY_NODE)
 
     def to_mixture_coords(self, coords: Array) -> Array:
         """Repack coordinates from this model's layout to ``mix_man``'s.
