@@ -81,7 +81,7 @@ The library is organized into three main modules under `src/goal/`:
 
 1. **geometry/**: Core geometric abstractions
    - `algebra/`: Stateless parameter-layout descriptors that never reference `Manifold` (`matrix.py`, `clique.py`)
-   - `manifold/`: Riemannian manifolds, linear maps, embeddings, combinators, and `clique.py` (graph-indexed layouts: a `LinearClique` is a multilinear form over its member nodes; a `LinearCliques` concatenates them)
+   - `manifold/`: Riemannian manifolds, linear maps, embeddings, combinators, and `clique.py` (graph-indexed layouts: a `LinearClique` is a multilinear form together with the nodes it couples; a `LinearCliques` concatenates them)
    - `exponential_family/`: Exponential family abstractions and harmoniums (hierarchical models included --- the graph layout itself lives in `manifold/clique.py`)
 
 2. **models/**: Concrete statistical models
@@ -204,10 +204,9 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | Test file | Source module(s) |
 |---|---|
 | `matrix.py` | `geometry/algebra/matrix.py` |
-| `clique.py` | `geometry/algebra/clique.py` (`Cliques`: the `graph` it presents, cliques, level sets, canonical order, `ascend_level`) |
-| `graphical.py` | `geometry/manifold/clique.py` (`LinearClique` records, `LinearCliques` layout, `LevelCliques` spans, `CliqueCut`, `RootEmbedding`) |
+| `clique.py` | `geometry/algebra/clique.py` (`Cliques`: the `graph` it presents, cliques, level sets, canonical order, and relabelling invariance; defines the concrete `Cover` and the `ascend` helper it tests with) |
+| `graphical.py` | `geometry/manifold/clique.py` (`LinearClique`: its form algebra, incl. vs `EmbeddedMap` at arity 2; `NodeClique`; `LinearCliques` layout, `LevelCliques` spans, `CliqueCut`, `RootEmbedding`) |
 | `ef_clique.py` | `geometry/exponential_family/clique.py` (`EFClique` vs every live interaction shape, all three operations) |
-| `multilinear.py` | `geometry/manifold/map.py` (`MultilinearMap` vs `EmbeddedMap` at arity 2; round-trip and associativity at arity 3) |
 | `map.py` | `geometry/manifold/map.py` (LinearMap rename regression + MultilayerPerceptron) |
 | `normal.py` | `models/base/gaussian/normal.py` |
 | `boltzmann.py` | `models/base/gaussian/boltzmann.py` |

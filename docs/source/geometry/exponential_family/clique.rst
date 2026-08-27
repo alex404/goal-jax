@@ -19,47 +19,15 @@ Class Hierarchy
    :undoc-members:
    :show-inheritance:
 
-.. autofunction:: goal.geometry.exponential_family.clique.block_clique
 
 
-Clique Block Embeddings
------------------------
+Clique Embeddings
+-----------------
 
-.. autoclass:: goal.geometry.exponential_family.clique.CliqueBlockEmbedding
+.. autoclass:: goal.geometry.exponential_family.clique.CliqueEmbedding
    :members:
    :undoc-members:
    :show-inheritance:
-
-
-Clique Layouts
---------------
-
-.. autoclass:: goal.geometry.exponential_family.clique.LinearCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.exponential_family.clique.LevelCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.exponential_family.clique.CliqueProduct
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autofunction:: goal.geometry.exponential_family.clique.span_nodes
-
-.. autofunction:: goal.geometry.exponential_family.clique.span_blocks
-
-
-Cut Views
----------
-
-.. autofunction:: goal.geometry.exponential_family.clique.project_cut
-
-.. autofunction:: goal.geometry.exponential_family.clique.join_cut
 
 
 Span Embeddings

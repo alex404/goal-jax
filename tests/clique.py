@@ -1,18 +1,63 @@
 """Tests for geometry/algebra/clique.py.
 
-Verifies levels as distance from the root set, the partition a cover induces against a
-set of nodes, the cut indices a one-node split yields, canonical clique ordering, level ascent and reindexing,
-normalization/hashing, and each validation failure. ``Cliques`` is pure
-Python, so this file imports no JAX and needs no platform configuration.
+Verifies levels as distance from the root set, the split a cover induces against its root
+set, canonical clique ordering, and level ascent. ``Cliques`` is pure Python, so this file
+imports no JAX and needs no platform configuration --- which is why the cut, whose
+operations are array work, is tested in ``graphical.py`` instead.
+
+Node indices are labels: the tests use ascending contiguous ones because they are easy to
+read, and ``TestRelabelling`` checks that nothing depends on that.
+
+``Cliques`` is an ABC and the library ships no instance of it carrying no parameters: a
+cover with nothing laid out on it is a thing to test with, not a thing to model with. So
+the concrete cover and the level ascent both live here, as ``Cover`` and ``ascend``.
 """
+
+from dataclasses import dataclass
+from typing import ClassVar, override
 
 import pytest
 
 from goal.geometry import Cliques
-from goal.geometry.algebra.clique import crossing_rows, cut_indices, partition
 
 
-def path(n_nodes: int) -> Cliques:
+@dataclass(frozen=True)
+class Cover(Cliques):
+    """A cover and a root set, both stated outright.
+
+    The test's instance of the ABC. Nothing normalizes or checks the cover, here or in the
+    library, so these tuples are exactly what every property reads.
+    """
+
+    _cliques: tuple[tuple[int, ...], ...]
+    _root_nodes: frozenset[int]
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
+
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
+
+
+def ascend(clique_set: Cliques) -> Cover:
+    """Drop the root level and reroot at the boundary, keeping the labels.
+
+    The boundary becomes the new root set, so the resulting graph's levels are this
+    graph's shifted down by one. Labels carry over untouched: a graph one level up is the
+    same nodes minus the root level, and nothing needs renumbering to say so.
+
+    A manifold has no use for this: its deep span is already the graph one level up, as a
+    manifold. It is the levels *below* a cover that the library reads, and this is how the
+    tests check that reading against the cover one level up.
+    """
+    return Cover(clique_set.deep_cliques, frozenset(clique_set.boundary))
+
+
+def path(n_nodes: int) -> Cover:
     """The path ``0 --- 1 --- ... --- (n_nodes - 1)`` rooted at node 0, depth ``n_nodes``.
 
     Test scaffolding for parametrizing over depth. Deliberately not a ``Cliques``
@@ -21,7 +66,7 @@ def path(n_nodes: int) -> Cliques:
     """
     singletons = tuple((i,) for i in range(n_nodes))
     links = tuple((i, i + 1) for i in range(n_nodes - 1))
-    return Cliques(n_nodes, 1, singletons + links)
+    return Cover(singletons + links, frozenset({0}))
 
 
 # The three model shapes this design has to cover.
@@ -29,18 +74,10 @@ def path(n_nodes: int) -> Cliques:
 HMOG = path(3)
 """x --- y --- k: hierarchical mixture of Gaussians, levels (1, 1, 1)."""
 
-MFA = Cliques(
-    n_nodes=3,
-    n_roots=1,
-    cliques=((0,), (1,), (2,), (0, 1), (1, 2), (0, 1, 2)),
-)
+MFA = Cover(((0,), (1,), (2,), (0, 1), (1, 2), (0, 1, 2)), frozenset({0}))
 """Mixture of factor analyzers: the three-clique makes x --- k an edge, levels (1, 2)."""
 
-CCA = Cliques(
-    n_nodes=3,
-    n_roots=2,
-    cliques=((0,), (1,), (2,), (0, 2), (1, 2)),
-)
+CCA = Cover(((0,), (1,), (2,), (0, 2), (1, 2)), frozenset({0, 1}))
 """Canonical correlation analysis: two root nodes, one deep, levels (2, 1)."""
 
 
@@ -70,16 +107,16 @@ class TestLevels:
 
     def test_graph_is_derived_from_the_cover(self) -> None:
         """The cover is stored; the graph it presents is computed from it."""
-        assert HMOG.graph == ((1,), (0, 2), (1,))
+        assert HMOG.graph == {0: (1,), 1: (0, 2), 2: (1,)}
         # The three-clique makes x and k adjacent even though no pair (0, 2) was declared.
-        assert MFA.graph == ((1, 2), (0, 2), (0, 1))
-        assert CCA.graph == ((2,), (2,), (0, 1))
+        assert MFA.graph == {0: (1, 2), 1: (0, 2), 2: (0, 1)}
+        assert CCA.graph == {0: (2,), 1: (2,), 2: (0, 1)}
 
     def test_edges_are_the_graph_as_pairs(self) -> None:
         for clique_set in (path(4), HMOG, MFA, CCA):
             pairs = {
                 (min(i, j), max(i, j))
-                for i, near in enumerate(clique_set.graph)
+                for i, near in clique_set.graph.items()
                 for j in near
             }
             assert clique_set.edges == tuple(sorted(pairs))
@@ -100,151 +137,56 @@ class TestLevels:
         assert CCA.boundary == (2,)
 
 
-class TestPartition:
-    """One primitive under both structural splits.
+class TestLevelSplit:
+    """The split a clique manifold stores its coordinates by.
 
-    ``partition`` sorts a cover into the cliques inside $S$, those crossing its boundary,
-    and those outside. At the root set it is the split a layout is stored by; at a single
-    node it is the re-rooting cut. These check that the two really are one operation, and
-    that the split stays total where ``crossing_rows`` does not.
+    ``level_split`` sorts a cover against the root set into positions: the cliques wholly
+    within it, those crossing its boundary, and those wholly above. The three
+    ``*_cliques`` properties are readbacks of it.
     """
 
     @pytest.mark.parametrize("name", ["hmog", "mfa", "cca"])
-    def test_at_the_root_set_it_is_the_three_groups(self, name: str) -> None:
+    def test_it_is_the_three_groups(self, name: str) -> None:
         clq = {"hmog": HMOG, "mfa": MFA, "cca": CCA}[name]
-        inside, crossing, outside = clq.partition(clq.root_nodes)
-        assert tuple(clq.cliques[i] for i in inside) == clq.root_cliques
-        assert tuple(clq.cliques[i] for i in crossing) == clq.cross_cliques
-        assert tuple(clq.cliques[i] for i in outside) == clq.deep_cliques
+        root, cross, deep = clq.level_split()
+        assert tuple(clq.cliques[i] for i in root) == clq.root_cliques
+        assert tuple(clq.cliques[i] for i in cross) == clq.cross_cliques
+        assert tuple(clq.cliques[i] for i in deep) == clq.deep_cliques
 
     @pytest.mark.parametrize("name", ["hmog", "mfa", "cca"])
     def test_the_groups_partition_the_cover(self, name: str) -> None:
         clq = {"hmog": HMOG, "mfa": MFA, "cca": CCA}[name]
-        inside, crossing, outside = clq.partition(clq.root_nodes)
-        assert sorted(inside + crossing + outside) == list(range(len(clq.cliques)))
+        root, cross, deep = clq.level_split()
+        assert sorted(root + cross + deep) == list(range(len(clq.cliques)))
 
-    def test_cut_at_one_node_gives_the_mixture_view(self) -> None:
-        """MFA split at its category node: the outside group is the base harmonium."""
-        inside, crossing, outside = MFA.partition({2})
-        assert tuple(MFA.cliques[i] for i in inside) == ((2,),)
-        assert tuple(MFA.cliques[i] for i in crossing) == ((0, 1, 2), (1, 2))
-        assert tuple(MFA.cliques[i] for i in outside) == ((0,), (0, 1), (1,))
-        assert crossing_rows(MFA.cliques, {2}) == (1, 2)
+    @pytest.mark.parametrize("name", ["hmog", "mfa", "cca"])
+    def test_the_root_set_is_exactly_level_zero(self, name: str) -> None:
+        """``level_split`` asks membership of the root set; levels agree with it."""
+        clq = {"hmog": HMOG, "mfa": MFA, "cca": CCA}[name]
+        levels = clq.node_levels
+        for i in clq.nodes:
+            assert (i in clq.root_nodes) == (levels[i] == 0)
 
-    def test_rows_follow_the_outside_order(self) -> None:
-        """Each crossing clique is the row above the clique it reduces to."""
-        _, crossing, outside = MFA.partition({2})
-        rows = crossing_rows(MFA.cliques, {2})
-        for pos, row in zip(crossing, rows, strict=True):
-            near_part = tuple(j for j in MFA.cliques[pos] if j != 2)
-            assert MFA.cliques[outside[row]] == near_part
+    def test_a_bare_edge_has_no_root_or_deep_clique(self) -> None:
+        """An interaction with no bias on either node: one crossing clique and nothing else.
 
-    def test_rows_can_collide_above_one_node(self) -> None:
-        """At $|S| > 1$ two crossing cliques can share a row --- CCA's two roots do."""
-        assert crossing_rows(CCA.cliques, CCA.root_nodes) == (0, 0)
-
-    def test_a_bare_edge_splits_but_has_no_rows(self) -> None:
-        """The split is total where the row assignment is not.
-
-        Node 1 carries no block, so the crossing clique has nothing to be a row of ---
-        yet the graph is legitimate and its crossing group is well defined.
+        The graph is legitimate --- ``Cliques`` does not require singletons --- so the
+        split has to stay total on it.
         """
-        edge = Cliques(n_nodes=2, n_roots=1, cliques=((0, 1),))
+        edge = Cover(((0, 1),), frozenset({0}))
+        root, cross, deep = edge.level_split()
+        assert (root, cross, deep) == ((), (0,), ())
         assert edge.cross_cliques == ((0, 1),)
-        with pytest.raises(ValueError, match="has no row block"):
-            crossing_rows(edge.cliques, edge.root_nodes)
 
-    def test_the_empty_and_full_sets_are_degenerate(self) -> None:
-        every = range(MFA.n_nodes)
-        assert MFA.partition(())[2] == tuple(range(len(MFA.cliques)))
-        assert MFA.partition(every)[0] == tuple(range(len(MFA.cliques)))
-
-    def test_a_stray_node_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match=r"nodes \[7\] are not among"):
-            MFA.partition({7})
-
-    def test_positions_count_in_the_order_given(self) -> None:
-        """The free function splits whatever order it is handed, not the graph's.
-
-        A layout counts positions in *storage* order, so that the positions it computes
-        and the dimensions it slices come from one list. The two orders really do differ:
-        a two-root graph lays its cover out root-then-cross while the graph itself stores
-        it sorted, so the same $S$ yields different positions on each.
-        """
-        reversed_cover = tuple(reversed(MFA.cliques))
-        inside, crossing, outside = partition(reversed_cover, {2})
-        assert tuple(reversed_cover[i] for i in inside) == ((2,),)
-        assert tuple(reversed_cover[i] for i in crossing) == ((1, 2), (0, 1, 2))
-        assert tuple(reversed_cover[i] for i in outside) == ((1,), (0, 1), (0,))
-        assert crossing_rows(reversed_cover, {2}) == (0, 1)
-
-
-class TestCliqueCut:
-    """The re-rooting cut, as indices over a cover and its block sizes.
-
-    ``cut_indices`` is :func:`partition` at a single node plus the two conditions a matrix
-    view needs. The cover is passed in *storage* order, so these build it by hand rather
-    than through ``Cliques`` --- which is the case the free function exists for.
-    """
-
-    # x = 0 (dim 4), y = 1 (dim 2), k = 2 (dim 2): MFA's layout.
-    COVER: tuple[tuple[int, ...], ...] = ((0,), (0, 1), (0, 1, 2), (1,), (1, 2), (2,))
-    DIMS: tuple[int, ...] = (4, 8, 16, 2, 4, 2)
-
-    def test_the_mixture_view_of_mfa(self) -> None:
-        cut = cut_indices(self.COVER, self.DIMS, far_node=2, n_nodes=3)
-        assert cut.near_idx == (0, 1, 3)
-        assert cut.cross_idx == (2, 4)
-        assert cut.far_idx == (5,)
-        assert cut.cross_rows == (1, 2)
-        assert cut.n_cols == 2
-
-    def test_the_near_side_is_the_base_harmonium(self) -> None:
-        """Near blocks sum to the factor analyzer's own parameter vector."""
-        cut = cut_indices(self.COVER, self.DIMS, far_node=2, n_nodes=3)
-        assert sum(self.DIMS[i] for i in cut.near_idx) == 4 + 8 + 2
-
-    def test_every_crossing_block_is_a_full_row_band(self) -> None:
-        cut = cut_indices(self.COVER, self.DIMS, far_node=2, n_nodes=3)
-        for pos, i in enumerate(cut.cross_idx):
-            height = self.DIMS[cut.near_idx[cut.cross_rows[pos]]]
-            assert self.DIMS[i] == height * cut.n_cols
-
-    def test_rows_are_distinct_at_a_single_node(self) -> None:
-        """What makes the row assignment total, and the matrix well formed."""
-        cut = cut_indices(self.COVER, self.DIMS, far_node=2, n_nodes=3)
-        assert len(set(cut.cross_rows)) == len(cut.cross_rows)
-
-    def test_a_stray_far_node_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="far_node 7 is not one of the graph's 3"):
-            cut_indices(self.COVER, self.DIMS, far_node=7, n_nodes=3)
-
-    def test_cutting_the_only_node_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="leaves no near side"):
-            cut_indices(((0,),), (3,), far_node=0, n_nodes=1)
-
-    def test_a_far_node_without_a_block_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="has no block of its own"):
-            cut_indices(((0,), (0, 1)), (4, 8), far_node=1, n_nodes=2)
-
-    def test_a_crossing_clique_without_a_row_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="has no row block"):
-            cut_indices(((0, 1), (1,)), (8, 2), far_node=1, n_nodes=2)
-
-    def test_a_partial_coupling_is_rejected(self) -> None:
-        """A linear Gaussian model has no cut at its latent node.
-
-        Combinatorially admissible --- both ``(0,)`` and ``(1,)`` are in the cover --- but
-        the interaction reaches only a subspace of node 1, so the crossing blocks do not
-        share one column axis. This is the condition that keeps a cut from being a mere
-        generalization of a level split.
-        """
-        with pytest.raises(ValueError, match="does not couple the whole far side"):
-            cut_indices(((0,), (0, 1), (1,)), (4, 4, 2), far_node=1, n_nodes=2)
+    def test_depth_one_puts_everything_in_root(self) -> None:
+        every = Cover(((0,), (0, 1), (1,)), frozenset({0, 1}))
+        root, cross, deep = every.level_split()
+        assert root == (0, 1, 2)
+        assert cross == () and deep == ()
 
 
 class TestCanonicalOrder:
-    """Root cliques, then cross cliques, then deep cliques --- recursively."""
+    """Root cliques, then cross cliques, then the same rule one level up."""
 
     def test_pair_reproduces_harmonium_layout(self) -> None:
         assert path(2).canonical_cliques == ((0,), (0, 1), (1,))
@@ -259,14 +201,16 @@ class TestCanonicalOrder:
         deep_span = HMOG.canonical_cliques[
             len(HMOG.root_cliques + HMOG.cross_cliques) :
         ]
-        relabelled = tuple(
-            tuple(i + HMOG.n_roots for i in c)
-            for c in HMOG.ascend_level().canonical_cliques
-        )
-        assert deep_span == relabelled
+        assert deep_span == ascend(HMOG).canonical_cliques
 
     def test_mfa_order(self) -> None:
-        assert MFA.canonical_cliques == ((0,), (0, 1), (0, 1, 2), (1,), (1, 2), (2,))
+        """Level 0, then the two cliques crossing into level 1, then level 1.
+
+        ``MFA`` is written here in an order no model would store it in, so this also pins
+        what canonical order does *not* do: within the level-1 group it keeps the cover's
+        own order, ``(1,) (2,) (1, 2)``, rather than sorting it.
+        """
+        assert MFA.canonical_cliques == ((0,), (0, 1), (0, 1, 2), (1,), (2,), (1, 2))
 
     def test_cca_order(self) -> None:
         assert CCA.canonical_cliques == ((0,), (1,), (0, 2), (1, 2), (2,))
@@ -278,43 +222,36 @@ class TestCanonicalOrder:
     def test_clique_groups_partition(self) -> None:
         for clique_set in (HMOG, MFA, CCA):
             head = clique_set.root_cliques + clique_set.cross_cliques
-            deep = tuple(
-                tuple(i + clique_set.n_roots for i in c)
-                for c in clique_set.ascend_level().cliques
-            )
+            deep = ascend(clique_set).cliques
             assert sorted(head + deep) == sorted(clique_set.cliques)
 
 
 class TestTail:
-    """Ascending a level reindexes from zero with the boundary becoming the new root set."""
+    """Ascending a level drops the root level, the boundary becoming the new root set."""
 
     def test_chain_ascends_to_a_shorter_chain(self) -> None:
-        assert path(3).ascend_level() == path(2)
-        assert path(4).ascend_level().ascend_level() == path(2)
+        assert ascend(path(3)) == Cover(((1,), (2,), (1, 2)), frozenset({1}))
+        assert ascend(ascend(path(4))) == Cover(((2,), (3,), (2, 3)), frozenset({2}))
 
-    def test_ascent_is_a_shift_not_a_permutation(self) -> None:
-        """Node $i$ one level up is node $i + n_r$ here, because levels ascend with index.
+    def test_ascent_keeps_the_labels(self) -> None:
+        """One level up is the same nodes minus the root level, under the same names.
 
-        This is what lets ``LevelCliques`` splice its deep span in by renumbering rather
-        than reordering, so the graph's clique order and the manifold's block order cannot
-        come apart between levels.
+        Nothing renumbers, so the graph's clique order and a manifold's clique order
+        cannot come apart between levels by disagreeing about which node is which.
         """
         for clique_set in (HMOG, MFA, CCA):
-            above = clique_set.ascend_level()
-            offset = clique_set.n_roots
-            assert above.n_nodes == clique_set.n_nodes - offset
-            assert (
-                tuple(tuple(i + offset for i in c) for c in above.cliques)
-                == clique_set.deep_cliques
-            )
+            above = ascend(clique_set)
+            assert above.cliques == clique_set.deep_cliques
+            assert set(above.nodes) <= set(clique_set.nodes)
+            assert above.n_nodes == clique_set.n_nodes - len(clique_set.root_nodes)
 
     def test_ascended_levels_shift_down(self) -> None:
-        assert MFA.ascend_level().level_sets == ((0, 1),)
-        assert CCA.ascend_level() == Cliques(1, 1, ((0,),))
+        assert ascend(MFA).level_sets == ((1, 2),)
+        assert ascend(CCA) == Cover(((2,),), frozenset({2}))
 
-    def test_ascended_roots_are_the_boundary_level(self) -> None:
+    def test_ascended_roots_are_the_boundary(self) -> None:
         for clique_set in (HMOG, MFA, CCA):
-            assert clique_set.ascend_level().n_roots == len(clique_set.level_sets[1])
+            assert ascend(clique_set).root_nodes == frozenset(clique_set.boundary)
 
     @pytest.mark.parametrize("clique_set", [path(2), path(4), HMOG, MFA, CCA])
     def test_ascended_levels_are_this_graphs_levels_minus_one(
@@ -327,10 +264,10 @@ class TestTail:
         contain a level-0 node --- that node would be adjacent to a level-$k$ one --- so
         the connectivity that set the level survives the ascent.
         """
-        above = clique_set.ascend_level()
+        above = ascend(clique_set)
         node_levels = clique_set.node_levels
-        for i in range(above.n_nodes):
-            assert above.node_levels[i] == node_levels[i + clique_set.n_roots] - 1
+        for i in above.nodes:
+            assert above.node_levels[i] == node_levels[i] - 1
 
 
 class TestAtomicShapes:
@@ -342,13 +279,13 @@ class TestAtomicShapes:
     """
 
     def test_node_atom(self) -> None:
-        node = Cliques(n_nodes=1, n_roots=1, cliques=((0,),))
+        node = Cover(((0,),), frozenset({0}))
         assert node.level_sets == ((0,),)
         assert node.edges == ()
         assert node.canonical_cliques == ((0,),)
 
     def test_edge_atom(self) -> None:
-        edge = Cliques(n_nodes=2, n_roots=1, cliques=((0, 1),))
+        edge = Cover(((0, 1),), frozenset({0}))
         assert edge.level_sets == ((0,), (1,))
         assert edge.edges == ((0, 1),)
         assert edge.canonical_cliques == ((0, 1),)
@@ -358,89 +295,75 @@ class TestAtomicShapes:
 
     def test_multi_clique_edge_atom(self) -> None:
         """A block map over three nodes: the cover MFA's interaction needs."""
-        edge = Cliques(n_nodes=3, n_roots=1, cliques=((0, 1), (0, 1, 2), (0, 2)))
+        edge = Cover(((0, 1), (0, 1, 2), (0, 2)), frozenset({0}))
         assert edge.level_sets == ((0,), (1, 2))
         assert edge.cross_cliques == ((0, 1), (0, 1, 2), (0, 2))
 
-    def test_reachability_still_holds_without_singletons(self) -> None:
-        with pytest.raises(ValueError, match="node 2 is not reachable"):
-            Cliques(3, 1, ((0, 1),))
+    def test_an_unreachable_component_simply_has_no_level(self) -> None:
+        """Two disjoint edges: the second pair has no path to the root, so no level.
+
+        Nothing rejects it --- there is no validation pass --- and the nodes that *are*
+        reachable are unaffected.
+        """
+        split = Cover(((0, 1), (2, 3)), frozenset({0}))
+        assert split.nodes == (0, 1, 2, 3)
+        assert split.node_levels == {0: 0, 1: 1}
+        assert split.level_sets == ((0,), (1,))
 
     def test_singleton_is_optional_not_forbidden(self) -> None:
         """Dropping the requirement must not make a node-only cover invalid."""
-        mixed = Cliques(3, 1, ((0,), (0, 1), (1, 2)))
+        mixed = Cover(((0,), (0, 1), (1, 2)), frozenset({0}))
         assert mixed.level_sets == ((0,), (1,), (2,))
 
 
-class TestNormalization:
-    """Equivalent descriptions compare and hash equal, and models stay jit-static."""
+class TestRelabelling:
+    """Node indices are labels: nothing reads meaning into their order or arithmetic.
 
-    def test_member_and_clique_order_do_not_matter(self) -> None:
-        scrambled = Cliques(3, 1, ((2, 1), (0,), (1, 0), (2,), (1,)))
-        assert scrambled == HMOG
-
-    def test_hashable(self) -> None:
-        assert hash(path(3)) == hash(HMOG)
-        assert {HMOG: "hmog"}[path(3)] == "hmog"
-
-    def test_fields_are_tuples(self) -> None:
-        assert isinstance(HMOG.cliques, tuple)
-        assert all(isinstance(c, tuple) for c in HMOG.cliques)
-
-
-class TestValidation:
-    """Every failure names the offending node or clique."""
-
-    def test_out_of_range_node(self) -> None:
-        with pytest.raises(ValueError, match="out-of-range node 3"):
-            Cliques(3, 1, ((0,), (1,), (2,), (0, 3)))
-
-    def test_unreachable_node(self) -> None:
-        with pytest.raises(ValueError, match="node 1 is not reachable"):
-            Cliques(3, 1, ((0,), (1,), (2,), (1, 2)))
-
-    def test_nodes_numbered_out_of_level_order(self) -> None:
-        """The path $0 - 2 - 1$ rooted at $\\{0\\}$: node 1 is at level 2, node 2 at level 1.
-
-        Levels then descend with the index, so the cliques one level up would need a
-        *permutation* back into this graph's indices rather than a shift. No manifold
-        laying out ``[root | cross | deep]`` can honour that, which is why the graph is
-        rejected rather than the mismatch tolerated. Renumbering the two nodes fixes it.
-        """
-        with pytest.raises(ValueError, match="number the nodes by level"):
-            Cliques(3, 1, ((0,), (1,), (2,), (0, 2), (1, 2)))
-        assert Cliques(3, 1, ((0,), (1,), (2,), (0, 1), (1, 2))).node_levels == (
-            0,
-            1,
-            2,
-        )
-
-    def test_duplicate_cliques(self) -> None:
-        with pytest.raises(ValueError, match="duplicate cliques"):
-            Cliques(2, 1, ((0,), (1,), (0, 1), (1, 0)))
-
-    @pytest.mark.parametrize("n_roots", [0, 3])
-    def test_bad_root_count(self, n_roots: int) -> None:
-        with pytest.raises(ValueError, match=r"n_roots must be in 1\.\.2"):
-            Cliques(2, n_roots, ((0,), (1,), (0, 1)))
-
-    def test_empty_model(self) -> None:
-        """``n_roots >= 1`` and ``n_roots <= n_nodes`` already forbid an empty node set."""
-        with pytest.raises(ValueError, match=r"n_roots must be in 1\.\.0"):
-            Cliques(0, 1, ())
-
-
-class TestMemberValidation:
-    """A clique names a non-empty set of distinct nodes.
-
-    Both checks run before normalization: sorting and deduplication would otherwise
-    destroy the evidence and report a clique the caller never wrote.
+    Each test takes a graph the rest of this file writes with contiguous, level-ordered
+    labels, renames every node through a map that is neither, and checks the derived
+    structure is the same graph under the same renaming. Contiguity and level order are
+    conveniences for reading the tests, not conditions the code relies on.
     """
 
-    def test_empty_clique(self) -> None:
-        with pytest.raises(ValueError, match="empty clique"):
-            Cliques(2, 1, ((0,), (), (0, 1)))
+    # x --- y --- k with labels that skip, start high, and run against level order.
+    RENAME: ClassVar[dict[int, int]] = {0: 30, 1: 7, 2: 19}
 
-    def test_repeated_member(self) -> None:
-        with pytest.raises(ValueError, match=r"clique \(0, 0\) repeats a node"):
-            Cliques(2, 1, ((0, 0), (0, 1)))
+    @classmethod
+    def _renamed(cls) -> Cover:
+        cliques = tuple(tuple(sorted(cls.RENAME[i] for i in c)) for c in HMOG.cliques)
+        return Cover(cliques, frozenset({cls.RENAME[0]}))
+
+    def test_nodes_are_whatever_the_cover_names(self) -> None:
+        odd = self._renamed()
+        assert odd.nodes == (7, 19, 30)
+        assert odd.n_nodes == 3
+
+    def test_levels_follow_the_graph_not_the_labels(self) -> None:
+        odd = self._renamed()
+        assert odd.node_levels == {30: 0, 7: 1, 19: 2}
+        assert odd.level_sets == ((30,), (7,), (19,))
+        assert odd.boundary == (7,)
+
+    def test_the_split_is_the_same_split(self) -> None:
+        odd = self._renamed()
+        assert odd.level_split() == HMOG.level_split()
+
+    def test_canonical_order_is_the_same_order(self) -> None:
+        odd = self._renamed()
+        expected = tuple(
+            tuple(sorted(self.RENAME[i] for i in c)) for c in HMOG.canonical_cliques
+        )
+        assert odd.canonical_cliques == expected
+
+    def test_ascent_still_reroots_at_the_boundary(self) -> None:
+        above = ascend(self._renamed())
+        assert above.root_nodes == frozenset({7})
+        assert above.nodes == (7, 19)
+        assert above.node_levels == {7: 0, 19: 1}
+
+    def test_a_root_set_that_is_not_the_lowest_labels(self) -> None:
+        """Rooting at the *highest* label: level order and index order run opposite."""
+        rooted_high = Cover(HMOG.cliques, frozenset({2}))
+        assert rooted_high.node_levels == {2: 0, 1: 1, 0: 2}
+        assert rooted_high.level_sets == ((2,), (1,), (0,))
+        assert rooted_high.canonical_cliques == ((2,), (1, 2), (1,), (0, 1), (0,))

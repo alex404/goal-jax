@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..manifold.clique import CliqueProduct
 from ..manifold.combinators import Pair, Replicated
 from .base import (
     Analytic,
@@ -16,7 +17,6 @@ from .base import (
     ExponentialFamily,
     Generative,
 )
-from .clique import CliqueProduct
 from .protocols import StatisticalMoments
 
 

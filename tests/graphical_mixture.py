@@ -2,18 +2,24 @@
 
 Covers CompleteMixtureOfSymmetric, CompleteMixtureOfConjugated, and
 MixtureOfFactorAnalyzers. Verifies dimension consistency, conjugation parameters,
-posterior computation, interaction blocks, mixture representation round-trips,
+posterior computation, interaction cliques, mixture representation round-trips,
 asymmetric pst/prr handling, and to_natural/to_mean inversion.
 """
 
-from typing import Any
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import CliqueBlockEmbedding, Diagonal, EmbeddedMap, IdentityEmbedding
+from goal.geometry import (
+    CliqueEmbedding,
+    Diagonal,
+    EmbeddedMap,
+    IdentityEmbedding,
+    LinearClique,
+)
 from goal.models import (
     DiagonalNormal,
     FullNormal,
@@ -266,8 +272,8 @@ class TestMFAGraph:
     """MFA's graph is derived from its coupling pattern, not declared clique by clique.
 
     The model states only which nodes each interaction block couples ---
-    ``cross_blocks``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
-    mixture one level up, the levels, and the block layout all follow from that. These
+    ``cross_forms``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
+    mixture one level up, the levels, and the clique layout all follow from that. These
     tests pin what follows, because a wrong derivation would be silent: every operation
     below reads the level split, which does not consult the graph.
     """
@@ -280,13 +286,47 @@ class TestMFAGraph:
         )
 
     def test_three_nodes_one_root(self) -> None:
-        clq = self._mfa().clq_set
+        clq = self._mfa()
         assert clq.n_nodes == 3
-        assert clq.n_roots == 1
+        assert clq.root_nodes == frozenset({0})
+
+    def test_expanding_the_observable_is_refused_not_mislabelled(self) -> None:
+        """The guard that would have caught this: a multi-node root needs declared cliques.
+
+        ``Harmonium.cross_forms`` labels its clique ``(0, 1)``, which names the latent only
+        when the observable is a single node. Undo the ``root_forms`` override and node 1
+        is a *root*, so the default clique is a lie --- it must refuse rather than produce a
+        cover with ``(0, 1)`` twice and the category unreachable.
+        """
+        base = self._mfa().mix_man
+
+        class _Expanded(type(base)):
+            @property
+            @override
+            def root_forms(self) -> tuple[LinearClique, ...]:
+                return self.forms_of(self.obs_man)
+
+        expanded = _Expanded(base.obs_man, base.n_categories)
+        assert expanded.root_nodes == frozenset({0, 1})
+        with pytest.raises(ValueError, match="root span over 2 nodes"):
+            _ = expanded.cross_forms
+
+    def test_the_mixture_view_is_a_two_node_graph(self) -> None:
+        """``mix_man`` holds the base harmonium as one node, not as its own two.
+
+        Its interaction reaches the base harmonium's whole parameter vector --- 21 numbers
+        that are not a tensor product of node statistics --- so it cannot factor across
+        $x$ and $y$. Expanding them would give the graph three nodes, a cross clique whose
+        clique named the wrong latent, and ``(0, 1)`` listed twice.
+        """
+        mix = self._mfa().mix_man
+        assert mix.root_nodes == frozenset({0})
+        assert mix.cliques == ((0,), (0, 1), (1,))
+        assert mix.level_split() == ((0,), (1,), (2,))
 
     def test_all_seven_cliques(self) -> None:
         """Three biases, three couplings, and the triple interaction."""
-        assert self._mfa().clq_set.canonical_cliques == (
+        assert self._mfa().canonical_cliques == (
             (0,),
             (0, 1),
             (0, 1, 2),
@@ -302,14 +342,14 @@ class TestMFAGraph:
         This is why ``mix_cut`` cannot use ``levels[-1]``: the deepest level holds $y$ as
         well as $k$, and cutting there would take $y$ along with it.
         """
-        assert self._mfa().clq_set.level_sets == ((0,), (1, 2))
+        assert self._mfa().level_sets == ((0,), (1, 2))
 
-    def test_one_block_per_clique(self) -> None:
+    def test_one_form_per_clique(self) -> None:
         mfa = self._mfa()
-        assert len(mfa.clique_dims) == len(mfa.clq_set.canonical_cliques)
+        assert len(mfa.clique_dims) == len(mfa.canonical_cliques)
         assert sum(mfa.clique_dims) == mfa.dim
 
-    def test_block_layout_follows_the_clique_order(self) -> None:
+    def test_layout_follows_the_clique_order(self) -> None:
         """obs, then the interaction's three blocks, then the mixture's three."""
         mfa = self._mfa(obs_dim=4, lat_dim=2, n_categories=3)
         xy, xyk, xk = mfa.int_man.block_dims
@@ -326,9 +366,9 @@ class TestMFAGraph:
 
 
 class TestDerivedInteractionEmbeddings:
-    """MFA's three interaction blocks are derived from members plus selectors.
+    """MFA's three interaction blocks are derived from selectors plus the nodes they name.
 
-    All three are one construction, ``CliqueBlockEmbedding``, differing only in which nodes
+    All three are one construction, ``CliqueEmbedding``, differing only in which nodes
     they name and how much of each one's statistic they select. These tests pin that
     behaviour directly.
 
@@ -350,10 +390,10 @@ class TestDerivedInteractionEmbeddings:
         return blocks  # pyright: ignore[reportReturnType]
 
     @classmethod
-    def _dom_embs(cls, **kwargs) -> tuple[CliqueBlockEmbedding[Any], ...]:
+    def _dom_embs(cls, **kwargs) -> tuple[CliqueEmbedding[Any], ...]:
         embs = tuple(block.dom_emb for block in cls._blocks(**kwargs))
         for emb in embs:
-            assert isinstance(emb, CliqueBlockEmbedding)
+            assert isinstance(emb, CliqueEmbedding)
         return embs  # pyright: ignore[reportReturnType]
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
@@ -405,6 +445,6 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         with pytest.raises(ValueError, match="no clique on"):
-            CliqueBlockEmbedding(
+            CliqueEmbedding(
                 (0, 1, 2), (IdentityEmbedding(mix.obs_man),) * 3, mix
             ).project(jnp.zeros(mix.dim))

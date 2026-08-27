@@ -43,24 +43,24 @@ class TestGraph:
 
     def test_clique_set(self) -> None:
         model = cca()
-        assert model.clq_set.n_nodes == 3
-        assert model.clq_set.n_roots == 2
-        assert model.clq_set.canonical_cliques == ((0,), (1,), (0, 2), (1, 2), (2,))
+        assert model.n_nodes == 3
+        assert model.root_nodes == frozenset({0, 1})
+        assert model.canonical_cliques == ((0,), (1,), (0, 2), (1, 2), (2,))
 
     def test_levels_are_depth_two(self) -> None:
         """Both observables sit at level 0; the shared latent is the only deep node."""
-        assert cca().clq_set.level_sets == ((0, 1), (2,))
+        assert cca().level_sets == ((0, 1), (2,))
 
-    def test_one_block_per_clique(self) -> None:
+    def test_one_form_per_clique(self) -> None:
         model = cca()
-        assert len(model.clique_dims) == len(model.clq_set.canonical_cliques)
+        assert len(model.clique_dims) == len(model.canonical_cliques)
         assert sum(model.clique_dims) == model.dim
 
     def test_observable_spans_two_nodes(self) -> None:
         """The root span is a clique product, which is what a multi-root graph needs."""
         obs = cca().obs_man
-        assert obs.clq_set.n_nodes == 2
-        assert obs.clq_set.n_roots == 2
+        assert obs.n_nodes == 2
+        assert obs.root_nodes == frozenset({0, 1})
         assert obs.clique_dims == (obs.fst_man.dim, obs.snd_man.dim)
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:

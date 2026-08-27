@@ -41,12 +41,12 @@ from ...geometry import (
     EFClique,
     EmbeddedMap,
     FirstEmbedding,
+    LinearClique,
     LinearComposedEmbedding,
     LinearEmbedding,
     PositiveDefinite,
     Rectangular,
     SecondEmbedding,
-    block_clique,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from .lgm import (
@@ -134,7 +134,7 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def cross_blocks(self) -> tuple[EFClique, ...]:
+    def cross_forms(self) -> tuple[LinearClique, ...]:
         """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
 
         Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two
@@ -143,7 +143,10 @@ class CanonicalCorrelationAnalysis[
         of the observable pair, and the shared latent.
         """
         fst, snd = self.int_man.blocks
-        return (block_clique(fst, (0, 2)), block_clique(snd, (1, 2)))
+        return (
+            EFClique.from_map(fst, (0, 2)),
+            EFClique.from_map(snd, (1, 2)),
+        )
 
     @property
     @override

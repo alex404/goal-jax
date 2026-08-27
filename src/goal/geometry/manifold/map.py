@@ -8,7 +8,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from math import prod
 from typing import override
 
 import jax
@@ -369,7 +368,7 @@ class BlockMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]
 
         A block map is several couplings summed, so when one is used as a level's cross
         span it becomes several cliques rather than one --- see
-        :attr:`~goal.geometry.exponential_family.clique.LevelCliques.cross_blocks`. Which *nodes*
+        :attr:`~goal.geometry.exponential_family.clique.LevelCliques.cross_forms`. Which *nodes*
         each block couples is not readable here, because the blocks share a domain and
         codomain; the model supplies those identities.
         """
@@ -430,92 +429,6 @@ class SquareMap[M: Manifold](AmbientMap[M, M]):
     def is_positive_definite(self, f_coords: Array) -> Array:
         """Check positive definiteness."""
         return self.rep.is_positive_definite(self.matrix_shape, f_coords)
-
-
-### Multilinear Maps ###
-
-
-@dataclass(frozen=True)
-class MultilinearMap(Manifold):
-    """A dense multilinear form over a fixed tuple of factor dimensions.
-
-    Parameters are one coefficient per index tuple, stored row-major --- the arity-$n$
-    generalization of :class:`~goal.geometry.algebra.matrix.Rectangular`, whose layout it
-    reproduces exactly at arity 2. Two operations: build parameters from a tuple of
-    factor vectors (:meth:`tensor`), and contract all factors but one
-    (:meth:`contract`).
-
-    Mathematically, for factor spaces of dimensions $(d_1, \\ldots, d_n)$ the parameters
-    are a tensor $\\Theta \\in \\mathbb R^{d_1 \\times \\cdots \\times d_n}$, and
-
-    .. math::
-        \\mathrm{tensor}(v_1, \\ldots, v_n) = v_1 \\otimes \\cdots \\otimes v_n,
-        \\qquad
-        \\mathrm{contract}(\\Theta, k, \\ldots)_{i}
-            = \\sum_{j_1 \\ldots \\widehat{j_k} \\ldots j_n}
-              \\Theta_{j_1 \\ldots i \\ldots j_n} \\prod_{l \\neq k} (v_l)_{j_l}.
-
-    Knows nothing about graphs: a
-    :class:`~goal.geometry.exponential_family.clique.EFClique` supplies the graph position --- this
-    is its :attr:`~goal.geometry.exponential_family.clique.EFClique.form` --- and the factor
-    dimensions here are the *selected* sub-statistic dimensions, not the full node
-    dimensions.
-    """
-
-    # Fields
-
-    sub_dims: tuple[int, ...]
-    """Dimension of each factor, in index order."""
-
-    # Overrides
-
-    @property
-    @override
-    def dim(self) -> int:
-        return prod(self.sub_dims)
-
-    # Methods
-
-    @property
-    def arity(self) -> int:
-        """Number of factors."""
-        return len(self.sub_dims)
-
-    def to_tensor(self, params: Array) -> Array:
-        """View flat parameters as a tensor of shape :attr:`sub_dims`."""
-        return params.reshape(self.sub_dims)
-
-    def from_tensor(self, tensor: Array) -> Array:
-        """Flatten a tensor of shape :attr:`sub_dims` into parameters."""
-        return tensor.reshape(-1)
-
-    def tensor(self, *vectors: Array) -> Array:
-        """Outer product of one vector per factor, as flat parameters."""
-        if len(vectors) != self.arity:
-            raise ValueError(f"expected {self.arity} factors, got {len(vectors)}")
-        out = vectors[0]
-        for vector in vectors[1:]:
-            out = jnp.tensordot(out, vector, axes=0)
-        return out.reshape(-1)
-
-    def contract(self, params: Array, keep: int, *vectors: Array) -> Array:
-        """Contract every factor except ``keep``, leaving a vector on that factor.
-
-        ``vectors`` supplies one vector per contracted factor, in ascending index order.
-        At arity 2 this is matrix-vector multiplication (``keep=0``) or its transpose
-        (``keep=1``).
-        """
-        if not 0 <= keep < self.arity:
-            msg = f"keep must be in 0..{self.arity - 1}, got {keep}"
-            raise ValueError(msg)
-        others = [axis for axis in range(self.arity) if axis != keep]
-        if len(vectors) != len(others):
-            raise ValueError(f"expected {len(others)} factors, got {len(vectors)}")
-        out = self.to_tensor(params)
-        # Descending order so that contracting one axis does not shift the next.
-        for axis, vector in sorted(zip(others, vectors), key=lambda p: -p[0]):
-            out = jnp.tensordot(out, vector, axes=([axis], [0]))
-        return out
 
 
 ### Affine Maps ###

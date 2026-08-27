@@ -22,8 +22,10 @@ from ...geometry import (
     EmbeddedMap,
     ExponentialFamilyProduct,
     IdentityEmbedding,
+    LinearClique,
     LinearEmbedding,
     Manifold,
+    NodeClique,
     Rectangular,
     StatisticalMoments,
     SymmetricConjugated,
@@ -84,6 +86,19 @@ class Mixture[Observable: Differentiable](
     """Observable embedding - determines which observable parameters are mixed."""
 
     # Overrides
+
+    @property
+    @override
+    def root_forms(self) -> tuple[LinearClique, ...]:
+        """The observable is one node, however much structure it has of its own.
+
+        A mixture's interaction reaches the observable's parameters as a *unit* --- one
+        column per component --- so it cannot factor across the observable's own nodes.
+        Expanding them would give the interaction more nodes than it has axes, and the
+        cross clique would name the wrong latent. This is what makes a mixture
+        over a harmonium a two-node graph.
+        """
+        return (NodeClique(self.obs_man, 0),)
 
     @property
     @override

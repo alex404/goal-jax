@@ -10,6 +10,8 @@ Users of existing models rarely need to interact with this layer directly --- th
    :caption: Modules:
 
    base
+   clique
    combinators
+   cut
    embedding
    map

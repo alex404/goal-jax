@@ -44,7 +44,7 @@ jax.config.update("jax_enable_x64", True)
 def _as_clique(int_man: LinearMap[Any, Any]) -> EFClique:
     """The clique an existing two-node interaction is: its own two embeddings."""
     assert isinstance(int_man, EmbeddedMap)
-    return EFClique(members=(0, 1), selectors=(int_man.cod_emb, int_man.dom_emb))
+    return EFClique((0, 1), selectors=(int_man.cod_emb, int_man.dom_emb))
 
 
 def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]:
@@ -126,7 +126,7 @@ class TestEquivalenceWithEmbeddedMap:
 class TestSufficientStatistic:
     """The clique's own contribution to a joint statistic."""
 
-    def test_matches_the_harmonium_interaction_block(self) -> None:
+    def test_matches_the_harmonium_interaction(self) -> None:
         """What ``Harmonium.sufficient_statistic`` computes for the cross span."""
         fa = factor_analysis(obs_dim=5, lat_dim=2)
         clique = _as_clique(fa.int_man)
@@ -144,7 +144,7 @@ class TestArityOne:
 
     def test_bias_clique_is_the_identity_on_a_statistic(self) -> None:
         man = full_normal(3)
-        clique = EFClique(members=(0,), selectors=(IdentityEmbedding(man),))
+        clique = EFClique((0,), selectors=(IdentityEmbedding(man),))
         assert clique.dim == man.dim
         x = jax.random.normal(jax.random.PRNGKey(4), (man.data_dim,))
         assert jnp.array_equal(
@@ -152,43 +152,14 @@ class TestArityOne:
         )
 
 
-class TestValidation:
-    """Arity is one fact, so the ways of disagreeing with it are all construction errors.
-
-    A selector *is* an axis, so a count mismatch and an axis mismatch are the same error,
-    and ``EFClique`` raises it once for every clique, subclasses included.
-    """
-
-    def test_member_and_selector_counts_must_agree(self) -> None:
-        man = full_normal(2)
-        with pytest.raises(ValueError, match="2 members but 1 axes"):
-            EFClique(members=(0, 1), selectors=(IdentityEmbedding(man),))
-
-    def test_a_clique_may_not_repeat_a_node(self) -> None:
-        man = full_normal(2)
-        with pytest.raises(ValueError, match="must be ascending and distinct"):
-            EFClique(
-                members=(1, 1),
-                selectors=(IdentityEmbedding(man), IdentityEmbedding(man)),
-            )
-
-    def test_members_must_be_ascending(self) -> None:
-        man = full_normal(2)
-        with pytest.raises(ValueError, match="must be ascending and distinct"):
-            EFClique(
-                members=(1, 0),
-                selectors=(IdentityEmbedding(man), IdentityEmbedding(man)),
-            )
-
-
 class TestJointBlocksAreNotProductsOfMarginals:
-    """Why a multi-latent clique reads a *joint* block instead of per-node statistics.
+    """Why a multi-latent clique reads a *joint* statistic instead of per-node ones.
 
     ``tensor`` multiplies its members' statistics together, which is exact when every
-    member is observed. When two members are latent the block is
+    member is observed. When two members are latent the clique's parameters are
     $\\mathbb E[\\bigotimes_i \\mathbf s_i]$ jointly, and expectation does not pass through a
     tensor product. ``select_joint`` is the operation for that case: it contracts each
-    selector into an axis of the joint block and never forms a marginal.
+    selector into an axis of the joint statistic and never forms a marginal.
     """
 
     @staticmethod
@@ -199,7 +170,7 @@ class TestJointBlocksAreNotProductsOfMarginals:
             n_categories=3, bas_hrm=factor_analysis(obs_dim=4, lat_dim=2)
         )
 
-    def test_on_a_sample_point_the_latent_block_is_a_product(self) -> None:
+    def test_on_a_sample_point_the_latent_statistic_is_a_product(self) -> None:
         """Deterministic statistics, so marginals and the joint agree exactly."""
         mfa = self._mfa()
         mix = mfa.pst_man
@@ -230,14 +201,14 @@ class TestJointBlocksAreNotProductsOfMarginals:
 class TestArityThreeReproducesMFA:
     """The three-way interaction $\\theta_{XYK}$, as a genuine arity-3 clique.
 
-    MFA stores this block as an arity-2 map whose domain is the joint $(y,k)$ statistic ---
+    MFA stores this clique as an arity-2 map whose domain is the joint $(y,k)$ statistic ---
     which is exactly "select a sub-statistic on the $y$ axis, identity on the $k$ axis"
     written as one matrix. These tests check that an ``EFClique`` over three members
     reproduces it on every operation, *including in mean coordinates at the E-step*, which
     is the case that decides whether higher arity is usable at all.
 
     The clique's latent members $(y, k)$ are themselves a clique of the level above, so
-    their joint expectation exists as a block to select from. That is the structural
+    their joint expectation exists as a statistic to select from. That is the structural
     condition higher arity needs.
     """
 
@@ -252,7 +223,7 @@ class TestArityThreeReproducesMFA:
         assert isinstance(xyk, EmbeddedMap)
         # x location, y location, k in full: the three members' selectors.
         clique = EFClique(
-            members=(0, 1, 2),
+            (0, 1, 2),
             selectors=(
                 xyk.cod_emb,
                 mfa.bas_hrm.int_man.dom_emb,
@@ -261,12 +232,12 @@ class TestArityThreeReproducesMFA:
         )
         return mfa, xyk, clique
 
-    def test_dimension_matches_the_live_block(self) -> None:
+    def test_dimension_matches_the_live_map(self) -> None:
         _, xyk, clique = self._setup()
         assert clique.dim == xyk.dim
-        assert clique.form.sub_dims == (4, 2, 2)
+        assert clique.sub_dims == (4, 2, 2)
 
-    def test_mean_block_matches_at_the_e_step(self) -> None:
+    def test_mean_parameters_match_at_the_e_step(self) -> None:
         """The decisive one: mean coordinates, both latent members dependent."""
         mfa, xyk, clique = self._setup()
         mix = mfa.pst_man
@@ -283,7 +254,7 @@ class TestArityThreeReproducesMFA:
         ).ravel()
         assert jnp.allclose(live, rebuilt)
 
-    def test_mean_block_matches_over_many_draws(self) -> None:
+    def test_mean_parameters_match_over_many_draws(self) -> None:
         """Not a coincidence of one posterior."""
         mfa, xyk, clique = self._setup()
         mix = mfa.pst_man

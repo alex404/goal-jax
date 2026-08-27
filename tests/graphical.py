@@ -1,16 +1,23 @@
-"""Tests for the clique-indexed layouts in geometry/exponential_family/clique.py.
+"""Tests for ``LinearClique`` and the clique-indexed layouts in geometry/manifold/clique.py.
 
 A clique manifold stores coordinates as the three spans of one level ascent,
 ``[root | cross | deep]``. The tests pin that layout against what ``analytic_hmog`` and
 ``differentiable_hmog`` already produce, so any disagreement is a real difference and not
-a change of convention. The decisive case is the last one: a hierarchical model's
-posterior-to-prior embedding must transform the root span and leave the other two
+a change of convention. The decisive layout case is the embedding one: a hierarchical
+model's posterior-to-prior embedding must transform the root span and leave the other two
 untouched, which is what lets a difference deep in the graph be expressed by nesting.
+
+The last four classes test a clique's *form algebra* rather than its placement. The
+decisive ones are at arity 2: they pin the contraction against the ``EmbeddedMap``
+machinery every interaction in the library already runs on, so the arity-$n$
+generalization is verified against working code rather than against a fresh derivation.
+The arity-3 tests then check the two properties that make higher arity usable --- that
+contraction order does not matter, and that partial contraction composes.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import prod
-from typing import override
+from typing import Self, override
 
 import jax
 import jax.numpy as jnp
@@ -18,8 +25,9 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
-    CliqueBlockEmbedding,
-    Cliques,
+    AmbientMap,
+    CliqueCut,
+    CliqueEmbedding,
     Diagonal,
     EFClique,
     EmbeddedMap,
@@ -27,6 +35,7 @@ from goal.geometry import (
     IdentityEmbedding,
     InteractionEmbedding,
     LevelCliques,
+    LinearClique,
     LinearCliques,
     Manifold,
     ObservableEmbedding,
@@ -35,14 +44,12 @@ from goal.geometry import (
     Rectangular,
     RootEmbedding,
     Scale,
-    block_clique,
-    join_cut,
-    project_cut,
 )
 from goal.models import (
     CanonicalCorrelationAnalysis,
     Categorical,
     CompleteMixture,
+    Euclidean,
     MixtureOfFactorAnalyzers,
     Normal,
     Poissons,
@@ -52,44 +59,53 @@ from goal.models import (
 )
 
 
-def _block(members: tuple[int, ...], axes: tuple[int, ...]) -> EFClique:
-    """A clique with the given factor sizes, for building layouts by hand.
+@dataclass(frozen=True)
+class _Form(LinearClique):
+    """A clique with the given factor sizes, for building layouts by hand."""
 
-    ``Poissons(n)`` has dimension ``n``, so naming the axis sizes is enough --- the nodes
-    it stands them up on are incidental to what these tests check.
-    """
-    return EFClique(members, tuple(IdentityEmbedding(Poissons(n)) for n in axes))
+    _members: tuple[int, ...]
+    _axes: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        self.validate_clique()
+
+    @property
+    @override
+    def members(self) -> tuple[int, ...]:
+        return self._members
+
+    @property
+    @override
+    def sub_dims(self) -> tuple[int, ...]:
+        return self._axes
+
+    @override
+    def shifted(self, offset: int) -> Self:
+        return replace(self, _members=tuple(i + offset for i in self._members))
+
+
+def _form(members: tuple[int, ...], axes: tuple[int, ...]) -> LinearClique:
+    """A clique with the given factor sizes, for building layouts by hand."""
+    return _Form(members, axes)
 
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
-
-TWO_NODE = Cliques(n_nodes=2, n_roots=1, cliques=((0,), (1,), (0, 1)))
-"""x --- z: the graph a plain harmonium lays out on."""
-
-THREE_NODE = Cliques(n_nodes=3, n_roots=1, cliques=((0,), (1,), (2,), (0, 1), (1, 2)))
-"""x --- y --- k: the graph a hierarchical mixture declares."""
 
 
 @dataclass(frozen=True)
 class _Spans(LevelCliques[ExponentialFamily, Manifold, ExponentialFamily]):
     """A clique manifold assembled from three explicit span manifolds."""
 
-    _clq_set: Cliques
     _root_man: ExponentialFamily
     _cross_man: Manifold
     _deep_man: ExponentialFamily
-    _cross_blocks: tuple[EFClique, ...]
+    _cross_forms: tuple[LinearClique, ...]
 
     @property
     @override
-    def clq_set(self) -> Cliques:
-        return self._clq_set
-
-    @property
-    @override
-    def cross_blocks(self) -> tuple[EFClique, ...]:
-        return self._cross_blocks
+    def cross_forms(self) -> tuple[LinearClique, ...]:
+        return self._cross_forms
 
     @property
     @override
@@ -110,9 +126,7 @@ class _Spans(LevelCliques[ExponentialFamily, Manifold, ExponentialFamily]):
 def _hmog_spans():
     """The analytic HMoG alongside a bare clique manifold with the same three spans."""
     model = analytic_hmog(obs_dim=8, obs_rep=Diagonal(), lat_dim=3, n_components=4)
-    spans = _Spans(
-        THREE_NODE, model.obs_man, model.int_man, model.pst_man, model.cross_blocks
-    )
+    spans = _Spans(model.obs_man, model.int_man, model.pst_man, model.cross_forms)
     return model, spans
 
 
@@ -165,23 +179,24 @@ class TestHarmoniumSpans:
 
     def test_hmog_declares_the_three_node_chain(self) -> None:
         model, _ = _hmog_spans()
-        assert model.clq_set == THREE_NODE
-        assert model.clq_set.level_sets == ((0,), (1,), (2,))
+        assert model.root_nodes == frozenset({0})
+        assert model.cliques == ((0,), (0, 1), (1,), (1, 2), (2,))
+        assert model.level_sets == ((0,), (1,), (2,))
 
     def test_spans_are_obs_int_pst(self) -> None:
         """The three spans are the observable, the interaction, and the posterior.
 
-        The cross span *is* the interaction --- no wrapper. Which nodes its blocks couple
-        is reported separately, by ``cross_blocks``, because that is the part only the model
+        The cross span *is* the interaction --- no wrapper. Which nodes its pieces couple
+        is reported separately, by ``cross_forms``, because that is the part only the model
         knows.
         """
         model, _ = _hmog_spans()
         assert model.root_man == model.obs_man
         assert model.cross_man == model.int_man
         assert model.deep_man == model.pst_man
-        (clique,) = model.cross_blocks
-        assert clique.members == (0, 1)
-        assert clique.dim == model.int_man.dim
+        (form,) = model.cross_forms
+        assert form.members == (0, 1)
+        assert form.dim == model.int_man.dim
 
     @pytest.mark.parametrize(
         ("emb_cls", "idx"),
@@ -242,17 +257,18 @@ class TestRootEmbedding:
         assert jnp.allclose(emb.translate(p, q), p + emb.embed(q))
 
     def test_rejects_mismatched_graphs(self) -> None:
+        """The two sides must present the same cover, not merely the same dimensions.
+
+        Since the merge, a layout's graph is read off its forms, so a mismatch cannot be
+        faked by declaring one --- it has to come from spans that genuinely cover
+        differently. Here the ambient is the whole three-node model rather than its upper
+        harmonium, so its cover has a node the sub's does not.
+        """
         model, _ = self._asymmetric_pair()
-        pst, prr = model.pst_upr_hrm, model.prr_upr_hrm
-        odd = _Spans(
-            Cliques(2, 2, ((0,), (1,))),
-            prr.obs_man,
-            prr.int_man,
-            prr.pst_man,
-            prr.cross_blocks,
-        )
+        pst = model.pst_upr_hrm
+        assert not pst.same_graph(model)
         with pytest.raises(ValueError, match="must share a clique set"):
-            RootEmbedding(model.lwr_hrm.pst_prr_emb, pst, odd)
+            RootEmbedding(model.lwr_hrm.pst_prr_emb, pst, model)
 
 
 def test_layout_is_jit_static() -> None:
@@ -268,16 +284,16 @@ def test_layout_is_jit_static() -> None:
 
 
 class TestCliqueAddressing:
-    """Per-clique blocks, and re-viewing the layout across an arbitrary node cut."""
+    """Per-clique coordinates, and re-viewing the layout across an arbitrary node cut."""
 
     def test_clique_dims_sum_to_dim(self) -> None:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
         assert sum(model.clique_dims) == model.dim
 
-    def test_one_block_per_clique(self) -> None:
-        """The declared graph and the parameter layout must agree block for block."""
+    def test_one_form_per_clique(self) -> None:
+        """The declared graph and the parameter layout must agree clique for clique."""
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        assert len(model.clique_dims) == len(model.clq_set.canonical_cliques)
+        assert len(model.clique_dims) == len(model.canonical_cliques)
 
     def test_split_join_cliques_round_trip(self) -> None:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
@@ -286,11 +302,11 @@ class TestCliqueAddressing:
 
     def test_split_cliques_matches_declared_dims(self) -> None:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        blocks = model.split_cliques(jnp.zeros(model.dim))
-        assert tuple(b.size for b in blocks) == model.clique_dims
+        parts = model.split_cliques(jnp.zeros(model.dim))
+        assert tuple(p.size for p in parts) == model.clique_dims
 
     def test_cut_isolating_the_deepest_node(self) -> None:
-        """x-y-k re-viewed as (x, y) | k: the crossing clique gets one row block."""
+        """x-y-k re-viewed as (x, y) | k: the crossing clique gets one row band."""
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
         cut = model.cut(2)
         assert cut.n_cols == model.clique_dims[-1]
@@ -300,7 +316,7 @@ class TestCliqueAddressing:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
         params = jax.random.normal(jax.random.PRNGKey(2), (model.dim,))
         cut = model.cut(2)
-        assert jnp.allclose(join_cut(cut, *project_cut(cut, params)), params)
+        assert jnp.allclose(cut.join(*cut.project(params)), params)
 
     def test_cut_rejects_a_sub_statistic_coupling(self) -> None:
         """A Gaussian interaction couples part of the latent statistic, so has no view.
@@ -312,16 +328,83 @@ class TestCliqueAddressing:
         with pytest.raises(ValueError, match="does not couple the whole far side"):
             model.cut(1)
 
-    def test_cut_rejects_a_far_node_with_no_block(self) -> None:
-        """Singleton cliques are optional, so the far node may carry no block at all.
+    def test_cut_rejects_a_far_node_with_no_clique(self) -> None:
+        """Singleton cliques are optional, so the far node may carry no clique at all.
 
-        Without this guard the cut has zero columns and every crossing block is read as
+        Without this guard the cut has zero columns and every crossing clique is read as
         a row band of width nothing --- silently, since no arithmetic contradicts it.
         """
-        blocks = (_block((0,), (2,)), _block((0, 1), (2, 3)))
-        layout = _Layout(Cliques(2, 1, ((0,), (0, 1))), blocks)
-        with pytest.raises(ValueError, match="has no block of its own"):
+        forms = (_form((0,), (2,)), _form((0, 1), (2, 3)))
+        layout = _Layout(frozenset({0}), forms)
+        with pytest.raises(ValueError, match="has no clique of its own"):
             layout.cut(1)
+
+
+class TestCliqueCutIndices:
+    """The cut's index bookkeeping, over a cover and its clique sizes directly.
+
+    Relocated from ``clique.py`` when ``CliqueCut`` moved to the manifold layer: the class
+    reads dimensions and its operations are array work, so it cannot live in the JAX-free
+    combinatorics module. The cover is given in *storage* order and built by hand, which is
+    what these check the class accepts.
+    """
+
+    # x = 0 (dim 4), y = 1 (dim 2), k = 2 (dim 2): MFA's layout.
+    COVER: tuple[tuple[int, ...], ...] = ((0,), (0, 1), (0, 1, 2), (1,), (1, 2), (2,))
+    DIMS: tuple[int, ...] = (4, 8, 16, 2, 4, 2)
+
+    def test_the_mixture_view_of_mfa(self) -> None:
+        cut = CliqueCut(self.COVER, self.DIMS, 2)
+        assert cut.near_idx == (0, 1, 3)
+        assert cut.cross_idx == (2, 4)
+        assert cut.far_idx == (5,)
+        assert cut.cross_rows == (1, 2)
+        assert cut.n_cols == 2
+
+    def test_the_near_side_is_the_base_harmonium(self) -> None:
+        """The near side sums to the factor analyzer's own parameter vector."""
+        cut = CliqueCut(self.COVER, self.DIMS, 2)
+        assert sum(self.DIMS[i] for i in cut.near_idx) == 4 + 8 + 2
+
+    def test_every_crossing_clique_is_a_full_row_band(self) -> None:
+        cut = CliqueCut(self.COVER, self.DIMS, 2)
+        for pos, i in enumerate(cut.cross_idx):
+            height = self.DIMS[cut.near_idx[cut.cross_rows[pos]]]
+            assert self.DIMS[i] == height * cut.n_cols
+
+    def test_rows_are_distinct_at_a_single_node(self) -> None:
+        """What makes the row assignment total, and the matrix well formed."""
+        cut = CliqueCut(self.COVER, self.DIMS, 2)
+        assert len(set(cut.cross_rows)) == len(cut.cross_rows)
+
+    def test_a_stray_far_node_is_rejected(self) -> None:
+        with pytest.raises(
+            ValueError, match="far_node 7 is not one of the graph's nodes"
+        ):
+            CliqueCut(self.COVER, self.DIMS, 7)
+
+    def test_cutting_the_only_node_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="leaves no near side"):
+            CliqueCut(((0,),), (3,), 0)
+
+    def test_a_far_node_without_a_clique_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="has no clique of its own"):
+            CliqueCut(((0,), (0, 1)), (4, 8), 1)
+
+    def test_a_crossing_clique_without_a_row_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="has no row band"):
+            CliqueCut(((0, 1), (1,)), (8, 2), 1)
+
+    def test_a_partial_coupling_is_rejected(self) -> None:
+        """A linear Gaussian model has no cut at its latent node.
+
+        Combinatorially admissible --- both ``(0,)`` and ``(1,)`` are in the cover --- but
+        the interaction reaches only a subspace of node 1, so the crossing cliques do not
+        share one column axis. This is the condition that keeps a cut from being a mere
+        generalization of a level split.
+        """
+        with pytest.raises(ValueError, match="does not couple the whole far side"):
+            CliqueCut(((0,), (0, 1), (1,)), (4, 4, 2), 1)
 
 
 ### Layout Invariants ###
@@ -331,29 +414,29 @@ def layout_problems(man: LinearCliques) -> list[str]:
     """Every way a clique manifold's graph and its parameter layout can disagree.
 
     Four invariants, in dependency order. **Storage order is the order the graph induces**
-    comes first, and returns on its own: every later check pairs a block with the clique
+    comes first, and returns on its own: every later check pairs a form with the clique
     sitting at its position, so under a mismatch they would blame the wrong clique or pass
-    by coincidence. Then blocks tile the coordinate vector, each block has one axis per
+    by coincidence. Then the forms tile the coordinate vector, each form has one axis per
     member, and its axes multiply out to its size.
 
     Nothing at runtime requires the first invariant --- :meth:`clique_offsets` and
-    :meth:`clique_index` both read the blocks' own members. It is a property of every model
+    :meth:`clique_index` both read the layout's own cliques. It is a property of every model
     the library ships, enforced here rather than at construction.
     """
-    canonical = man.clq_set.canonical_cliques
-    members = man.clique_members
+    canonical = man.canonical_cliques
+    members = man.cliques
     if members != canonical:
         return [f"storage order {members} is not canonical order {canonical}"]
     dims = man.clique_dims
     axes = man.clique_axes
     out: list[str] = []
     if sum(dims) != man.dim:
-        out.append(f"blocks sum to {sum(dims)}, but dim is {man.dim}")
-    for clique, block_dim, block_axes in zip(members, dims, axes, strict=True):
-        if len(block_axes) != len(clique):
-            out.append(f"clique {clique} has {len(block_axes)} axes {block_axes}")
-        if prod(block_axes) != block_dim:
-            out.append(f"clique {clique}: axes {block_axes} do not make {block_dim}")
+        out.append(f"forms sum to {sum(dims)}, but dim is {man.dim}")
+    for clique, size, form_axes in zip(members, dims, axes, strict=True):
+        if len(form_axes) != len(clique):
+            out.append(f"clique {clique} has {len(form_axes)} axes {form_axes}")
+        if prod(form_axes) != size:
+            out.append(f"clique {clique}: axes {form_axes} do not make {size}")
     return out
 
 
@@ -397,10 +480,25 @@ class TestLayoutInvariants:
     def test_layout_agrees_with_graph(self, name: str) -> None:
         assert layout_problems(dict(shipped_models())[name]) == []
 
-    def test_the_arity_three_clique_has_three_axes(self) -> None:
-        """MFA's $(x,y,k)$ block is a three-way interaction, so it has three factors.
+    @pytest.mark.parametrize("name", [n for n, _ in shipped_models()])
+    def test_the_level_split_agrees_with_the_span_dimensions(self, name: str) -> None:
+        """The two readings of where a level ends must coincide.
 
-        The domain sub-statistic is the joint $(y,k)$ block, which contributes one axis per
+        ``split_coords`` slices at the summed sizes of the root and cross *forms*, while
+        the spans report their own dimensions. Both descriptions exist; the layout is only
+        coherent if they agree, and only the form reading is what the split actually uses.
+        """
+        man = dict(shipped_models())[name]
+        coords = jnp.arange(float(man.dim))
+        root, cross, deep = man.split_level(coords)  # pyright: ignore[reportAttributeAccessIssue]
+        spans = (man.root_man.dim, man.cross_man.dim, man.deep_man.dim)  # pyright: ignore[reportAttributeAccessIssue]
+        assert (root.size, cross.size, deep.size) == spans
+        assert jnp.array_equal(man.join_level(root, cross, deep), coords)  # pyright: ignore[reportAttributeAccessIssue]
+
+    def test_the_arity_three_clique_has_three_axes(self) -> None:
+        """MFA's $(x,y,k)$ clique is a three-way interaction, so it has three factors.
+
+        The domain sub-statistic is the joint $(y,k)$ form, which contributes one axis per
         node rather than one for the pair --- which is what makes the axis count the arity.
         """
         mfa = _mfa()
@@ -408,11 +506,11 @@ class TestLayoutInvariants:
         assert len(axes) == 3
         assert axes == (4, 2, 2)
 
-    def test_blocks_tile_the_coordinate_vector(self) -> None:
+    def test_forms_tile_the_coordinate_vector(self) -> None:
         for name, man in shipped_models():
             coords = jnp.arange(float(man.dim))
-            blocks = man.split_cliques(coords)
-            assert jnp.array_equal(man.join_cliques(*blocks), coords), name
+            parts = man.split_cliques(coords)
+            assert jnp.array_equal(man.join_cliques(*parts), coords), name
 
 
 ### Ordering Regressions ###
@@ -430,9 +528,12 @@ class _ReversedCCA(
 
     @property
     @override
-    def cross_blocks(self) -> tuple[EFClique, ...]:
+    def cross_forms(self) -> tuple[LinearClique, ...]:
         fst, snd = self.int_man.blocks
-        return (block_clique(fst, (1, 2)), block_clique(snd, (0, 2)))
+        return (
+            EFClique.from_map(fst, (1, 2)),
+            EFClique.from_map(snd, (0, 2)),
+        )
 
 
 @dataclass(frozen=True)
@@ -442,12 +543,12 @@ class _DerivedSpans(LevelCliques[ExponentialFamily, Manifold, ExponentialFamily]
     _root_man: ExponentialFamily
     _cross_man: Manifold
     _deep_man: ExponentialFamily
-    _cross_blocks: tuple[EFClique, ...]
+    _cross_forms: tuple[LinearClique, ...]
 
     @property
     @override
-    def cross_blocks(self) -> tuple[EFClique, ...]:
-        return self._cross_blocks
+    def cross_forms(self) -> tuple[LinearClique, ...]:
+        return self._cross_forms
 
     @property
     @override
@@ -477,17 +578,17 @@ def _misrooted() -> _DerivedSpans:
     mix = CompleteMixture(Normal(2, Diagonal()), 4)
     cross = EmbeddedMap(
         Rectangular(),
-        CliqueBlockEmbedding((1,), (IdentityEmbedding(Categorical(4)),), mix),
+        CliqueEmbedding((1,), (IdentityEmbedding(Categorical(4)),), mix),
         IdentityEmbedding(obs),
     )
-    block = _block((0, 2), (obs.dim, Categorical(4).dim))
-    return _DerivedSpans(obs, cross, mix, (block,))
+    form = _form((0, 2), (obs.dim, Categorical(4).dim))
+    return _DerivedSpans(obs, cross, mix, (form,))
 
 
 class TestDeclarationOrderRegressions:
     """A clique's layout slot must hold that clique's parameters."""
 
-    def test_reversed_branches_address_their_own_block(self) -> None:
+    def test_reversed_branches_address_their_own_clique(self) -> None:
         model = _ReversedCCA(
             fst_dim=3,
             fst_rep=PositiveDefinite(),
@@ -498,31 +599,31 @@ class TestDeclarationOrderRegressions:
         )
         params = jnp.arange(float(model.dim))
         declared = model.int_man.coord_blocks(model.split_level(params)[1])
-        # cross_blocks[1] is on (0, 2), so the second block is the (0, 2) clique.
+        # cross_forms[1] is on (0, 2), so the second piece is the (0, 2) clique.
         found = model.split_cliques(params)[model.clique_index((0, 2))]
         assert jnp.array_equal(found, declared[1])
 
-    def test_misrooted_deep_span_is_rejected_by_the_graph(self) -> None:
-        """The numbering invariant catches this at the graph rather than the layout.
+    def test_misrooted_deep_span_is_still_a_graph(self) -> None:
+        """Labels need not ascend with level, so this is a graph like any other.
 
-        Node 2 is at level 1 and node 1 at level 2, so the cliques one level up would need
-        a permutation back into these indices rather than a shift by ``n_roots`` --- which
-        is exactly what ``LevelCliques`` cannot do, since it splices its deep span in by
-        renumbering. The layout stays self-consistent either way (below), but the graph the
-        spans imply can no longer be built at all.
+        Node 2 is at level 1 and node 1 at level 2. Nothing renumbers between levels ---
+        ``LevelCliques`` relabels its deep span past the root nodes and the graph reads
+        membership rather than comparing indices --- so the level structure comes out
+        as the connectivity dictates rather than as the labels suggest.
         """
-        with pytest.raises(ValueError, match="number the nodes by level"):
-            _ = _misrooted().clq_set
+        man = _misrooted()
+        assert man.node_levels == {0: 0, 2: 1, 1: 2}
+        assert man.level_sets == ((0,), (2,), (1,))
 
-    def test_misrooted_deep_span_labels_its_own_blocks(self) -> None:
-        """Independent of the clique_set: ``clique_index`` reads the blocks' own members."""
+    def test_misrooted_deep_span_labels_its_own_cliques(self) -> None:
+        """Independent of the clique_set: ``clique_index`` reads the layout's own cliques."""
         man = _misrooted()
         params = jnp.arange(float(man.dim))
         deep = man.split_level(params)[2]
         y_bias, _, k_bias = man.deep_man.split_level(deep)  # pyright: ignore[reportAttributeAccessIssue]
-        blocks = man.split_cliques(params)
-        assert jnp.array_equal(blocks[man.clique_index((1,))], y_bias)
-        assert jnp.array_equal(blocks[man.clique_index((2,))], k_bias)
+        parts = man.split_cliques(params)
+        assert jnp.array_equal(parts[man.clique_index((1,))], y_bias)
+        assert jnp.array_equal(parts[man.clique_index((2,))], k_bias)
 
 
 ### Guards ###
@@ -530,29 +631,25 @@ class TestDeclarationOrderRegressions:
 
 @dataclass(frozen=True)
 class _Layout(LinearCliques):
-    """A clique manifold given directly as a graph plus one block record per clique.
+    """A clique manifold given directly as a root set plus one form per clique.
 
-    The graph is passed separately so a test can hand over a *lying* one --- a graph its
-    blocks do not cover --- which is what the layout-disagreement guard exists to catch.
+    The cover and the dimension are both *read off* the forms, so a test can no longer
+    hand over a graph its forms do not cover --- there is only one description to
+    disagree with.
     """
 
-    _clq_set: Cliques
-    _clique_blocks: tuple[EFClique, ...]
+    _root_nodes: frozenset[int]
+    _clique_forms: tuple[LinearClique, ...]
 
     @property
     @override
-    def dim(self) -> int:
-        return sum(block.dim for block in self._clique_blocks)
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @property
     @override
-    def clq_set(self) -> Cliques:
-        return self._clq_set
-
-    @property
-    @override
-    def clique_blocks(self) -> tuple[EFClique, ...]:
-        return self._clique_blocks
+    def clique_forms(self) -> tuple[LinearClique, ...]:
+        return self._clique_forms
 
 
 def _forked() -> _Layout:
@@ -562,14 +659,14 @@ def _forked() -> _Layout:
     across ``{1, 2}`` gave both cliques the same row band. Cutting one node at a time, they
     land on different sides and the collision cannot arise.
     """
-    blocks = (
-        _block((0,), (2,)),
-        _block((0, 1), (2, 4)),
-        _block((0, 2), (2, 4)),
-        _block((1,), (4,)),
-        _block((2,), (4,)),
+    forms = (
+        _form((0,), (2,)),
+        _form((0, 1), (2, 4)),
+        _form((0, 2), (2, 4)),
+        _form((1,), (4,)),
+        _form((2,), (4,)),
     )
-    return _Layout(Cliques(3, 1, tuple(b.members for b in blocks)), blocks)
+    return _Layout(frozenset({0}), forms)
 
 
 class TestCutGuards:
@@ -587,17 +684,73 @@ class TestCutGuards:
             cut = man.cut(far)
             assert len(set(cut.cross_rows)) == len(cut.cross_rows)
             coords = jnp.arange(float(man.dim))
-            assert jnp.array_equal(join_cut(cut, *project_cut(cut, coords)), coords)
+            assert jnp.array_equal(cut.join(*cut.project(coords)), coords)
 
     def test_rejects_a_node_outside_the_graph(self) -> None:
-        with pytest.raises(ValueError, match="far_node 7 is not one of the graph's 3"):
+        with pytest.raises(
+            ValueError, match="far_node 7 is not one of the graph's nodes"
+        ):
             _forked().cut(7)
 
     def test_rejects_cutting_the_only_node(self) -> None:
-        blocks = (_block((0,), (4,)),)
-        man = _Layout(Cliques(1, 1, ((0,),)), blocks)
+        forms = (_form((0,), (4,)),)
+        man = _Layout(frozenset({0}), forms)
         with pytest.raises(ValueError, match="leaves no near side"):
             man.cut(0)
+
+
+class TestArityGuard:
+    """A clique and its form are one fact: one factor per node, checked where they meet.
+
+    ``LinearClique`` is the only place the two halves are put together, so it is the only
+    place they can disagree. This replaces the per-clique check ``EFClique`` used to make
+    when it carried its own members.
+    """
+
+    def test_rejects_a_form_whose_arity_is_not_the_clique_size(self) -> None:
+        with pytest.raises(ValueError, match=r"clique \(0, 1\) names 2 nodes"):
+            _form((0, 1), (3,))
+
+
+class TestCliqueRules:
+    """The rules a clique still has, each checked once where the two halves meet.
+
+    Node labels are free --- non-contiguous, not level-ordered, not zero-based --- so the
+    only surviving rules are the ones that would make a clique mean two things at once:
+    one factor per node, and one spelling per node set. Both are ``LinearClique``'s, at
+    construction, and both hold for ``EFClique`` too, whose factors come from selectors
+    rather than from a caller.
+    """
+
+    def test_a_form_must_have_one_factor_per_node(self) -> None:
+        with pytest.raises(ValueError, match=r"clique \(0, 1\) names 2 nodes"):
+            _form((0, 1), (3,))
+
+    @pytest.mark.parametrize("members", [(1, 1), (1, 0)])
+    def test_members_must_be_distinct_and_ascending(
+        self, members: tuple[int, ...]
+    ) -> None:
+        """Member order is axis order, so a node set has exactly one spelling."""
+        with pytest.raises(ValueError, match="must name distinct nodes, ascending"):
+            _form(members, (2, 3))
+
+    def test_the_ef_clique_obeys_the_same_rules(self) -> None:
+        sel = IdentityEmbedding(Poissons(2))
+        with pytest.raises(ValueError, match="must name distinct nodes, ascending"):
+            EFClique((1, 0), (sel, sel))
+
+    def test_labels_need_not_be_contiguous(self) -> None:
+        """A layout over labels 10 and 40 is a layout like any other."""
+        forms = (_form((10,), (2,)), _form((10, 40), (2, 3)), _form((40,), (3,)))
+        man = _Layout(frozenset({10}), forms)
+        assert man.nodes == (10, 40)
+        assert man.node_levels == {10: 0, 40: 1}
+        assert man.dim == 2 + 6 + 3
+        assert man.clique_index((10, 40)) == 1
+        assert man.canonical_cliques == ((10,), (10, 40), (40,))
+        cut = man.cut(40)
+        coords = jnp.arange(float(man.dim))
+        assert jnp.array_equal(cut.join(*cut.project(coords)), coords)
 
 
 class TestSplitJoinGuards:
@@ -608,15 +761,152 @@ class TestSplitJoinGuards:
         with pytest.raises(ValueError, match="expected a flat array of 26"):
             man.split_cliques(jnp.arange(float(man.dim + 3)))
 
-    def test_join_rejects_a_wrongly_sized_block(self) -> None:
+    def test_join_rejects_a_wrongly_sized_part(self) -> None:
         man = _forked()
-        blocks = list(man.split_cliques(jnp.arange(float(man.dim))))
-        blocks[1] = blocks[1][:-1]
-        with pytest.raises(ValueError, match=r"clique block 1 has shape"):
-            man.join_cliques(*blocks)
+        parts = list(man.split_cliques(jnp.arange(float(man.dim))))
+        parts[1] = parts[1][:-1]
+        with pytest.raises(ValueError, match=r"clique 1 has shape"):
+            man.join_cliques(*parts)
 
-    def test_join_rejects_the_wrong_block_count(self) -> None:
+    def test_join_rejects_the_wrong_clique_count(self) -> None:
         man = _forked()
-        blocks = man.split_cliques(jnp.arange(float(man.dim)))
-        with pytest.raises(ValueError, match="expected 5 clique blocks, got 4"):
-            man.join_cliques(*blocks[:-1])
+        parts = man.split_cliques(jnp.arange(float(man.dim)))
+        with pytest.raises(ValueError, match="expected 5 cliques, got 4"):
+            man.join_cliques(*parts[:-1])
+
+
+### Form algebra ###
+
+
+def _key(seed: int) -> Array:
+    return jax.random.PRNGKey(seed)
+
+
+def _axes(axes: tuple[int, ...]) -> LinearClique:
+    """A clique on nodes ``0..n-1`` with the given factor sizes, for the form algebra."""
+    return _form(tuple(range(len(axes))), axes)
+
+
+class TestArityTwoMatchesEmbeddedMap:
+    """At arity 2 a clique's form must reproduce the existing matrix machinery."""
+
+    @staticmethod
+    def _pair(cod_dim: int, dom_dim: int):
+        emb_map = AmbientMap(Rectangular(), Euclidean(dom_dim), Euclidean(cod_dim))
+        return emb_map, _axes((cod_dim, dom_dim))
+
+    @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6), (6, 1)])
+    def test_dim_matches(self, cod_dim: int, dom_dim: int) -> None:
+        emb_map, form = self._pair(cod_dim, dom_dim)
+        assert form.dim == emb_map.dim
+
+    @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6)])
+    def test_tensor_matches_outer_product(self, cod_dim: int, dom_dim: int) -> None:
+        emb_map, form = self._pair(cod_dim, dom_dim)
+        w = jax.random.normal(_key(0), (cod_dim,))
+        v = jax.random.normal(_key(1), (dom_dim,))
+        assert jnp.array_equal(form.tensor(w, v), emb_map.outer_product(w, v))
+
+    @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (6, 1)])
+    def test_contract_domain_matches_application(
+        self, cod_dim: int, dom_dim: int
+    ) -> None:
+        """``keep=0`` is matrix-vector multiplication."""
+        emb_map, form = self._pair(cod_dim, dom_dim)
+        params = jax.random.normal(_key(2), (form.dim,))
+        v = jax.random.normal(_key(3), (dom_dim,))
+        assert jnp.allclose(form.contract(params, 0, v), emb_map(params, v))
+
+    @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6)])
+    def test_contract_codomain_matches_transpose(
+        self, cod_dim: int, dom_dim: int
+    ) -> None:
+        """``keep=1`` is the transposed application."""
+        emb_map, form = self._pair(cod_dim, dom_dim)
+        params = jax.random.normal(_key(4), (form.dim,))
+        w = jax.random.normal(_key(5), (cod_dim,))
+        assert jnp.allclose(
+            form.contract(params, 1, w), emb_map.transpose_apply(params, w)
+        )
+
+    def test_storage_order_is_row_major_over_codomain_then_domain(self) -> None:
+        """The convention every ``int_man`` in the library already stores in."""
+        emb_map, form = self._pair(2, 3)
+        params = jnp.arange(6.0)
+        assert jnp.array_equal(form.to_tensor(params), emb_map.to_matrix(params))
+
+
+class TestHigherArity:
+    """Properties that make arity 3 usable, which arity 2 cannot distinguish."""
+
+    form: LinearClique = _axes((2, 3, 4))
+
+    def test_dim_is_the_product(self) -> None:
+        assert self.form.dim == 24
+        assert self.form.arity == 3
+
+    def test_tensor_round_trips_through_contraction(self) -> None:
+        """Contracting a rank-one tensor against its own factors rescales the third."""
+        u = jax.random.normal(_key(6), (2,))
+        v = jax.random.normal(_key(7), (3,))
+        w = jax.random.normal(_key(8), (4,))
+        params = self.form.tensor(u, v, w)
+        assert jnp.allclose(self.form.contract(params, 0, v, w), u * (v @ v) * (w @ w))
+        assert jnp.allclose(self.form.contract(params, 1, u, w), v * (u @ u) * (w @ w))
+        assert jnp.allclose(self.form.contract(params, 2, u, v), w * (u @ u) * (v @ v))
+
+    def test_partial_contraction_composes(self) -> None:
+        """Contracting axes one at a time equals contracting them together.
+
+        This is what lets a level split contract the root axes and leave the deep ones:
+        the result must not depend on the order the root axes are taken in.
+        """
+        params = jax.random.normal(_key(9), (self.form.dim,))
+        u = jax.random.normal(_key(10), (2,))
+        v = jax.random.normal(_key(11), (3,))
+        both = self.form.contract(params, 2, u, v)
+
+        # axis 0 first, leaving a (3, 4) form; then axis 0 of that (the old axis 1)
+        step = _axes((3, 4))
+        after_u = jnp.tensordot(self.form.to_tensor(params), u, axes=([0], [0]))
+        stepwise = step.contract(step.from_tensor(after_u), 1, v)
+        assert jnp.allclose(both, stepwise)
+
+    def test_to_from_tensor_round_trip(self) -> None:
+        params = jax.random.normal(_key(12), (self.form.dim,))
+        assert jnp.array_equal(
+            self.form.from_tensor(self.form.to_tensor(params)), params
+        )
+
+    def test_wrong_factor_count_is_rejected(self) -> None:
+        u = jnp.ones(2)
+        with pytest.raises(ValueError, match="expected 3 factors, got 2"):
+            self.form.tensor(u, jnp.ones(3))
+        params = jnp.zeros(self.form.dim)
+        with pytest.raises(ValueError, match="expected 2 factors, got 1"):
+            self.form.contract(params, 0, jnp.ones(3))
+
+
+class TestArityOne:
+    """A bias is a multilinear map of one factor; nothing should special-case it."""
+
+    def test_tensor_and_contract_are_identity(self) -> None:
+        form = _axes((5,))
+        v = jax.random.normal(_key(13), (5,))
+        assert form.dim == 5
+        assert jnp.array_equal(form.tensor(v), v)
+        assert jnp.array_equal(form.contract(v, 0), v)
+
+
+class TestContractGuards:
+    """``keep`` names an axis, so it must be one."""
+
+    @pytest.mark.parametrize("keep", [-1, 3])
+    def test_rejects_an_out_of_range_axis(self, keep: int) -> None:
+        # Without the bounds check these contract every axis and return a scalar, and
+        # keep=-1 additionally resolves to the last factor by Python indexing.
+        man = _axes((2, 3, 4))
+        params = jnp.arange(float(man.dim))
+        vectors = [jnp.ones(2), jnp.ones(3), jnp.ones(4)]
+        with pytest.raises(ValueError, match=r"keep must be in 0\.\.2"):
+            man.contract(params, keep, *vectors)
