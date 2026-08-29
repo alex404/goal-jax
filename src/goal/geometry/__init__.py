@@ -16,11 +16,6 @@ from .exponential_family.base import (
     Generative,
     Gibbs,
 )
-from .exponential_family.clique import (
-    CliqueEmbedding,
-    EFClique,
-    RootEmbedding,
-)
 from .exponential_family.combinators import (
     AnalyticPair,
     AnalyticProduct,
@@ -58,11 +53,13 @@ from .manifold.base import (
     Manifold,
 )
 from .manifold.clique import (
+    CliqueEmbedding,
     CliqueProduct,
     LevelCliques,
     LinearClique,
     LinearCliques,
-    NodeClique,
+    RootEmbedding,
+    node_clique,
 )
 from .manifold.combinators import (
     Null,
@@ -83,25 +80,25 @@ from .manifold.embedding import (
     TrivialEmbedding,
     TupleEmbedding,
 )
+from .manifold.interaction import (
+    Interaction,
+    TransposedInteraction,
+)
 from .manifold.map import (
     AffineMap,
-    AmbientMap,
-    BlockMap,
-    EmbeddedMap,
     LinearMap,
     Map,
+    MatrixMap,
     MultilayerPerceptron,
     SquareMap,
 )
 
 __all__ = [
     "AffineMap",
-    "AmbientMap",
     "Analytic",
     "AnalyticConjugated",
     "AnalyticPair",
     "AnalyticProduct",
-    "BlockMap",
     "CliqueCut",
     "CliqueEmbedding",
     "CliqueProduct",
@@ -113,8 +110,6 @@ __all__ = [
     "DifferentiableConjugated",
     "DifferentiablePair",
     "DifferentiableProduct",
-    "EFClique",
-    "EmbeddedMap",
     "Embedding",
     "ExponentialFamily",
     "ExponentialFamilyPair",
@@ -128,6 +123,7 @@ __all__ = [
     "HarmoniumEmbedding",
     "Identity",
     "IdentityEmbedding",
+    "Interaction",
     "InteractionEmbedding",
     "LevelCliques",
     "LinearClique",
@@ -138,9 +134,9 @@ __all__ = [
     "LocationShape",
     "Manifold",
     "Map",
+    "MatrixMap",
     "MatrixRep",
     "MultilayerPerceptron",
-    "NodeClique",
     "Null",
     "ObservableEmbedding",
     "Pair",
@@ -157,6 +153,7 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
+    "TransposedInteraction",
     "Triple",
     "TrivialEmbedding",
     "TupleEmbedding",
@@ -164,4 +161,5 @@ __all__ = [
     "VariationalDifferentiable",
     "VariationalLatentProcess",
     "VariationalSymmetric",
+    "node_clique",
 ]

@@ -16,8 +16,7 @@ from jax import Array
 from goal.geometry import (
     CliqueEmbedding,
     Diagonal,
-    EmbeddedMap,
-    IdentityEmbedding,
+    Interaction,
     LinearClique,
 )
 from goal.models import (
@@ -272,7 +271,7 @@ class TestMFAGraph:
     """MFA's graph is derived from its coupling pattern, not declared clique by clique.
 
     The model states only which nodes each interaction block couples ---
-    ``cross_forms``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
+    ``cross_placements``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
     mixture one level up, the levels, and the clique layout all follow from that. These
     tests pin what follows, because a wrong derivation would be silent: every operation
     below reads the level split, which does not consult the graph.
@@ -293,23 +292,27 @@ class TestMFAGraph:
     def test_expanding_the_observable_is_refused_not_mislabelled(self) -> None:
         """The guard that would have caught this: a multi-node root needs declared cliques.
 
-        ``Harmonium.cross_forms`` labels its clique ``(0, 1)``, which names the latent only
-        when the observable is a single node. Undo the ``root_forms`` override and node 1
-        is a *root*, so the default clique is a lie --- it must refuse rather than produce a
-        cover with ``(0, 1)`` twice and the category unreachable.
+        ``Harmonium.cross_placements`` labels its clique ``(0, 1)``, which names the latent only
+        when the observable is a single node. Undo the ``root_placements`` override and node 1
+        is a *root*, so the declared clique is a lie --- deriving its interaction must refuse
+        rather than produce a cover with ``(0, 1)`` twice and the category unreachable. The
+        refusal now comes from ``coupling``, which needs exactly one root node to know which
+        side is the output.
         """
         base = self._mfa().mix_man
 
         class _Expanded(type(base)):
             @property
             @override
-            def root_forms(self) -> tuple[LinearClique, ...]:
-                return self.forms_of(self.obs_man)
+            def root_placements(
+                self,
+            ) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+                return self.placements_of(self.obs_man)
 
-        expanded = _Expanded(base.obs_man, base.n_categories)
+        expanded = _Expanded(base.obs_man, base.n_categories)  # pyright: ignore[reportArgumentType]
         assert expanded.root_nodes == frozenset({0, 1})
-        with pytest.raises(ValueError, match="root span over 2 nodes"):
-            _ = expanded.cross_forms
+        with pytest.raises(ValueError, match="touches 2 root nodes"):
+            _ = expanded.int_man
 
     def test_the_mixture_view_is_a_two_node_graph(self) -> None:
         """``mix_man`` holds the base harmonium as one node, not as its own two.
@@ -352,7 +355,7 @@ class TestMFAGraph:
     def test_layout_follows_the_clique_order(self) -> None:
         """obs, then the interaction's three blocks, then the mixture's three."""
         mfa = self._mfa(obs_dim=4, lat_dim=2, n_categories=3)
-        xy, xyk, xk = mfa.int_man.block_dims
+        xy, xyk, xk = mfa.int_man.clique_dims
         expected = (mfa.obs_man.dim, xy, xyk, xk, *mfa.pst_man.clique_dims)
         assert mfa.clique_dims == expected
 
@@ -366,11 +369,11 @@ class TestMFAGraph:
 
 
 class TestDerivedInteractionEmbeddings:
-    """MFA's three interaction blocks are derived from selectors plus the nodes they name.
+    """MFA's three interaction blocks are derived from embeddings plus the nodes they name.
 
-    All three are one construction, ``CliqueEmbedding``, differing only in which nodes
-    they name and how much of each one's statistic they select. These tests pin that
-    behaviour directly.
+    All three are one construction differing in two independent ways: which nodes the way
+    in addresses (a ``CliqueEmbedding`` on the mixture above) and how much of each one's
+    statistic the axis embeddings select. These tests pin both halves.
 
     The mixture's node frame is $y = 0$, $k = 1$.
     """
@@ -383,21 +386,21 @@ class TestDerivedInteractionEmbeddings:
         )
 
     @classmethod
-    def _blocks(cls, **kwargs) -> tuple[EmbeddedMap[Any, Any], ...]:
+    def _blocks(cls, **kwargs) -> tuple[Interaction[Any, Any], ...]:
         blocks = cls._mfa(**kwargs).int_man.blocks
         for block in blocks:
-            assert isinstance(block, EmbeddedMap)
-        return blocks  # pyright: ignore[reportReturnType]
+            assert isinstance(block, Interaction)
+        return blocks
 
     @classmethod
-    def _dom_embs(cls, **kwargs) -> tuple[CliqueEmbedding[Any], ...]:
-        embs = tuple(block.dom_emb for block in cls._blocks(**kwargs))
-        for emb in embs:
-            assert isinstance(emb, CliqueEmbedding)
-        return embs  # pyright: ignore[reportReturnType]
+    def _dom_paths(cls, **kwargs) -> tuple[CliqueEmbedding[Any], ...]:
+        paths = tuple(block.dom_path for block in cls._blocks(**kwargs))
+        for path in paths:
+            assert isinstance(path, CliqueEmbedding)
+        return paths  # pyright: ignore[reportReturnType]
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
-        xy, xyk, xk = self._dom_embs()
+        xy, xyk, xk = self._dom_paths()
         assert xy.members == (0,)
         assert xyk.members == (0, 1)
         assert xk.members == (1,)
@@ -410,33 +413,38 @@ class TestDerivedInteractionEmbeddings:
         assert xk.dim == 8 * 2  # full observable (x) k
 
     def test_the_three_way_block_selects_from_the_joint_yk_block(self) -> None:
-        """The point of the whole exercise: it reads a joint block, not two marginals."""
+        """The point of the whole exercise: it reads a joint block, not two marginals.
+
+        Two steps now, and they are the separation this design is for: the way in slices
+        the $(y,k)$ clique out whole, and the axis embeddings restrict it.
+        """
         mfa = self._mfa()
         mix = mfa.pst_man
-        emb = self._dom_embs()[1]
+        xyk = self._blocks()[1]
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_level(coords)
-        y_sel = mfa.bas_hrm.int_man.dom_emb
-        expected = jax.vmap(y_sel.project, in_axes=1, out_axes=1)(
+        y_emb = mfa.bas_hrm.int_man.clique.node_embs[1]
+        expected = jax.vmap(y_emb.project, in_axes=1, out_axes=1)(
             mix.int_man.to_matrix(m_yk)
         )
-        assert jnp.allclose(emb.project(coords), expected.ravel())
+        assert jnp.array_equal(xyk.dom_path.project(coords), m_yk)  # pyright: ignore[reportOptionalMemberAccess]
+        assert jnp.allclose(xyk.project_domain(coords), expected.ravel())
 
     def test_embedding_lands_only_in_that_block(self) -> None:
         """A coupling writes to its own clique and nowhere else."""
         mfa = self._mfa()
         mix = mfa.pst_man
-        for idx, emb in enumerate(self._dom_embs()):
+        for idx, emb in enumerate(self._dom_paths()):
             v = jnp.arange(1.0, emb.sub_man.dim + 1)
-            spans = mix.split_level(emb.embed(v))
-            touched = [i for i, s in enumerate(spans) if jnp.any(s != 0.0)]
+            partitions = mix.split_level(emb.embed(v))
+            touched = [i for i, s in enumerate(partitions) if jnp.any(s != 0.0)]
             assert touched == [{0: 0, 1: 1, 2: 2}[idx]], (
                 f"block {idx} touched {touched}"
             )
 
     def test_project_after_embed_round_trips(self) -> None:
-        for emb in self._dom_embs():
+        for emb in self._dom_paths():
             v = jax.random.normal(jax.random.PRNGKey(31), (emb.sub_man.dim,))
             assert jnp.allclose(emb.project(emb.embed(v)), v)
 
@@ -445,6 +453,4 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         with pytest.raises(ValueError, match="no clique on"):
-            CliqueEmbedding(
-                (0, 1, 2), (IdentityEmbedding(mix.obs_man),) * 3, mix
-            ).project(jnp.zeros(mix.dim))
+            mix.clique_emb((0, 1, 2)).project(jnp.zeros(mix.dim))

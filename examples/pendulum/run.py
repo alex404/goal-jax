@@ -27,8 +27,8 @@ from jax import Array
 
 from goal.geometry import (
     DifferentiablePair,
-    EmbeddedMap,
     IdentityEmbedding,
+    LinearClique,
     MultilayerPerceptron,
     PositiveDefinite,
     Rectangular,
@@ -87,12 +87,19 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[VonMisesNormalPair, Poissons]:
-        return EmbeddedMap(
-            Rectangular(),
-            IdentityEmbedding(VonMisesNormalPair()),
-            IdentityEmbedding(Poissons(self.n_neurons)),
-        )
+    def obs_man(self) -> Poissons:
+        return Poissons(self.n_neurons)
+
+    @property
+    @override
+    def pst_man(self) -> VonMisesNormalPair:
+        return VonMisesNormalPair()
+
+    @property
+    @override
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        embs = (IdentityEmbedding(self.obs_man), IdentityEmbedding(self.pst_man))
+        return (((0, 1), LinearClique(Rectangular(), embs)),)
 
 
 @dataclass(frozen=True)

@@ -10,10 +10,12 @@ lets a fork (CCA) and a three-way interaction (MFA) be expressed at all.
 
 **The one idea to hold onto.** A clique is one inner product in the log-density,
 $\langle \theta_c, \bigotimes_{i \in c} \pi_i(\mathbf s_i(x_i)) \rangle$. Arity is all that
-varies: 1 is a bias, 2 a matrix contraction, 3+ a tensor. So a clique **is** a multilinear map
---- `EFClique.form` is literally `MultilinearMap(axes)`. A covariance is *not* a clique: it is
-a node's internal second moment, and structured matrix representations live inside nodes,
-never across them.
+varies: 1 is a bias, 2 a matrix contraction, 3+ a tensor. So a clique **is** a linear map ---
+A clique is exactly the $\pi_i$ --- one embedding per node, into that node's own manifold --- and
+nothing more. Which axes you keep is a *reading*, and materializing one as a `LinearMap` needs to
+know what the caller holds, which is `CliqueMap`. Keeping those apart is what lets a layout check
+its cliques against what actually sits on it. A covariance is *not* a clique: it is a node's internal second
+moment, and structured matrix representations live inside nodes, never across them.
 
 **The hierarchy under review.** `Harmonium` → `LevelCliques[Observable, LinearMap, Posterior]`
 → `LinearCliques` → `Cliques`. On `main`, `Harmonium` inherited `Tuple`.
@@ -22,9 +24,9 @@ Checkboxes are yours to tick. Each section depends only on the ones above it.
 
 | § | file | lines | budget |
 |---|---|---|---|
-| 1 | `geometry/algebra/clique.py` | 281 | 20 min --- read first; everything else is a layout over it |
-| 2 | `geometry/manifold/clique.py` | 423 | 45 min --- the core of the branch |
-| 3 | `geometry/exponential_family/clique.py` | 410 | 30 min |
+| 1 | `geometry/algebra/clique.py` | 218 | 20 min --- read first; everything else is a layout over it |
+| 2 | `geometry/manifold/clique.py` | 1123 | 60 min --- the core of the branch |
+| 3 | `geometry/manifold/map.py` | 439 | 20 min --- what the cliques took over from |
 | 4 | `geometry/manifold/cut.py` | 192 | skim --- bracketed, one user |
 | 5 | `geometry/exponential_family/harmonium.py` | 629 | 20 min --- small diff, one sharp decision |
 | 6 | `models/` | --- | 20 min |
@@ -72,114 +74,136 @@ Checkboxes are yours to tick. Each section depends only on the ones above it.
       numbering-by-level convention read correctly.
 
 *Pinned by* `tests/clique.py` --- 57 tests, 0.5 s, no JAX. It defines `Cover` and an `ascend`
-helper; the ascent is a test-only notion, since a layout's deep span is already the graph one
+helper; the ascent is a test-only notion, since a layout's deep partition is already the graph one
 level up.
 
 ---
 
 ## 2. The layout --- `manifold/clique.py`
 
-`Clique`, `LeafClique`, `LinearCliques`, `LevelCliques`, `CliqueProduct`. The clique-indexed
-sibling of `combinators.py`: where `Pair` and `Triple` split a coordinate vector by arity,
-these split one by *which nodes each block couples*.
+`LinearClique`, `CliqueEmbedding`, `LinearCliques`, `LevelCliques`, `CliqueProduct`,
+`RootEmbedding`, plus `node_clique`, `validate_placement` and `shift_placements`. **No map
+class lives here any more.** The clique-indexed sibling of `combinators.py`: where `Pair` and
+`Triple` **concatenate** their components' coordinates, a clique takes their **tensor
+product**, and a layout splits a coordinate vector by which nodes each clique couples.
 
-- [ ] **The manifold *is* its graph.** `LinearCliques.cliques` reads the cover off
-      `clique_blocks`, so there is no second description to disagree with the first. This is
-      the fix for the branch's worst bug class: an offset and the members it belongs to now
-      come from the same object, so a wrong slice is unconstructible.
-- [ ] **Does the module earn its place?** It has no client inside `manifold/` --- the argument
-      for it is layering by kind, that `LinearCliques` belongs beside `Tuple` regardless of
-      who imports it. The alternative not taken was putting `Clique` and `LinearCliques`
-      *into* `combinators.py`. Yours to overrule.
-- [ ] **`Clique`'s contract is `members` and `on`.** `members` is a declared annotation rather
-      than an abstract property, because a dataclass field does not satisfy `@abstractmethod`
-      — verified, instantiation raises — and a property would have forced
-      `EFClique(_members=...)`. `axes` defaults to `(dim,)`, the only thing a one-node block
-      can mean, and `EFClique` overrides it from selectors.
-- [ ] **`axes` sits on `Clique`, not only on `EFClique`.** Forced: `CliqueBlockEmbedding`
-      indexes singleton blocks and reads their axes. `MultilinearMap` was already
-      manifold-level, so `axes` and `form` sit beside `form`'s own type. What stays EF-only is
-      *selectors*. Check the line is in the right place.
-- [ ] **`LeafClique` plus `LinearCliques.blocks_of` is how a plain manifold occupies a node.**
-      `blocks_of(span)` returns the span's own blocks if it is a layout, else
-      `(LeafClique(span, (0,)),)`. One fallback, and the node count derives from the blocks.
-- [ ] **`LevelCliques.root_blocks` is the subtlest thing in the branch.** By default a
-      structured root span is *expanded*, one node per node of its own --- that is what gives
-      CCA two root nodes. Overriding with a single block holds the span as one node, which is
-      right whenever the level's interaction couples it as a unit and so cannot factor per
-      node. `Mixture` overrides it. Read §5 before judging.
-- [ ] **`split_coords` takes its two offsets from the blocks**, via `level_split()`, not from
-      `root_man.dim` / `cross_man.dim`. Both readings exist; taking the split from the blocks
-      is what makes their agreement structural rather than a coincidence. `validate()`
-      compares them explicitly (`sum(clique_dims) == dim`).
-- [ ] **`dim` stays independent of `sum(clique_dims)`.** `dim` is about coordinates and blocks
-      are a *view* of them, which is what makes "the blocks tile the coordinate vector" a real
-      claim rather than a tautology.
-- [ ] **Storage order versus canonical order.** Nothing that slices coordinates consults
-      `canonical_cliques`. They can part in exactly two places --- block order *within* the
-      root span and *within* the cross span, both the model's declaration --- and the only
-      enforcement is a test that sweeps every shipped model (§7). Between levels they cannot
-      part, since both relabel by `+n_roots`.
-- [ ] **`CliqueProduct` is the disjoint union**, every node a root, and the only route to a
-      multi-root graph. Two overrides long; `exponential_family/combinators.py` is its one
-      client and gives CCA its two-node root span.
-- [ ] **The surface is wider than the use.** `split_cliques` and `join_cliques` have **no**
-      production callers; `clique_index`, `clique_offsets`, and `clique_axes` have exactly one
-      each, all inside `CliqueBlockEmbedding` (MFA-only); `cut` has one. Load-bearing
-      everywhere are `clique_blocks`, `cliques`, `clique_dims`, `validate`. Prune or keep?
-- [ ] **A naming tension, unresolved.** `LinearCliques` is n-ary (`split_cliques` /
-      `join_cliques`) while `LevelCliques` is ternary (`split_coords` / `join_coords`): two
-      combinator shapes on one hierarchy, distinguished only by method name.
+- [ ] **A clique is one embedding per node, and nothing else.** `LinearClique` is a
+      `Manifold` with two fields: a `rep` and `node_embs`. Each embedding goes from the
+      sub-space this coupling uses *into that node's own manifold*. `node_mans`, `sub_mans`,
+      `sub_dims`, `arity`, `matrix_shape` and `dim` all derive. **This is the shape the
+      round was for --- judge whether anything is missing from it.**
+- [ ] **No conditional reading is privileged.** A clique has $2^n$ of them and
+      `partial_contract` is all of them; `contract` and `tensor` are the special cases.
+      Nothing on the class says which axis is "output".
+- [ ] **The map reading moved out.** `CliqueMap` and `TransposedCliqueMap` are **deleted**.
+      A reading has to pick a partition of the axes *and* know what manifold the caller
+      holds --- neither is a fact about a form, so neither belongs in this module. What
+      stays here is `LevelCliques.cross_paths(members)`, which **derives** how each
+      partition's coordinates reach the nodes a crossing clique couples. Verified against
+      every hand-written path the library used to have --- CCA's `FirstEmbedding`, HMoG's
+      `ObservableEmbedding` --- reproduced to the coordinate.
+- [ ] **`Interaction` (in `manifold/interaction.py`) is the reading, and it is derived.** One object
+      for *all* the crossing cliques: parameters are theirs concatenated, application sums
+      them. That retires `BlockMap` from harmoniums entirely --- a fork and a three-way
+      interaction are the same object as a chain, with more placements. A model states
+      `obs_man`, `pst_man` and `cross_placements`; the graph, the layout and `int_man` all
+      derive. `int_coupling` and `int_blocks` are gone: `int_man.clique` and
+      `int_man.blocks` say the same thing on the object itself.
+- [ ] **This relies on singleton cliques.** `node_emb(node)` is `clique_emb((node,))`, so a
+      cover without a singleton on a node it couples cannot derive that path. Every shipped
+      layout has them; `Cliques` explicitly permits covers that do not. **Known and
+      accepted for now.**
+- [ ] **`TransposedInteraction` is the other direction.** The canonical fold makes axis 0
+      the output, so transposing puts a *group* of axes there, which a forward reading
+      cannot express. Its own transpose is the map it came from.
+- [ ] **What `CliqueEmbedding` is for.** One thing only: reaching *several* nodes at once.
+      A form over a group is a single slice of the layout's coordinates and does not
+      factorize across the nodes, so a joint reach cannot be composed out of per-node ones.
+      For a single node it is an offset in an embedding's clothing --- MFA's arity-3 clique
+      is the only place it earns its keep, plus CCA reaching one side of a pair. **Worth
+      asking whether it survives as a class or becomes a method on the layout.**
+- [ ] **Vocabulary.** A clique has **axes** (positions, `0..arity-1`); a layout has **nodes**
+      (labels it assigns through `placements`). "Selector", "factor", "span" and the
+      `Placement` alias are all
+      gone; an embedding is a `LinearEmbedding` and the field is `node_embs`, which says the
+      ambient is a node.
+- [ ] **`node_mans` is the payoff, and it is derived.** Every clique states what it expects
+      at each node it touches; the invariant is that cliques meeting at a node agree.
+      Before this round four cliques --- `hmog`, `dhmog` and both CCA branches --- had an
+      axis whose ambient was a *partition* rather than a node, because the node embedding
+      and the path were pre-composed. **Judge whether deriving beats declaring.**
+- [ ] **Enforcement is a test sweep, not a runtime check.** `node_mans` raises when asked;
+      `layout_problems` asks it for every shipped model. Same stance as storage-vs-canonical
+      order.
+- [ ] **`CliqueEmbedding` is pure addressing** --- `(nodes, layout)`, `project` a slice and
+      `embed` a scatter, built by `LinearCliques.clique_emb(nodes)`. It restricts nothing,
+      which is what freed the axis embeddings to land on nodes.
+- [ ] **`clique_emb` is the geometric way in**, the same shape `Pair` has with
+      `FirstEmbedding`. `clique_index` and `clique_offsets` are still public and still its
+      mechanics; making `clique_emb` the *only* way in is the follow-up.
+- [ ] **A bias needs no special case.** The canonical fold gives axis 0 the rows and the rest
+      the columns; at arity 1 the column product is empty, hence 1, and `CliqueMap`
+      application feeds the constant $1$ --- the map out of `Null`. Only its transpose
+      raises.
+- [ ] **The coordinate seam is four methods on `CliqueMap`**: `node_coords` / `amb_coords`
+      are the path alone, `project_axis` / `embed_axis` add the clique's own embedding, and
+      `project_domain` / `embed_domain` do the contracted side. **Too much surface?**
+- [ ] **`LevelCliques.root_placements`** still decides whether a structured root partition is
+      expanded (CCA's two roots) or held as one node (`Mixture`). Read §5 before judging.
+- [ ] **Storage order versus canonical order** is still enforced only by the test sweep.
+- [ ] **A tolerance the round nearly broke, worth deciding on.** `BoltzmannLGM` applies its
+      likelihood to a bare 3-vector while `int_man.dom_man` is a `FullBoltzmann` of
+      dimension 6 --- it works only because `GeneralizedGaussianLocationEmbedding.project`
+      slices rather than checking. Routing arity 2 through `select_joint`, which reshapes,
+      exposed it as 8 failures in `tests/lgm.py`. The single-node path now projects
+      directly, as before, so the tolerance survives. **It is a real looseness in
+      `BoltzmannLGM`, not in the clique --- decide whether to tighten it there.**
+- [ ] **Still open: `Harmonium` treats the interaction as a `LinearMap`.** That is now the
+      *only* reason `CliqueMap` exists --- it holds no declared data. Removing it means
+      `lkl_fun_man` and `pst_fun_man` stop being `AffineMap`s and the likelihood is computed
+      by contracting each clique directly. Blast radius measured: `lkl_fun_man` 90
+      references across src/tests/examples, `int_man` 122, plus every conjugation path,
+      which does linear algebra through `to_matrix` (10 sites) and `coord_blocks` (9).
+      **Agreed destination; a separate pass.**
 
-*Pinned by* `tests/graphical.py` --- 53 tests, layouts and spans and cut indices.
-
----
-
-## 3. Statistics on cliques --- `exponential_family/clique.py`
-
-`EFClique`, `CliqueBlockEmbedding`, `block_clique`, `RootEmbedding`.
-
-- [ ] **`EFClique` is the only clique that knows families.** One **selector** per member --- a
-      `LinearEmbedding` from the sub-statistic the clique couples into that node's full
-      statistic. `axes` is read off them, so `len(members) == len(selectors) == len(axes)`
-      holds by construction, and `dim = prod(axes)`.
-- [ ] **The boundary this draws.** `dim = prod(axes)` means an interaction with a *constrained*
-      matrix rep (symmetric, say) cannot be a clique at all. No shipped model has one --- every
-      interaction is `Rectangular` --- and failing loudly is arguably right, since a non-dense
-      block has no per-member tensor factorization. Confirm that is the intended boundary.
-- [ ] **`block_clique(block, members)` is the bridge from the map API.** One rule: the codomain
-      embedding is the first selector, the domain embedding supplies the rest --- one selector
-      if it addresses a single node, several if it addresses a joint block over a group. That
-      second case is what makes MFA's block arity 3. `members` must still be passed: arity is
-      readable from the block, which nodes it couples is not.
-- [ ] **`tensor` versus `select_joint` --- check this reasoning.** `tensor` multiplies its
-      members' statistics together, exact only when every member is *observed*. With two or
-      more latent members the block is $\mathbb E[\bigotimes_i \mathbf s_i]$ **jointly**, and
-      expectation does not pass through a tensor product; the joint block comes from the level
-      above and the selectors are contracted into it. Using `tensor` there is silently wrong
-      by order one on MFA.
-- [ ] **The structural condition that implies**: a clique's latent members must themselves be
-      a clique of the level above, so their joint expectation exists as a block to select
-      from. `LinearCliques.clique_index` raises when it does not hold --- at use, not at
-      construction. Right place?
-- [ ] **`CliqueBlockEmbedding` is an `EFClique`.** Same fields; one owns a block, the other
-      addresses another manifold's. `sub_man` is just `self.form`.
-- [ ] **`project` and `select_joint` were not merged**, though they walk the same axes. They
-      take their shape from different places --- `select_joint` from the selectors, `project`
-      from `amb_man.clique_axes` --- which agree for every shipped model but need not in
-      general. They share one `_map_axis`. Real distinction or over-careful?
-- [ ] **Known wart**: `partial_contract` and `select_joint` document `keep` as naming *members*
-      but index `selectors` by tuple **position**. These coincide only when members are
-      `(0..n-1)`, true of every clique in the library. Fix the code or the docstrings.
-- [ ] **`RootEmbedding` is bounded by `LevelCliques`**, which is why it lives here rather than
-      in `embedding.py`.
-
-*Pinned by* `tests/ef_clique.py` --- 44 tests, `EFClique` against every live interaction
-shape, all three operations. It passed **unmodified** through every restructuring this branch
-did, which is the equivalence evidence the design rests on. `tests/multilinear.py` (22) pins
-`MultilinearMap` against `EmbeddedMap` at arity 2 and associativity at arity 3.
+*Pinned by* `tests/graphical.py` for layouts, partitions, cut indices, the five layout
+invariants and the bare clique algebra, and `tests/clique_map.py` for `CliqueMap` against
+every live interaction shape.
 
 ---
+
+## 3. The maps --- `manifold/map.py`
+
+- [ ] **`BlockMap` is deleted**, on your instruction. `Interaction` sums its own cliques, so
+      it had no constructors left in `src/`, `tests/` or `examples/` --- and none in
+      `goal-apps` either, checked before removing a public symbol. Its two users at `HEAD`
+      were MFA's three blocks and CCA's two branches, both harmoniums, both now single
+      interactions with several placements. Doc references in `algebra/matrix.py` and
+      `manifold/embedding.py` were reworded rather than repointed.
+
+`Map`, `LinearMap`, `MatrixMap`, `BlockMap`, `SquareMap`, `AffineMap`, `MultilayerPerceptron`.
+
+- [ ] **Embeddings left the map layer entirely.** A `MatrixMap`'s matrix is
+      $(\dim(codomain), \dim(domain))$ --- its dimensions now mean what its domain and
+      codomain say they mean. A map that addresses only part of a side says so by being a
+      `LinearClique`. **This was the point of the round: judge whether the seam is in the
+      right place.**
+- [ ] **`MatrixMap` is the old `AmbientMap`**, unchanged in signature and behaviour, promoted
+      from convenience wrapper to primitive. `SquareMap` rebases onto it; `Covariance` and
+      `CouplingMatrix` are unaffected.
+- [ ] **`LinearMap`'s contract is now three members** --- `trn_man`, `transpose`,
+      `outer_product` --- plus `transpose_apply`. Everything about embeddings is gone.
+- [ ] **`BlockMap` lost its two embedding overrides**, which had no callers once the ABC
+      dropped them. It still cannot say which nodes its blocks couple: the blocks share a
+      domain and codomain, so a multi-block model declares `cross_placements` outright.
+- [ ] **Cost of the move**: `to_matrix` / `from_matrix` / `matrix_shape` now exist on two
+      classes with the same meaning-relative-to-their-own-dimensions. Only the five
+      embedding-carrying interactions changed what those dimensions *are*, and each became a
+      `LinearClique` that keeps the selected shape. **Duplication worth paying?**
+- [ ] **`AffineMap` is itself a two-clique layout** --- a bias on the codomain plus an
+      interaction --- and now that a bias *is* a `LinearClique`, both halves are the same
+      kind of object. Folding it into a layout is the obvious next step. Recorded, out of
+      scope.
 
 ## 4. The re-rooting view --- `manifold/cut.py` (bracketed)
 
@@ -194,7 +218,7 @@ did, which is the equivalence evidence the design rests on. `tests/multilinear.p
       near clique with no crossing partner contributes zeros --- which is what makes `cross` a
       dense linear map from the far side into the whole near parameter vector rather than a
       ragged collection.
-- [ ] **One user**: `models/graphical/mixture.py`, two sites. `CliqueBlockEmbedding` and the
+- [ ] **One user**: `models/graphical/mixture.py`, two sites. `CliqueEmbedding` and the
       arity-3 path are bracketed with it --- carried across and kept green, not redesigned.
       Deferred question: a cut is `level_split` at a single node plus dimensions, so it could
       be a refinement of the level split rather than an independent record.
@@ -203,21 +227,29 @@ did, which is the equivalence evidence the design rests on. `tests/multilinear.p
 
 ## 5. `exponential_family/harmonium.py`
 
-- [ ] **The base is `LevelCliques[Observable, LinearMap[Posterior, Observable], Posterior]`**
+- [ ] **`Interaction` lives in `manifold/interaction.py`**, its own module --- not here and
+      not in `manifold/clique.py`. The deciding reason is the import edge: `clique.py` does
+      not import `map.py`, so the module that defines forms does not know what a map is, and
+      putting the reading in either neighbour would break that. It is generic over bare
+      `Manifold`s and uses nothing from the exponential-family layer. A harmonium supplies
+      the placements and the derived paths; `int_man.blocks` hands back each term as an
+      interaction in its own right, which is what retired `BlockMap`.
+- [ ] **The base is `LevelCliques[Observable, Interaction[Posterior, Observable], Posterior]`**
       and `split_level` still returns exactly `(obs_params, int_params, lat_params)`. However
-      deep the graph, those three spans stay contiguous, so everything written against the
+      deep the graph, those three partitions stay contiguous, so everything written against the
       level split is unchanged.
-- [ ] **`cross_blocks` replaced `int_members`.** A model declares `tuple[EFClique, ...]`
-      outright rather than member tuples something else turns into cliques; the base class
-      derives the single-block case via `block_clique`. Deleted with it: `_MapClique`,
-      `_block_axes`, `_factor_dims` --- the last of which had two branches returning
-      `(block.dim,)`, i.e. arity 1 for a two-node coupling, dead for every shipped model but a
-      live trap for the next one.
-- [ ] **`cross_man` *is* `int_man`** --- no wrapper. Which nodes its blocks couple is reported
-      separately, by `cross_blocks`. That is the one remaining seam between the map route and
-      the clique route.
-- [ ] **The guard, and the defect it replaces --- read this carefully.** `cross_blocks`
-      hardcodes members `(0, 1)`, which names the latent only when the observable span is a
+- [ ] **`cross_placements` replaced `int_members`.** A model declares `tuple[LinearClique, ...]`
+      outright rather than member tuples something else turns into cliques. In the
+      single-block case the base class no longer *builds* a clique: `int_man` already is one,
+      declared on its own local labels $(0, 1)$, and the default just shifts it into the
+      level's frame as `((observable, observable + 1), int_man)`. Where the model has
+      several blocks or several root nodes it declares the pairs, which is a line each in
+      CCA and MFA over the maps they already build.
+- [ ] **`cross_man` *is* `int_man`** --- no wrapper. The one thing still declared is which
+      nodes each crossing clique couples, which nothing but the model knows: the forms share
+      a domain and a codomain.
+- [ ] **The guard, and the defect it replaces --- read this carefully.** `cross_placements`
+      hardcodes members `(0, 1)`, which names the latent only when the observable partition is a
       *single* node. `mix_man` --- the `CompleteMixture` whose observable is a whole harmonium,
       and the view MFA reads itself through --- expands into two root nodes, so `(0, 1)` named
       two roots and the category sat unreachable at node 2:
@@ -229,11 +261,18 @@ did, which is the equivalence evidence the design rests on. `tests/multilinear.p
 
       The interaction genuinely cannot be a three-node clique --- it couples the base
       harmonium's whole 21-number parameter vector, which is not a tensor product of node
-      statistics --- so two nodes is the correct reading. The fix is `LevelCliques.root_blocks`
-      (the hook), `Mixture.root_blocks` (holds the observable as one node), and a guard here
-      that **raises** when the interaction has several blocks, or the root span occupies
+      statistics --- so two nodes is the correct reading. The fix is
+      `LevelCliques.root_placements` (the hook), `Mixture.root_placements` (holds the
+      observable as one node), and a guard here
+      that **raises** when the interaction has several blocks, or the root partition occupies
       several nodes, and the subclass has not overridden. **Judge whether the guard belongs
       here or whether models should validate at construction (§9).**
+- [ ] **The guard now also raises on a non-clique interaction.** `cross_placements` needs
+      embeddings; an interaction that is a bare `MatrixMap` has none, and says so with a
+      `TypeError` rather than guessing.
+- [ ] **`pst_fun_man` now holds a `TransposedClique`.** `AffineMap(int_man.trn_man, …)` is
+      unchanged in shape, but the transposed half is a view rather than a clique. Nothing in
+      `Harmonium` names it; check that you are happy for it to be invisible there.
 - [ ] **`HarmoniumEmbedding` addresses the level split**, not individual cliques, so it stays
       correct as a model's block count grows.
 
@@ -243,27 +282,31 @@ did, which is the equivalence evidence the design rests on. `tests/multilinear.p
 
 **MFA --- `models/graphical/mixture.py` (610)**
 
-- [ ] Declares three cliques rather than three member tuples: `block_clique(xy, (0,1))`,
-      `block_clique(xyk, (0,1,2))`, `block_clique(xk, (0,2))`. Node count, root count, biases,
-      the $(y,k)$ coupling from the mixture above, levels, and layout all follow.
+- [ ] Declares three cliques by *building* them: `xy_man` on $(0,1)$, `xyk_man` on
+      $(0,1,2)$, `xk_man` on $(0,2)$, and `cross_placements` pairs those same three objects
+      with their nodes.
+      Node count, root count, biases, the $(y,k)$ coupling from the mixture above, levels, and
+      layout all follow, and `cross_placements` pairs each with its nodes. `xy_man` and
+      `xyk_man` are the base interaction re-aimed through `reaimed`; `xk_man` is built
+      outright.
 - [ ] **The graph is a fork, not a chain.** Both $y$ and $k$ are adjacent to $x$ through the
       three-way clique, so levels are $(1,2)$ and depth is 2. Consequence: `_CATEGORY_NODE = 2`
       cannot become `levels[-1]`, because the deepest level holds $y$ too.
 - [ ] `to_mixture_coords` / `from_mixture_coords` are three lines each via `CliqueCut`,
       replacing ~41 lines of hard-coded offsets; `whiten_prior` and `to_natural_likelihood`
       both flow through them.
-- [ ] **Still an arity-2 bridge --- the main remaining gap.** The $(x,y,k)$ block is *stored
-      and executed* as an arity-2 `EmbeddedMap` over the joint $(y,k)$ statistic. The graph
-      reports arity 3 through the selectors, and `tests/ef_clique.py` shows an `EFClique`
-      reproduces it exactly including in mean coordinates, but production still runs the map.
-      `block_clique` derives the clique from the same objects the map uses, so the two
-      descriptions cannot drift.
+- [ ] **The arity-2 bridge is now internal to one object.** The $(x,y,k)$ clique is *stored
+      and executed* as a matrix over the joint $(y,k)$ statistic while *reporting* arity 3
+      through its embeddings --- but it is one `LinearClique`, so there are no longer two
+      descriptions that could drift. `tests/clique_map.py` checks the two readings agree,
+      including in mean coordinates at the E-step, which is the case that decides it.
 
 **CCA --- `models/harmonium/cca.py` (227)**
 
 - [ ] The first model over a **multi-root** graph: the fork $x \leftarrow z \rightarrow y$, two
-      `block_clique`s on $(0,2)$ and $(1,2)$, `n_roots = 2` derived from the observable being a
-      `CliqueProduct`.
+      branch maps from `_branch_map`, placed at $(0,2)$ and $(1,2)$, `n_roots = 2` derived
+      from the observable being a `CliqueProduct`. Its axis 0 now lands on the *branch* and
+      the slot embedding is the way in --- one of the four mismatches the round removed.
 - [ ] **Conjugation is a sum**, $\rho = \rho_X + \rho_Y$, delegating to two standalone
       `NormalLGM`s --- exact because `DifferentiablePair.log_partition_function` is already a
       sum. Residual 1.4e-16 (LGM control 2.2e-16).
@@ -275,9 +318,11 @@ did, which is the equivalence evidence the design rests on. `tests/multilinear.p
 
 **HMoG --- `models/graphical/hmog.py` (369)**
 
-- [ ] **Declares nothing.** Its three-node chain comes from the default `cross_blocks` plus the
-      deep span's own blocks spliced in recursively. This is the extension property working: a
-      hierarchical model needs no graph declaration at all.
+- [ ] **Declares nothing.** Its three-node chain comes from the default `cross_placements` plus the
+      deep partition's own forms spliced in recursively. This is the extension property working: a
+      hierarchical model needs no graph declaration at all. Its one rewiring site is
+      `extended`, which composes the way in to node $y$ inside the upper mixture without
+      touching the axes --- the other mismatch the round removed.
 - [ ] The asymmetry is readable off the layout: the $x$–$y$ coupling touches only *location*
       sub-statistics, the $y$–$k$ coupling touches $y$'s full statistic.
 
@@ -287,66 +332,120 @@ did, which is the equivalence evidence the design rests on. `tests/multilinear.p
 
 - [ ] **`tests/clique.py`** (57, sub-second, no JAX) --- pure combinatorics, via its own
       `Cover` and `ascend`.
-- [ ] **`tests/graphical.py`** (53) --- layouts, spans, `CliqueCut` indices with every error
-      message pinned verbatim, and the ordering regressions.
+- [ ] **`tests/graphical.py`** (81) --- layouts, partitions, `CliqueCut` indices with every error
+      message pinned verbatim, the ordering regressions, and the bare form algebra pinned
+      against `MatrixMap` at arity 2.
+- [ ] **`tests/clique_map.py`** --- `LinearClique` against every live interaction shape.
+      `NODE_NAMES` now splits on whether `dom_path` is a `CliqueEmbedding` rather than on the
+      old entangled embedding, which is the same split stated better.
+      Replaces `tests/ef_clique.py` and `tests/multilinear.py`, both of which tested one half
+      of an object that is now whole.
+- [ ] **A distinction the tests had to make explicit.** The clique reading and the map reading
+      coincide only when the domain embedding addresses a *single node*. Where it is a
+      `CliqueEmbedding`, the clique contracts to that node's own coordinates while the map
+      lands in the joint manifold's, and they agree after the embedding's own
+      `project`/`embed`. `NODE_NAMES` in `clique_map.py` is that split. **Judge whether the
+      asymmetry is a design smell or the honest statement of what a joint domain means.**
 - [ ] **The two that matter most** are in `TestDeclarationOrderRegressions`: reversed CCA
-      branches and a mis-rooted deep span. Both reproduce silent corruption in the
-      pre-consolidation code and both pass.
-- [ ] **`TestLayoutInvariants`** sweeps every shipped model through `layout_problems`, four
-      invariants in dependency order. Storage order == canonical order is the first and
+      branches and a mis-rooted deep partition. Both reproduce silent corruption in the
+      pre-consolidation code and both pass. The reversed-CCA fixture now uses `relabel`.
+- [ ] **`TestLayoutInvariants`** sweeps every shipped model through `layout_problems`, now
+      **five** invariants in dependency order --- the fifth being that cliques meeting at a
+      node agree about what occupies it. Storage order == canonical order is the first and
       returns alone --- **the single enforcement point for canonical ordering in the
       codebase.**
 - [ ] **`tests/graphical_mixture.py`** (39) --- includes the two `mix_man` regressions: it is a
       two-node graph, and expanding the observable is refused rather than mislabelled.
-- [ ] **`_block(members, axes)`** builds fixtures over `Poissons(n)` nodes rather than stated
-      integers. Improvement or obfuscation?
 - [ ] **The judgement to make**: do the layout pins test the *contract* or the
       *implementation*? Those in `graphical.py` are the ones I would trust least.
-- [ ] **`tests/graphical.py` covers three modules** --- `manifold/clique.py`,
-      `manifold/cut.py`, and part of the EF module --- which the naming convention does not
-      allow for. Decision in §9.
+- [ ] **`tests/graphical.py` and `tests/clique_map.py` now cover one module between them** ---
+      `manifold/clique.py` --- plus `manifold/cut.py`. Split by concept rather than by file,
+      which the naming convention does not allow for. Decision in §9.
 
 ---
 
 ## 8. Docs and examples --- skim
 
-- [ ] RST mirrors the module structure: `manifold/clique.rst` and `manifold/cut.rst` are new
-      and listed in `manifold/index.rst`; `algebra/clique.rst` documents `Cliques` alone.
-- [ ] **`examples/cca/run.py`** is the only example touching the clique API. The other ~30
-      changed example files are formatting; verify with
-      `git diff 4b957a6 -- examples/ | grep -E "^[+-]" | grep -iE "graph|Clique|split_level"`.
-- [ ] **`CLAUDE.md` is stale** --- its module map still describes the old layout. Blocked on
-      the test-file naming decision in §9. The only row updated so far is `clique.py`'s.
+- [ ] RST mirrors the module structure: `manifold/clique.rst` documents `LinearClique`,
+      `CliqueEmbedding` and `RootEmbedding` as well as the layouts, and no longer documents
+      any map; `exponential_family/harmonium.rst` gained an `Interaction` section;
+      `exponential_family/clique.rst` is deleted and dropped from that index;
+      `manifold/map.rst` loses `EmbeddedMap` and renames `AmbientMap`.
+- [ ] **`examples/cca/run.py`** is the only example touching the clique API.
+      `examples/pendulum/run.py` and `examples/variational_mnist/model.py` each build one
+      interaction and were updated to `LinearClique`.
+- [ ] **`CLAUDE.md`** --- module map, the `Maps` design-pattern entry, and the test table are
+      updated for this round. The test-file naming question in §9 is still open.
 - [ ] Sphinx does not fail on dangling roles (nitpick is off), so cross-references to moved
-      names were repointed by hand. Re-grep for `manifold.clique` and `exponential_family.clique`
-      before merging.
+      names were repointed by hand. Re-grep for `exponential_family.clique` before merging ---
+      that module no longer exists.
 
 ---
 
 ## 9. Decisions only you can make
 
+- [ ] **`Interaction` keeps `placements` and `paths` as two parallel tuples** that must stay
+      index-aligned, and nothing enforces it beyond a `strict=True` zip in `blocks`. It could
+      be one tuple of triples, or the interaction could hold the layout and derive the paths
+      on demand. Storing them keeps `Interaction` independent of the harmonium that built it,
+      which is why it is written this way --- but the alignment is a real invariant with no
+      guard.
+- [ ] **The `Placement` alias is deleted** on your instruction. The cost is
+      `tuple[tuple[tuple[int, ...], LinearClique], ...]` at 29 signature sites. If that reads
+      badly in the models, the alternative is a frozen `Placement` dataclass carrying
+      `validate_placement` in `__post_init__` --- not the alias again.
+
 - [ ] **Should models validate their graph at construction?** `Cliques.validate()` is public
       and manual. The `mix_man` defect (§5) survived precisely because nothing called it. A
       `__post_init__` on concrete models would catch the next one, at the cost of a BFS per
       construction.
-- [ ] **Test-file naming.** `tests/graphical.py` covers three modules. Rename, split, or amend
-      the convention. **This blocks the `CLAUDE.md` update.**
+- [ ] **Test-file naming.** `graphical.py` and `clique_map.py` split one module by concept.
+      Rename, split differently, or amend the convention.
+- [ ] **Should a bias have a transpose?** (§2) `trn_man` raises for one, because the
+      canonical fold always has a row axis and never an empty head. Nothing calls it.
+- [ ] **Is `TransposedCliqueMap` the right shape?** (§2) It exists because a transpose puts
+      a *group* on the output side. The alternative is a general `view(keep)` on `CliqueMap`
+      of which forward and transposed are two instances.
+- [ ] **Derive `node_mans` or declare it?** (§2) Derived means no drift but no
+      construction-time check; declared means the reverse. Currently derived, checked by the
+      test sweep.
+- [ ] **Is the public coordinate interface too wide?** (§2) Six methods on `CliqueMap`
+      separate the path from the clique's own embedding. They are also the clearest
+      statement of what applying a clique does, and the tests read better for it.
+- [ ] **Is `cliques` the right place to validate placements?** (§2) It runs on every access
+      rather than at construction, which is cheap but is not the moment the mistake is made.
+      The alternative is a `validate()` a model calls, which is the shape that let the
+      `mix_man` defect through once already.
+- [ ] **Do you want the general `view`?** (§2) `reorder` gives the coordinate permutation;
+      naming the manifold of a multi-node group needs a dimension-parameterized manifold that
+      `geometry/` does not have (`Euclidean` lives in `models/`). **Adding one is the
+      prerequisite --- say if you want it.**
 - [ ] **Does `manifold/clique.py` earn its place** as a module with no client inside
-      `manifold/`? (§2)
+      `manifold/`? It holds four concerns: the clique, its two map readings, the two
+      embeddings, and the layouts. **Split candidate** --- cliques and maps in one file,
+      layouts in another. (§2)
+- [ ] **When to clean up `Harmonium`?** (§2, §5) `int_man` is typed as a map over
+      partitions, which is the only reason `CliqueMap` needs paths at all. Inverting it ---
+      declare `obs_man` / `pst_man`, derive `int_man` --- is the next step.
 - [ ] **`same_graph` or `same_cover`?** (§1)
 - [ ] **Prune `LinearCliques`' unused surface?** `split_cliques` / `join_cliques` have no
       production callers. (§2)
+- [ ] **`LinearClique`'s form algebra has no production callers either.** `tensor`,
+      `contract`, `partial_contract`, `to_tensor`, `from_tensor`, `reorder`, `select_joint`
+      are exercised only by tests --- production runs `__call__`, `transpose_apply` and
+      `outer_product`. Keep as the arity-$n$ statement of what a clique *is*, or prune?
 - [ ] **`InteractionEmbedding` and `PosteriorEmbedding` are unused in `models/`**, subsumed by
-      `CliqueBlockEmbedding`. Still coherent span-level API, still tested. Delete or keep?
-      (`ObservableEmbedding` is used, so this is not a whole-family question.)
+      `CliqueEmbedding`. Still coherent partition-level API, still tested. Delete or keep?
 - [ ] **How far should "clique-based" go?** The graph and layout are clique-based everywhere;
-      the *algorithms* are not --- ~40 sites use `split_level`. Converting them is churn unless
-      something needs per-clique dispatch, which is exactly what interleaving exact and
-      variational cliques would need.
+      the *algorithms* are not --- ~40 sites use `split_level`.
 - [ ] **Whether a vector-valued product is one node or many** is a modelling choice, not a
-      property of the manifold. `blocks_of` hard-codes "one". Binds if you ever want per-neuron
-      couplings.
-- [ ] **`EFClique`'s positional `keep`** --- fix the code or the docstrings. (§3)
+      property of the manifold. `placements_of` hard-codes "one".
+- [ ] **Should `rep` be on a clique at all?** Measured: 28 cliques across every shipped
+      model, all `Rectangular`. A structured representation is a statement about a *pair* of
+      equal-dimension axes and has no meaning under an n-way fold, which is why `to_tensor`
+      needs a `_require_dense` guard. Dropping it gives `dim = prod(sub_dims)`
+      unconditionally, removes `matrix_shape` and the guard, and leaves `to_matrix` as what
+      it is --- the arity-2 view. Structured reps stay in `SquareMap`, inside a node.
 
 ---
 
@@ -362,10 +461,18 @@ Reasons, so you need not re-derive them.
   layout's. Deleting it left one order in the codebase.
 - **Why no `ascend_level()`?** Its only caller was `canonical_cliques`, which is now a sort.
   `LevelCliques.deep_man` is the graph one level up, as a manifold.
-- **Why does `LeafClique` survive when `LeafCliques` did not?** `EFClique.selectors` is typed
-  `LinearEmbedding[Any, ExponentialFamily]`, so nothing at the manifold layer can build a leaf
-  block out of it. Removing `LeafClique` means making the root and deep blocks abstract and
-  having every model supply its own.
+- **Why is a bias a `LinearClique` and not its own class?** Because the canonical fold
+  already handles it: the empty column product is 1, so an arity-1 form is a column vector,
+  and applying it means feeding the constant $1$ --- the map out of `Null`. `NodeClique` was
+  the class that existed only because that was not stated.
+- **Why did `exponential_family/clique.py` disappear?** Nothing in it referenced an exponential
+  family except a type bound on the embeddings. Once `EFClique` merged into the clique, the
+  file held `CliqueEmbedding` and `RootEmbedding`, both bounded by `LinearCliques` and
+  `LevelCliques` --- manifold-layer notions. Its `sufficient_statistic` and `node_mans` were
+  the only EF-specific members and had no callers in `src/`.
+- **Why is `CliqueEmbedding.sub_man` itself?** It has to name a manifold whose dimension is the
+  product of its factors, and `geometry/` has no dimension-parameterized manifold to build one
+  from. Being a `LinearClique` supplies `dim = prod(sub_dims)` directly.
 - **Why is `LevelCliques` not absorbed into `Harmonium`?** Absorption makes
   `tests/graphical.py`'s declared-graph-versus-derived-layout fixture unexpressible and forces
   it to become a full `Gibbs` family. `LinearCliques` has to survive as a class regardless.
@@ -402,17 +509,22 @@ Reasons, so you need not re-derive them.
 ## 12. Not done, deliberately
 
 - **Interleaving conjugated and variational-conjugated levels** --- the stated objective, not
-  started. Shape: a fourth span slot, `[root | cross | deep | rho]`, since $\rho$ is a
-  per-level correction on the deep span's root. **Trap**: ~10 sites destructure `split_coords`
+  started. Shape: a fourth partition slot, `[root | cross | deep | rho]`, since $\rho$ is a
+  per-level correction on the deep partition's root. **Trap**: ~10 sites destructure `split_coords`
   positionally into three `Array`s, so reordering slots breaks them *silently* --- rename the
   method in the same change to force every site to be touched.
-- **`EFClique` as the execution primitive.** `cross_blocks` returns real `EFClique`s, so the
-  remaining step is deriving `int_man` from them rather than the reverse. MFA's arity-3 block
-  is the only place the two descriptions still differ in how they execute.
-- **Redesigning the bracketed MFA machinery** --- `CliqueCut`, `CliqueBlockEmbedding`, arity 3.
-- **Splitting `tests/graphical.py`** --- blocked on §9.
+- **The clique as execution primitive** --- done: `cross_placements` pairs the very objects
+  `int_man` is built from with their nodes, so there is nothing left to derive in either
+  direction. What
+  remains is that MFA's arity-3 clique still *executes* as a matrix over a joint statistic; it
+  reports arity 3 and the two readings are pinned equal, but the tensor path is not the one
+  production runs.
+- **Redesigning the bracketed MFA machinery** --- `CliqueCut`, `CliqueEmbedding`, arity 3.
+- **A general `view`** --- blocked on a dimension-parameterized manifold in `geometry/` (§9).
+- **Splitting `tests/graphical.py` further** --- blocked on §9.
 - **`sufficient_statistic` as a flat per-node clique loop** --- needs a per-node data split.
-  Real risk, unclear gain.
+  Real risk, unclear gain. The per-clique `sufficient_statistic` helper was deleted with
+  `EFClique`; `LinearClique.tensor` is what it was built on.
 
 ---
 
@@ -427,26 +539,28 @@ Rerun rather than trusting; all cheap except the last.
 | types | `uvx basedpyright src/ tests/` | 0 errors, 0 warnings, 0 notes |
 | docs | `uv run sphinx-build -q docs/source <out>` | exit 0 |
 | fast | `uv run python -m pytest tests/clique.py -q` | 57 passed, ~0.5 s, no JAX |
-| focused | `uv run python -m pytest tests/clique.py tests/graphical.py tests/ef_clique.py tests/multilinear.py tests/cca.py tests/graphical_mixture.py tests/hmog.py -q` | 260 passed, ~5 m |
-| suite | `uv run python -m pytest tests/ -q` | **552 passed**, ~18 m |
+| focused | `uv run python -m pytest tests/clique.py tests/graphical.py tests/clique_map.py tests/map.py tests/cca.py tests/graphical_mixture.py -q` | 242 passed, ~3 m |
+| suite | `uv run python -m pytest tests/ -q` | **550 passed**, ~17 m |
 | examples | `for e in hmog cca mfa mixture_of_gaussians; do uv run python -m examples.$e.run; echo "$e=$?"; done` | exit 0 each |
 
 **The numeric check that matters most**: `examples/cca` reproduces latent alignment RMSE
 `0.24031811353161686` and cross-covariance relative error `0.007013174699236388` over 8000
 optimizer steps, unchanged across every restructuring. CCA is the multi-root fork and its root
-span is a `CliqueProduct`, so it exercises the most of this branch at once.
+partition is a `CliqueProduct`, so it exercises the most of this branch at once.
 
 Equivalences established while building, worth re-establishing if you change the corresponding
 code:
 
 | check | result |
 |---|---|
-| block-derived `split_level` vs span-derived | byte-identical, 10 models, splits and round-trips |
-| span dims vs summed block dims, groups contiguous | exact on 18 layouts, incl. deep spans and the harmoniums nested in `hmm` / `kalman_filter` / `vm_population_code` |
+| block-derived `split_level` vs partition-derived | byte-identical, 10 models, splits and round-trips |
+| partition dims vs summed block dims, groups contiguous | exact on 18 layouts, incl. deep partitions and the harmoniums nested in `hmm` / `kalman_filter` / `vm_population_code` |
 | storage order vs canonical order | equal on every shipped model |
-| `canonical_cliques` as a sort vs as a recursion | byte-identical on 15 layouts incl. deep spans |
-| `MultilinearMap` vs `EmbeddedMap`, arity 2 | exact, both contraction directions |
-| `EFClique` vs live interactions | exact, 7 shapes × 3 operations |
+| `canonical_cliques` as a sort vs as a recursion | byte-identical on 15 layouts incl. deep partitions |
+| clique form algebra vs `MatrixMap`, arity 2 | exact, both contraction directions |
+| `LinearClique` vs live interactions | exact, 5 single-node-domain shapes × 3 operations |
+| clique reading vs map reading, joint domain | exact after the `CliqueEmbedding`, MFA's $xy$ and $xk$ |
+| eight shipped layouts: cliques, axes, dims | byte-identical before and after this round |
 | arity-3 clique vs `xyk_man` at the E-step | exact, over 16 posterior draws |
 
 **Measuring notes.** Do not compare example numbers while the suite is running --- JAX's

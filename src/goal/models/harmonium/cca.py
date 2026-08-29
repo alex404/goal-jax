@@ -36,17 +36,10 @@ from jax import Array
 
 from ...geometry import (
     AnalyticPair,
-    BlockMap,
     DifferentiableConjugated,
-    EFClique,
-    EmbeddedMap,
-    FirstEmbedding,
     LinearClique,
-    LinearComposedEmbedding,
-    LinearEmbedding,
     PositiveDefinite,
     Rectangular,
-    SecondEmbedding,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from .lgm import (
@@ -134,18 +127,17 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def cross_forms(self) -> tuple[LinearClique, ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
 
         Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two
         roots come from the observable being a pair, so the levels come out $(2, 1)$. Each
-        branch's selectors come from its own block --- the slot embedding picking its side
-        of the observable pair, and the shared latent.
+        branch couples the two locations; that one branch reaches only its own side of the
+        observable pair is derived from the graph, not declared here.
         """
-        fst, snd = self.int_man.blocks
         return (
-            EFClique.from_map(fst, (0, 2)),
-            EFClique.from_map(snd, (1, 2)),
+            ((0, 2), self._branch_clique(0)),
+            ((1, 2), self._branch_clique(1)),
         )
 
     @property
@@ -163,17 +155,6 @@ class CanonicalCorrelationAnalysis[
     @override
     def pst_prr_emb(self) -> NormalCovarianceEmbedding[PstRep, PositiveDefinite]:
         return NormalCovarianceEmbedding(self.pst_man, full_normal(self.lat_dim))
-
-    @property
-    @override
-    def int_man(self) -> BlockMap[Normal[PstRep], NormalPair[FstRep, SndRep]]:
-        """One clique per branch, both aimed at the shared latent.
-
-        The two blocks share a domain (the latent) and a codomain (the observable pair);
-        each selects its own side of the pair through a slot embedding, which is what lets
-        a :class:`~goal.geometry.manifold.map.BlockMap` hold them together.
-        """
-        return BlockMap((self._branch_map(0), self._branch_map(1)))
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
@@ -210,21 +191,11 @@ class CanonicalCorrelationAnalysis[
 
     # Private
 
-    def _branch_map(
-        self, idx: int
-    ) -> EmbeddedMap[Normal[PstRep], NormalPair[FstRep, SndRep]]:
-        obs_pair = self.obs_man
-        slot: LinearEmbedding[
-            Normal[FstRep] | Normal[SndRep], NormalPair[FstRep, SndRep]
-        ]
-        if idx == 0:
-            slot = FirstEmbedding(obs_pair)
-            branch = obs_pair.fst_man
-        else:
-            slot = SecondEmbedding(obs_pair)
-            branch = obs_pair.snd_man
-        return EmbeddedMap(
-            Rectangular(),
+    def _branch_clique(self, idx: int) -> LinearClique:
+        """One branch's coupling: the branch's location against the latent's."""
+        branch = self.obs_man.fst_man if idx == 0 else self.obs_man.snd_man
+        embs = (
+            GeneralizedGaussianLocationEmbedding(branch),
             GeneralizedGaussianLocationEmbedding(self.pst_man),
-            LinearComposedEmbedding(GeneralizedGaussianLocationEmbedding(branch), slot),
         )
+        return LinearClique(Rectangular(), embs)

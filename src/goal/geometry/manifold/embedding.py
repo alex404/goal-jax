@@ -110,7 +110,7 @@ class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient],
 class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
     """The trivial case where sub and ambient are the same manifold.
 
-    Used as the default embedding when a linear map operates on the full space without restriction (see ``AmbientMap``).
+    Used as the default embedding when a linear map operates on the full space without restriction (see ``MatrixMap``).
     """
 
     man: M
@@ -301,9 +301,8 @@ class FirstEmbedding[Fst: Manifold, PairMan: Pair[Any, Any]](
     """Embeds the first component of a :class:`~goal.geometry.manifold.combinators.Pair`.
 
     With :class:`SecondEmbedding`, this is what lets a coupling aim at one node of a
-    two-node span: both blocks of a
-    :class:`~goal.geometry.manifold.map.BlockMap` then share the pair as their codomain
-    while each selects its own side.
+    two-node partition: two couplings share the pair as their codomain while each selects
+    its own side of it.
     """
 
     # Fields

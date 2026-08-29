@@ -42,6 +42,7 @@ from jax import Array
 from ...geometry import (
     AnalyticConjugated,
     DifferentiableConjugated,
+    LinearClique,
     LinearEmbedding,
     ObservableEmbedding,
     PositiveDefinite,
@@ -70,8 +71,8 @@ class _HMoGBase[
     """Abstract base for Hierarchical Mixture of Gaussians models.
 
     Composes a lower harmonium ($x \\to y$) with an upper mixture ($y \\to k$) over the
-    three-node chain. The lower harmonium supplies the root and cross spans, the upper
-    mixture is the deep span, and the upper mixture's own root span is node $y$ --- which
+    three-node chain. The lower harmonium supplies the root and cross partitions, the upper
+    mixture is the deep partition, and the upper mixture's own root partition is node $y$ --- which
     is why the two compose without any coordinate translation.
 
     The ``pst_upr_hrm`` is bounded by ``CompleteMixture``, giving access to
@@ -99,16 +100,32 @@ class _HMoGBase[
 
     @property
     @override
-    def int_man(self) -> Any:
-        """The lower harmonium's interaction, re-aimed at node $y$ inside the upper mixture."""
-        return self.lwr_hrm.int_man.prepend_embedding(
-            ObservableEmbedding(self.pst_upr_hrm)
-        )
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        """The lower harmonium's cliques, unchanged.
+
+        A hierarchical model declares no coupling of its own: the lower harmonium already
+        says which sub-spaces it couples, and that node $y$ now sits inside the mixture
+        above is a fact about the graph, derived by
+        :meth:`~goal.geometry.manifold.clique.LevelCliques.coupling`.
+        """
+        return self.lwr_hrm.cross_placements
+
+    @property
+    @override
+    def obs_man(self) -> Any:
+        """The lower harmonium's observable."""
+        return self.lwr_hrm.obs_man
+
+    @property
+    @override
+    def pst_man(self) -> PstUpperHarmonium:
+        """The posterior is the upper mixture, whose observable node is $y$."""
+        return self.pst_upr_hrm
 
     @property
     @override
     def pst_prr_emb(self) -> LinearEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
-        """The posterior and prior mixtures differ only at node $y$, i.e. in their root span."""
+        """The posterior and prior mixtures differ only at node $y$, i.e. in their root partition."""
         return RootEmbedding(
             self.lwr_hrm.pst_prr_emb,
             self.pst_upr_hrm,
@@ -157,12 +174,12 @@ class _HMoGBase[
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)  # pyright: ignore[reportAttributeAccessIssue]
+        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T
-        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)  # pyright: ignore[reportAttributeAccessIssue]
+        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)
 
         return self.join_level(obs_means, new_lwr_int_means, new_lat_means)
 
@@ -296,7 +313,7 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
     def to_natural_likelihood(self, means: Array) -> Array:
         """Project the mean parameters down onto the lower harmonium and convert there.
 
-        The deep span is the upper mixture; its own root span is node $y$, which is the
+        The deep partition is the upper mixture; its own root partition is node $y$, which is the
         lower harmonium's latent side. So the projection is one nested root read.
         """
         obs_means, lwr_int_means, lat_means = self.split_level(means)

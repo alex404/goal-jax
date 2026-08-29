@@ -16,7 +16,8 @@ from jax import Array
 from ..manifold.base import Manifold
 from ..manifold.clique import LevelCliques, LinearClique
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
-from ..manifold.map import AffineMap, BlockMap, LinearMap
+from ..manifold.interaction import Interaction
+from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
 from .base import (
     Analytic,
@@ -24,7 +25,6 @@ from .base import (
     Generative,
     Gibbs,
 )
-from .clique import EFClique
 
 
 @dataclass(frozen=True)
@@ -33,12 +33,12 @@ class Harmonium[
     Posterior: Gibbs,
 ](
     Gibbs,
-    LevelCliques[Observable, LinearMap[Posterior, Observable], Posterior],
+    LevelCliques[Observable, Interaction[Posterior, Observable], Posterior],
     ABC,
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares the interaction manifold :attr:`int_man` that joins the two sides, and which nodes each of its blocks couples (:attr:`cross_forms`); the graph is *derived* from that. The observable and posterior manifolds are read off the interaction, and the three of them are the root, cross, and deep spans: :attr:`~goal.geometry.exponential_family.clique.LevelCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three spans stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep span holds.
+    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them (:attr:`cross_placements`); the graph, the parameter layout and the interaction :attr:`int_man` are all *derived* from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.LevelCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -47,93 +47,73 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def int_man(self) -> LinearMap[Posterior, Observable]:
-        """Manifold of the interaction matrix $\\Theta_{XZ}$."""
-
-    # Methods
-
-    @property
     def obs_man(self) -> Observable:
-        """Manifold of observable biases."""
-        return self.int_man.cod_man
+        """Manifold of observable biases --- the root partition."""
 
     @property
+    @abstractmethod
     def pst_man(self) -> Posterior:
-        """Manifold of posterior specific latent biases."""
-        return self.int_man.dom_man
+        """Manifold of posterior latent biases --- the deep partition."""
+
+    @property
+    @abstractmethod
+    @override
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        """The cliques joining the observable to the latent side, with the nodes they couple.
+
+        A model declares its couplings and where they sit; everything else --- the graph,
+        the levels, the parameter layout, and :attr:`int_man` itself --- is derived from
+        this and the two partition manifolds. A plain two-node harmonium says
+        ``(((0, 1), clique),)``; a fork or a three-way interaction says as much as it has.
+
+        A clique states only which sub-space of each node it couples. *How* a partition's
+        coordinates reach those nodes is the graph's business and is derived, by
+        :meth:`~goal.geometry.manifold.clique.LevelCliques.coupling`.
+        """
 
     # Overrides
 
     @property
     @override
     def root_man(self) -> Observable:
-        """The root span is the observable biases."""
+        """The root partition is the observable biases."""
         return self.obs_man
 
     @property
     @override
-    def cross_man(self) -> LinearMap[Posterior, Observable]:
-        """The cross span *is* the interaction. No wrapper."""
+    def cross_man(self) -> Interaction[Posterior, Observable]:
+        """The cross partition *is* the interaction. No wrapper."""
         return self.int_man
 
     @property
     @override
-    def cross_forms(self) -> tuple[LinearClique, ...]:
-        """The interaction, as one clique carrying its own selectors.
-
-        A plain two-node harmonium couples its one root node to the node just above it ---
-        which is where :attr:`~goal.geometry.manifold.clique.LevelCliques.clique_forms`
-        relabels the deep span's first node --- and the block's embeddings *are* the two
-        selectors, so nothing needs declaring. See
-        :meth:`~goal.geometry.exponential_family.clique.EFClique.from_map`.
-
-        A model whose interaction has several blocks must override this. The blocks share a
-        domain and a codomain, so which nodes each couples is not readable from the
-        interaction alone, and declaring the cliques outright is what lets such a model
-        derive its graph rather than spelling out every clique.
-
-        The same goes for a model whose root span occupies more than one node: ``1`` is
-        then not the latent node, and this block's clique would be a lie. Such a model
-        either overrides this --- as probabilistic CCA does, fanning out to two roots ---
-        or holds its root span as a single node via
-        :attr:`~goal.geometry.manifold.clique.LevelCliques.root_forms`.
-
-        Raises:
-            ValueError: if the interaction has several blocks, or the root span occupies
-                several nodes, and this was not overridden.
-        """
-        maps = (
-            self.int_man.blocks
-            if isinstance(self.int_man, BlockMap)
-            else (self.int_man,)
-        )
-        if len(maps) != 1:
-            msg = f"{type(self).__name__} has {len(maps)} interaction blocks"
-            raise ValueError(f"{msg}: override cross_forms to say what each couples")
-        roots = self.root_nodes
-        if len(roots) != 1:
-            msg = f"{type(self).__name__} has a root span over {len(roots)} nodes"
-            raise ValueError(f"{msg}: override cross_forms to say what they couple")
-        (observable,) = roots
-        return (EFClique.from_map(maps[0], (observable, observable + 1)),)
-
-    @property
-    @override
     def deep_man(self) -> Posterior:
-        """The deep span is the latent side, however deep it goes."""
+        """The deep partition is the latent side, however deep it goes."""
         return self.pst_man
 
     # Methods
 
     @property
+    def int_man(self) -> Interaction[Posterior, Observable]:
+        """The interaction, derived from the cliques and the graph they sit in.
+
+        Nothing here is declared: the forms come from :attr:`cross_placements` and the paths
+        by which the two partitions reach the nodes they couple come from
+        :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
+        """
+        placements = self.cross_placements
+        paths = tuple(self.cross_paths(members) for members, _ in placements)
+        return Interaction(self.obs_man, self.pst_man, placements, paths)
+
+    @property
     def lkl_fun_man(self) -> AffineMap[Posterior, Observable]:
         """Manifold of likelihood distributions $p(x \\mid z)$."""
-        return AffineMap(self.int_man, self.int_man.dom_man)
+        return AffineMap(self.int_man, self.pst_man)
 
     @property
     def pst_fun_man(self) -> AffineMap[Observable, Posterior]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.int_man.trn_man, self.int_man.cod_man)
+        return AffineMap(self.int_man.trn_man, self.obs_man)
 
     def likelihood_function(self, params: Array) -> Array:
         """Extract the likelihood affine map $\\eta \\mapsto \\theta_X + \\Theta_{XZ} \\cdot \\eta$ from the given natural parameters."""
@@ -540,7 +520,7 @@ class HarmoniumEmbedding[
 ](LinearEmbedding[Component, Harmonium[Observable, Posterior]], ABC):
     """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
 
-    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.exponential_family.clique.LevelCliques.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
+    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.clique.LevelCliques.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
     """
 
     # Fields

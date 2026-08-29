@@ -2,7 +2,7 @@
 
 ``CanonicalCorrelationAnalysis`` is the first model in the library over a graph with more
 than one root, so these tests double as a check on the multi-root machinery: a
-``CliqueProduct`` observable spanning two nodes, a ``BlockMap`` cross span holding one
+``CliqueProduct`` observable spanning two nodes, an ``Interaction`` cross partition holding one
 clique per branch, and a conjugation that is the sum of the branches'.
 
 The decisive test is :meth:`TestConjugation.test_conjugation_equation_holds` --- the
@@ -57,7 +57,7 @@ class TestGraph:
         assert sum(model.clique_dims) == model.dim
 
     def test_observable_spans_two_nodes(self) -> None:
-        """The root span is a clique product, which is what a multi-root graph needs."""
+        """The root partition is a clique product, which is what a multi-root graph needs."""
         obs = cca().obs_man
         assert obs.n_nodes == 2
         assert obs.root_nodes == frozenset({0, 1})
@@ -65,10 +65,10 @@ class TestGraph:
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:
         model = cca(fst_dim=3, snd_dim=2, lat_dim=2)
-        assert model.int_man.block_dims == (3 * 2, 2 * 2)
+        assert model.int_man.clique_dims == (3 * 2, 2 * 2)
 
     def test_branch_maps_share_domain_and_codomain(self) -> None:
-        """What lets a single ``BlockMap`` hold both branches."""
+        """What lets a single ``Interaction`` hold both branches."""
         fst_block, snd_block = cca().int_man.blocks
         assert fst_block.dom_man == snd_block.dom_man
         assert fst_block.cod_man == snd_block.cod_man

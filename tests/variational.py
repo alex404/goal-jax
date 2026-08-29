@@ -32,10 +32,9 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    AmbientMap,
     Harmonium,
-    LinearMap,
-    ObservableEmbedding,
+    IdentityEmbedding,
+    LinearClique,
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
@@ -266,12 +265,23 @@ class TestPriorConjugationLoss:
 class _ConcreteHarmonium(Harmonium[Binomials, Any]):
     """Harmonium with interaction restricted to the BaseLatent slot of the mixture."""
 
-    _int_man: LinearMap[Any, Binomials]
+    _pst_man: Any
+    _clique: LinearClique
 
     @property
     @override
-    def int_man(self) -> LinearMap[Any, Binomials]:
-        return self._int_man
+    def obs_man(self) -> Binomials:
+        return Binomials(6, 3)
+
+    @property
+    @override
+    def pst_man(self) -> Any:
+        return self._pst_man
+
+    @property
+    @override
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        return (((0, 1), self._clique),)
 
 
 @dataclass(frozen=True)
@@ -290,10 +300,9 @@ def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
     """Small instance: 6 Binomial(3) observables, 3 Bernoulli latents, 3 clusters."""
     obs_man = Binomials(6, 3)
     mix_man = CompleteMixture(Bernoullis(3), 3)
-    int_man = AmbientMap(Rectangular(), mix_man.obs_man, obs_man).prepend_embedding(
-        ObservableEmbedding(mix_man)
-    )
-    return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(int_man))
+    embs = (IdentityEmbedding(obs_man), IdentityEmbedding(mix_man.obs_man))
+    clique = LinearClique(Rectangular(), embs)
+    return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(mix_man, clique))
 
 
 class TestVariationalHierarchicalMixture:

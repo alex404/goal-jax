@@ -19,7 +19,21 @@ Class Hierarchy
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.clique.NodeClique
+.. autofunction:: goal.geometry.manifold.clique.node_clique
+
+.. autofunction:: goal.geometry.manifold.clique.validate_placement
+
+.. autofunction:: goal.geometry.manifold.clique.shift_placements
+
+Clique Embeddings
+-----------------
+
+.. autoclass:: goal.geometry.manifold.clique.CliqueEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.clique.RootEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

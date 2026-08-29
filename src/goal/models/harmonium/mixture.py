@@ -19,16 +19,15 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     Differentiable,
-    EmbeddedMap,
     ExponentialFamilyProduct,
     IdentityEmbedding,
     LinearClique,
     LinearEmbedding,
     Manifold,
-    NodeClique,
     Rectangular,
     StatisticalMoments,
     SymmetricConjugated,
+    node_clique,
 )
 from ..base.categorical import (
     Categorical,
@@ -89,7 +88,7 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def root_forms(self) -> tuple[LinearClique, ...]:
+    def root_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """The observable is one node, however much structure it has of its own.
 
         A mixture's interaction reaches the observable's parameters as a *unit* --- one
@@ -98,7 +97,7 @@ class Mixture[Observable: Differentiable](
         cross clique would name the wrong latent. This is what makes a mixture
         over a harmonium a two-node graph.
         """
-        return (NodeClique(self.obs_man, 0),)
+        return (((0,), node_clique(self.obs_man)),)
 
     @property
     @override
@@ -107,16 +106,26 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[Categorical, Observable]:
-        """Construct interaction matrix from observable embedding.
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        """The observable (node $0$) coupled to the category (node $1$).
 
-        Structure is fixed: Rectangular matrix with identity domain embedding.
+        Structure is fixed: a Rectangular form selecting the coupled part of the
+        observable, and the whole of the category.
         """
-        return EmbeddedMap(
-            Rectangular(),
-            IdentityEmbedding(self.lat_man),
-            self.obs_emb,
-        )
+        embs = (self.obs_emb, IdentityEmbedding(self.lat_man))
+        return (((0, 1), LinearClique(Rectangular(), embs)),)
+
+    @property
+    @override
+    def obs_man(self) -> Observable:
+        """The observable, read off the embedding that says how much of it is coupled."""
+        return self.obs_emb.amb_man
+
+    @property
+    @override
+    def pst_man(self) -> Categorical:
+        """A mixture's posterior is its categorical latent."""
+        return self.lat_man
 
     @override
     def conjugation_parameters(
@@ -135,7 +144,9 @@ class Mixture[Observable: Differentiable](
         int_comps = self.int_man.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
 
         def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = self.int_man.cod_emb.translate(obs_bias, comp_params)
+            adjusted_obs = self.int_man.clique.node_embs[0].translate(
+                obs_bias, comp_params
+            )
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
         return jax.vmap(compute_rho)(int_comps)  # [n_categories-1]
@@ -176,7 +187,9 @@ class Mixture[Observable: Differentiable](
         obs_means = jnp.sum(weighted_comps, axis=0)
 
         # Project components (excluding first) to interaction subspace
-        projected_comps = jax.vmap(self.int_man.cod_emb.project)(weighted_comps[1:])
+        projected_comps = jax.vmap(self.int_man.clique.node_embs[0].project)(
+            weighted_comps[1:]
+        )
         # [n_categories-1, sub_obs_dim]
 
         # Transpose and convert to int_man storage format
@@ -212,7 +225,7 @@ class Mixture[Observable: Differentiable](
 
         # Translate each column from subspace to full observable space
         def translate_col(col: Array) -> Array:
-            return self.int_man.cod_emb.translate(obs_bias, col)
+            return self.int_man.clique.node_embs[0].translate(obs_bias, col)
 
         translated = jax.vmap(translate_col)(int_cols)
 

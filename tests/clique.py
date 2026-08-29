@@ -50,7 +50,7 @@ def ascend(clique_set: Cliques) -> Cover:
     graph's shifted down by one. Labels carry over untouched: a graph one level up is the
     same nodes minus the root level, and nothing needs renumbering to say so.
 
-    A manifold has no use for this: its deep span is already the graph one level up, as a
+    A manifold has no use for this: its deep partition is already the graph one level up, as a
     manifold. It is the levels *below* a cover that the library reads, and this is how the
     tests check that reading against the cover one level up.
     """
@@ -195,7 +195,7 @@ class TestCanonicalOrder:
         assert HMOG.canonical_cliques == ((0,), (0, 1), (1,), (1, 2), (2,))
 
     def test_chain_deep_span_matches_ascended_model(self) -> None:
-        # The deep span of the full layout is byte-identical to the layout the model one
+        # The deep partition of the full layout is byte-identical to the layout the model one
         # level up produces on its own. This is what lets pst_man be a concrete
         # model with no translation.
         deep_span = HMOG.canonical_cliques[

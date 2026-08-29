@@ -1,6 +1,6 @@
 """Storage-efficient matrix representations for use as strategies in linear maps.
 
-A ``MatrixRep`` defines how to store a matrix as a flat parameter array and how to perform linear algebra (matvec, transpose, inverse, etc.) while respecting structural constraints. ``EmbeddedMap`` in ``linear.py`` plugs a rep into the manifold system; this module is purely about the matrix operations themselves.
+A ``MatrixRep`` defines how to store a matrix as a flat parameter array and how to perform linear algebra (matvec, transpose, inverse, etc.) while respecting structural constraints. ``MatrixMap`` in ``manifold/map.py`` plugs a rep into the manifold system; this module is purely about the matrix operations themselves.
 
 The hierarchy from most to least general is::
 
@@ -28,7 +28,7 @@ Each level exploits additional structure for cheaper storage and operations:
 TODO: A ``Convolutional`` rep could fit naturally here. It would store a kernel and
 implement ``matvec`` via convolution on a flat array (i.e. a compactly-stored Toeplitz
 matrix), with ``shape = (output_len, input_len)`` preserving the existing contract.
-Multi-channel and 2D structure would be handled in ``linear.py`` via ``BlockMap``
+Multi-channel and 2D structure would be handled in ``linear.py`` via a composite map
 (one block per channel pair) or embeddings that reshape between flat and spatial layouts.
 """
 

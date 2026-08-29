@@ -7,7 +7,7 @@ observable shifts. That fork --- $y$ and $k$ both adjacent to $x$ --- is why the
 depth two rather than being a chain.
 
 The same coordinates read two ways. :meth:`to_mixture_coords` re-roots the layout at $k$
-via :meth:`~goal.geometry.exponential_family.clique.LinearCliques.cut`, turning the model into a
+via :meth:`~goal.geometry.manifold.clique.LinearCliques.cut`, turning the model into a
 :class:`~goal.models.harmonium.mixture.CompleteMixture` whose observable is the base
 harmonium; :meth:`from_mixture_coords` inverts it. Conjugation and whitening are written
 against whichever view makes them a one-liner.
@@ -26,19 +26,14 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
-    BlockMap,
     CliqueCut,
-    CliqueEmbedding,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
-    EFClique,
-    EmbeddedMap,
     Harmonium,
     IdentityEmbedding,
     LinearClique,
     LinearEmbedding,
-    LinearMap,
     Rectangular,
     SymmetricConjugated,
 )
@@ -155,12 +150,12 @@ class CompleteMixtureOfHarmoniums[
 
     Given a base harmonium over (Observable, Posterior), this constructs a harmonium whose
     latent space is ``CompleteMixture[Posterior]`` = $(Y, K)$. The interaction is three
-    cliques rather than one, and which nodes each couples is what :attr:`cross_forms`
+    cliques rather than one, and which nodes each couples is what :attr:`cross_placements`
     declares:
 
-    - ``xy_man`` --- $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
-    - ``xyk_man`` --- $\\theta_{XYK}$ on $(x, y, k)$: component-specific interaction offsets
-    - ``xk_man`` --- $\\theta_{XK}$ on $(x, k)$: per-component observable bias shifts
+    - ``xy_clique`` --- $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
+    - ``xyk_clique`` --- $\\theta_{XYK}$ on $(x, y, k)$: component-specific interaction offsets
+    - ``xk_clique`` --- $\\theta_{XK}$ on $(x, k)$: per-component observable bias shifts
 
     The graph is a **fork, not a chain**: both $y$ and $k$ are adjacent to $x$ through the
     three-way clique, so the levels come out $(1, 2)$ and the depth is two. This matters
@@ -188,19 +183,22 @@ class CompleteMixtureOfHarmoniums[
         return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
 
     @property
-    def _cat_sel(self) -> IdentityEmbedding[Categorical]:
+    def _bas_clique(self) -> LinearClique:
+        """The base harmonium's single crossing clique --- the form this level extends."""
+        return self.bas_hrm.int_man.clique
+
+    @property
+    def _cat_emb(self) -> IdentityEmbedding[Categorical]:
         """The category node in full: every component gets its own coefficient."""
         return IdentityEmbedding(Categorical(self.n_categories))
 
     @property
-    def xy_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
-        """$\\theta_{XY}$: the base interaction, aimed at the mixture's $y$ bias."""
-        return self.bas_hrm.int_man.map_domain_embedding(
-            lambda y_sel: CliqueEmbedding((0,), (y_sel,), self.bas_pst_man)
-        )
+    def xy_clique(self) -> LinearClique:
+        """$\\theta_{XY}$: the base interaction, which couples $x$ to $y$ unchanged."""
+        return self._bas_clique
 
     @property
-    def xyk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
+    def xyk_clique(self) -> LinearClique:
         """$\\theta_{XYK}$: the three-way interaction, aimed at the mixture's $(y,k)$ clique.
 
         The clique's two latent members are $y$ and $k$ together, so it reads the form
@@ -209,54 +207,41 @@ class CompleteMixtureOfHarmoniums[
         $\\mathbb E[\\mathbf s_Y \\otimes \\mathbf s_K] \\neq \\mathbb E[\\mathbf s_Y]
         \\otimes \\mathbb E[\\mathbf s_K]$.
         """
-        return self.bas_hrm.int_man.map_domain_embedding(
-            lambda y_sel: CliqueEmbedding(
-                (0, 1), (y_sel, self._cat_sel), self.bas_pst_man
-            )
-        )
+        embs = (*self._bas_clique.node_embs, self._cat_emb)
+        return LinearClique(Rectangular(), embs)
 
     @property
-    def xk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
+    def xk_clique(self) -> LinearClique:
         """$\\theta_{XK}$: per-component shifts of the whole observable bias."""
-        return EmbeddedMap(
-            Rectangular(),
-            CliqueEmbedding((1,), (self._cat_sel,), self.bas_pst_man),
-            IdentityEmbedding(self.bas_hrm.obs_man),
-        )
+        embs = (IdentityEmbedding(self.bas_hrm.obs_man), self._cat_emb)
+        return LinearClique(Rectangular(), embs)
 
     @property
     @override
-    def cross_forms(self) -> tuple[LinearClique, ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
 
         Node $0$ is $x$, node $1$ is $y$, node $2$ is $k$. Everything else about the graph
-        follows: the three biases come from the spans, the $(y,k)$ coupling comes from the
+        follows: the three biases come from the partitions, the $(y,k)$ coupling comes from the
         mixture one level up, and the levels come out $(1, 2)$ rather than a chain --- both
         $y$ and $k$ are adjacent to $x$, so the graph has depth two, not three.
 
-        This has to be declared because the blocks share a domain and a codomain: which
-        nodes each couples lives in their domain embeddings, not in the block map. The
-        selectors themselves are read off each block --- and the middle one comes out arity
-        three, because its domain addresses the mixture's joint $(y,k)$ clique rather than
-        either node alone.
+        This has to be declared: the three forms share a domain and a codomain, so nothing
+        but the model knows which nodes each couples. Each carries its own axis embeddings
+        --- and the middle one comes out arity three, because it reaches the mixture's joint
+        $(y,k)$ clique rather than either node alone.
         """
-        xy, xyk, xk = self.int_man.blocks
         return (
-            EFClique.from_map(xy, (0, 1)),
-            EFClique.from_map(xyk, (0, 1, 2)),
-            EFClique.from_map(xk, (0, 2)),
+            ((0, 1), self.xy_clique),
+            ((0, 1, 2), self.xyk_clique),
+            ((0, 2), self.xk_clique),
         )
 
     @property
     @override
-    def int_man(self) -> BlockMap[CompleteMixture[Posterior], Observable]:
-        """Interaction matrix with three blocks (mxy, mxyz, mxz).
-
-        - ``mxy`` --- base harmonium interaction $\\theta_{XY}$
-        - ``mxyk`` --- component-specific interactions $\\theta^0_{XYZ}$
-        - ``mxk`` --- observable bias adjustments per component $\\theta_{XZ}$
-        """
-        return BlockMap((self.xy_man, self.xyk_man, self.xk_man))
+    def obs_man(self) -> Observable:
+        """The base harmonium's observable."""
+        return self.bas_hrm.obs_man
 
     def posterior_categorical(self, params: Array, x: Array) -> Array:
         """Compute posterior categorical distribution p(Z|x) in natural coordinates.
@@ -329,7 +314,7 @@ class CompleteMixtureOfHarmoniums[
         than splitting off the root node $x$, it splits off the category node $k$ and
         gathers everything coupling to it --- $\\theta_{XK}$, $\\theta_{XYK}$,
         $\\theta_{YK}$ --- into one matrix whose rows follow the base harmonium's clique
-        order. That is exactly ``mix_man``'s three spans.
+        order. That is exactly ``mix_man``'s three partitions.
 
         Note this is *not* ``levels[-1]``: the graph has depth two, so its deepest level
         holds both $y$ and $k$, and cutting there would take $y$ with it.
@@ -386,6 +371,16 @@ class CompleteMixtureOfConjugated[
 
     bas_hrm: DifferentiableConjugated[Observable, PstLatent, PrrLatent]
     """Base conjugated harmonium (lower level)."""
+
+    @property
+    @override
+    def pst_man(self) -> CompleteMixture[PstLatent]:
+        """A complete mixture over the base posterior.
+
+        The symmetric subclasses get theirs from ``lat_man`` instead, which is the analytic
+        mixture --- same coordinates, more operations.
+        """
+        return self.bas_pst_man
 
     @property
     @override
@@ -489,6 +484,16 @@ class CompleteMixtureOfSymmetric[
         """The shared latent manifold (posterior == prior)."""
         return CompleteMixture(self.bas_hrm.lat_man, self.n_categories)
 
+    @property
+    @override
+    def pst_man(self) -> CompleteMixture[Latent]:
+        """Symmetric: posterior and prior are one manifold, so this is :attr:`lat_man`.
+
+        Overrides the base's ``bas_pst_man``, which is the same coordinates under a class
+        with fewer operations --- the analytic subclass needs ``to_natural``.
+        """
+        return self.lat_man
+
 
 @dataclass(frozen=True)
 class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues,reportIncompatibleMethodOverride]
@@ -553,7 +558,7 @@ class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues,repo
         # rest_offsets: (n_cols, obs_dim + int_dim)
 
         obs_dim = self.bas_hrm.obs_man.dim
-        # Transpose to (obs_dim, n_cols) before ravel to match xk_man storage
+        # Transpose to (obs_dim, n_cols) before ravel to match the xk clique storage
         xk_coords = rest_offsets[:, :obs_dim].T.ravel()
         xyk_coords = rest_offsets[:, obs_dim:].T.ravel()
 

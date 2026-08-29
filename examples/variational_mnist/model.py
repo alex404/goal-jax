@@ -22,17 +22,15 @@ from jax import Array
 from goal.geometry import (
     Diagonal,
     Differentiable,
-    EmbeddedMap,
     Harmonium,
     IdentityEmbedding,
-    ObservableEmbedding,
+    LinearClique,
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
     VariationalSymmetric,
     conjugation_metrics,
 )
-from goal.geometry.manifold.map import LinearMap
 from goal.models import (
     Bernoullis,
     Binomials,
@@ -99,15 +97,27 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 ):
     """Concrete harmonium coupling an observable to a latent manifold.
 
-    A thin wrapper that stores the interaction map directly.
+    A thin wrapper that stores the two partitions and the clique joining them.
     """
 
-    _int_man: EmbeddedMap[Latent, Observable]
+    _obs_man: Observable
+    _pst_man: Latent
+    _clique: LinearClique
 
     @property
     @override
-    def int_man(self) -> LinearMap[Latent, Observable]:
-        return self._int_man
+    def obs_man(self) -> Observable:
+        return self._obs_man
+
+    @property
+    @override
+    def pst_man(self) -> Latent:
+        return self._pst_man
+
+    @property
+    @override
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        return (((0, 1), self._clique),)
 
 
 ### Concrete mixture of harmoniums ###
@@ -120,7 +130,10 @@ class ConcreteCompleteMixtureOfHarmoniums[
 ](CompleteMixtureOfHarmoniums[Observable, Posterior]):
     """Concrete instantiation of CompleteMixtureOfHarmoniums."""
 
-    pass
+    @property
+    @override
+    def pst_man(self) -> CompleteMixture[Posterior]:
+        return self.bas_pst_man
 
 
 ### Variational full mixture ###
@@ -270,12 +283,8 @@ def _hierarchical_harmonium(
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
     mix_man = CompleteMixture(base_lat_man, n_categories)
-    int_man = EmbeddedMap(
-        Rectangular(),
-        ObservableEmbedding(mix_man),
-        IdentityEmbedding(obs_man),
-    )
-    return ConcreteHarmonium(int_man)
+    embs = (IdentityEmbedding(obs_man), IdentityEmbedding(mix_man.obs_man))
+    return ConcreteHarmonium(obs_man, mix_man, LinearClique(Rectangular(), embs))
 
 
 def _full_base_harmonium(
@@ -283,12 +292,8 @@ def _full_base_harmonium(
     base_lat_man: Differentiable,
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, Lat] for fully connected mode."""
-    int_man = EmbeddedMap(
-        Rectangular(),
-        IdentityEmbedding(base_lat_man),
-        IdentityEmbedding(obs_man),
-    )
-    return ConcreteHarmonium(int_man)
+    embs = (IdentityEmbedding(obs_man), IdentityEmbedding(base_lat_man))
+    return ConcreteHarmonium(obs_man, base_lat_man, LinearClique(Rectangular(), embs))
 
 
 def _chain_edges(n: int) -> list[tuple[int, int]]:

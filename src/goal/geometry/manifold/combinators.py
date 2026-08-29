@@ -2,7 +2,7 @@
 
 Provides product manifolds of fixed arity (`Pair`, `Triple`, `Quadruple`), homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
 
-Graph-indexed layouts --- `EFClique`, `LinearCliques`, `LevelCliques` --- live in `exponential_family/clique.py`, which builds on these.
+Graph-indexed layouts --- `LinearClique`, `LinearCliques`, `LevelCliques` --- live in `manifold/clique.py`, which builds on these. Where a `Tuple` here concatenates its components' coordinates, a clique takes their tensor product.
 """
 
 from __future__ import annotations

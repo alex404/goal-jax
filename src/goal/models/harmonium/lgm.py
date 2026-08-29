@@ -14,9 +14,9 @@ from ...geometry import (
     AnalyticConjugated,
     Diagonal,
     DifferentiableConjugated,
-    EmbeddedMap,
     Identity,
     IdentityEmbedding,
+    LinearClique,
     LinearEmbedding,
     MatrixRep,
     PositiveDefinite,
@@ -257,12 +257,10 @@ class LGM[
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[PostGaussian, Normal[ObsRep]]:
-        return EmbeddedMap(
-            Rectangular(),
-            self.int_pst_emb,
-            self.int_obs_emb,
-        )
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        """One clique, coupling the observable's location to the latent's."""
+        embs = (self.int_obs_emb, self.int_pst_emb)
+        return (((0, 1), LinearClique(Rectangular(), embs)),)
 
     @override
     def conjugation_parameters(

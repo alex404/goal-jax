@@ -10,8 +10,8 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
-    EmbeddedMap,
     IdentityEmbedding,
+    LinearClique,
     Rectangular,
 )
 from ...geometry.exponential_family.base import Differentiable
@@ -51,12 +51,19 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[VonMisesProduct, Poissons]:
-        obs = Poissons(self.n_neurons)
-        lat = VonMisesProduct(self.n_latent)
-        return EmbeddedMap(
-            Rectangular(), IdentityEmbedding(lat), IdentityEmbedding(obs)
-        )
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        embs = (IdentityEmbedding(self.obs_man), IdentityEmbedding(self.pst_man))
+        return (((0, 1), LinearClique(Rectangular(), embs)),)
+
+    @property
+    @override
+    def obs_man(self) -> Poissons:
+        return Poissons(self.n_neurons)
+
+    @property
+    @override
+    def pst_man(self) -> VonMisesProduct:
+        return VonMisesProduct(self.n_latent)
 
 
 # --- Von Mises Population Code (unified variational model) ---
@@ -174,11 +181,19 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[FullNormal, Boltzmann[Shape]]:
-        lat = full_normal(self.lat_dim)
-        return EmbeddedMap(
-            Rectangular(), IdentityEmbedding(lat), IdentityEmbedding(self.boltzmann)
-        )
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        embs = (IdentityEmbedding(self.obs_man), IdentityEmbedding(self.pst_man))
+        return (((0, 1), LinearClique(Rectangular(), embs)),)
+
+    @property
+    @override
+    def obs_man(self) -> Boltzmann[Shape]:
+        return self.boltzmann
+
+    @property
+    @override
+    def pst_man(self) -> FullNormal:
+        return full_normal(self.lat_dim)
 
 
 @dataclass(frozen=True)

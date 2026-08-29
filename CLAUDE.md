@@ -81,7 +81,7 @@ The library is organized into three main modules under `src/goal/`:
 
 1. **geometry/**: Core geometric abstractions
    - `algebra/`: Stateless parameter-layout descriptors that never reference `Manifold` (`matrix.py`, `clique.py`)
-   - `manifold/`: Riemannian manifolds, linear maps, embeddings, combinators, and `clique.py` (graph-indexed layouts: a `LinearClique` is a multilinear form together with the nodes it couples; a `LinearCliques` concatenates them)
+   - `manifold/`: Riemannian manifolds, linear maps, embeddings, combinators, and `clique.py` (graph-indexed layouts: a `LinearClique` is one embedding per node --- the sub-space that coupling uses, inside that node's own manifold --- with a rep-backed form over their tensor product, and nothing else. It is *not* a map: `LevelCliques.cross_paths` derives how each partition's coordinates reach the nodes a crossing clique couples, and `interaction.py` is what pairs forms with paths to make one --- so `clique.py` never imports `map.py`. A `LinearCliques` lays a coordinate vector out over its `placements` --- one `(members, form)` pair per clique --- and derives `node_mans` from the forms themselves)
    - `exponential_family/`: Exponential family abstractions and harmoniums (hierarchical models included --- the graph layout itself lives in `manifold/clique.py`)
 
 2. **models/**: Concrete statistical models
@@ -110,7 +110,7 @@ The library is organized into three main modules under `src/goal/`:
 2. **Harmoniums**: Conjugate relationship modeling between latent and observed variables
    - `SymmetricConjugated`: Posterior and prior use the same manifold (`pst_man == prr_man`)
    - `DifferentiableConjugated[Obs, Pst, Prr]`: Supports asymmetric cases where posterior embeds into prior (`pst_man ⊂ prr_man` via `pst_prr_emb`)
-3. **Maps**: `Map[D, C]` is the generic ABC for parameterized functions between manifolds; `LinearMap[D, C]` (with matrix-rep specializations like `EmbeddedMap`, `SquareMap`, `AffineMap`) and `MultilayerPerceptron[D, C]` are concrete leaves. `StatefulMap[D, C, S]` is a sibling for stateful (RNN-style) maps.
+3. **Maps**: `Map[D, C]` is the generic ABC for parameterized functions between manifolds; `LinearMap[D, C]` (with matrix-rep specializations like `MatrixMap`, `SquareMap`, `AffineMap`, and `Interaction` for several clique forms read under the canonical fold and summed, which address only part of their domain and codomain) and `MultilayerPerceptron[D, C]` are concrete leaves. `StatefulMap[D, C, S]` is a sibling for stateful (RNN-style) maps.
 4. **Transitions and LatentProcess**: `Transition[L]` is a predict map on belief natural parameters used by the BPTT-friendly filter scan. `AnalyticTransition[L]` wraps a `SymmetricConjugated[L, L]` kernel to enable smoothing and exact EM. `LatentProcess[O, L]` composes (prior, conjugated emission, transition) into a Triple; `AnalyticLatentProcess[O, L]` adds joint sampling, smoothing, and EM.
 5. **Combinators**: Composable building blocks for complex models (Product, Pair, Replicated)
 6. **Embeddings**: Flexible transformations between manifolds (e.g., `NormalCovarianceEmbedding` embeds `DiagonalNormal` into `FullNormal`)
@@ -205,8 +205,8 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 |---|---|
 | `matrix.py` | `geometry/algebra/matrix.py` |
 | `clique.py` | `geometry/algebra/clique.py` (`Cliques`: the `graph` it presents, cliques, level sets, canonical order, and relabelling invariance; defines the concrete `Cover` and the `ascend` helper it tests with) |
-| `graphical.py` | `geometry/manifold/clique.py` (`LinearClique`: its form algebra, incl. vs `EmbeddedMap` at arity 2; `NodeClique`; `LinearCliques` layout, `LevelCliques` spans, `CliqueCut`, `RootEmbedding`) |
-| `ef_clique.py` | `geometry/exponential_family/clique.py` (`EFClique` vs every live interaction shape, all three operations) |
+| `graphical.py` | `geometry/manifold/clique.py` (`LinearClique`: its form algebra, incl. vs `MatrixMap` at arity 2; `LinearCliques` placements, `LevelCliques` partitions, `CliqueCut`, `CliqueEmbedding`, `RootEmbedding`) |
+| `interaction.py` | `geometry/manifold/interaction.py` (`Interaction` and its `LinearClique` vs every live interaction shape, all three operations, incl. arity 3) |
 | `map.py` | `geometry/manifold/map.py` (LinearMap rename regression + MultilayerPerceptron) |
 | `normal.py` | `models/base/gaussian/normal.py` |
 | `boltzmann.py` | `models/base/gaussian/boltzmann.py` |

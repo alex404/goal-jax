@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import pytest
 
 from goal.geometry import (
-    AmbientMap,
+    MatrixMap,
     MultilayerPerceptron,
     PositiveDefinite,
     Rectangular,
@@ -43,10 +43,10 @@ class TestLinearMapRegression:
     """Confirms matrix-rep machinery still works after the linear -> map rename."""
 
     def test_ambient_rectangular_matvec(self) -> None:
-        """Rectangular AmbientMap applies as a plain matrix-vector product."""
+        """Rectangular MatrixMap applies as a plain matrix-vector product."""
         dom = _DimManifold(3)
         cod = _DimManifold(2)
-        m = AmbientMap(Rectangular(), dom, cod)
+        m = MatrixMap(Rectangular(), dom, cod)
         assert m.dim == 6  # 2x3 dense matrix
         # Row-major params for matrix [[0, 1, 2], [3, 4, 5]]
         params = jnp.arange(6, dtype=jnp.float64)
