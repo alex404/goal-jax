@@ -82,15 +82,14 @@ level up.
 ## 2. The layout --- `manifold/clique.py`
 
 `LinearClique`, `CliqueEmbedding`, `LinearCliques`, `LevelCliques`, `CliqueProduct`,
-`RootEmbedding`, plus `node_clique`, `validate_placement` and `shift_placements`. **No map
-class lives here any more.** The clique-indexed sibling of `combinators.py`: where `Pair` and
+`RootEmbedding`, plus `node_clique` and `map_axis`. **No map class lives here any more.** The clique-indexed sibling of `combinators.py`: where `Pair` and
 `Triple` **concatenate** their components' coordinates, a clique takes their **tensor
 product**, and a layout splits a coordinate vector by which nodes each clique couples.
 
 - [ ] **A clique is one embedding per node, and nothing else.** `LinearClique` is a
       `Manifold` with two fields: a `rep` and `node_embs`. Each embedding goes from the
-      sub-space this coupling uses *into that node's own manifold*. `node_mans`, `sub_mans`,
-      `sub_dims`, `arity`, `matrix_shape` and `dim` all derive. **This is the shape the
+      sub-space this coupling uses *into that node's own manifold*. `node_mans`, `sub_dims`,
+      `arity`, `matrix_shape` and `dim` all derive. **This is the shape the
       round was for --- judge whether anything is missing from it.**
 - [ ] **No conditional reading is privileged.** A clique has $2^n$ of them and
       `partial_contract` is all of them; `contract` and `tensor` are the special cases.
@@ -171,6 +170,17 @@ invariants and the bare clique algebra, and `tests/clique_map.py` for `CliqueMap
 every live interaction shape.
 
 ---
+- [ ] **A shortening pass took the module 844 -> 775 lines (8%).** It is 38% executable ---
+      292 code lines against 328 of docstring --- so the requested 25--50% was not reachable
+      without deleting documentation. Cut: `LinearClique.reorder` and `LinearCliques.node_emb`
+      (no callers anywhere), `LinearClique.sub_mans` (inlined into `sub_dims`, its only
+      reader), `validate_placement` and `shift_placements` made private and dropped from
+      `clique.rst` (no external callers, never exported), and rationale prose that repeated
+      the module or parent docstring. **Judge whether the remaining density is right.**
+- [ ] **`LinearCliques` is now `@dataclass(frozen=True)`** like `LevelCliques` and
+      `CliqueProduct` below it. It had been the only clique class without the decorator, and
+      one of three outliers library-wide (with `Boltzmann` and `GeneralizedGaussian`) among
+      abstract manifolds that are otherwise all decorated.
 
 ## 3. The maps --- `manifold/map.py`
 
@@ -204,12 +214,26 @@ every live interaction shape.
       interaction --- and now that a bias *is* a `LinearClique`, both halves are the same
       kind of object. Folding it into a layout is the obvious next step. Recorded, out of
       scope.
+- [ ] **`AffineMap` now declares `Map[Domain, Codomain]`.** It had `dom_man` and `__call__`
+      and every caller used it as a map, but its MRO was `AffineMap -> Pair -> Tuple ->
+      Manifold`, so it was the one class in the library playing a role it did not declare.
+      It gained a `cod_man` property (`self.map_man.cod_man`, which `fst_man` now returns),
+      and its `dom_man` field became `_dom_man` behind the inherited abstract property ---
+      it had been the only public manifold-valued field on a map-like class. Both
+      construction sites are positional, so neither moved.
 
 ## 4. The re-rooting view --- `manifold/cut.py` (bracketed)
 
 - [ ] **`CliqueCut(cliques, clique_dims, far_node)`** is an isomorphism, not a computation: the
-      same coordinates regrouped as `(near | crossing | far)`. Five index tuples derived in
-      `__post_init__`; `project` and `join` are methods.
+      same coordinates regrouped as `(near | crossing | far)`. Five index tuples derived from
+      the three fields; `project` and `join` are methods.
+- [ ] **The five derived tuples are properties, not cached fields.** They had been
+      `field(init=False)` written through `object.__setattr__` at the end of `__post_init__`
+      --- the only place in the library that cached derived values in fields instead of
+      recomputing them on access. `__post_init__` is now validation only, and `project` and
+      `join` bind `_group()` once each rather than reading five properties. **Check the
+      recomputation is genuinely free**: it is pure Python over tuples at trace time, but
+      `_group()` is now called twice per `project` where it was once per construction.
 - [ ] **It reads the layout, not the graph.** It used to read `canonical_cliques` and index
       `clique_dims` with the result, so two layouts over one graph differing only in the
       storage position of two equal-sized blocks produced an identical cut with the near and
@@ -383,6 +407,15 @@ every live interaction shape.
 ---
 
 ## 9. Decisions only you can make
+
+- [ ] **The ABC-versus-concrete rule is now written down**, in `CLAUDE.md` under Typing
+      Strategy: abstract-and-stateless for a role a model *becomes*, concrete-with-fields for
+      a value a model *builds*; abstract classes may carry only the fields every subclass
+      shares, hoisted to the lowest common parent; a field backing an inherited abstract
+      property is private and named for it; derived quantities are properties, never
+      `field(init=False)`. An audit of all ~120 classes found the rule already held
+      everywhere except the two cases fixed in §3 and §4. **Confirm the rule is the one you
+      intended, since it is now the thing new code will be measured against.**
 
 - [ ] **`Interaction` keeps `placements` and `paths` as two parallel tuples** that must stay
       index-aligned, and nothing enforces it beyond a `strict=True` zip in `blocks`. It could

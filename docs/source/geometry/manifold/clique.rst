@@ -21,10 +21,6 @@ Class Hierarchy
 
 .. autofunction:: goal.geometry.manifold.clique.node_clique
 
-.. autofunction:: goal.geometry.manifold.clique.validate_placement
-
-.. autofunction:: goal.geometry.manifold.clique.shift_placements
-
 Clique Embeddings
 -----------------
 

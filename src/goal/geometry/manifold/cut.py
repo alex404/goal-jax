@@ -13,7 +13,7 @@ coordinates alike.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import jax.numpy as jnp
 from jax import Array
@@ -31,9 +31,9 @@ class CliqueCut:
     far side. Mathematically this is the re-rooting isomorphism --- the same coordinate
     vector read against a different bipartition of the graph.
 
-    Construction validates that the regrouping is well posed, so holding one of these means
-    holding a cut consistent with the layout's dimensions. The index tuples below are
-    derived, not supplied.
+    Construction validates that the regrouping is well posed, so holding one of these
+    means holding a cut consistent with the layout's dimensions. The index properties are
+    derived from the three fields, not supplied alongside them.
 
     Raises:
         ValueError: if ``far_node`` is not a node of the cover, or is its only node; if it
@@ -54,21 +54,6 @@ class CliqueCut:
 
     far_node: int
     """The node being split off."""
-
-    near_idx: tuple[int, ...] = field(init=False)
-    """Positions of the cliques that do not touch :attr:`far_node`."""
-
-    cross_idx: tuple[int, ...] = field(init=False)
-    """Positions of the cliques that couple :attr:`far_node` to the near side."""
-
-    far_idx: tuple[int, ...] = field(init=False)
-    """Positions of the cliques lying wholly on :attr:`far_node`."""
-
-    cross_rows: tuple[int, ...] = field(init=False)
-    """For each crossing clique, the position *within* :attr:`near_idx` of its near part."""
-
-    n_cols: int = field(init=False)
-    """Width of the crossing matrix: the far side's total dimension."""
 
     def __post_init__(self) -> None:
         nodes = sorted({i for clique in self.cliques for i in clique})
@@ -92,11 +77,33 @@ class CliqueCut:
                 msg += f", not {height} x {n_cols}"
                 raise ValueError(f"{msg}: it does not couple the whole far side")
 
-        object.__setattr__(self, "near_idx", near_idx)
-        object.__setattr__(self, "cross_idx", cross_idx)
-        object.__setattr__(self, "far_idx", far_idx)
-        object.__setattr__(self, "cross_rows", cross_rows)
-        object.__setattr__(self, "n_cols", n_cols)
+    # Properties
+
+    @property
+    def near_idx(self) -> tuple[int, ...]:
+        """Positions of the cliques that do not touch :attr:`far_node`."""
+        return self._group()[0]
+
+    @property
+    def cross_idx(self) -> tuple[int, ...]:
+        """Positions of the cliques that couple :attr:`far_node` to the near side."""
+        return self._group()[1]
+
+    @property
+    def far_idx(self) -> tuple[int, ...]:
+        """Positions of the cliques lying wholly on :attr:`far_node`."""
+        return self._group()[2]
+
+    @property
+    def cross_rows(self) -> tuple[int, ...]:
+        """For each crossing clique, the position *within* :attr:`near_idx` of its near part."""
+        near_idx, cross_idx, _ = self._group()
+        return self._rows(near_idx, cross_idx)
+
+    @property
+    def n_cols(self) -> int:
+        """Width of the crossing matrix: the far side's total dimension."""
+        return sum(self.clique_dims[i] for i in self.far_idx)
 
     # Methods
 
@@ -107,18 +114,21 @@ class CliqueCut:
         crossing clique above it still gets a row band, zero filled, so the matrix has one
         row band per near clique and the far side is one shared column axis.
         """
+        near_idx, cross_idx, far_idx = self._group()
+        n_cols = sum(self.clique_dims[i] for i in far_idx)
         parts = split_by_dims(coords, self.clique_dims)
-        near = jnp.concatenate([parts[i] for i in self.near_idx])
-        far = jnp.concatenate([parts[i] for i in self.far_idx])
-        row_source = {row: pos for pos, row in enumerate(self.cross_rows)}
+        near = jnp.concatenate([parts[i] for i in near_idx])
+        far = jnp.concatenate([parts[i] for i in far_idx])
+        cross_rows = self._rows(near_idx, cross_idx)
+        row_source = {row: pos for pos, row in enumerate(cross_rows)}
         rows: list[Array] = []
-        for pos, i in enumerate(self.near_idx):
+        for pos, i in enumerate(near_idx):
             height = self.clique_dims[i]
             if pos in row_source:
-                part = parts[self.cross_idx[row_source[pos]]]
-                rows.append(part.reshape(height, self.n_cols))
+                part = parts[cross_idx[row_source[pos]]]
+                rows.append(part.reshape(height, n_cols))
             else:
-                rows.append(jnp.zeros((height, self.n_cols)))
+                rows.append(jnp.zeros((height, n_cols)))
         return near, jnp.vstack(rows).ravel(), far
 
     def join(self, near: Array, cross: Array, far: Array) -> Array:
@@ -128,10 +138,12 @@ class CliqueCut:
         :meth:`project` zero filled are dropped rather than written back, so the round trip
         is the identity on coordinates but not on an arbitrary crossing matrix.
         """
-        near_dims = tuple(self.clique_dims[i] for i in self.near_idx)
+        near_idx, cross_idx, far_idx = self._group()
+        near_dims = tuple(self.clique_dims[i] for i in near_idx)
         near_parts = split_by_dims(near, near_dims)
-        far_parts = split_by_dims(far, tuple(self.clique_dims[i] for i in self.far_idx))
-        cross_matrix = cross.reshape(sum(near_dims), self.n_cols)
+        far_parts = split_by_dims(far, tuple(self.clique_dims[i] for i in far_idx))
+        n_cols = sum(self.clique_dims[i] for i in far_idx)
+        cross_matrix = cross.reshape(sum(near_dims), n_cols)
 
         offsets: list[int] = []
         running = 0
@@ -140,12 +152,13 @@ class CliqueCut:
             running += size
 
         parts: list[Array | None] = [None] * len(self.clique_dims)
-        for pos, i in enumerate(self.near_idx):
+        for pos, i in enumerate(near_idx):
             parts[i] = near_parts[pos]
-        for pos, i in enumerate(self.far_idx):
+        for pos, i in enumerate(far_idx):
             parts[i] = far_parts[pos]
-        for pos, i in enumerate(self.cross_idx):
-            row = self.cross_rows[pos]
+        cross_rows = self._rows(near_idx, cross_idx)
+        for pos, i in enumerate(cross_idx):
+            row = cross_rows[pos]
             start = offsets[row]
             parts[i] = cross_matrix[start : start + near_dims[row], :].ravel()
 

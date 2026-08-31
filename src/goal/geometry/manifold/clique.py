@@ -13,12 +13,11 @@ none, and picking one needs to know what manifold a caller actually holds, which
 about the graph. Whoever wants a map builds one from the form and the paths this module
 derives --- see :meth:`LevelCliques.cross_paths`.
 
-**Where a clique sits is not part of it.** Node numbering is a fact about position in a
-graph rather than about what occupies a position, so a partition numbers its own nodes from zero
-and can be reused at any depth; the containing layout pairs each form with the nodes it
-couples, and renumbers what it receives. :attr:`LinearCliques.placements` is that pairing.
-:class:`LevelCliques` is the recursive case, storing its coordinates as the three partitions of
-one level ascent, and :class:`CliqueProduct` is the disjoint union, which is what a
+**Where a clique sits is not part of it.** A partition numbers its own nodes from zero and
+can be reused at any depth; the containing layout pairs each form with the nodes it couples,
+and renumbers what it receives. :attr:`LinearCliques.placements` is that pairing.
+:class:`LevelCliques` is the recursive case, storing its coordinates as the three partitions
+of one level ascent, and :class:`CliqueProduct` is the disjoint union, which is what a
 multi-root model's root partition is.
 """
 
@@ -48,16 +47,15 @@ from .util import split_by_dims
 class LinearClique(Manifold):
     """A coupling of nodes: one embedding per node, and a form over what they select.
 
-    What a :class:`LinearCliques` is laid out over, and where its name comes from. Each
-    :class:`~goal.geometry.manifold.embedding.LinearEmbedding` goes from the sub-space this
-    coupling uses *into that node's own manifold*, and the parameters are the tensor over
-    those sub-spaces. That is the whole of it: a clique says which nodes it couples and how
-    much of each one, and nothing about where those nodes sit or how anyone reaches them.
+    Each :class:`~goal.geometry.manifold.embedding.LinearEmbedding` goes from the sub-space
+    this coupling uses *into that node's own manifold*, and the parameters are the tensor
+    over those sub-spaces. A clique says which nodes it couples and how much of each one,
+    and nothing about where those nodes sit or how anyone reaches them.
 
     One embedding, one **axis**. Axes are positions, ``0`` to ``arity - 1``; which nodes
-    they sit at is the layout's business, assigned by :attr:`LinearCliques.placements`, and each
-    embedding's ``amb_man`` is the manifold the layout must find there --- see
-    :attr:`LinearCliques.node_mans`.
+    they sit at is the layout's business (:attr:`LinearCliques.placements`), and each
+    embedding's ``amb_man`` is the manifold the layout must find there
+    (:attr:`LinearCliques.node_mans`).
 
     Mathematically, for axes of dimensions $(d_0, \\ldots, d_{n-1})$ the parameters are a
     tensor $\\Theta \\in \\mathbb R^{d_0 \\times \\cdots \\times d_{n-1}}$, stored under the
@@ -67,9 +65,7 @@ class LinearClique(Manifold):
     is exactly a bias.
 
     Every conditional reading is :meth:`partial_contract` over a choice of which axes to
-    keep --- there are $2^n$ of them and the class privileges none. Materializing one as a
-    :class:`~goal.geometry.manifold.map.LinearMap` needs to know what manifold the caller
-    holds, which only a layout does, so no such reading lives here.
+    keep --- there are $2^n$ of them and the class privileges none.
     """
 
     # Fields
@@ -95,20 +91,13 @@ class LinearClique(Manifold):
         """The manifold each axis expects at its node, in axis order.
 
         What a layout checks its cliques against --- see :attr:`LinearCliques.node_mans`.
-        An embedding goes from a sub-space *into a node*, never into whatever larger
-        manifold a caller happens to hold, which is what makes the check possible.
         """
         return tuple(emb.amb_man for emb in self.node_embs)
 
     @property
-    def sub_mans(self) -> tuple[Manifold, ...]:
-        """The manifold each axis is over --- the sub-space its embedding picks out."""
-        return tuple(emb.sub_man for emb in self.node_embs)
-
-    @property
     def sub_dims(self) -> tuple[int, ...]:
         """Dimension of each axis --- the shape of the parameter tensor."""
-        return tuple(man.dim for man in self.sub_mans)
+        return tuple(emb.sub_man.dim for emb in self.node_embs)
 
     @property
     def arity(self) -> int:
@@ -117,10 +106,7 @@ class LinearClique(Manifold):
 
     @property
     def matrix_shape(self) -> tuple[int, int]:
-        """The canonical fold: axis 0 is the rows, the rest the flattened columns.
-
-        At arity 1 the column product is empty, hence 1, and the form is a column vector.
-        """
+        """The canonical fold: axis 0 is the rows, the rest the flattened columns."""
         dims = self.sub_dims
         return (dims[0], prod(dims[1:]))
 
@@ -152,9 +138,9 @@ class LinearClique(Manifold):
 
         Each argument is a point of that axis's node manifold, which its embedding restricts
         before the product is taken. Because it multiplies the axes together it builds a
-        product of marginals: exact when every node is observed, and not what the parameters
-        look like when two or more are latent, where the joint expectation does not
-        factorize. For that case see :meth:`select_joint`.
+        product of marginals: exact when every node is observed, and wrong when two or more
+        are latent, where the joint expectation does not factorize --- see
+        :meth:`select_joint`.
         """
         if len(node_coords) != self.arity:
             raise ValueError(f"expected {self.arity} axes, got {len(node_coords)}")
@@ -197,24 +183,13 @@ class LinearClique(Manifold):
             out = jnp.tensordot(out, projected, axes=([axis], [0]))
         return out.reshape(-1)
 
-    def reorder(self, params: Array, keep: tuple[int, ...]) -> Array:
-        """Permute parameters so the ``keep`` axes lead, the rest following in order.
-
-        The coordinate half of re-viewing a form: which axes are its rows and which its
-        columns. At arity 2 with ``keep=(1,)`` this is transposition; above it, the general
-        axis permutation.
-        """
-        rest = tuple(i for i in range(self.arity) if i not in keep)
-        return jnp.transpose(self.to_tensor(params), keep + rest).reshape(-1)
-
     def select_joint(self, keep: tuple[int, ...], joint: Array) -> Array:
         """Restrict a joint form over the ``keep`` axes to this clique's sub-spaces.
 
         ``joint`` is a tensor over those axes' *node* dimensions, flat, in ascending axis
-        order --- their joint expectation as a layout stores it. Each embedding is
-        contracted into the corresponding axis. This is the operation :meth:`tensor` cannot
-        do: it never forms a marginal, so it stays correct when the kept nodes are
-        dependent.
+        order --- their joint expectation as a layout stores it. This is the operation
+        :meth:`tensor` cannot do: it never forms a marginal, so it stays correct when the
+        kept nodes are dependent.
         """
         embs = self.node_embs
         out = joint.reshape(tuple(embs[axis].amb_man.dim for axis in keep))
@@ -241,14 +216,10 @@ class LinearClique(Manifold):
 def node_clique(node_man: Manifold) -> LinearClique:
     """The clique holding a manifold whole at one node: arity one, a bias.
 
-    Where the recursion in :meth:`LinearCliques.placements_of` bottoms out --- what a
-    partition with no clique structure of its own contributes --- and what a level supplies
-    when it holds a structured partition as a single node rather than expanding it.
+    Where the recursion in :meth:`LinearCliques.placements_of` bottoms out, and what a level
+    supplies when it holds a structured partition as a single node rather than expanding it.
     """
     return LinearClique(Rectangular(), (IdentityEmbedding(node_man),))
-
-
-### Clique Embeddings ###
 
 
 def map_axis(tensor: Array, axis: int, fn: Any) -> Array:
@@ -258,6 +229,9 @@ def map_axis(tensor: Array, axis: int, fn: Any) -> Array:
     columns = moved.reshape(moved.shape[0], -1)
     mapped = jax.vmap(fn, in_axes=1, out_axes=1)(columns)
     return jnp.moveaxis(mapped.reshape((-1, *trailing)), 0, axis)
+
+
+### Clique Embeddings ###
 
 
 @dataclass(frozen=True)
@@ -271,17 +245,14 @@ class CliqueEmbedding[Ambient: LinearCliques](LinearEmbedding[LinearClique, Ambi
     is that coupling's :attr:`LinearClique.node_embs`, kept apart so that an embedding's
     ``amb_man`` is always a node's manifold and a layout can check it.
 
-    That separation is why a joint address stays correct: a form over several nodes is a
-    tensor that need not factorize across them, so reaching them together is a slice, not a
-    composition of per-node reaches. That is the whole point of this class: for a single
-    node an offset would do, but a coupling that reaches *several* nodes at once --- what
-    raises a crossing clique's arity above two --- can only get at them jointly, and only a
-    layout holds them that way.
+    A form over several nodes is a tensor that need not factorize across them, so reaching
+    them together is a slice, not a composition of per-node reaches. That is what this class
+    is for: a single node would need only an offset, but a coupling reaching *several* at
+    once can only get at them jointly, and only a layout holds them that way.
 
     Build one with :meth:`LinearCliques.clique_emb` rather than directly. The ambient
-    manifold must have a clique on exactly those nodes;
-    :meth:`LinearCliques.clique_index` raises when it does not, which is the structural
-    condition higher arity needs.
+    manifold must have a clique on exactly those nodes; :meth:`LinearCliques.clique_index`
+    raises when it does not.
     """
 
     # Fields
@@ -338,21 +309,14 @@ class CliqueEmbedding[Ambient: LinearCliques](LinearEmbedding[LinearClique, Ambi
 ### Clique Layouts ###
 
 
-def validate_placement(members: tuple[int, ...], arity: int) -> None:
+def _validate_placement(members: tuple[int, ...], arity: int) -> None:
     """The two rules pairing a form with nodes has to satisfy.
 
-    **One axis per node.** A form knows how many axes it has and a layout knows which nodes
-    it couples; this is the only place the two meet, so it is the only place they can
-    disagree.
-
-    **Distinct nodes, ascending.** Node order is axis order, so a clique on a given node
-    set has one spelling and only one. Without that,
-    :meth:`LinearCliques.clique_index` could not find a clique by naming its nodes, and one
-    node set could sit in a layout twice under two spellings.
-
-    Node *labels* are free --- they need not start at zero, run contiguously, or ascend with
-    level. It is only their order **within a clique** that is fixed, and only because it is
-    what pairs them with the form's axes.
+    **One axis per node**, since this is the only place a form's arity and a layout's node
+    list meet. **Distinct nodes, ascending**, so a clique on a given node set has exactly
+    one spelling and :meth:`LinearCliques.clique_index` can find it by naming its nodes.
+    Node *labels* are otherwise free; it is only their order within a clique that is fixed,
+    because that is what pairs them with the form's axes.
 
     Raises:
         ValueError: if the number of nodes and the arity disagree, or the nodes repeat or
@@ -365,38 +329,34 @@ def validate_placement(members: tuple[int, ...], arity: int) -> None:
         raise ValueError(f"clique {members} must name distinct nodes, ascending")
 
 
-def shift_placements(
+def _shift_placements(
     placements: tuple[tuple[tuple[int, ...], LinearClique], ...], offset: int
 ) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
     """Renumber a partition's cliques into an outer frame.
 
     A partition numbers its own nodes from zero, so whatever contains it moves them past the
-    labels already in use. Only the address changes --- the forms are untouched, because
-    where a coupling sits is not part of what it couples.
+    labels already in use. Only the address changes --- the forms are untouched.
     """
     return tuple((tuple(i + offset for i in ms), form) for ms, form in placements)
 
 
+@dataclass(frozen=True)
 class LinearCliques(Cliques, Manifold, ABC):
     """A manifold whose parameters are laid out over the cliques of a graph.
 
     Each clique carries a linear form over its nodes, which is what the *linear* names. The
     manifold **is** its graph: :attr:`cliques` reads the cover off :attr:`placements`, so
-    there is no second description to disagree with the first.
+    there is no second description to disagree with the first. :attr:`placements` is the
+    primitive --- one ``(members, form)`` pair per clique, in storage order --- so an offset
+    and the nodes it belongs to always come from the same record. :class:`LevelCliques` is
+    the recursive case and :class:`CliqueProduct` the disjoint union.
 
-    :attr:`placements` is the primitive: one ``(members, form)`` pair per clique, in storage
-    order. Sizes and axis shapes come from the forms and the cover from the nodes, so an
-    offset and the nodes it belongs to always come from the same record.
-    :class:`LevelCliques` is the recursive case and :class:`CliqueProduct` the disjoint
-    union; the recursion terminates wherever a partition stops being a clique manifold.
-
-    Layout order is *storage* order --- the order the forms occupy in the flat coordinate
+    Layout order is *storage* order, the order the forms occupy in the flat coordinate
     vector. Nothing at runtime requires it to match
     :attr:`~goal.geometry.algebra.clique.Cliques.canonical_cliques`, because
     :meth:`clique_offsets` and :meth:`clique_index` both read the layout's own cliques. It
     does match for every model the library ships, and ``tests/graphical.py`` enforces that
-    over all of them; a model whose declaration order diverges is a bug in the model, not a
-    case this class handles.
+    over all of them.
     """
 
     # Contract
@@ -411,25 +371,20 @@ class LinearCliques(Cliques, Manifold, ABC):
     @property
     @override
     def dim(self) -> int:
-        """The sum of the cliques' dimensions.
-
-        A layout is its cliques: it holds one form per clique and nothing besides, so its
-        size is theirs.
-        """
+        """The sum of the cliques' dimensions: a layout holds one form per clique and nothing besides."""
         return sum(self.clique_dims)
 
     @property
     @override
     def cliques(self) -> tuple[tuple[int, ...], ...]:
-        """Which nodes each form couples, in storage order.
+        """Which nodes each form couples, in storage order --- the graph, read off the layout.
 
-        The graph, read off the layout, and where each pairing is checked --- see
-        :func:`validate_placement`. Every clique fact --- levels, boundary, the level split,
-        canonical order --- follows from this and :attr:`root_nodes`.
+        Also where each pairing is checked. Every clique fact --- levels, boundary, the
+        level split, canonical order --- follows from this and :attr:`root_nodes`.
         """
         out: list[tuple[int, ...]] = []
         for members, form in self.placements:
-            validate_placement(members, form.arity)
+            _validate_placement(members, form.arity)
             out.append(members)
         return tuple(out)
 
@@ -454,11 +409,10 @@ class LinearCliques(Cliques, Manifold, ABC):
     def node_mans(self) -> tuple[Manifold, ...]:
         """The manifold occupying each node, ascending by label, parallel to :attr:`nodes`.
 
-        Derived, not declared. Every clique states what it expects to find at each node it
-        touches --- its axis embeddings' ambient manifolds --- so the graph, the layout and
-        what sits on it all come from the one record, and there is no second description to
-        drift. The content is the *agreement*: a node touched by several cliques is
-        described by each of them, and they have to say the same thing.
+        Derived, not declared: every clique states what it expects at each node it touches,
+        so there is no second description to drift. The content is the *agreement* --- a
+        node touched by several cliques is described by each of them, and they have to say
+        the same thing.
 
         Raises:
             ValueError: if two cliques disagree about what occupies a node, which means one
@@ -481,10 +435,9 @@ class LinearCliques(Cliques, Manifold, ABC):
     ) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """The cliques a partition contributes, in the partition's own frame.
 
-        A partition that is already a clique manifold says what its cliques are; anything else
-        occupies one node and contributes one form holding it whole. This is the single
-        place the recursion in :class:`LevelCliques` and :class:`CliqueProduct` bottoms out,
-        and the only place a partition's structure is inspected.
+        A partition that is already a clique manifold says what its cliques are; anything
+        else occupies one node and contributes one form holding it whole. The single place
+        the recursion in :class:`LevelCliques` and :class:`CliqueProduct` bottoms out.
         """
         if isinstance(partition, LinearCliques):
             return partition.placements
@@ -503,27 +456,17 @@ class LinearCliques(Cliques, Manifold, ABC):
         """The inclusion of the clique on exactly ``members`` into this manifold.
 
         The geometric way in: an embedding rather than an offset, so a caller reads or
-        writes one clique's coordinates without ever naming an index. This is what
+        writes one clique's coordinates without naming an index. This is what
         :meth:`LevelCliques.cross_paths` hands back as a path.
         """
         return CliqueEmbedding(tuple(sorted(members)), self)
-
-    def node_emb(self, node: int) -> CliqueEmbedding[Self]:
-        """The inclusion of one node's own coordinates into this manifold.
-
-        The singleton case of :meth:`clique_emb`, and the way a level reaches a node it
-        couples. It requires the cover to *have* a singleton clique on that node --- legal
-        covers need not, though every layout the library ships does.
-        """
-        return self.clique_emb((node,))
 
     def clique_index(self, members: tuple[int, ...]) -> int:
         """Layout position of the clique on exactly ``members``.
 
         Raises:
             ValueError: if no clique covers exactly those nodes, which is the structural
-                condition a coupling into this manifold needs --- there has to be a single
-                form holding those members jointly.
+                condition a coupling into this manifold needs.
         """
         wanted = tuple(sorted(members))
         layout = self.cliques
@@ -557,11 +500,9 @@ class LinearCliques(Cliques, Manifold, ABC):
     def cut(self, far_node: int) -> CliqueCut:
         """Re-view the layout with ``far_node`` split off instead of the root nodes.
 
-        Reads the layout, not
+        Reads the layout rather than
         :attr:`~goal.geometry.algebra.clique.Cliques.canonical_cliques`, so the positions
-        computed and the dimensions selected come from the same placements. Every condition
-        the view requires is checked by :class:`~goal.geometry.manifold.cut.CliqueCut`
-        itself.
+        computed and the dimensions selected come from the same placements.
         """
         return CliqueCut(self.cliques, self.clique_dims, far_node)
 
@@ -574,14 +515,14 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
 
     Coordinates are stored as ``[root | cross | deep]``: the parameters carried by the root
     nodes, the interactions joining the root nodes to the rest of the graph, and everything
-    above. The deep partition is the graph one level up, so the same split applies again there
-    --- recursion over the graph is a sequence of these. Levels are distances in the glued
-    graph, so how the deep partition roots *itself* is discarded: that is what makes a fork
-    depth two rather than depth three.
+    above. The deep partition is the graph one level up, so the same split applies again
+    there --- recursion over the graph is a sequence of these. Levels are distances in the
+    glued graph, so how the deep partition roots *itself* is discarded: that is what makes a
+    fork depth two rather than depth three.
 
     Unlike ``Pair`` and ``Triple``, the components are not arbitrary: the graph says what
-    each one is. A partition may hold several cliques --- ``deep`` always does past depth two ---
-    which is why the three partitions are named rather than the individual cliques.
+    each one is, and a partition may hold several cliques --- ``deep`` always does past
+    depth two --- which is why the three partitions are named rather than the cliques.
     """
 
     # Contract
@@ -606,10 +547,10 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """The cliques joining the root nodes to the rest, in this level's frame.
 
-        The cross partition is a bare parameter manifold --- a model supplies its interaction as
-        a map --- so which nodes each of its blocks couples is the part only the model
-        knows, in this level's own labels: the root partition's, and the deep partition's renumbered
-        past them by :attr:`placements`.
+        The cross partition is a bare parameter manifold --- a model supplies its
+        interaction as a map --- so which nodes each of its blocks couples is the part only
+        the model knows, in this level's own labels: the root partition's, and the deep
+        partition's renumbered past them by :attr:`placements`.
         """
 
     # Overrides
@@ -618,16 +559,13 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     def root_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """The root partition's cliques, and so how many nodes it occupies.
 
-        By default a structured root partition is *expanded*, contributing one node per node of
-        its own: that is what gives a multi-root model like probabilistic CCA its two root
-        nodes. Override with a single clique --- ``(((0,), node_clique(self.root_man)),)``
+        By default a structured root partition is *expanded*, contributing one node per node
+        of its own: that is what gives a multi-root model like probabilistic CCA its two
+        root nodes. Override with a single clique --- ``(((0,), node_clique(self.root_man)),)``
         --- to hold a structured partition as one node instead, which is right whenever this
         level's interaction couples the partition as a unit rather than factoring across its
-        nodes: a mixture over a harmonium, say, whose interaction reaches the whole
-        parameter vector.
-
-        The choice is not free: :attr:`cross_placements` names nodes in this level's frame,
-        so expanding the root partition changes what those names mean.
+        nodes. The choice is not free: :attr:`cross_placements` names nodes in this level's
+        frame, so expanding the root partition changes what those names mean.
         """
         return self.placements_of(self.root_man)
 
@@ -642,16 +580,16 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     def placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """The partitions' cliques, concatenated in storage order.
 
-        The root partition's are already in this level's frame, and :attr:`cross_placements`
-        reports its own. The deep partition's keep the order and the relative labels the deep
-        manifold itself gives them, renumbered past the root nodes --- so however the glued
-        graph reroots, a deep clique still says which nodes it couples.
+        The root partition's are already in this level's frame, and
+        :attr:`cross_placements` reports its own. The deep partition's keep the order and
+        the relative labels the deep manifold gives them, renumbered past the root nodes ---
+        so however the glued graph reroots, a deep clique still says which nodes it couples.
         """
         offset = max(self.root_nodes) + 1
         return (
             self.root_placements
             + self.cross_placements
-            + shift_placements(self.placements_of(self.deep_man), offset)
+            + _shift_placements(self.placements_of(self.deep_man), offset)
         )
 
     def cross_paths(
@@ -659,16 +597,12 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     ) -> tuple[LinearEmbedding[Any, Any] | None, LinearEmbedding[Any, Any] | None]:
         """How a crossing clique's two sides are reached: the root path and the deep path.
 
-        A crossing clique couples one root node to a group of deep ones. A *path* says how
-        a partition's coordinates reach the nodes in question --- it is the partition's own
+        A crossing clique couples one root node to a group of deep ones. A *path* says how a
+        partition's coordinates reach the nodes in question --- it is the partition's own
         :meth:`~LinearCliques.clique_emb`, and ``None`` exactly when the partition *is* that
-        node already, as for a chain's latent or an unexpanded root.
-
-        **Derived, not declared.** Before this, a branch of probabilistic CCA declared
-        ``FirstEmbedding(pair)`` and a hierarchical mixture declared
-        ``ObservableEmbedding(upper)``; both reproduce ``clique_emb`` of the node they name,
-        to the coordinate. Whoever needs a conditional reading of the clique --- a
-        harmonium's interaction --- pairs the form with these.
+        node already, as for a chain's latent or an unexpanded root. Whoever needs a
+        conditional reading of the clique --- a harmonium's interaction --- pairs the form
+        with these.
 
         Raises:
             ValueError: if the clique does not couple exactly one root node, which is what
@@ -703,10 +637,9 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
         """Split coordinates into the root, cross, and deep partitions.
 
         The two offsets come from the *placements*, via
-        :meth:`~goal.geometry.algebra.clique.Cliques.level_split` --- not from the partitions'
-        own dimensions. Both readings exist and must agree, and taking the split from the
-        placements is what makes the agreement structural instead of a coincidence nothing
-        checks.
+        :meth:`~goal.geometry.algebra.clique.Cliques.level_split` --- not from the
+        partitions' own dimensions. Both readings exist and must agree, and taking the split
+        from the placements is what makes the agreement structural.
         """
         root_idx, cross_idx, _ = self.level_split()
         dims = self.clique_dims
@@ -724,15 +657,14 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     # Methods
 
     def split_level(self, coords: Array) -> tuple[Array, Array, Array]:
-        """Split off one level: the root partition, the cross partition, and the deep partition.
+        """The domain-facing name for :meth:`split_coords`.
 
-        The domain-facing name for :meth:`split_coords`. A graph of depth one has an empty
-        cross and deep partition.
+        A graph of depth one has an empty cross and deep partition.
         """
         return self.split_coords(coords)
 
     def join_level(self, root: Array, cross: Array, deep: Array) -> Array:
-        """Concatenate the root, cross, and deep partitions."""
+        """The domain-facing name for :meth:`join_coords`."""
         return self.join_coords(root, cross, deep)
 
 
@@ -745,10 +677,10 @@ class CliqueProduct[Fst: Manifold, Snd: Manifold](LinearCliques, Pair[Fst, Snd],
     concatenated. Every node is a root: nothing links the two sides, so a non-root node
     would have no path from the root set at all.
 
-    This is the shape a **multi-root** model's root partition takes --- two root partitions coupled to
-    one shared node above, as in probabilistic CCA. A level whose root partition is one of these
-    has as many root nodes as the product has components, which is what lets its crossing
-    cliques fan out to more than one of them.
+    This is the shape a **multi-root** model's root partition takes --- two root partitions
+    coupled to one shared node above, as in probabilistic CCA. A level whose root partition
+    is one of these has as many root nodes as the product has components, which is what lets
+    its crossing cliques fan out to more than one of them.
     """
 
     # Overrides
@@ -764,7 +696,7 @@ class CliqueProduct[Fst: Manifold, Snd: Manifold](LinearCliques, Pair[Fst, Snd],
     def placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         fst = self.placements_of(self.fst_man)
         offset = max(max(members) for members, _ in fst) + 1
-        return fst + shift_placements(self.placements_of(self.snd_man), offset)
+        return fst + _shift_placements(self.placements_of(self.snd_man), offset)
 
 
 ### Partition Embeddings ###
@@ -778,10 +710,10 @@ class RootEmbedding[
     """Embeds one clique manifold into another over the same graph, transforming only the root partition.
 
     Use this when two models share a graph but parameterize the root nodes differently ---
-    one restricting its root partition to a submanifold of the other's. The cross and deep partitions
-    pass through unchanged, so a difference deeper in
-    the graph is expressed by nesting: the deep manifolds are themselves clique manifolds
-    related by their own ``RootEmbedding``.
+    one restricting its root partition to a submanifold of the other's. The cross and deep
+    partitions pass through unchanged, so a difference deeper in the graph is expressed by
+    nesting: the deep manifolds are themselves clique manifolds related by their own
+    ``RootEmbedding``.
 
     Mathematically, for partition coordinates $(r, c, d)$: ``embed`` maps $(r, c, d) \\mapsto
     (\\phi(r), c, d)$ and ``project`` maps $(r, c, d) \\mapsto (\\pi(r), c, d)$, where

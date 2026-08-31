@@ -707,7 +707,7 @@ class TestPlacementRules:
     """The rules pairing a form with nodes has to satisfy, checked where the two meet.
 
     A form knows how many axes it has and a layout knows which nodes it couples;
-    ``validate_placement`` is the only place the two are put together, so it is the only
+    ``_validate_placement`` is the only place the two are put together, so it is the only
     place they can disagree. Node labels are otherwise free --- non-contiguous, not
     level-ordered, not zero-based --- so the only surviving rules are the ones that would
     make a clique mean two things at once: one axis per node, and one spelling per node

@@ -129,6 +129,21 @@ This codebase uses Python 3.12+ modern generic syntax with a pragmatic approach 
 ### Philosophy
 - **Pragmatic over purist**: Accept type system limitations rather than fight them when the code is functionally correct
 
+### Abstract versus concrete
+
+Whether a class is an ABC with abstract properties or a concrete class with fields is decided by **is-a versus has-a**:
+
+- **Abstract, stateless** when the class is a *role a model becomes*. A model subclasses it and derives the properties from its own fields: `Manifold`, `Tuple`/`Pair`/`Triple`/`Quadruple`, `Replicated`, `Map`/`LinearMap`, `Embedding`/`LinearEmbedding`/`TupleEmbedding`, `LinearCliques`/`LevelCliques`/`CliqueProduct`, `ExponentialFamily` and its chain, `Harmonium` and its conjugacy variants.
+- **Concrete, with fields** when the class is a *value a model builds*. It occurs with multiplicity inside a model and its fields are already primitive --- there is nothing more basic to derive them from: `MatrixMap`, `SquareMap`, `AffineMap`, `MultilayerPerceptron`, `LinearClique`, `Interaction`, `CliqueEmbedding`, `RootEmbedding`, `IdentityEmbedding`, `ComposedEmbedding`, `CliqueCut`.
+
+A model is exactly one `LinearCliques`, so it can *be* one; it holds many `LinearClique`s, so it builds them. `MatrixMap` is concrete for the same reason `LinearMap` is abstract.
+
+**Abstract classes may carry fields**, but only the fields *every* subclass shares, and only when the subclasses differ solely in behavior: `HarmoniumEmbedding(hrm_man)`, `LGM(obs_dim, obs_rep)`, `CompleteMixtureOfHarmoniums(n_categories, bas_hrm)`. Hoist a field to the lowest parent all its holders share --- `ChainBoltzmann` inherits `junction_tree` from `ChordalBoltzmann`, while `n_neurons` stays on `DiagonalBoltzmann` and `FullBoltzmann` separately because those two share no parent below `Boltzmann`.
+
+**A field backing an inherited abstract property is private**, named for the property it serves: `_dom_man`, `_cod_man`, `_amb_man`, `_sub_man`. A field that is not shadowing a property stays public (`rep`, `map_man`, `hidden_dims`, `junction_tree`).
+
+**Derived quantities are properties, not cached fields.** `field(init=False)` written through `object.__setattr__` is not used; `__post_init__` is for validation only. Recomputation is cheap because manifolds are stateless and the work happens at trace time.
+
 ### Dataclass field defaults
 Dataclass fields generally do **not** have default values. Modeling and architectural choices (e.g. `Binomial.n_trials`, `MultilayerPerceptron.hidden_dims`, `MultilayerPerceptron.activation`) must be made explicitly at every call site — defaults silently encode design decisions and tend to mask the degenerate case that callers shouldn't actually want (e.g. `Binomial(n_trials=1) == Bernoulli`). The narrow exception is **numerical/implementation details that callers shouldn't need to reason about** (e.g. `CoMPoisson.window_size = 200`, a truncation bound for an infinite series). When in doubt, omit the default.
 

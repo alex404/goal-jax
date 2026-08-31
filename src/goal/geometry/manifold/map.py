@@ -228,10 +228,15 @@ class AffineMap[
     Codomain: Manifold,
 ](
     Pair[Codomain, LinearMap[Domain, Codomain]],
+    Map[Domain, Codomain],
 ):
     """A linear map plus a bias: $A(x) = L(x) + b$.
 
-    Stored as a ``Pair`` of the bias $b$ (on the codomain) and the linear map $L$. This is the natural parameter space for exponential family likelihoods (bias = observable natural parameters, linear part = interaction).
+    Stored as a ``Pair`` of the bias $b$ (on the codomain) and the linear map $L$, so it is
+    both a ``Map`` --- ``__call__`` applies it --- and a ``Tuple``, whose ``split_coords``
+    separates the bias from the linear part. This is the natural parameter space for
+    exponential family likelihoods (bias = observable natural parameters, linear part =
+    interaction).
     """
 
     # Fields
@@ -239,23 +244,32 @@ class AffineMap[
     map_man: LinearMap[Domain, Codomain]
     """The linear transformation for this affine map."""
 
-    dom_man: Domain
+    _dom_man: Domain
     """The domain of the affine map."""
 
     # Overrides
 
     @property
     @override
-    def fst_man(self) -> Codomain:
+    def dom_man(self) -> Domain:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Codomain:
         return self.map_man.cod_man
+
+    @property
+    @override
+    def fst_man(self) -> Codomain:
+        return self.cod_man
 
     @property
     @override
     def snd_man(self) -> LinearMap[Domain, Codomain]:
         return self.map_man
 
-    # Methods
-
+    @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         """Apply the affine map: $L(v) + b$."""
         bias, linear = self.split_coords(f_coords)
