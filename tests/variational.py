@@ -301,7 +301,7 @@ def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
     obs_man = Binomials(6, 3)
     mix_man = CompleteMixture(Bernoullis(3), 3)
     embs = (IdentityEmbedding(obs_man), IdentityEmbedding(mix_man.obs_man))
-    clique = LinearClique(Rectangular(), embs)
+    clique = LinearClique(Rectangular(), embs, (0,))
     return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(mix_man, clique))
 
 

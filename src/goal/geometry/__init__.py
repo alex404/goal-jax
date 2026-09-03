@@ -80,10 +80,7 @@ from .manifold.embedding import (
     TrivialEmbedding,
     TupleEmbedding,
 )
-from .manifold.interaction import (
-    Interaction,
-    TransposedInteraction,
-)
+from .manifold.interaction import Interaction
 from .manifold.map import (
     AffineMap,
     LinearMap,
@@ -153,7 +150,6 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
-    "TransposedInteraction",
     "Triple",
     "TrivialEmbedding",
     "TupleEmbedding",

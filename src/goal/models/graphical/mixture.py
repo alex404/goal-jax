@@ -153,9 +153,9 @@ class CompleteMixtureOfHarmoniums[
     cliques rather than one, and which nodes each couples is what :attr:`cross_placements`
     declares:
 
-    - ``xy_clique`` --- $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
-    - ``xyk_clique`` --- $\\theta_{XYK}$ on $(x, y, k)$: component-specific interaction offsets
-    - ``xk_clique`` --- $\\theta_{XK}$ on $(x, k)$: per-component observable bias shifts
+    - $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
+    - $\\theta_{XYK}$ on $(x, y, k)$: component-specific interaction offsets
+    - $\\theta_{XK}$ on $(x, k)$: per-component observable bias shifts
 
     The graph is a **fork, not a chain**: both $y$ and $k$ are adjacent to $x$ through the
     three-way clique, so the levels come out $(1, 2)$ and the depth is two. This matters
@@ -198,25 +198,6 @@ class CompleteMixtureOfHarmoniums[
         return self._bas_clique
 
     @property
-    def xyk_clique(self) -> LinearClique:
-        """$\\theta_{XYK}$: the three-way interaction, aimed at the mixture's $(y,k)$ clique.
-
-        The clique's two latent members are $y$ and $k$ together, so it reads the form
-        holding their *joint* statistic rather than multiplying two marginals --- which is
-        what keeps it correct in mean coordinates, where
-        $\\mathbb E[\\mathbf s_Y \\otimes \\mathbf s_K] \\neq \\mathbb E[\\mathbf s_Y]
-        \\otimes \\mathbb E[\\mathbf s_K]$.
-        """
-        embs = (*self._bas_clique.node_embs, self._cat_emb)
-        return LinearClique(Rectangular(), embs)
-
-    @property
-    def xk_clique(self) -> LinearClique:
-        """$\\theta_{XK}$: per-component shifts of the whole observable bias."""
-        embs = (IdentityEmbedding(self.bas_hrm.obs_man), self._cat_emb)
-        return LinearClique(Rectangular(), embs)
-
-    @property
     @override
     def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
@@ -227,14 +208,25 @@ class CompleteMixtureOfHarmoniums[
         $y$ and $k$ are adjacent to $x$, so the graph has depth two, not three.
 
         This has to be declared: the three forms share a domain and a codomain, so nothing
-        but the model knows which nodes each couples. Each carries its own axis embeddings
-        --- and the middle one comes out arity three, because it reaches the mixture's joint
-        $(y,k)$ clique rather than either node alone.
+        but the model knows which nodes each couples. Each says only what it uses at each
+        node --- the arity, the storage order and the reading all follow from the node set,
+        which is why the middle one needs no mention of being arity three even though it
+        reaches the mixture's joint $(y,k)$ clique rather than either node alone.
+
+        $\\theta_{XY}$ is the base harmonium's own form, borrowed whole. It is the one
+        placement here that names its nodes by hand, because a borrowed form arrives
+        address-free and this level is asserting where it lands --- which is also why the
+        next line can read its embeddings off as $x$ and $y$.
         """
+        x_emb, y_emb = self._bas_clique.node_embs
+        rect = Rectangular()
         return (
             ((0, 1), self.xy_clique),
-            ((0, 1, 2), self.xyk_clique),
-            ((0, 2), self.xk_clique),
+            self.cross_placement(rect, {0: x_emb, 1: y_emb, 2: self._cat_emb}),
+            self.cross_placement(
+                rect,
+                {0: IdentityEmbedding(self.bas_hrm.obs_man), 2: self._cat_emb},
+            ),
         )
 
     @property

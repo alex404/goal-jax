@@ -30,7 +30,7 @@ sums across the pair.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 from jax import Array
 
@@ -135,9 +135,10 @@ class CanonicalCorrelationAnalysis[
         branch couples the two locations; that one branch reaches only its own side of the
         observable pair is derived from the graph, not declared here.
         """
+        rect = Rectangular()
         return (
-            ((0, 2), self._branch_clique(0)),
-            ((1, 2), self._branch_clique(1)),
+            self.cross_placement(rect, {0: self._branch_emb(0), 2: self._lat_emb}),
+            self.cross_placement(rect, {1: self._branch_emb(1), 2: self._lat_emb}),
         )
 
     @property
@@ -191,11 +192,12 @@ class CanonicalCorrelationAnalysis[
 
     # Private
 
-    def _branch_clique(self, idx: int) -> LinearClique:
-        """One branch's coupling: the branch's location against the latent's."""
+    def _branch_emb(self, idx: int) -> GeneralizedGaussianLocationEmbedding[Any]:
+        """What one branch's coupling uses inside that branch: its location."""
         branch = self.obs_man.fst_man if idx == 0 else self.obs_man.snd_man
-        embs = (
-            GeneralizedGaussianLocationEmbedding(branch),
-            GeneralizedGaussianLocationEmbedding(self.pst_man),
-        )
-        return LinearClique(Rectangular(), embs)
+        return GeneralizedGaussianLocationEmbedding(branch)
+
+    @property
+    def _lat_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[PstRep]]:
+        """What every branch's coupling uses inside the shared latent: its location."""
+        return GeneralizedGaussianLocationEmbedding(self.pst_man)

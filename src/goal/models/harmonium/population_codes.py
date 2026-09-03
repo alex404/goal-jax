@@ -52,8 +52,8 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
     @property
     @override
     def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
-        embs = (IdentityEmbedding(self.obs_man), IdentityEmbedding(self.pst_man))
-        return (((0, 1), LinearClique(Rectangular(), embs)),)
+        embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
+        return (self.cross_placement(Rectangular(), embs),)
 
     @property
     @override
@@ -182,8 +182,8 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
     @property
     @override
     def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
-        embs = (IdentityEmbedding(self.obs_man), IdentityEmbedding(self.pst_man))
-        return (((0, 1), LinearClique(Rectangular(), embs)),)
+        embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
+        return (self.cross_placement(Rectangular(), embs),)
 
     @property
     @override

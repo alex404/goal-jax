@@ -112,8 +112,8 @@ class Mixture[Observable: Differentiable](
         Structure is fixed: a Rectangular form selecting the coupled part of the
         observable, and the whole of the category.
         """
-        embs = (self.obs_emb, IdentityEmbedding(self.lat_man))
-        return (((0, 1), LinearClique(Rectangular(), embs)),)
+        embs = {0: self.obs_emb, 1: IdentityEmbedding(self.lat_man)}
+        return (self.cross_placement(Rectangular(), embs),)
 
     @property
     @override

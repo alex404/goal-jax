@@ -17,8 +17,3 @@ Class Hierarchy
    :members:
    :undoc-members:
    :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.interaction.TransposedInteraction
-   :members:
-   :undoc-members:
-   :show-inheritance:

@@ -102,29 +102,37 @@ class TestEquivalenceWithMap:
         assert _as_map(int_man).clique.dim == int_man.dim
 
     @pytest.mark.parametrize("case", NODE_NAMES)
-    def test_tensor_matches_outer_product(self, case: str) -> None:
+    def test_outer_product_matches(self, case: str) -> None:
         m = _as_map(CASES[case][0])
         w, v = _stats(case, 0)
-        nodes = (m.node_coords(0, w), m.node_coords(1, v))
-        assert jnp.allclose(m.clique.tensor(*nodes), m.outer_product(w, v))
+        assert jnp.allclose(
+            m.clique.outer_product(m.node_coords(0, w), m.node_coords(1, v)),
+            m.outer_product(w, v),
+        )
 
     @pytest.mark.parametrize("case", NODE_NAMES)
     def test_contract_to_codomain_matches_application(self, case: str) -> None:
-        """``keep=0`` is the likelihood direction: contract the latent, land on x."""
+        """The forward reading is the likelihood direction: contract the latent, land on x."""
         m = _as_map(CASES[case][0])
         _, v = _stats(case, 1)
         params = jax.random.normal(jax.random.PRNGKey(7), (m.dim,))
-        contracted = m.clique.contract(params, 0, m.node_coords(1, v))
-        assert jnp.allclose(m.amb_coords(0, contracted), m(params, v))
+        contracted = m.clique.contract(params, m.node_coords(1, v))
+        assert jnp.allclose(
+            m.amb_coords(0, m.clique.node_embs[0].embed(contracted)), m(params, v)
+        )
 
     @pytest.mark.parametrize("case", NODE_NAMES)
     def test_contract_to_domain_matches_transposed_application(self, case: str) -> None:
-        """``keep=1`` is the posterior direction: contract x, land on the latent."""
+        """The transposed reading is the posterior direction: contract x, land on the latent."""
         m = _as_map(CASES[case][0])
         w, _ = _stats(case, 2)
         params = jax.random.normal(jax.random.PRNGKey(8), (m.dim,))
-        contracted = m.clique.contract(params, 1, m.node_coords(0, w))
-        assert jnp.allclose(m.amb_coords(1, contracted), m.transpose_apply(params, w))
+        trn = m.clique.transposed()
+        contracted = trn.contract(m.clique.transpose(params), m.node_coords(0, w))
+        assert jnp.allclose(
+            m.amb_coords(1, m.clique.node_embs[1].embed(contracted)),
+            m.transpose_apply(params, w),
+        )
 
 
 class TestSufficientStatistic:
@@ -142,7 +150,7 @@ class TestSufficientStatistic:
         _, int_stats, _ = fa.split_level(fa.sufficient_statistic(joint))
         s_x = fa.obs_man.sufficient_statistic(x)
         s_z = fa.pst_man.sufficient_statistic(z)
-        assert jnp.allclose(clique.tensor(s_x, s_z), int_stats)
+        assert jnp.allclose(clique.outer_product(s_x, s_z), int_stats)
 
 
 class TestJointDomainCliques:
@@ -174,17 +182,18 @@ class TestJointDomainCliques:
         params = jax.random.normal(jax.random.PRNGKey(22), (m.dim,))
         live = m.project_domain(m.transpose_apply(params, w))
         node_w = m.node_coords(0, w)
-        assert jnp.allclose(m.clique.partial_contract(params, (1,), node_w), live)
+        trn = m.clique.transposed()
+        assert jnp.allclose(trn.contract(m.clique.transpose(params), node_w), live)
 
 
 class TestJointBlocksAreNotProductsOfMarginals:
     """Why a multi-latent clique reads a *joint* statistic instead of per-node ones.
 
-    ``tensor`` multiplies its nodes' statistics together, which is exact when every node is
-    observed. When two nodes are latent the clique's parameters are
-    $\\mathbb E[\\bigotimes_i \\mathbf s_i]$ jointly, and expectation does not pass through a
-    tensor product. ``select_joint`` is the operation for that case: it contracts each
-    embedding into an axis of the joint statistic and never forms a marginal.
+    Multiplying the nodes' statistics together is exact when every node is observed. When
+    two nodes are latent the clique's parameters are $\\mathbb E[\\bigotimes_i \\mathbf s_i]$
+    jointly, and expectation does not pass through a tensor product. ``project_in`` is the
+    operation for that case: it restricts each embedding along an axis of the joint
+    statistic and never forms a marginal.
     """
 
     @staticmethod
@@ -210,7 +219,8 @@ class TestJointBlocksAreNotProductsOfMarginals:
     def test_in_mean_coordinates_it_is_not(self) -> None:
         """A posterior expectation, where the marginal product is off by order one.
 
-        This is the trap: using ``tensor`` here would be silently wrong, not obviously so.
+        This is the trap: multiplying the marginals here would be silently wrong, not
+        obviously so.
         """
         mfa = self._mfa()
         mix = mfa.pst_man
@@ -268,7 +278,7 @@ class TestArityThreeReproducesMFA:
 
         live = xyk.outer_product(s_x, lat_means)
         rebuilt = jnp.outer(
-            clique.node_embs[0].project(s_x), clique.select_joint((1, 2), m_yk)
+            clique.node_embs[0].project(s_x), clique.project_in(m_yk)
         ).ravel()
         assert jnp.allclose(live, rebuilt)
 
@@ -284,7 +294,7 @@ class TestArityThreeReproducesMFA:
             _, m_yk, _ = mix.split_level(lat_means)
             live = xyk.outer_product(s_x, lat_means)
             rebuilt = jnp.outer(
-                clique.node_embs[0].project(s_x), clique.select_joint((1, 2), m_yk)
+                clique.node_embs[0].project(s_x), clique.project_in(m_yk)
             ).ravel()
             assert jnp.allclose(live, rebuilt)
 
@@ -298,7 +308,7 @@ class TestArityThreeReproducesMFA:
         xyk_params = mfa.int_man.coord_blocks(int_params)[1]
 
         live = xyk.project_domain(xyk.transpose_apply(xyk_params, s_x))
-        rebuilt = clique.partial_contract(xyk_params, (1, 2), s_x)
+        rebuilt = clique.transposed().contract(clique.transpose(xyk_params), s_x)
         assert jnp.allclose(live, rebuilt)
 
     def test_likelihood_direction_matches(self) -> None:
@@ -315,7 +325,5 @@ class TestArityThreeReproducesMFA:
         s_k = mix.lat_man.sufficient_statistic(jnp.array([1.0]))
 
         live = xyk(xyk_params, mix.sufficient_statistic(z))
-        rebuilt = clique.node_embs[0].embed(
-            clique.partial_contract(xyk_params, (0,), s_y, s_k)
-        )
+        rebuilt = clique.node_embs[0].embed(clique.contract(xyk_params, s_y, s_k))
         assert jnp.allclose(live, rebuilt)

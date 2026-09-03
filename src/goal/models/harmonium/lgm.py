@@ -259,8 +259,8 @@ class LGM[
     @override
     def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
         """One clique, coupling the observable's location to the latent's."""
-        embs = (self.int_obs_emb, self.int_pst_emb)
-        return (((0, 1), LinearClique(Rectangular(), embs)),)
+        embs = {0: self.int_obs_emb, 1: self.int_pst_emb}
+        return (self.cross_placement(Rectangular(), embs),)
 
     @override
     def conjugation_parameters(

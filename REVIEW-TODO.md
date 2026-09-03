@@ -86,14 +86,19 @@ level up.
 `Triple` **concatenate** their components' coordinates, a clique takes their **tensor
 product**, and a layout splits a coordinate vector by which nodes each clique couples.
 
-- [ ] **A clique is one embedding per node, and nothing else.** `LinearClique` is a
-      `Manifold` with two fields: a `rep` and `node_embs`. Each embedding goes from the
-      sub-space this coupling uses *into that node's own manifold*. `node_mans`, `sub_dims`,
-      `arity`, `matrix_shape` and `dim` all derive. **This is the shape the
-      round was for --- judge whether anything is missing from it.**
-- [ ] **No conditional reading is privileged.** A clique has $2^n$ of them and
-      `partial_contract` is all of them; `contract` and `tensor` are the special cases.
-      Nothing on the class says which axis is "output".
+- [ ] **A clique is one embedding per node plus the direction it is read in.**
+      `LinearClique` is a `Manifold` with three fields: a `rep`, `node_embs`, and
+      `out_axes`. Each embedding goes from the sub-space this coupling uses *into that
+      node's own manifold*. `node_mans`, `sub_dims`, `arity`, `in_axes`, `out_dims`,
+      `in_dims`, `matrix_shape` and `dim` all derive. **This is the shape the round was for
+      --- judge whether anything is missing from it.**
+- [ ] **One reading per clique, and the others are other cliques.** `out_axes` names the
+      output group, so `matrix_shape` is *the* shape of the parameters and `dim` a property
+      of the manifold rather than of a fold anyone imposes. `transposed()` is the two-group
+      swap --- the only re-view a structured `rep` can express without densifying --- and
+      `to_tensor` is axis-ordered, hence view-independent, which is how any other reading's
+      parameters are reached. **This replaced the `keep`-argument suite; judge the
+      terminology.**
 - [ ] **The map reading moved out.** `CliqueMap` and `TransposedCliqueMap` are **deleted**.
       A reading has to pick a partition of the axes *and* know what manifold the caller
       holds --- neither is a fact about a form, so neither belongs in this module. What
@@ -140,10 +145,9 @@ product**, and a layout splits a coordinate vector by which nodes each clique co
 - [ ] **`clique_emb` is the geometric way in**, the same shape `Pair` has with
       `FirstEmbedding`. `clique_index` and `clique_offsets` are still public and still its
       mechanics; making `clique_emb` the *only* way in is the follow-up.
-- [ ] **A bias needs no special case.** The canonical fold gives axis 0 the rows and the rest
-      the columns; at arity 1 the column product is empty, hence 1, and `CliqueMap`
-      application feeds the constant $1$ --- the map out of `Null`. Only its transpose
-      raises.
+- [ ] **A bias needs no special case.** `out_axes = (0,)` at arity 1 leaves the input group
+      empty, so the column product is 1 and `project_in` returns the constant $1$ --- the
+      map out of `Null`.
 - [ ] **The coordinate seam is four methods on `CliqueMap`**: `node_coords` / `amb_coords`
       are the path alone, `project_axis` / `embed_axis` add the clique's own embedding, and
       `project_domain` / `embed_domain` do the contracted side. **Too much surface?**
@@ -154,9 +158,11 @@ product**, and a layout splits a coordinate vector by which nodes each clique co
       likelihood to a bare 3-vector while `int_man.dom_man` is a `FullBoltzmann` of
       dimension 6 --- it works only because `GeneralizedGaussianLocationEmbedding.project`
       slices rather than checking. Routing arity 2 through `select_joint`, which reshapes,
-      exposed it as 8 failures in `tests/lgm.py`. The single-node path now projects
-      directly, as before, so the tolerance survives. **It is a real looseness in
-      `BoltzmannLGM`, not in the clique --- decide whether to tighten it there.**
+      exposed it as 4 failures in `tests/lgm.py` (8 before the tests were reorganised). The
+      single-node fast path now lives in `LinearClique._project_group`, which is where it
+      belongs --- it is a fact about the clique's own embeddings, not about paths --- so the
+      tolerance survives. **It is a real looseness in `BoltzmannLGM`, not in the clique ---
+      decide whether to tighten it there.**
 - [ ] **Still open: `Harmonium` treats the interaction as a `LinearMap`.** That is now the
       *only* reason `CliqueMap` exists --- it holds no declared data. Removing it means
       `lkl_fun_man` and `pst_fun_man` stop being `AffineMap`s and the likelihood is computed
@@ -177,6 +183,37 @@ every live interaction shape.
       reader), `validate_placement` and `shift_placements` made private and dropped from
       `clique.rst` (no external callers, never exported), and rationale prose that repeated
       the module or parent docstring. **Judge whether the remaining density is right.**
+- [ ] **The view now lives on the clique.** `out_axes` replaced the canonical fold, so
+      `dim` stopped being contingent on a convention (`Symmetric` had reported `dim == 3`
+      for a 16-entry tensor at `sub_dims == (2,2,4)`), the `keep` arguments are gone, and
+      forward-versus-backward is a property of the object rather than of a call sequence.
+      API: `contract` + `partial_contract` -> one `contract(params, *in_node_coords)`;
+      `tensor` -> `outer_product(out_joint, in_joint)`; `select_joint`/`embed_joint` ->
+      `project_in`/`embed_in` and `project_out`/`embed_out`; new `transposed()` and
+      `transpose(params)`. Nine members became twelve, but each has one meaning.
+      `TransposedInteraction` is **deleted** (`interaction.py` 373 -> 299 lines):
+      `Interaction.trn_man` is now an `Interaction` over transposed forms with the two paths
+      swapped, which reproduces the old backward reading term for term. Its
+      `outer_product` orientation quietly changed --- the old one returned *forward*-layout
+      parameters --- and no caller in `src/` was using it. **Judge the API surface.**
+- [ ] **The graph is the single authority on direction.** `out_axes` was briefly declared by
+      hand at twelve sites, which made it a second authority for a fact `cross_paths`
+      already derives: it computes `near = members` intersect `root_nodes` and requires
+      exactly one, so the output axis is `members.index(near[0])` --- always `0`, since the
+      canonical numbering puts root nodes lowest. `cross_paths` now takes the whole
+      placement and **rejects** a form that says otherwise, next to the sibling check it
+      already made. The twelve declarations became the `cross_clique(rep, node_embs)`
+      `LevelCliques.cross_placement(rep, {node: emb})` method, which takes the node *set* a
+      coupling touches and derives everything positional from it: storage order is those
+      nodes ascending, arity is how many there are, and the output group is the one root
+      node among them. **No model writes an axis number, an axis order, or a `members`
+      tuple** --- the twelve declarations and their twelve node tuples both went. A form
+      cannot be paired with a node list that disagrees with it, because the node set *is*
+      the arity, so `_validate_placement`'s two rules are unstateable at every site that
+      goes through the method. Two survive by hand and are why the `cross_paths` check
+      stays: `graphical/mixture.py`'s borrowed $\theta_{XY}$, and the root placements.
+      Pinned by `test_the_reading_is_derived_from_the_graph` and
+      `test_a_coupling_needs_exactly_one_root_node`.
 - [ ] **`LinearCliques` is now `@dataclass(frozen=True)`** like `LevelCliques` and
       `CliqueProduct` below it. It had been the only clique class without the decorator, and
       one of three outliers library-wide (with `Boltzmann` and `GeneralizedGaussian`) among

@@ -1,20 +1,20 @@
 """One linear map assembled from several clique forms and the paths that reach them.
 
-A :class:`~goal.geometry.manifold.clique.LinearClique` is a form and nothing else: it has
-$2^n$ conditional readings and privileges none. Materializing one as a
-:class:`~goal.geometry.manifold.map.LinearMap` needs two facts that are *not* about the
-form --- which axis is the output, and what manifold the caller actually holds --- so it
-happens here rather than in the module that defines forms.
+A :class:`~goal.geometry.manifold.clique.LinearClique` already knows which of its axes are
+the output. What it does not know is what manifold the caller actually holds, and how that
+manifold reaches the nodes it couples --- facts about the graph rather than about the form,
+which is why materializing a form as a :class:`~goal.geometry.manifold.map.LinearMap`
+happens here.
 
-An :class:`Interaction` picks the **canonical fold** (axis 0 out, the rest contracted) over
-one or more forms at once, and sums them. That is what lets a fork, a three-way coupling and
-a plain chain all be one object: multiplicity is internal, and the nodes each form couples
-travel with it. The *paths* --- how the domain and codomain reach the nodes a form couples
---- are supplied by whoever knows the graph, and derived rather than declared: see
+An :class:`Interaction` supplies those paths over one or more forms at once, and sums the
+results. That is what lets a fork, a three-way coupling and a plain chain all be one object:
+multiplicity is internal, and the nodes each form couples travel with it. The paths
+themselves are supplied by whoever knows the graph, and derived rather than declared: see
 :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
 
-:class:`TransposedInteraction` is the same parameters read the other way, which the
-canonical fold cannot express in the forward direction.
+Reading the same parameters backwards is then just another interaction --- over each form's
+:meth:`~goal.geometry.manifold.clique.LinearClique.transposed` and the two paths swapped ---
+so there is no separate class for it.
 """
 
 from __future__ import annotations
@@ -37,13 +37,13 @@ from .util import split_by_dims
 
 @dataclass(frozen=True)
 class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
-    """Several clique forms, read as one linear map under the canonical fold.
+    """Several clique forms, read as one linear map.
 
-    Each form contributes axis 0 to the output and contracts the rest against the domain;
-    the results are summed. Parameters are the forms' concatenated, in placement order.
-    Summing is what makes multiplicity internal: a fork, a three-way coupling and a plain
-    chain are one object with one, two or three placements, and no separate notion of a
-    block is needed.
+    Each form sends its own output group to the codomain and contracts the rest against the
+    domain; the results are summed. Parameters are the forms' concatenated, in placement
+    order. Summing is what makes multiplicity internal: a fork, a three-way coupling and a
+    plain chain are one object with one, two or three placements, and no separate notion of
+    a block is needed.
 
     The manifolds this maps between are the *whole* domain and codomain --- a harmonium's
     observable and posterior, say --- not the individual nodes. Reaching a node from there
@@ -55,10 +55,10 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     # Fields
 
     _cod_man: Codomain
-    """What axis 0 of every form lands in."""
+    """What every form's output group lands in."""
 
     _dom_man: Domain
-    """What the remaining axes are contracted against."""
+    """What every form's contracted axes are read against."""
 
     placements: tuple[tuple[tuple[int, ...], LinearClique], ...]
     """One ``(members, form)`` pair per form, in parameter order."""
@@ -69,6 +69,7 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     """Per form, how the codomain and the domain reach the nodes it couples.
 
     ``None`` on either side means that side *is* the node already, which is the common case.
+    Transposing an interaction swaps the pair, since the two sides exchange roles.
     """
 
     # Overrides
@@ -90,9 +91,18 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
     @property
     @override
-    def trn_man(self) -> TransposedInteraction[Codomain, Domain]:
-        """The same parameters contracted the other way."""
-        return TransposedInteraction(self)
+    def trn_man(self) -> Interaction[Codomain, Domain]:
+        """The same forms read the other way: groups exchanged, paths swapped.
+
+        In a harmonium this is what a conditional posterior is, where the forward reading is
+        a conditional likelihood. Its own transpose is this map again, so nothing nests.
+        """
+        return Interaction(
+            self._dom_man,
+            self._cod_man,
+            tuple((members, form.transposed()) for members, form in self.placements),
+            tuple((dom_path, cod_path) for cod_path, dom_path in self.paths),
+        )
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
@@ -102,13 +112,13 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
             internal = clique.rep.matvec(
                 clique.matrix_shape, part, self._project_domain(i, v_coords)
             )
-            out = out + self._embed_axis(i, 0, internal)
+            out = out + self._embed_codomain(i, internal)
         return out
 
     @override
     def transpose(self, f_coords: Array) -> Array:
         parts = [
-            clique.rep.transpose(clique.matrix_shape, part)
+            clique.transpose(part)
             for clique, part in zip(self.cliques, self.coord_blocks(f_coords))
         ]
         return jnp.concatenate(parts)
@@ -116,8 +126,9 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     @override
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
         parts = [
-            self.cliques[i].rep.outer_product(
-                self._project_axis(i, 0, w_coords), self._project_domain(i, v_coords)
+            self.cliques[i].outer_product(
+                self._cod_node_coords(i, w_coords),
+                self._dom_node_coords(i, v_coords),
             )
             for i in range(len(self.placements))
         ]
@@ -184,7 +195,7 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
     @property
     def cod_path(self) -> LinearEmbedding[Any, Any] | None:
-        """How the single form's axis 0 reaches the codomain, if it does not sit there."""
+        """How the single form's output group reaches the codomain, if it does not sit there."""
         return self.paths[self._single][0]
 
     @property
@@ -224,6 +235,16 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         _ = self.clique
         return 0
 
+    def _cod_node_coords(self, index: int, w_coords: Array) -> Array:
+        """A codomain point taken down to the node coordinates the output group couples."""
+        path = self.paths[index][0]
+        return w_coords if path is None else path.project(w_coords)
+
+    def _dom_node_coords(self, index: int, v_coords: Array) -> Array:
+        """A domain point taken down to the node coordinates the contracted axes couple."""
+        path = self.paths[index][1]
+        return v_coords if path is None else path.project(v_coords)
+
     def _node_coords(self, index: int, axis: int, amb_coords: Array) -> Array:
         path = self._axis_path(index, axis)
         return amb_coords if path is None else path.project(amb_coords)
@@ -248,126 +269,29 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         embeddings restrict from there.
         """
         clique = self.cliques[index]
-        contracted = tuple(range(1, clique.arity))
-        if not contracted:
-            return jnp.ones(1)
-        path = self.paths[index][1]
-        joint = v_coords if path is None else path.project(v_coords)
-        if len(contracted) == 1:
-            # One node: its embedding projects directly, with no tensor to reshape. Not
-            # only an optimization --- an embedding may accept a point it can restrict
-            # without its ambient dimension matching exactly, and reshaping would not.
-            return clique.node_embs[1].project(joint)
-        return clique.select_joint(contracted, joint)
+        return clique.project_in(self._dom_node_coords(index, v_coords))
 
     def _embed_domain(self, index: int, coords: Array) -> Array:
         clique = self.cliques[index]
-        contracted = tuple(range(1, clique.arity))
-        if not contracted:
-            return jnp.zeros(0)
-        if len(contracted) == 1:
-            node = clique.node_embs[1].embed(coords)
-        else:
-            node = clique.embed_joint(contracted, coords)
+        node = clique.embed_in(coords)
         path = self.paths[index][1]
+        return node if path is None else path.embed(node)
+
+    def _embed_codomain(self, index: int, coords: Array) -> Array:
+        clique = self.cliques[index]
+        node = clique.embed_out(coords)
+        path = self.paths[index][0]
         return node if path is None else path.embed(node)
 
     def _axis_path(self, index: int, axis: int) -> LinearEmbedding[Any, Any] | None:
         """The way in for one axis alone, when there is one.
 
-        Axis 0 always has the codomain path. A contracted axis has the domain path only at
-        arity 2, where it reaches exactly that one node; above that the path reaches a
-        *group*, and no single axis can be placed through it.
+        An axis has its side's path only when that side's group is exactly this one node.
+        When a group spans several axes the path reaches the *group*, and no single axis can
+        be placed through it.
         """
-        obs_path, lat_path = self.paths[index]
-        if axis == 0:
-            return obs_path
-        return lat_path if self.cliques[index].arity == 2 else None
-
-
-@dataclass(frozen=True)
-class TransposedInteraction[Domain: Manifold, Codomain: Manifold](
-    LinearMap[Domain, Codomain]
-):
-    """An :class:`Interaction` read backwards: contract axis 0, land on the rest.
-
-    The canonical fold makes axis 0 the output, so transposing puts a *group* of axes there
-    instead --- which a forward reading cannot express. Hence a view: the same parameters,
-    the same forms, the same paths, read in the other direction. In a harmonium this is what
-    a conditional posterior is, where an :class:`Interaction` is a conditional likelihood.
-
-    Its own transpose is the map it came from, so nothing nests.
-    """
-
-    # Fields
-
-    fwd: Interaction[Codomain, Domain]
-    """The forward reading. Its domain is this map's codomain, and vice versa."""
-
-    # Overrides
-
-    @property
-    @override
-    def dom_man(self) -> Domain:
-        return self.fwd.cod_man
-
-    @property
-    @override
-    def cod_man(self) -> Codomain:
-        return self.fwd.dom_man
-
-    @property
-    @override
-    def dim(self) -> int:
-        return self.fwd.dim
-
-    @property
-    @override
-    def trn_man(self) -> Interaction[Codomain, Domain]:
-        return self.fwd
-
-    @override
-    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        out = self.cod_man.zeros()
-        blocks = self.fwd.blocks
-        for i, part in enumerate(self.fwd.coord_blocks(f_coords)):
-            block = blocks[i]
-            rows, cols = block.matrix_shape
-            internal = block.rep.matvec(
-                (cols, rows), part, block.project_axis(0, v_coords)
-            )
-            out = out + block.embed_domain(internal)
-        return out
-
-    @override
-    def transpose(self, f_coords: Array) -> Array:
-        parts = []
-        for clique, part in zip(self.fwd.cliques, self.fwd.coord_blocks(f_coords)):
-            rows, cols = clique.matrix_shape
-            parts.append(clique.rep.transpose((cols, rows), part))
-        return jnp.concatenate(parts)
-
-    @override
-    def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
-        return self.fwd.outer_product(v_coords, w_coords)
-
-    # Methods
-
-    @property
-    def rep(self) -> MatrixRep:
-        """The single form's representation --- the same numbers, read the other way."""
-        return self.fwd.rep
-
-    @property
-    def matrix_shape(self) -> tuple[int, int]:
-        """The single forward form's fold, flipped."""
-        rows, cols = self.fwd.matrix_shape
-        return (cols, rows)
-
-    def to_matrix(self, params: Array) -> Array:
-        """Unpack flat parameters into a dense matrix on selected dimensions."""
-        return self.fwd.clique.rep.to_matrix(self.matrix_shape, params)
-
-    def from_matrix(self, matrix: Array) -> Array:
-        """Pack a dense matrix on selected dimensions into flat parameters."""
-        return self.fwd.clique.rep.from_matrix(matrix)
+        cod_path, dom_path = self.paths[index]
+        clique = self.cliques[index]
+        if axis in clique.out_axes:
+            return cod_path if len(clique.out_axes) == 1 else None
+        return dom_path if len(clique.in_axes) == 1 else None

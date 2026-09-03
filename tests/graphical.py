@@ -67,7 +67,7 @@ def _form(axes: tuple[int, ...]) -> LinearClique:
     business, not the clique's.
     """
     return LinearClique(
-        Rectangular(), tuple(IdentityEmbedding(Euclidean(d)) for d in axes)
+        Rectangular(), tuple(IdentityEmbedding(Euclidean(d)) for d in axes), (0,)
     )
 
 
@@ -190,6 +190,38 @@ class TestHarmoniumSpans:
         ((members, form),) = model.cross_placements
         assert members == (0, 1)
         assert form.dim == model.int_man.dim
+
+    def test_the_reading_is_derived_from_the_graph(self) -> None:
+        """Nothing positional is declared: the node set fixes order, arity and reading.
+
+        A model states which nodes a coupling touches and what it uses at each. The storage
+        order is those nodes ascending, the arity is how many there are, and the output
+        group is the one root node among them. Were any of that declarable, it could
+        disagree with the graph and silently transpose the interaction.
+        """
+        model, _ = _hmog_partitions()
+        ((members, form),) = model.cross_placements
+        assert members == (0, 1)
+        assert form.out_axes == (0,), "node 0 is the root, and it sorts first"
+
+        # Handing the same embeddings in with the nodes swapped moves the reading with them.
+        embs = dict(zip(members, form.node_embs, strict=True))
+        assert model.cross_placement(form.rep, embs) == (members, form)
+
+        # A form paired with a node list it disagrees with is still caught, which is what
+        # covers the one placement built by hand --- a form borrowed across a level.
+        backwards = LinearClique(form.rep, form.node_embs, (1,))
+        with pytest.raises(ValueError, match=r"read out of axes \(1,\)"):
+            model.cross_paths((members, backwards))
+
+    def test_a_coupling_needs_exactly_one_root_node(self) -> None:
+        """What makes a clique a *crossing* one, refused at construction."""
+        model, _ = _hmog_partitions()
+        ((members, form),) = model.cross_placements
+        embs = dict(zip(members, form.node_embs, strict=True))
+        deep_only = {1: embs[1]}
+        with pytest.raises(ValueError, match="touches 0 root nodes"):
+            model.cross_placement(form.rep, deep_only)
 
     @pytest.mark.parametrize(
         ("emb_cls", "idx"),
@@ -536,9 +568,10 @@ class _ReversedCCA(
     @property
     @override
     def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+        rect = Rectangular()
         return (
-            ((1, 2), self._branch_clique(0)),
-            ((0, 2), self._branch_clique(1)),
+            self.cross_placement(rect, {1: self._branch_emb(0), 2: self._lat_emb}),
+            self.cross_placement(rect, {0: self._branch_emb(1), 2: self._lat_emb}),
         )
 
 
@@ -583,7 +616,9 @@ def _misrooted() -> _DerivedPartitions:
     obs = Normal(3, Diagonal())
     mix = CompleteMixture(Normal(2, Diagonal()), 4)
     clique = LinearClique(
-        Rectangular(), (IdentityEmbedding(obs), IdentityEmbedding(Categorical(4)))
+        Rectangular(),
+        (IdentityEmbedding(obs), IdentityEmbedding(Categorical(4))),
+        (0,),
     )
     cross = Interaction(obs, mix, (((0, 2), clique),), ((None, mix.clique_emb((1,))),))
     return _DerivedPartitions(obs, cross, mix, (((0, 2), clique),))
@@ -777,9 +812,11 @@ def _key(seed: int) -> Array:
     return jax.random.PRNGKey(seed)
 
 
-def _axes(axes: tuple[int, ...]) -> LinearClique:
-    """A form with the given axis sizes, for the form algebra."""
-    return _form(axes)
+def _axes(axes: tuple[int, ...], out_axes: tuple[int, ...]) -> LinearClique:
+    """A form with the given axis sizes, read with the given axes as its output."""
+    return LinearClique(
+        Rectangular(), tuple(IdentityEmbedding(Euclidean(d)) for d in axes), out_axes
+    )
 
 
 class TestArityTwoMatchesMatrixMap:
@@ -788,7 +825,7 @@ class TestArityTwoMatchesMatrixMap:
     @staticmethod
     def _pair(cod_dim: int, dom_dim: int):
         emb_map = MatrixMap(Rectangular(), Euclidean(dom_dim), Euclidean(cod_dim))
-        return emb_map, _axes((cod_dim, dom_dim))
+        return emb_map, _axes((cod_dim, dom_dim), (0,))
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6), (6, 1)])
     def test_dim_matches(self, cod_dim: int, dom_dim: int) -> None:
@@ -796,36 +833,40 @@ class TestArityTwoMatchesMatrixMap:
         assert form.dim == emb_map.dim
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6)])
-    def test_tensor_matches_outer_product(self, cod_dim: int, dom_dim: int) -> None:
+    def test_outer_product_matches(self, cod_dim: int, dom_dim: int) -> None:
         emb_map, form = self._pair(cod_dim, dom_dim)
         w = jax.random.normal(_key(0), (cod_dim,))
         v = jax.random.normal(_key(1), (dom_dim,))
-        assert jnp.array_equal(form.tensor(w, v), emb_map.outer_product(w, v))
+        assert jnp.array_equal(form.outer_product(w, v), emb_map.outer_product(w, v))
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (6, 1)])
     def test_contract_domain_matches_application(
         self, cod_dim: int, dom_dim: int
     ) -> None:
-        """``keep=0`` is matrix-vector multiplication."""
+        """Contracting the input axis is matrix-vector multiplication."""
         emb_map, form = self._pair(cod_dim, dom_dim)
         params = jax.random.normal(_key(2), (form.dim,))
         v = jax.random.normal(_key(3), (dom_dim,))
-        assert jnp.allclose(form.contract(params, 0, v), emb_map(params, v))
+        assert jnp.allclose(form.contract(params, v), emb_map(params, v))
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6)])
     def test_contract_codomain_matches_transpose(
         self, cod_dim: int, dom_dim: int
     ) -> None:
-        """``keep=1`` is the transposed application."""
+        """The transposed reading is a different clique over the same embeddings."""
         emb_map, form = self._pair(cod_dim, dom_dim)
         params = jax.random.normal(_key(4), (form.dim,))
         w = jax.random.normal(_key(5), (cod_dim,))
+        trn = form.transposed()
+        assert trn.out_axes == (1,)
+        assert trn.matrix_shape == form.matrix_shape[::-1]
         assert jnp.allclose(
-            form.contract(params, 1, w), emb_map.transpose_apply(params, w)
+            trn.contract(form.transpose(params), w),
+            emb_map.transpose_apply(params, w),
         )
 
     def test_storage_order_is_row_major_over_codomain_then_domain(self) -> None:
-        """The convention every ``int_man`` in the library already stores in."""
+        """The layout every ``int_man`` in the library already stores in."""
         emb_map, form = self._pair(2, 3)
         params = jnp.arange(6.0)
         assert jnp.array_equal(form.to_tensor(params), emb_map.to_matrix(params))
@@ -834,21 +875,32 @@ class TestArityTwoMatchesMatrixMap:
 class TestHigherArity:
     """Properties that make arity 3 usable, which arity 2 cannot distinguish."""
 
-    form: LinearClique = _axes((2, 3, 4))
+    form: LinearClique = _axes((2, 3, 4), (0,))
 
     def test_dim_is_the_product(self) -> None:
         assert self.form.dim == 24
         assert self.form.arity == 3
 
-    def test_tensor_round_trips_through_contraction(self) -> None:
-        """Contracting a rank-one tensor against its own axes rescales the third."""
+    def test_every_reading_of_one_tensor_contracts_correctly(self) -> None:
+        """Contracting a rank-one tensor against its own axes rescales the third.
+
+        Each reading is its own clique, and ``to_tensor`` is axis-ordered, so one tensor
+        supplies all three of them.
+        """
         u = jax.random.normal(_key(6), (2,))
         v = jax.random.normal(_key(7), (3,))
         w = jax.random.normal(_key(8), (4,))
-        params = self.form.tensor(u, v, w)
-        assert jnp.allclose(self.form.contract(params, 0, v, w), u * (v @ v) * (w @ w))
-        assert jnp.allclose(self.form.contract(params, 1, u, w), v * (u @ u) * (w @ w))
-        assert jnp.allclose(self.form.contract(params, 2, u, v), w * (u @ u) * (v @ v))
+        tensor = u[:, None, None] * v[None, :, None] * w[None, None, :]
+        expected = {
+            0: u * (v @ v) * (w @ w),
+            1: v * (u @ u) * (w @ w),
+            2: w * (u @ u) * (v @ v),
+        }
+        inputs = {0: (v, w), 1: (u, w), 2: (u, v)}
+        for out_axis, want in expected.items():
+            view = _axes((2, 3, 4), (out_axis,))
+            params = view.from_tensor(tensor)
+            assert jnp.allclose(view.contract(params, *inputs[out_axis]), want)
 
     def test_partial_contraction_composes(self) -> None:
         """Contracting axes one at a time equals contracting them together.
@@ -859,12 +911,15 @@ class TestHigherArity:
         params = jax.random.normal(_key(9), (self.form.dim,))
         u = jax.random.normal(_key(10), (2,))
         v = jax.random.normal(_key(11), (3,))
-        both = self.form.contract(params, 2, u, v)
+        keep_last = _axes((2, 3, 4), (2,))
+        both = keep_last.contract(
+            keep_last.from_tensor(self.form.to_tensor(params)), u, v
+        )
 
-        # axis 0 first, leaving a (3, 4) form; then axis 0 of that (the old axis 1)
-        step = _axes((3, 4))
+        # axis 0 first, leaving a (3, 4) form read at its own axis 1 (the old axis 2)
+        step = _axes((3, 4), (1,))
         after_u = jnp.tensordot(self.form.to_tensor(params), u, axes=([0], [0]))
-        stepwise = step.contract(step.from_tensor(after_u), 1, v)
+        stepwise = step.contract(step.from_tensor(after_u), v)
         assert jnp.allclose(both, stepwise)
 
     def test_to_from_tensor_round_trip(self) -> None:
@@ -873,35 +928,41 @@ class TestHigherArity:
             self.form.from_tensor(self.form.to_tensor(params)), params
         )
 
-    def test_wrong_axis_count_is_rejected(self) -> None:
-        u = jnp.ones(2)
-        with pytest.raises(ValueError, match="expected 3 axes, got 2"):
-            self.form.tensor(u, jnp.ones(3))
+    def test_wrong_contracted_axis_count_is_rejected(self) -> None:
         params = jnp.zeros(self.form.dim)
-        with pytest.raises(ValueError, match="expected 2 axes, got 1"):
-            self.form.contract(params, 0, jnp.ones(3))
+        with pytest.raises(ValueError, match="expected 2 contracted axes, got 1"):
+            self.form.contract(params, jnp.ones(3))
 
 
 class TestArityOne:
     """A bias is a multilinear map of one axis; nothing should special-case it."""
 
-    def test_tensor_and_contract_are_identity(self) -> None:
-        form = _axes((5,))
+    def test_outer_product_and_contract_are_identity(self) -> None:
+        form = _axes((5,), (0,))
         v = jax.random.normal(_key(13), (5,))
         assert form.dim == 5
-        assert jnp.array_equal(form.tensor(v), v)
-        assert jnp.array_equal(form.contract(v, 0), v)
+        assert form.matrix_shape == (5, 1)
+        assert form.in_axes == ()
+        # The empty input group's joint is the constant 1, whatever is handed to it.
+        assert jnp.array_equal(form.outer_product(v, jnp.zeros(0)), v)
+        assert jnp.array_equal(form.contract(v), v)
 
 
-class TestContractGuards:
-    """``keep`` names an axis, so it must be one."""
+class TestViewGuards:
+    """``out_axes`` names axes, so it must name real ones, once each, in order."""
 
-    @pytest.mark.parametrize("keep", [-1, 3])
-    def test_rejects_an_out_of_range_axis(self, keep: int) -> None:
-        # Without the bounds check these contract every axis and return a scalar, and
-        # keep=-1 additionally resolves to the last axis by Python indexing.
-        man = _axes((2, 3, 4))
-        params = jnp.arange(float(man.dim))
-        vectors = [jnp.ones(2), jnp.ones(3), jnp.ones(4)]
-        with pytest.raises(ValueError, match=r"keep must be in 0\.\.2"):
-            man.contract(params, keep, *vectors)
+    @pytest.mark.parametrize("out_axes", [(-1,), (3,), (0, 3)])
+    def test_rejects_an_out_of_range_axis(self, out_axes: tuple[int, ...]) -> None:
+        # Without the bounds check these silently index by Python rules, so out_axes=(-1,)
+        # would resolve to the last axis and report a plausible but wrong matrix_shape.
+        with pytest.raises(ValueError, match="out of range for arity 3"):
+            _axes((2, 3, 4), out_axes)
+
+    @pytest.mark.parametrize("out_axes", [(1, 0), (1, 1)])
+    def test_rejects_a_permuted_or_repeated_group(
+        self, out_axes: tuple[int, ...]
+    ) -> None:
+        # Ascending and distinct is what makes transposed() a pure group swap: it leaves
+        # each group's internal order alone, which a structured rep needs.
+        with pytest.raises(ValueError, match="must be ascending and distinct"):
+            _axes((2, 3, 4), out_axes)

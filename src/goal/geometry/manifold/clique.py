@@ -6,12 +6,14 @@ The clique-indexed sibling of :mod:`goal.geometry.manifold.combinators`. Where `
 those --- one per clique of a graph, so the manifold and the graph it is defined on are the
 same object rather than the manifold holding a reference to one.
 
-A clique is a container of manifolds together with a rep-backed form over their product.
-Arity is a degree, not a kind: at arity 1 it is a bias, at arity 2 a matrix, beyond that a
-higher-order tensor. It is *not* a map: a form has $2^n$ conditional readings and privileges
-none, and picking one needs to know what manifold a caller actually holds, which is a fact
-about the graph. Whoever wants a map builds one from the form and the paths this module
-derives --- see :meth:`LevelCliques.cross_paths`.
+A clique is a container of manifolds together with a rep-backed form over their product,
+read in a direction it carries: :attr:`LinearClique.out_axes` says which axes are the output
+and the rest are contracted. Arity is a degree, not a kind: at arity 1 it is a bias, at arity
+2 a matrix, beyond that a higher-order tensor. A clique is still not a *map*, because
+applying it needs to know what manifold a caller actually holds, and how that manifold
+reaches the nodes the clique couples --- which is a fact about the graph, not about the form.
+Whoever wants a map pairs the form with the paths this module derives --- see
+:meth:`LevelCliques.cross_paths`.
 
 **Where a clique sits is not part of it.** A partition numbers its own nodes from zero and
 can be reused at any depth; the containing layout pairs each form with the nodes it couples,
@@ -24,6 +26,7 @@ multi-root model's root partition is.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import prod
 from typing import Any, Self, override
@@ -45,27 +48,34 @@ from .util import split_by_dims
 
 @dataclass(frozen=True)
 class LinearClique(Manifold):
-    """A coupling of nodes: one embedding per node, and a form over what they select.
+    """A coupling of nodes read in a fixed direction: one embedding per node, a form over
+    what they select, and the split of axes into output and input.
 
     Each :class:`~goal.geometry.manifold.embedding.LinearEmbedding` goes from the sub-space
     this coupling uses *into that node's own manifold*, and the parameters are the tensor
-    over those sub-spaces. A clique says which nodes it couples and how much of each one,
-    and nothing about where those nodes sit or how anyone reaches them.
+    over those sub-spaces. A clique says which nodes it couples, how much of each one, and
+    which way it is read --- and nothing about where those nodes sit or how anyone reaches
+    them.
 
     One embedding, one **axis**. Axes are positions, ``0`` to ``arity - 1``; which nodes
     they sit at is the layout's business (:attr:`LinearCliques.placements`), and each
     embedding's ``amb_man`` is the manifold the layout must find there
     (:attr:`LinearCliques.node_mans`).
 
-    Mathematically, for axes of dimensions $(d_0, \\ldots, d_{n-1})$ the parameters are a
-    tensor $\\Theta \\in \\mathbb R^{d_0 \\times \\cdots \\times d_{n-1}}$, stored under the
-    **canonical fold**: axis $0$ is the rows and the rest are the columns, flattened in
-    order, so :attr:`matrix_shape` is $(d_0, \\prod_{i > 0} d_i)$. At arity 2 that is the
-    ordinary matrix shape; at arity 1 the empty product is 1 and the form is a column, which
-    is exactly a bias.
+    :attr:`out_axes` names the axes that form the output; the rest are contracted. That
+    makes :attr:`matrix_shape` *the* shape of the parameters rather than a convention
+    imposed by whoever reads them, and :attr:`dim` a property of the manifold rather than of
+    a fold. A form still has $2^n$ conditional readings, but each one is a *different*
+    clique over the same embeddings: :meth:`transposed` is the two-group swap, and
+    :meth:`to_tensor` is axis-ordered and so view-independent, which is how any other
+    reading's parameters are reached.
 
-    Every conditional reading is :meth:`partial_contract` over a choice of which axes to
-    keep --- there are $2^n$ of them and the class privileges none.
+    Mathematically, for axes of dimensions $(d_0, \\ldots, d_{n-1})$ the parameters are a
+    tensor $\\Theta \\in \\mathbb R^{d_0 \\times \\cdots \\times d_{n-1}}$, stored as the
+    matrix that groups the output axes as rows and the contracted axes as columns, each
+    group flattened in ascending axis order. At arity 2 with ``out_axes = (0,)`` that is the
+    ordinary matrix shape; at arity 1 the empty column product is 1 and the form is a
+    column, which is exactly a bias.
     """
 
     # Fields
@@ -75,6 +85,17 @@ class LinearClique(Manifold):
 
     node_embs: tuple[LinearEmbedding[Any, Any], ...]
     """One embedding per axis: the sub-space this coupling uses, inside that node's manifold."""
+
+    out_axes: tuple[int, ...]
+    """Which axes form the output; the rest are contracted against the input."""
+
+    def __post_init__(self) -> None:
+        axes = self.out_axes
+        if any(not 0 <= axis < self.arity for axis in axes):
+            msg = f"out_axes {axes} out of range for arity {self.arity}"
+            raise ValueError(msg)
+        if list(axes) != sorted(set(axes)):
+            raise ValueError(f"out_axes {axes} must be ascending and distinct")
 
     # Overrides
 
@@ -105,107 +126,156 @@ class LinearClique(Manifold):
         return len(self.node_embs)
 
     @property
-    def matrix_shape(self) -> tuple[int, int]:
-        """The canonical fold: axis 0 is the rows, the rest the flattened columns."""
+    def in_axes(self) -> tuple[int, ...]:
+        """The contracted axes: the ascending complement of :attr:`out_axes`."""
+        out = set(self.out_axes)
+        return tuple(axis for axis in range(self.arity) if axis not in out)
+
+    @property
+    def out_dims(self) -> tuple[int, ...]:
+        """Selected dimension of each output axis, in ascending axis order."""
         dims = self.sub_dims
-        return (dims[0], prod(dims[1:]))
+        return tuple(dims[axis] for axis in self.out_axes)
+
+    @property
+    def in_dims(self) -> tuple[int, ...]:
+        """Selected dimension of each contracted axis, in ascending axis order."""
+        dims = self.sub_dims
+        return tuple(dims[axis] for axis in self.in_axes)
+
+    @property
+    def matrix_shape(self) -> tuple[int, int]:
+        """Output axes as the rows, contracted axes as the columns, each group flattened."""
+        return (prod(self.out_dims), prod(self.in_dims))
+
+    def transposed(self) -> LinearClique:
+        """The same coupling read the other way: the two groups exchanged.
+
+        The only re-view a structured ``rep`` can express without densifying, since it
+        leaves each group's internal order alone. Its parameters are :meth:`transpose` of
+        this clique's.
+        """
+        return LinearClique(self.rep, self.node_embs, self.in_axes)
+
+    def transpose(self, params: Array) -> Array:
+        """Reorder parameters into the layout :meth:`transposed` expects."""
+        return self.rep.transpose(self.matrix_shape, params)
+
+    def to_matrix(self, params: Array) -> Array:
+        """Unpack flat parameters into a dense (output, input) matrix."""
+        return self.rep.to_matrix(self.matrix_shape, params)
+
+    def from_matrix(self, matrix: Array) -> Array:
+        """Pack a dense (output, input) matrix into flat parameters."""
+        return self.rep.from_matrix(matrix)
 
     def to_tensor(self, params: Array) -> Array:
-        """View flat parameters as a tensor of shape :attr:`sub_dims`.
+        """View flat parameters as a tensor of shape :attr:`sub_dims`, in *axis* order.
+
+        Axis order does not depend on which axes are the output, so this is how one reading's
+        parameters become another's: ``other.from_tensor(self.to_tensor(params))``.
 
         Raises:
             ValueError: unless the representation stores every entry, since a structured
                 ``rep`` holds fewer parameters than the tensor has entries.
         """
         self._require_dense()
-        return params.reshape(self.sub_dims)
+        grouped = self._grouped_axes
+        dims = self.sub_dims
+        tensor = params.reshape(tuple(dims[axis] for axis in grouped))
+        inverse = [0] * self.arity
+        for position, axis in enumerate(grouped):
+            inverse[axis] = position
+        return jnp.transpose(tensor, tuple(inverse))
 
     def from_tensor(self, tensor: Array) -> Array:
-        """Flatten a tensor of shape :attr:`sub_dims` into parameters."""
+        """Flatten a tensor of shape :attr:`sub_dims`, in axis order, into parameters."""
         self._require_dense()
-        return tensor.reshape(-1)
+        return jnp.transpose(tensor, self._grouped_axes).reshape(-1)
 
-    def to_matrix(self, params: Array) -> Array:
-        """Unpack flat parameters into a dense 2D matrix under the canonical fold."""
-        return self.rep.to_matrix(self.matrix_shape, params)
+    def contract(self, params: Array, *in_node_coords: Array) -> Array:
+        """Contract the input axes, leaving the output group's selected coordinates.
 
-    def from_matrix(self, matrix: Array) -> Array:
-        """Pack a dense 2D matrix under the canonical fold into flat parameters."""
-        return self.rep.from_matrix(matrix)
-
-    def tensor(self, *node_coords: Array) -> Array:
-        """Outer product of one node vector per axis, as flat parameters.
-
-        Each argument is a point of that axis's node manifold, which its embedding restricts
-        before the product is taken. Because it multiplies the axes together it builds a
-        product of marginals: exact when every node is observed, and wrong when two or more
-        are latent, where the joint expectation does not factorize --- see
-        :meth:`select_joint`.
+        One node vector per contracted axis, in ascending axis order; each axis's embedding
+        restricts it before the contraction. Because the arguments multiply together this
+        reads the input group as a product of marginals --- exact when every contracted node
+        is observed, and wrong when two or more are latent, where the joint expectation does
+        not factorize. Pass the joint through :meth:`project_in` in that case.
         """
-        if len(node_coords) != self.arity:
-            raise ValueError(f"expected {self.arity} axes, got {len(node_coords)}")
-        out = self.node_embs[0].project(node_coords[0])
-        for emb, coords in zip(self.node_embs[1:], node_coords[1:], strict=True):
-            out = jnp.tensordot(out, emb.project(coords), axes=0)
-        return out.reshape(-1)
+        axes = self.in_axes
+        if len(in_node_coords) != len(axes):
+            msg = f"expected {len(axes)} contracted axes"
+            raise ValueError(f"{msg}, got {len(in_node_coords)}")
+        selected = _outer(
+            tuple(
+                self.node_embs[axis].project(coords)
+                for axis, coords in zip(axes, in_node_coords, strict=True)
+            )
+        )
+        return self.rep.matvec(self.matrix_shape, params, selected)
 
-    def contract(self, params: Array, keep: int, *node_coords: Array) -> Array:
-        """Contract every axis but ``keep``, embedded back into that node's coordinates.
+    def outer_product(self, out_joint: Array, in_joint: Array) -> Array:
+        """Parameters of the outer product of an output joint with an input joint.
 
-        ``node_coords`` supplies one node vector per contracted axis, in ascending axis
-        order.
+        Each argument is a joint over its group's *node* dimensions, flat, in ascending axis
+        order --- the two sides' expectations as a layout stores them. It never forms a
+        marginal, so it stays correct when the nodes within a group are dependent.
         """
-        if not 0 <= keep < self.arity:
-            msg = f"keep must be in 0..{self.arity - 1}, got {keep}"
-            raise ValueError(msg)
-        contracted = self.partial_contract(params, (keep,), *node_coords)
-        return self.node_embs[keep].embed(contracted)
+        return self.rep.outer_product(
+            self.project_out(out_joint), self.project_in(in_joint)
+        )
 
-    def partial_contract(
-        self, params: Array, keep: tuple[int, ...], *node_coords: Array
-    ) -> Array:
-        """Contract several axes at once, leaving a joint tensor over ``keep``.
+    def project_out(self, joint: Array) -> Array:
+        """Restrict an output-group joint from the nodes' dimensions to the selected ones."""
+        return self._project_group(self.out_axes, joint)
 
-        The general conditional reading, and the one a level split needs: nodes on the near
-        side of a cut are contracted against their own coordinates, and nodes on the far
-        side are left *joined*, because their expectations do not factorize. ``keep`` names
-        the surviving axes and ``node_coords`` supplies one node vector per contracted axis,
-        both in ascending axis order. The result is flat over the kept axes' *selected*
-        dimensions, with no embedding applied.
+    def embed_out(self, selected: Array) -> Array:
+        """The adjoint of :meth:`project_out`: back out to the nodes' full dimensions."""
+        return self._embed_group(self.out_axes, selected)
+
+    def project_in(self, joint: Array) -> Array:
+        """Restrict an input-group joint from the nodes' dimensions to the selected ones.
+
+        An empty input group --- a bias --- has the constant $1$ as its joint.
         """
-        dropped = [axis for axis in range(self.arity) if axis not in keep]
-        if len(node_coords) != len(dropped):
-            raise ValueError(f"expected {len(dropped)} axes, got {len(node_coords)}")
-        out = self.to_tensor(params)
-        # Descending order so that contracting one axis does not shift the next.
-        for axis, coords in sorted(zip(dropped, node_coords), key=lambda p: -p[0]):
-            projected = self.node_embs[axis].project(coords)
-            out = jnp.tensordot(out, projected, axes=([axis], [0]))
-        return out.reshape(-1)
+        return self._project_group(self.in_axes, joint)
 
-    def select_joint(self, keep: tuple[int, ...], joint: Array) -> Array:
-        """Restrict a joint form over the ``keep`` axes to this clique's sub-spaces.
+    def embed_in(self, selected: Array) -> Array:
+        """The adjoint of :meth:`project_in`: back out to the nodes' full dimensions."""
+        return self._embed_group(self.in_axes, selected)
 
-        ``joint`` is a tensor over those axes' *node* dimensions, flat, in ascending axis
-        order --- their joint expectation as a layout stores it. This is the operation
-        :meth:`tensor` cannot do: it never forms a marginal, so it stays correct when the
-        kept nodes are dependent.
-        """
+    # Private
+
+    @property
+    def _grouped_axes(self) -> tuple[int, ...]:
+        """Axes in parameter order: the output group, then the contracted group."""
+        return self.out_axes + self.in_axes
+
+    def _project_group(self, axes: tuple[int, ...], joint: Array) -> Array:
         embs = self.node_embs
-        out = joint.reshape(tuple(embs[axis].amb_man.dim for axis in keep))
-        for position, axis in enumerate(keep):
+        if not axes:
+            return jnp.ones(1)
+        if len(axes) == 1:
+            # One node: its embedding restricts directly, with no tensor to reshape. Not
+            # only an optimization --- an embedding may accept a point it can restrict
+            # without its ambient dimension matching exactly, and reshaping would not.
+            return embs[axes[0]].project(joint)
+        out = joint.reshape(tuple(embs[axis].amb_man.dim for axis in axes))
+        for position, axis in enumerate(axes):
             out = map_axis(out, position, embs[axis].project)
         return out.reshape(-1)
 
-    def embed_joint(self, keep: tuple[int, ...], selected: Array) -> Array:
-        """The adjoint of :meth:`select_joint`: back out to the nodes' full dimensions."""
+    def _embed_group(self, axes: tuple[int, ...], selected: Array) -> Array:
         embs = self.node_embs
-        out = selected.reshape(tuple(self.sub_dims[axis] for axis in keep))
-        for position, axis in enumerate(keep):
+        if not axes:
+            return jnp.zeros(0)
+        if len(axes) == 1:
+            return embs[axes[0]].embed(selected)
+        dims = self.sub_dims
+        out = selected.reshape(tuple(dims[axis] for axis in axes))
+        for position, axis in enumerate(axes):
             out = map_axis(out, position, embs[axis].embed)
         return out.reshape(-1)
-
-    # Private
 
     def _require_dense(self) -> None:
         if self.rep.num_params(self.matrix_shape) != prod(self.sub_dims):
@@ -219,7 +289,15 @@ def node_clique(node_man: Manifold) -> LinearClique:
     Where the recursion in :meth:`LinearCliques.placements_of` bottoms out, and what a level
     supplies when it holds a structured partition as a single node rather than expanding it.
     """
-    return LinearClique(Rectangular(), (IdentityEmbedding(node_man),))
+    return LinearClique(Rectangular(), (IdentityEmbedding(node_man),), (0,))
+
+
+def _outer(coords: tuple[Array, ...]) -> Array:
+    """Flat outer product of one vector per axis; the constant $1$ when there are none."""
+    out = jnp.ones(1)
+    for part in coords:
+        out = jnp.tensordot(out, part, axes=0)
+    return out.reshape(-1)
 
 
 def map_axis(tensor: Array, axis: int, fn: Any) -> Array:
@@ -592,8 +670,37 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
             + _shift_placements(self.placements_of(self.deep_man), offset)
         )
 
+    def cross_placement(
+        self, rep: MatrixRep, node_embs: Mapping[int, LinearEmbedding[Any, Any]]
+    ) -> tuple[tuple[int, ...], LinearClique]:
+        """A crossing clique built from the nodes it couples and what it uses at each.
+
+        The geometric statement is all a model has to make: a *set* of nodes, the sub-space
+        this coupling uses inside each one, and a representation. Everything positional
+        follows. The storage order is the nodes' own ascending order --- the canonical order
+        a layout stores its cliques in anyway --- and the output group is the one root node
+        among them, since a crossing clique is by definition what joins a root to the
+        depths. So no model writes an axis number, and a form cannot be paired with a node
+        list that disagrees with it: the node set *is* the arity.
+
+        Raises:
+            ValueError: if the nodes do not include exactly one root node, which is what
+                makes the clique a *crossing* one.
+        """
+        members = tuple(sorted(node_embs))
+        roots = tuple(node for node in members if node in self.root_nodes)
+        if len(roots) != 1:
+            msg = f"crossing clique {members} touches {len(roots)} root nodes"
+            raise ValueError(f"{msg}, not exactly one")
+        form = LinearClique(
+            rep,
+            tuple(node_embs[node] for node in members),
+            (members.index(roots[0]),),
+        )
+        return members, form
+
     def cross_paths(
-        self, members: tuple[int, ...]
+        self, placement: tuple[tuple[int, ...], LinearClique]
     ) -> tuple[LinearEmbedding[Any, Any] | None, LinearEmbedding[Any, Any] | None]:
         """How a crossing clique's two sides are reached: the root path and the deep path.
 
@@ -604,15 +711,26 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
         conditional reading of the clique --- a harmonium's interaction --- pairs the form
         with these.
 
+        Which axes the form is read out of is **derived here too**, from the same root split
+        that yields the paths, and a form declaring anything else is rejected. Otherwise the
+        graph and the form would each carry the reading independently, and a disagreement
+        between them would silently transpose an interaction rather than fail.
+
         Raises:
             ValueError: if the clique does not couple exactly one root node, which is what
-                makes it a *crossing* clique.
+                makes it a *crossing* clique, or if the form's :attr:`LinearClique.out_axes`
+                is not the axis that root node sits at.
         """
+        members, form = placement
         roots = self.root_nodes
         near = tuple(i for i in members if i in roots)
         if len(near) != 1:
             msg = f"crossing clique {members} touches {len(near)} root nodes"
             raise ValueError(f"{msg}, not exactly one")
+        out_axes = (members.index(near[0]),)
+        if form.out_axes != out_axes:
+            msg = f"crossing clique {members} is read out of axes {form.out_axes}"
+            raise ValueError(f"{msg}, but its root node {near[0]} sits at {out_axes}")
         offset = max(roots) + 1
         far = tuple(i - offset for i in members if i not in roots)
         return (

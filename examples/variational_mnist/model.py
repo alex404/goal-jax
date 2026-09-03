@@ -284,7 +284,7 @@ def _hierarchical_harmonium(
     """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
     mix_man = CompleteMixture(base_lat_man, n_categories)
     embs = (IdentityEmbedding(obs_man), IdentityEmbedding(mix_man.obs_man))
-    return ConcreteHarmonium(obs_man, mix_man, LinearClique(Rectangular(), embs))
+    return ConcreteHarmonium(obs_man, mix_man, LinearClique(Rectangular(), embs, (0,)))
 
 
 def _full_base_harmonium(
@@ -293,7 +293,9 @@ def _full_base_harmonium(
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, Lat] for fully connected mode."""
     embs = (IdentityEmbedding(obs_man), IdentityEmbedding(base_lat_man))
-    return ConcreteHarmonium(obs_man, base_lat_man, LinearClique(Rectangular(), embs))
+    return ConcreteHarmonium(
+        obs_man, base_lat_man, LinearClique(Rectangular(), embs, (0,))
+    )
 
 
 def _chain_edges(n: int) -> list[tuple[int, int]]:

@@ -97,12 +97,13 @@ class Harmonium[
     def int_man(self) -> Interaction[Posterior, Observable]:
         """The interaction, derived from the cliques and the graph they sit in.
 
-        Nothing here is declared: the forms come from :attr:`cross_placements` and the paths
-        by which the two partitions reach the nodes they couple come from
+        Nothing here is declared: the forms come from :attr:`cross_placements`, and both the
+        paths by which the two partitions reach the nodes they couple *and* the check that
+        each form is read in the direction the graph implies come from
         :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
         """
         placements = self.cross_placements
-        paths = tuple(self.cross_paths(members) for members, _ in placements)
+        paths = tuple(self.cross_paths(place) for place in placements)
         return Interaction(self.obs_man, self.pst_man, placements, paths)
 
     @property
