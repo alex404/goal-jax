@@ -37,9 +37,9 @@ from jax import Array
 from ...geometry import (
     AnalyticPair,
     DifferentiableConjugated,
-    LinearClique,
     PositiveDefinite,
     Rectangular,
+    SubspaceMap,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from .lgm import (
@@ -127,7 +127,7 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
 
         Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two

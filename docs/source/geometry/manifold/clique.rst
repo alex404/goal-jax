@@ -14,12 +14,6 @@ Class Hierarchy
 
 \
 
-.. autoclass:: goal.geometry.manifold.clique.LinearClique
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autofunction:: goal.geometry.manifold.clique.node_clique
 
 Clique Embeddings
 -----------------

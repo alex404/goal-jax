@@ -42,11 +42,11 @@ from jax import Array
 from ...geometry import (
     AnalyticConjugated,
     DifferentiableConjugated,
-    LinearClique,
     LinearEmbedding,
     ObservableEmbedding,
     PositiveDefinite,
     RootEmbedding,
+    SubspaceMap,
     SymmetricConjugated,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
@@ -100,13 +100,13 @@ class _HMoGBase[
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         """The lower harmonium's cliques, unchanged.
 
         A hierarchical model declares no coupling of its own: the lower harmonium already
         says which sub-spaces it couples, and that node $y$ now sits inside the mixture
         above is a fact about the graph, derived by
-        :meth:`~goal.geometry.manifold.clique.LevelCliques.coupling`.
+        :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
         """
         return self.lwr_hrm.cross_placements
 
@@ -174,12 +174,12 @@ class _HMoGBase[
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)
+        lwr_int_mat = self.lwr_hrm.int_man.clique.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T
-        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)
+        new_lwr_int_means = self.lwr_hrm.int_man.clique.from_matrix(new_lwr_int_mat)
 
         return self.join_level(obs_means, new_lwr_int_means, new_lat_means)
 

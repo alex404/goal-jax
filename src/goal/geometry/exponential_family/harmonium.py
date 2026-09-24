@@ -14,10 +14,10 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.clique import LevelCliques, LinearClique
+from ..manifold.clique import LevelCliques
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.interaction import Interaction
-from ..manifold.map import AffineMap, LinearMap
+from ..manifold.map import AffineMap, LinearMap, SubspaceMap
 from ..manifold.util import batched_mean
 from .base import (
     Analytic,
@@ -58,7 +58,7 @@ class Harmonium[
     @property
     @abstractmethod
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         """The cliques joining the observable to the latent side, with the nodes they couple.
 
         A model declares its couplings and where they sit; everything else --- the graph,
@@ -68,7 +68,7 @@ class Harmonium[
 
         A clique states only which sub-space of each node it couples. *How* a partition's
         coordinates reach those nodes is the graph's business and is derived, by
-        :meth:`~goal.geometry.manifold.clique.LevelCliques.coupling`.
+        :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
         """
 
     # Overrides

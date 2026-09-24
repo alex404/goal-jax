@@ -1,14 +1,14 @@
-"""Tests for ``LinearClique`` in geometry/manifold/clique.py.
+"""Tests for ``Interaction`` in geometry/manifold/interaction.py.
 
 (``tests/clique.py`` tests ``geometry/algebra/clique.py`` and ``tests/graphical.py`` the
-layouts and the bare form algebra; this file is the embedding-carrying clique itself.)
+layouts and the bare form algebra; this file is the clique paired with its paths.)
 
-A ``LinearClique`` is both a clique and a linear map, so its two readings must agree. Each
-case takes a live model's interaction and checks that the clique operations reproduce the
-map operations: the outer product that builds a sufficient statistic, the contraction that
-builds a likelihood, and the transposed contraction that builds a posterior. If those hold
-for every interaction shape in the library, the arity-2 case is settled and only arity 3 is
-new.
+A ``SubspaceMap`` is a linear map between its node groups, and an ``Interaction`` is a sum
+of path-conjugated cliques. Each case takes a live model's interaction and checks that the
+clique operations reproduce the interaction operations once the paths are applied: the
+outer product that builds a sufficient statistic, the application that builds a likelihood,
+and the transposed application that builds a posterior. If those hold for every interaction
+shape in the library, the arity-2 case is settled and only arity 3 is new.
 """
 
 from typing import Any
@@ -43,6 +43,36 @@ def _as_map(int_man: LinearMap[Any, Any]) -> Interaction[Any, Any]:
     return int_man
 
 
+def _block(int_man: LinearMap[Any, Any], index: int) -> Interaction[Any, Any]:
+    """One term of a multi-form interaction, as an interaction of the same shape."""
+    m = _as_map(int_man)
+    return Interaction(m.cod_man, m.dom_man, (m.placements[index],), (m.paths[index],))
+
+
+def _cod_node(m: Interaction[Any, Any], w: Array) -> Array:
+    """A codomain point taken down to the node the single form's output couples."""
+    path = m.paths[0][0]
+    return w if path is None else path.project(w)
+
+
+def _dom_node(m: Interaction[Any, Any], v: Array) -> Array:
+    """A domain point taken down to the node group the single form contracts."""
+    path = m.paths[0][1]
+    return v if path is None else path.project(v)
+
+
+def _cod_amb(m: Interaction[Any, Any], w_node: Array) -> Array:
+    """The single form's output, placed back where the caller holds it."""
+    path = m.paths[0][0]
+    return w_node if path is None else path.embed(w_node)
+
+
+def _dom_amb(m: Interaction[Any, Any], v_node: Array) -> Array:
+    """The single form's contracted-side node coordinates, placed back."""
+    path = m.paths[0][1]
+    return v_node if path is None else path.embed(v_node)
+
+
 def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]:
     """Every distinct interaction shape in the library, with its two node manifolds."""
     fa = factor_analysis(obs_dim=5, lat_dim=2)
@@ -59,11 +89,11 @@ def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]
         "factor_analysis": (fa.int_man, fa.obs_man, fa.pst_man),
         "mixture": (mix.int_man, mix.obs_man, mix.pst_man),
         "hmog": (hmog.int_man, hmog.obs_man, hmog.pst_man),
-        "cca_fst": (cca.int_man.blocks[0], cca.obs_man, cca.pst_man),
-        "cca_snd": (cca.int_man.blocks[1], cca.obs_man, cca.pst_man),
+        "cca_fst": (_block(cca.int_man, 0), cca.obs_man, cca.pst_man),
+        "cca_snd": (_block(cca.int_man, 1), cca.obs_man, cca.pst_man),
     }
-    for name, block in zip(("mfa_xy", "mfa_xyk", "mfa_xk"), mfa.int_man.blocks):
-        cases[name] = (block, mfa.obs_man, mfa.pst_man)
+    for name, index in (("mfa_xy", 0), ("mfa_xyk", 1), ("mfa_xk", 2)):
+        cases[name] = (_block(mfa.int_man, index), mfa.obs_man, mfa.pst_man)
     return cases
 
 
@@ -72,10 +102,10 @@ NAMES = sorted(CASES)
 NODE_NAMES = [name for name in NAMES if _as_map(CASES[name][0]).clique.arity == 2]
 """Cases contracting a single node.
 
-There the clique reading and the map reading coincide up to the paths: contracting one axis
-leaves one axis, and a single node can be placed back through its own way in. At arity 3 the
-contracted side is a *group*, no single axis can be placed through a joint path, and the two
-readings only meet after ``project_domain`` --- which is what
+There the clique reading and the interaction reading coincide up to the paths: contracting
+one axis leaves one axis, and a single node can be placed back through its own way in. At
+arity 3 the contracted side is a *group*, no single axis can be placed through a joint
+path, and the two readings meet at the node group's joint coordinates --- which is what
 ``TestArityThreeReproducesMFA`` checks instead.
 
 The criterion is arity, not what the path happens to be: a way in that is a
@@ -106,33 +136,28 @@ class TestEquivalenceWithMap:
         m = _as_map(CASES[case][0])
         w, v = _stats(case, 0)
         assert jnp.allclose(
-            m.clique.outer_product(m.node_coords(0, w), m.node_coords(1, v)),
+            m.clique.outer_product(_cod_node(m, w), _dom_node(m, v)),
             m.outer_product(w, v),
         )
 
     @pytest.mark.parametrize("case", NODE_NAMES)
-    def test_contract_to_codomain_matches_application(self, case: str) -> None:
+    def test_application_matches(self, case: str) -> None:
         """The forward reading is the likelihood direction: contract the latent, land on x."""
         m = _as_map(CASES[case][0])
         _, v = _stats(case, 1)
         params = jax.random.normal(jax.random.PRNGKey(7), (m.dim,))
-        contracted = m.clique.contract(params, m.node_coords(1, v))
-        assert jnp.allclose(
-            m.amb_coords(0, m.clique.node_embs[0].embed(contracted)), m(params, v)
-        )
+        node_out = m.clique(params, _dom_node(m, v))
+        assert jnp.allclose(_cod_amb(m, node_out), m(params, v))
 
     @pytest.mark.parametrize("case", NODE_NAMES)
-    def test_contract_to_domain_matches_transposed_application(self, case: str) -> None:
+    def test_transposed_application_matches(self, case: str) -> None:
         """The transposed reading is the posterior direction: contract x, land on the latent."""
         m = _as_map(CASES[case][0])
         w, _ = _stats(case, 2)
         params = jax.random.normal(jax.random.PRNGKey(8), (m.dim,))
-        trn = m.clique.transposed()
-        contracted = trn.contract(m.clique.transpose(params), m.node_coords(0, w))
-        assert jnp.allclose(
-            m.amb_coords(1, m.clique.node_embs[1].embed(contracted)),
-            m.transpose_apply(params, w),
-        )
+        trn = m.clique.trn_man
+        node_out = trn(m.clique.transpose(params), _cod_node(m, w))
+        assert jnp.allclose(_dom_amb(m, node_out), m.transpose_apply(params, w))
 
 
 class TestSufficientStatistic:
@@ -154,12 +179,12 @@ class TestSufficientStatistic:
 
 
 class TestJointDomainCliques:
-    """A clique whose domain embedding addresses a *group* of nodes.
+    """A clique whose domain path addresses a node inside a *layout*.
 
     MFA's $\\theta_{XY}$ and $\\theta_{XK}$ both couple $x$ to one node of the mixture
-    above, reached through a ``CliqueEmbedding``. The clique reading contracts to that
-    node's own coordinates; the map reading lands in the mixture's. They agree exactly
-    after the embedding, which is what makes the two readings one object.
+    above, reached through a ``CliqueEmbedding``. The clique reading works in that node's
+    own coordinates; the interaction reading lands in the mixture's. They agree exactly at
+    the node, which is what makes the two readings one object.
     """
 
     @staticmethod
@@ -175,15 +200,14 @@ class TestJointDomainCliques:
         assert clique.arity == 2
 
     @pytest.mark.parametrize("index", [0, 2])
-    def test_posterior_direction_matches_after_the_embedding(self, index: int) -> None:
+    def test_posterior_direction_matches_at_the_node(self, index: int) -> None:
         mfa = self._mfa()
-        m = _as_map(mfa.int_man.blocks[index])
+        m = _block(mfa.int_man, index)
         w = jax.random.normal(jax.random.PRNGKey(21), (mfa.obs_man.dim,))
         params = jax.random.normal(jax.random.PRNGKey(22), (m.dim,))
-        live = m.project_domain(m.transpose_apply(params, w))
-        node_w = m.node_coords(0, w)
-        trn = m.clique.transposed()
-        assert jnp.allclose(trn.contract(m.clique.transpose(params), node_w), live)
+        live = _dom_node(m, m.transpose_apply(params, w))
+        rebuilt = m.clique.trn_man(m.clique.transpose(params), _cod_node(m, w))
+        assert jnp.allclose(rebuilt, live)
 
 
 class TestJointBlocksAreNotProductsOfMarginals:
@@ -191,15 +215,13 @@ class TestJointBlocksAreNotProductsOfMarginals:
 
     Multiplying the nodes' statistics together is exact when every node is observed. When
     two nodes are latent the clique's parameters are $\\mathbb E[\\bigotimes_i \\mathbf s_i]$
-    jointly, and expectation does not pass through a tensor product. ``project_in`` is the
+    jointly, and expectation does not pass through a tensor product. ``project_dom`` is the
     operation for that case: it restricts each embedding along an axis of the joint
     statistic and never forms a marginal.
     """
 
     @staticmethod
     def _mfa():
-        from goal.models import MixtureOfFactorAnalyzers
-
         return MixtureOfFactorAnalyzers(
             n_categories=3, bas_hrm=factor_analysis(obs_dim=4, lat_dim=2)
         )
@@ -236,12 +258,11 @@ class TestJointBlocksAreNotProductsOfMarginals:
 class TestArityThreeReproducesMFA:
     """The three-way interaction $\\theta_{XYK}$, as a genuine arity-3 clique.
 
-    MFA stores this clique as a matrix whose domain embedding addresses the joint $(y,k)$
-    statistic --- which is exactly "select a sub-statistic on the $y$ axis, identity on the
-    $k$ axis" written as one matrix. These tests check that the clique reading of it, over
-    three nodes, agrees with the map reading on every operation, *including in mean
-    coordinates at the E-step*, which
-    is the case that decides whether higher arity is usable at all.
+    The clique contracts the joint $(y,k)$ statistic of the mixture above, reached through
+    a ``CliqueEmbedding`` --- "select a sub-statistic on the $y$ axis, identity on the $k$
+    axis". These tests check that the clique reading of it, over three nodes, agrees with
+    the interaction reading on every operation, *including in mean coordinates at the
+    E-step*, which is the case that decides whether higher arity is usable at all.
 
     The clique's latent nodes $(y, k)$ are themselves a clique of the level above, so
     their joint expectation exists as a statistic to select from. That is the structural
@@ -250,13 +271,10 @@ class TestArityThreeReproducesMFA:
 
     @staticmethod
     def _setup():
-        from goal.models import MixtureOfFactorAnalyzers
-
         mfa = MixtureOfFactorAnalyzers(
             n_categories=3, bas_hrm=factor_analysis(obs_dim=4, lat_dim=2)
         )
-        xyk = mfa.int_man.blocks[1]
-        assert isinstance(xyk, Interaction)
+        xyk = _block(mfa.int_man, 1)
         # x location, y location, k in full: the three nodes' embeddings.
         return mfa, xyk, xyk.clique
 
@@ -278,7 +296,7 @@ class TestArityThreeReproducesMFA:
 
         live = xyk.outer_product(s_x, lat_means)
         rebuilt = jnp.outer(
-            clique.node_embs[0].project(s_x), clique.project_in(m_yk)
+            clique.factor_embs[0].project(s_x), clique.project_dom(m_yk)
         ).ravel()
         assert jnp.allclose(live, rebuilt)
 
@@ -294,7 +312,7 @@ class TestArityThreeReproducesMFA:
             _, m_yk, _ = mix.split_level(lat_means)
             live = xyk.outer_product(s_x, lat_means)
             rebuilt = jnp.outer(
-                clique.node_embs[0].project(s_x), clique.project_in(m_yk)
+                clique.factor_embs[0].project(s_x), clique.project_dom(m_yk)
             ).ravel()
             assert jnp.allclose(live, rebuilt)
 
@@ -307,12 +325,17 @@ class TestArityThreeReproducesMFA:
         _, int_params, _ = mfa.split_level(params)
         xyk_params = mfa.int_man.coord_blocks(int_params)[1]
 
-        live = xyk.project_domain(xyk.transpose_apply(xyk_params, s_x))
-        rebuilt = clique.transposed().contract(clique.transpose(xyk_params), s_x)
+        live = _dom_node(xyk, xyk.transpose_apply(xyk_params, s_x))
+        rebuilt = clique.trn_man(clique.transpose(xyk_params), s_x)
         assert jnp.allclose(live, rebuilt)
 
     def test_likelihood_direction_matches(self) -> None:
-        """Contract both latent nodes, land on the observable."""
+        """Contract both latent nodes, land on the observable.
+
+        At a sample point the joint statistic *is* the product of the two nodes', so the
+        map reading through the path and the direct product agree --- the case
+        ``TestJointBlocksAreNotProductsOfMarginals`` shows fails in mean coordinates.
+        """
         mfa, xyk, clique = self._setup()
         mix = mfa.pst_man
         params = mfa.initialize(jax.random.PRNGKey(5), shape=0.5)
@@ -325,5 +348,5 @@ class TestArityThreeReproducesMFA:
         s_k = mix.lat_man.sufficient_statistic(jnp.array([1.0]))
 
         live = xyk(xyk_params, mix.sufficient_statistic(z))
-        rebuilt = clique.node_embs[0].embed(clique.contract(xyk_params, s_y, s_k))
+        rebuilt = clique(xyk_params, jnp.outer(s_y, s_k).ravel())
         assert jnp.allclose(live, rebuilt)

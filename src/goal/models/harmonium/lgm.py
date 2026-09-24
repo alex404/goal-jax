@@ -16,12 +16,12 @@ from ...geometry import (
     DifferentiableConjugated,
     Identity,
     IdentityEmbedding,
-    LinearClique,
     LinearEmbedding,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
     Scale,
+    SubspaceMap,
     SymmetricConjugated,
 )
 from ..base.gaussian.boltzmann import DiagonalBoltzmann, FullBoltzmann
@@ -257,7 +257,7 @@ class LGM[
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         """One clique, coupling the observable's location to the latent's."""
         embs = {0: self.int_obs_emb, 1: self.int_pst_emb}
         return (self.cross_placement(Rectangular(), embs),)
@@ -279,7 +279,7 @@ class LGM[
 
         # Conjugation parameters
 
-        im = self.int_man
+        im = self.int_man.clique
         int_mat_trn = im.transpose(int_mat)
         rho_mean = im.trn_man.rep.matvec(im.trn_man.matrix_shape, int_mat_trn, obs_mean)
 
@@ -369,14 +369,14 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
 
         # W \Sigma_z = E[x \otimes z] - E[x] \otimes E[z]
-        int_mat = self.int_man.to_matrix(int_means)  # (obs_dim, lat_dim)
+        int_mat = self.int_man.clique.to_matrix(int_means)  # (obs_dim, lat_dim)
         cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # W \Sigma_z
 
         # WL = W \Sigma_z @ L^{-T},  L = chol(\Sigma_z)
         chol = jnp.linalg.cholesky(self.prr_man.cov_man.to_matrix(lat_cov))
         wl_mat = jax.scipy.linalg.solve_triangular(chol, cross_cov.T, lower=True).T
 
-        new_int_means = self.int_man.from_matrix(wl_mat)
+        new_int_means = self.int_man.clique.from_matrix(wl_mat)
         new_lat_means = self.prr_man.standard_normal()
         return self.join_level(obs_means, new_int_means, new_lat_means)
 
@@ -399,7 +399,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         nor_loc = jnp.concatenate([obs_loc, lat_loc])
         obs_prs_array = new_man.obs_man.cov_man.to_matrix(obs_prs)
         lat_prs_array = new_man.prr_man.cov_man.to_matrix(lat_prs)
-        int_array = -self.int_man.to_matrix(int_params)
+        int_array = -self.int_man.clique.to_matrix(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
@@ -534,7 +534,7 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
         obs_prs = om.split_location_precision(obs_params)[1]
         dns_prs = om.cov_man.to_matrix(obs_prs)
-        int_mat = self.int_man.from_matrix(dns_prs @ loadings)
+        int_mat = self.int_man.clique.from_matrix(dns_prs @ loadings)
         return self.lkl_fun_man.join_coords(obs_params, int_mat)
 
     def initialize_from_loadings(
@@ -557,7 +557,7 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         # Get relevant manifolds
         ocm = self.obs_man.cov_man
         lcm = self.lat_man.cov_man
-        im = self.int_man
+        im = self.int_man.clique
 
         # Deconstruct parameters
         obs_means, int_means, lat_means = self.split_level(means)

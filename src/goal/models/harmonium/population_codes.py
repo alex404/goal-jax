@@ -11,8 +11,8 @@ from jax import Array
 
 from ...geometry import (
     IdentityEmbedding,
-    LinearClique,
     Rectangular,
+    SubspaceMap,
 )
 from ...geometry.exponential_family.base import Differentiable
 from ...geometry.exponential_family.harmonium import Harmonium
@@ -51,7 +51,7 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
         return (self.cross_placement(Rectangular(), embs),)
 
@@ -181,7 +181,7 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
         return (self.cross_placement(Rectangular(), embs),)
 

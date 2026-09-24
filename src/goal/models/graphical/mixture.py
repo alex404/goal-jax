@@ -32,9 +32,9 @@ from ...geometry import (
     DifferentiableConjugated,
     Harmonium,
     IdentityEmbedding,
-    LinearClique,
     LinearEmbedding,
     Rectangular,
+    SubspaceMap,
     SymmetricConjugated,
 )
 from ..base.categorical import Categorical
@@ -88,7 +88,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Embed each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (sub_obs_dim, n_categories-1)
-            int_matrix = self.sub_man.int_man.to_matrix(int_params)
+            int_matrix = self.sub_man.int_man.clique.to_matrix(int_params)
             # Apply embedding to each column
             emb_int_matrix = jax.vmap(self.component_emb.embed, in_axes=1, out_axes=1)(
                 int_matrix
@@ -112,7 +112,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Project each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (amb_obs_dim, n_categories-1)
-            int_matrix = self.amb_man.int_man.to_matrix(int_means)
+            int_matrix = self.amb_man.int_man.clique.to_matrix(int_means)
             # Apply projection to each column
             proj_int_matrix = jax.vmap(
                 self.component_emb.project, in_axes=1, out_axes=1
@@ -183,7 +183,7 @@ class CompleteMixtureOfHarmoniums[
         return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
 
     @property
-    def _bas_clique(self) -> LinearClique:
+    def _bas_clique(self) -> SubspaceMap:
         """The base harmonium's single crossing clique --- the form this level extends."""
         return self.bas_hrm.int_man.clique
 
@@ -193,13 +193,13 @@ class CompleteMixtureOfHarmoniums[
         return IdentityEmbedding(Categorical(self.n_categories))
 
     @property
-    def xy_clique(self) -> LinearClique:
+    def xy_clique(self) -> SubspaceMap:
         """$\\theta_{XY}$: the base interaction, which couples $x$ to $y$ unchanged."""
         return self._bas_clique
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
 
         Node $0$ is $x$, node $1$ is $y$, node $2$ is $k$. Everything else about the graph
@@ -218,7 +218,7 @@ class CompleteMixtureOfHarmoniums[
         address-free and this level is asserting where it lands --- which is also why the
         next line can read its embeddings off as $x$ and $y$.
         """
-        x_emb, y_emb = self._bas_clique.node_embs
+        x_emb, y_emb = self._bas_clique.factor_embs
         rect = Rectangular()
         return (
             ((0, 1), self.xy_clique),

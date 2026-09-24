@@ -24,8 +24,8 @@ from goal.geometry import (
     Differentiable,
     Harmonium,
     IdentityEmbedding,
-    LinearClique,
     Rectangular,
+    SubspaceMap,
 )
 from goal.geometry.exponential_family.variational import (
     VariationalSymmetric,
@@ -102,7 +102,7 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     _obs_man: Observable
     _pst_man: Latent
-    _clique: LinearClique
+    _clique: SubspaceMap
 
     @property
     @override
@@ -116,7 +116,7 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         return (((0, 1), self._clique),)
 
 
@@ -283,8 +283,12 @@ def _hierarchical_harmonium(
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
     mix_man = CompleteMixture(base_lat_man, n_categories)
-    embs = (IdentityEmbedding(obs_man), IdentityEmbedding(mix_man.obs_man))
-    return ConcreteHarmonium(obs_man, mix_man, LinearClique(Rectangular(), embs, (0,)))
+    form = SubspaceMap(
+        Rectangular(),
+        (IdentityEmbedding(obs_man),),
+        (IdentityEmbedding(mix_man.obs_man),),
+    )
+    return ConcreteHarmonium(obs_man, mix_man, form)
 
 
 def _full_base_harmonium(
@@ -292,10 +296,12 @@ def _full_base_harmonium(
     base_lat_man: Differentiable,
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, Lat] for fully connected mode."""
-    embs = (IdentityEmbedding(obs_man), IdentityEmbedding(base_lat_man))
-    return ConcreteHarmonium(
-        obs_man, base_lat_man, LinearClique(Rectangular(), embs, (0,))
+    form = SubspaceMap(
+        Rectangular(),
+        (IdentityEmbedding(obs_man),),
+        (IdentityEmbedding(base_lat_man),),
     )
+    return ConcreteHarmonium(obs_man, base_lat_man, form)
 
 
 def _chain_edges(n: int) -> list[tuple[int, int]]:

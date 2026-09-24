@@ -1,4 +1,5 @@
 from .algebra.clique import Cliques
+from .algebra.cut import CliqueCut
 from .algebra.matrix import (
     Diagonal,
     Identity,
@@ -56,19 +57,17 @@ from .manifold.clique import (
     CliqueEmbedding,
     CliqueProduct,
     LevelCliques,
-    LinearClique,
     LinearCliques,
     RootEmbedding,
-    node_clique,
 )
 from .manifold.combinators import (
     Null,
     Pair,
+    Product,
     Quadruple,
     Replicated,
     Triple,
 )
-from .manifold.cut import CliqueCut
 from .manifold.embedding import (
     ComposedEmbedding,
     Embedding,
@@ -88,6 +87,7 @@ from .manifold.map import (
     MatrixMap,
     MultilayerPerceptron,
     SquareMap,
+    SubspaceMap,
 )
 
 __all__ = [
@@ -123,7 +123,6 @@ __all__ = [
     "Interaction",
     "InteractionEmbedding",
     "LevelCliques",
-    "LinearClique",
     "LinearCliques",
     "LinearComposedEmbedding",
     "LinearEmbedding",
@@ -139,6 +138,7 @@ __all__ = [
     "Pair",
     "PositiveDefinite",
     "PosteriorEmbedding",
+    "Product",
     "Quadruple",
     "Rectangular",
     "Replicated",
@@ -148,6 +148,7 @@ __all__ = [
     "Square",
     "SquareMap",
     "StatisticalMoments",
+    "SubspaceMap",
     "Symmetric",
     "SymmetricConjugated",
     "Triple",
@@ -157,5 +158,4 @@ __all__ = [
     "VariationalDifferentiable",
     "VariationalLatentProcess",
     "VariationalSymmetric",
-    "node_clique",
 ]

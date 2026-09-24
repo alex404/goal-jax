@@ -28,10 +28,10 @@ from jax import Array
 from goal.geometry import (
     DifferentiablePair,
     IdentityEmbedding,
-    LinearClique,
     MultilayerPerceptron,
     PositiveDefinite,
     Rectangular,
+    SubspaceMap,
     VariationalLatentProcess,
 )
 from goal.geometry.exponential_family.harmonium import Harmonium
@@ -97,7 +97,7 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
         return (self.cross_placement(Rectangular(), embs),)
 

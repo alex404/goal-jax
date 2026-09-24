@@ -31,17 +31,17 @@ class CliqueCut:
     far side. Mathematically this is the re-rooting isomorphism --- the same coordinate
     vector read against a different bipartition of the graph.
 
-    Construction validates that the regrouping is well posed, so holding one of these
-    means holding a cut consistent with the layout's dimensions. The index properties are
-    derived from the three fields, not supplied alongside them.
+    :meth:`project` takes a layout's coordinate vector to the three parts, :meth:`join` puts
+    them back, and :attr:`near_idx`, :attr:`cross_idx`, :attr:`far_idx` give the layout
+    positions of each group. Construction checks that the regrouping is well posed, so the
+    three parts always agree with the layout's dimensions.
 
     Raises:
         ValueError: if ``far_node`` is not a node of the cover, or is its only node; if it
             carries no clique of its own, so the cut has no columns; if some crossing
             clique's near part is not itself a clique, so it has no row to sit in; or if a
             crossing clique does not couple the whole far side, so the crossing cliques do
-            not share
-            one column axis.
+            not share one column axis.
     """
 
     # Fields

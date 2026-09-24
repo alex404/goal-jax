@@ -17,7 +17,7 @@ from goal.geometry import (
     CliqueEmbedding,
     Diagonal,
     Interaction,
-    LinearClique,
+    SubspaceMap,
 )
 from goal.models import (
     DiagonalNormal,
@@ -306,7 +306,7 @@ class TestMFAGraph:
             @override
             def root_placements(
                 self,
-            ) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+            ) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
                 return self.placements_of(self.obs_man)
 
         expanded = _Expanded(base.obs_man, base.n_categories)  # pyright: ignore[reportArgumentType]
@@ -387,14 +387,15 @@ class TestDerivedInteractionEmbeddings:
 
     @classmethod
     def _blocks(cls, **kwargs) -> tuple[Interaction[Any, Any], ...]:
-        blocks = cls._mfa(**kwargs).int_man.blocks
-        for block in blocks:
-            assert isinstance(block, Interaction)
-        return blocks
+        m = cls._mfa(**kwargs).int_man
+        return tuple(
+            Interaction(m.cod_man, m.dom_man, (placement,), (path,))
+            for placement, path in zip(m.placements, m.paths, strict=True)
+        )
 
     @classmethod
     def _dom_paths(cls, **kwargs) -> tuple[CliqueEmbedding[Any], ...]:
-        paths = tuple(block.dom_path for block in cls._blocks(**kwargs))
+        paths = tuple(block.paths[0][1] for block in cls._blocks(**kwargs))
         for path in paths:
             assert isinstance(path, CliqueEmbedding)
         return paths  # pyright: ignore[reportReturnType]
@@ -421,15 +422,19 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         xyk = self._blocks()[1]
+        dom_path = xyk.paths[0][1]
+        assert dom_path is not None
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_level(coords)
-        y_emb = mfa.bas_hrm.int_man.clique.node_embs[1]
+        y_emb = mfa.bas_hrm.int_man.clique.factor_embs[1]
         expected = jax.vmap(y_emb.project, in_axes=1, out_axes=1)(
-            mix.int_man.to_matrix(m_yk)
+            mix.int_man.clique.to_matrix(m_yk)
         )
-        assert jnp.array_equal(xyk.dom_path.project(coords), m_yk)  # pyright: ignore[reportOptionalMemberAccess]
-        assert jnp.allclose(xyk.project_domain(coords), expected.ravel())
+        assert jnp.array_equal(dom_path.project(coords), m_yk)
+        assert jnp.allclose(
+            xyk.clique.project_dom(dom_path.project(coords)), expected.ravel()
+        )
 
     def test_embedding_lands_only_in_that_block(self) -> None:
         """A coupling writes to its own clique and nowhere else."""

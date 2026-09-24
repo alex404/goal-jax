@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import Diagonal, PositiveDefinite, Scale
+from goal.geometry import Diagonal, PositiveDefinite, Product, Scale
 from goal.models import CanonicalCorrelationAnalysis
 
 jax.config.update("jax_platform_name", "cpu")
@@ -67,11 +67,18 @@ class TestGraph:
         model = cca(fst_dim=3, snd_dim=2, lat_dim=2)
         assert model.int_man.clique_dims == (3 * 2, 2 * 2)
 
-    def test_branch_maps_share_domain_and_codomain(self) -> None:
-        """What lets a single ``Interaction`` hold both branches."""
-        fst_block, snd_block = cca().int_man.blocks
-        assert fst_block.dom_man == snd_block.dom_man
-        assert fst_block.cod_man == snd_block.cod_man
+    def test_branch_forms_contract_the_shared_latent(self) -> None:
+        """What lets a single ``Interaction`` hold both branches.
+
+        Each branch's form contracts the same latent node and outputs into its own
+        observable node; the interaction's two sides are the whole pair and the latent.
+        """
+        m = cca().int_man
+        (_, fst_form), (_, snd_form) = m.placements
+        assert fst_form.dom_man == snd_form.dom_man
+        assert fst_form.cod_man != snd_form.cod_man
+        assert fst_form.cod_man == Product((m.cod_man.fst_man,))
+        assert snd_form.cod_man == Product((m.cod_man.snd_man,))
 
 
 class TestDimensions:

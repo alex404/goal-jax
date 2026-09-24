@@ -82,8 +82,15 @@ class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient],
 
     Mathematically, a linear embedding $\\phi: \\mathcal{M} \\to \\mathcal{N}$ comes with:
 
-    - A projection $\\pi: \\mathcal{N} \\to \\mathcal{M}$ satisfying $\\pi \\circ \\phi = \\text{id}_{\\mathcal{M}}$, and
+    - a projection $\\pi: \\mathcal{N} \\to \\mathcal{M}$, and
     - a translation $\\tau(p, q) = p + \\phi(q)$.
+
+    The two directions act on different coordinate systems, so they are not inverses of
+    each other: ``embed`` takes natural parameters and ``project`` takes mean parameters.
+    $\\pi \\circ \\phi = \\text{id}_{\\mathcal{M}}$ therefore holds for coordinate
+    inclusions but not in general --- ``NormalCovarianceEmbedding`` is the standing
+    example, where the ``Scale`` round trip scales the variance coordinate by $1/d$. Both
+    directions have to be supplied; neither can be derived from the other.
 
     For linear embeddings the pullback is location-independent and reduces to projection.
     """

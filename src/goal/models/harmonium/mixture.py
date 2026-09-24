@@ -21,13 +21,12 @@ from ...geometry import (
     Differentiable,
     ExponentialFamilyProduct,
     IdentityEmbedding,
-    LinearClique,
     LinearEmbedding,
     Manifold,
     Rectangular,
     StatisticalMoments,
+    SubspaceMap,
     SymmetricConjugated,
-    node_clique,
 )
 from ..base.categorical import (
     Categorical,
@@ -88,16 +87,16 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def root_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def root_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         """The observable is one node, however much structure it has of its own.
 
         A mixture's interaction reaches the observable's parameters as a *unit* --- one
         column per component --- so it cannot factor across the observable's own nodes.
-        Expanding them would give the interaction more nodes than it has axes, and the
+        Expanding them would give the interaction more nodes than it has factors, and the
         cross clique would name the wrong latent. This is what makes a mixture
         over a harmonium a two-node graph.
         """
-        return (((0,), node_clique(self.obs_man)),)
+        return (((0,), SubspaceMap.whole(self.obs_man)),)
 
     @property
     @override
@@ -106,7 +105,7 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], LinearClique], ...]:
+    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
         """The observable (node $0$) coupled to the category (node $1$).
 
         Structure is fixed: a Rectangular form selecting the coupled part of the
@@ -141,10 +140,12 @@ class Mixture[Observable: Differentiable](
         rho_0 = self.obs_man.log_partition_function(obs_bias)
 
         # Convert to 2D matrix and transpose to get columns as rows
-        int_comps = self.int_man.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
+        int_comps = self.int_man.clique.to_matrix(
+            int_mat
+        ).T  # [n_categories-1, sub_obs_dim]
 
         def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = self.int_man.clique.node_embs[0].translate(
+            adjusted_obs = self.int_man.clique.factor_embs[0].translate(
                 obs_bias, comp_params
             )
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
@@ -187,7 +188,7 @@ class Mixture[Observable: Differentiable](
         obs_means = jnp.sum(weighted_comps, axis=0)
 
         # Project components (excluding first) to interaction subspace
-        projected_comps = jax.vmap(self.int_man.clique.node_embs[0].project)(
+        projected_comps = jax.vmap(self.int_man.clique.factor_embs[0].project)(
             weighted_comps[1:]
         )
         # [n_categories-1, sub_obs_dim]
@@ -221,11 +222,13 @@ class Mixture[Observable: Differentiable](
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
 
         # Convert to 2D matrix and transpose to get columns as rows
-        int_cols = self.int_man.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
+        int_cols = self.int_man.clique.to_matrix(
+            int_mat
+        ).T  # [n_categories-1, sub_obs_dim]
 
         # Translate each column from subspace to full observable space
         def translate_col(col: Array) -> Array:
-            return self.int_man.clique.node_embs[0].translate(obs_bias, col)
+            return self.int_man.clique.factor_embs[0].translate(obs_bias, col)
 
         translated = jax.vmap(translate_col)(int_cols)
 
@@ -299,7 +302,9 @@ class CompleteMixture[Observable: Differentiable](
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
         # Convert to 2D matrix and transpose to get columns as rows [n_categories-1, obs_dim]
-        int_dense = self.int_man.to_matrix(int_means)  # [obs_dim, n_categories-1]
+        int_dense = self.int_man.clique.to_matrix(
+            int_means
+        )  # [obs_dim, n_categories-1]
         int_cols = int_dense.T  # [n_categories-1, obs_dim]
 
         # Compute first component
@@ -351,7 +356,7 @@ class CompleteMixture[Observable: Differentiable](
         projected_comps = cmp_man_minus.map(to_interaction, components_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.rep.from_matrix(projected_comps.T)
+        int_mat = self.int_man.clique.from_matrix(projected_comps.T)
         lkl_params = self.lkl_fun_man.join_coords(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
@@ -407,6 +412,6 @@ class AnalyticMixture[Observable: Analytic](
         int_cols = cmp_man1.map(to_interaction, nat_comps_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.rep.from_matrix(int_cols.T)
+        int_mat = self.int_man.clique.from_matrix(int_cols.T)
 
         return self.lkl_fun_man.join_coords(obs_bias, int_mat)

@@ -1,11 +1,11 @@
 Cut Views
 =========
 
-.. automodule:: goal.geometry.manifold.cut
+.. automodule:: goal.geometry.algebra.cut
    :noindex:
    :no-members:
 
-.. autoclass:: goal.geometry.manifold.cut.CliqueCut
+.. autoclass:: goal.geometry.algebra.cut.CliqueCut
    :members:
    :undoc-members:
    :show-inheritance:

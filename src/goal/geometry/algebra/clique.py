@@ -191,8 +191,7 @@ class Cliques(ABC):
 
         The cliques lying wholly within $R$, those crossing its boundary, and those lying
         wholly outside it. :attr:`root_cliques` and its two siblings read these back as
-        cliques; positions are what a caller needs to index anything held alongside the
-        cover.
+        cliques; positions are what indexes anything held alongside the cover.
         """
         roots = self.root_nodes
         root: list[int] = []

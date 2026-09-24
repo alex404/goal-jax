@@ -23,8 +23,8 @@ Null Manifold
    :show-inheritance:
 
 
-Product Manifolds
------------------
+Cartesian Products
+------------------
 
 .. autoclass:: goal.geometry.manifold.combinators.Tuple
    :members:
@@ -47,6 +47,14 @@ Product Manifolds
    :show-inheritance:
 
 .. autoclass:: goal.geometry.manifold.combinators.Replicated
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Tensor Products
+---------------
+
+.. autoclass:: goal.geometry.manifold.combinators.Product
    :members:
    :undoc-members:
    :show-inheritance:
