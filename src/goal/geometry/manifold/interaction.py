@@ -25,8 +25,9 @@ import jax.numpy as jnp
 from jax import Array
 
 from .base import Manifold
+from .clique import SubspaceMap
 from .embedding import LinearEmbedding
-from .map import LinearMap, SubspaceMap
+from .map import LinearMap
 from .util import split_by_dims
 
 ### Interactions ###

@@ -13,16 +13,35 @@ Review in this order; each module depends only on the ones above it.
 - `algebra/util.py` removed: `split_by_dims` moved back to `manifold/util.py`, its only callers
   being in `manifold/`.
 
-## 2. `geometry/manifold/map.py` (589), `combinators.py` (301) --- `SubspaceMap`, `Product`
+## 2. `geometry/manifold/map.py` (589), `combinators.py`, `embedding.py` --- decided 2026-09-26, not yet done
 
-- `SubspaceMap`: `rep` plus `cod_embs` / `dom_embs`; direction is group membership, `trn_man`
-  swaps the groups; address-free. `SubspaceMap.whole(man)` builds a root form.
-- `rep` stays on `SubspaceMap` for a future convolutional `MatrixRep`.
-- Field order disagrees: `SubspaceMap` is codomain first, `MatrixMap` domain first.
-- `Product` is the tensor product (`Product(())` has dim 1), the counterpart of `Null` for `Tuple`.
+Decisions:
+- No reset to main and no re-typing. `SubspaceMap` is main's `EmbeddedMap` with a tuple of
+  embeddings per side (tensor-product sides, empty side = constant/bias) plus factor accessors.
+  `D, C` generics would be erased in the heterogeneous `placements` tuple and nothing reads them;
+  models get their types from `Interaction[Domain, Codomain]`.
+- `MatrixMap` stays (reference for `SubspaceMap` at arity 2 in tests; `SquareMap`'s parent).
+- Subspaces stay bundled with the map (the `d37779f` phase stripped them; reverted in `aed0cfb`).
+
+Next steps:
+1. Done: `SubspaceMap` and `Product` moved into `manifold/clique.py` ("Subspace Maps" section).
+   `combinators.py` is main's file up to ruff formatting. Rename later; leading candidate
+   `CliqueForm` (the code already says "form").
+2. Diff `map.py` against main. Expected only: `EmbeddedMap` -> `MatrixMap` without embeddings;
+   `AmbientMap`, `BlockMap`, embedding-composition methods removed; `AffineMap` domain behind a
+   private `_dom_man`. Anything else gets reviewed; then `map.py` counts as battle-tested.
+3. `FirstEmbedding` / `SecondEmbedding` (new in `embedding.py`, exported, no users): delete?
+4. `Product` now sits in `clique.py` beside `CliqueProduct` (a disjoint union): two
+   "products" in one module. Revisit names in §3.
+
+Checked: `../goal-apps` uses none of the removed API. Untracked `variational_mnist` scripts
+still import `EmbeddedMap` / `BlockMap` (experimental, left broken).
 
 ## 3. `geometry/manifold/clique.py` (632) --- the layout (**next: walk method by method**)
 
+- Opens with the moved `SubspaceMap`: name it, and trim (`to_tensor`/`from_tensor`/
+  `_require_dense` are test-only; `cod_dims`/`dom_dims` beside `sub_dims`; public
+  `project_cod`/`embed_cod`/`project_dom` wrappers). Field order vs `MatrixMap`.
 - `LinearCliques.placements`: one `(members, form)` per clique, member i the node of factor i
   in `cod_embs + dom_embs` order. Placements are validated on access to `cliques`, not at
   construction.

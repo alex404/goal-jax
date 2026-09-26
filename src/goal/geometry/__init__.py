@@ -57,12 +57,13 @@ from .manifold.clique import (
     CliqueProduct,
     LevelCliques,
     LinearCliques,
+    Product,
     RootEmbedding,
+    SubspaceMap,
 )
 from .manifold.combinators import (
     Null,
     Pair,
-    Product,
     Quadruple,
     Replicated,
     Triple,
@@ -86,7 +87,6 @@ from .manifold.map import (
     MatrixMap,
     MultilayerPerceptron,
     SquareMap,
-    SubspaceMap,
 )
 
 __all__ = [

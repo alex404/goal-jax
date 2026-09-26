@@ -15,6 +15,20 @@ Class Hierarchy
 \
 
 
+Subspace Maps
+-------------
+
+.. autoclass:: goal.geometry.manifold.clique.Product
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.clique.SubspaceMap
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 Clique Embeddings
 -----------------
 

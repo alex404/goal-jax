@@ -1,8 +1,6 @@
 """Combinators for building complex manifolds from simpler ones.
 
-Provides Cartesian products of fixed arity (`Pair`, `Triple`, `Quadruple`), homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access, so its dimension is the *sum* of its components'.
-
-`Product` is the other combination: coordinates are the flattened joint rather than a concatenation, so its dimension is the *product*. It names the domain and codomain of a `SubspaceMap` in `manifold/map.py`, whose factors are exactly such a joint.
+Provides product manifolds (`Pair`, `Triple`), homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
 """
 
 from __future__ import annotations
@@ -10,7 +8,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from math import prod
 from typing import override
 
 import jax
@@ -22,45 +19,12 @@ from .base import Manifold
 
 @dataclass(frozen=True)
 class Null(Manifold):
-    """A zero-dimensional manifold with no coordinates.
-
-    The unit of the Cartesian product: adjoining it to a ``Tuple`` changes nothing.
-    :class:`Product` has its own unit, of dimension one.
-    """
+    """A zero-dimensional manifold with no coordinates."""
 
     @property
     @override
     def dim(self) -> int:
         return 0
-
-
-@dataclass(frozen=True)
-class Product(Manifold):
-    """Tensor product of manifolds, with coordinates stored as the flattened joint.
-
-    The other way to combine manifolds: where a ``Tuple`` concatenates its components'
-    coordinates, this takes their outer product, so the dimension is the *product* of the
-    factors' rather than the sum. That is why it cannot be a ``Tuple`` --- a joint has no
-    decomposition by slicing.
-
-    The empty product has dimension one, its single coordinate being the constant $1$.
-    Compare :class:`Null`, the empty Cartesian product, which has dimension zero.
-
-    Mathematically, $\\mathcal M_1 \\otimes \\cdots \\otimes \\mathcal M_k$ with $\\dim =
-    \\prod_i \\dim(\\mathcal M_i)$.
-    """
-
-    # Fields
-
-    factors: tuple[Manifold, ...]
-    """The manifolds whose joint this is, in factor order."""
-
-    # Overrides
-
-    @property
-    @override
-    def dim(self) -> int:
-        return prod(factor.dim for factor in self.factors)
 
 
 @dataclass(frozen=True)
@@ -121,7 +85,7 @@ class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
 
 @dataclass(frozen=True)
 class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
-    """Cartesian product of three manifolds, with coordinates stored as ``[fst | snd | trd]``."""
+    """Product of three manifolds, with coordinates stored as ``[fst | snd | trd]``."""
 
     # Contract
 
@@ -172,7 +136,7 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
 class Quadruple[First: Manifold, Second: Manifold, Third: Manifold, Fourth: Manifold](
     Tuple, ABC
 ):
-    """Cartesian product of four manifolds, with coordinates stored as ``[fst | snd | trd | fth]``."""
+    """Product of four manifolds, with coordinates stored as ``[fst | snd | trd | fth]``."""
 
     # Contract
 

@@ -14,10 +14,10 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.clique import LevelCliques
+from ..manifold.clique import LevelCliques, SubspaceMap
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.interaction import Interaction
-from ..manifold.map import AffineMap, LinearMap, SubspaceMap
+from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
 from .base import (
     Analytic,

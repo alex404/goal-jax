@@ -47,14 +47,6 @@ Linear Maps
    :undoc-members:
    :show-inheritance:
 
-Subspace Maps
--------------
-
-.. autoclass:: goal.geometry.manifold.map.SubspaceMap
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Affine Maps
 -----------
 
