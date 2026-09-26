@@ -27,7 +27,6 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
-    CliqueCut,
     Diagonal,
     ExponentialFamily,
     IdentityEmbedding,
@@ -311,7 +310,7 @@ def test_layout_is_jit_static() -> None:
 
 
 class TestCliqueAddressing:
-    """Per-clique coordinates, and re-viewing the layout across an arbitrary node cut."""
+    """Per-clique coordinates."""
 
     def test_clique_dims_sum_to_dim(self) -> None:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
@@ -320,7 +319,9 @@ class TestCliqueAddressing:
     def test_one_form_per_clique(self) -> None:
         """The declared graph and the parameter layout must agree clique for clique."""
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        assert len(model.clique_dims) == len(model.canonical_cliques)
+        assert len(model.clique_dims) == sum(
+            len(group) for group in model.canonical_cliques
+        )
 
     def test_split_join_cliques_round_trip(self) -> None:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
@@ -332,107 +333,6 @@ class TestCliqueAddressing:
         parts = model.split_cliques(jnp.zeros(model.dim))
         assert tuple(p.size for p in parts) == model.clique_dims
 
-    def test_cut_isolating_the_deepest_node(self) -> None:
-        """x-y-k re-viewed as (x, y) | k: the crossing clique gets one row band."""
-        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        cut = model.cut(2)
-        assert cut.n_cols == model.clique_dims[-1]
-        assert len(cut.cross_idx) == 1
-
-    def test_cut_round_trips(self) -> None:
-        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        params = jax.random.normal(jax.random.PRNGKey(2), (model.dim,))
-        cut = model.cut(2)
-        assert jnp.allclose(cut.join(*cut.project(params)), params)
-
-    def test_cut_rejects_a_sub_statistic_coupling(self) -> None:
-        """A Gaussian interaction couples part of the latent statistic, so has no view.
-
-        This is why ``cut`` is not a generalization of ``split_level``: the level split's
-        cross partition is free to couple a sub-statistic, a single matrix view is not.
-        """
-        model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        with pytest.raises(ValueError, match="does not couple the whole far side"):
-            model.cut(1)
-
-    def test_cut_rejects_a_far_node_with_no_clique(self) -> None:
-        """Singleton cliques are optional, so the far node may carry no clique at all.
-
-        Without this guard the cut has zero columns and every crossing clique is read as
-        a row band of width nothing --- silently, since no arithmetic contradicts it.
-        """
-        forms = (_place((0,), (2,)), _place((0, 1), (2, 3)))
-        layout = _Layout(frozenset({0}), forms)
-        with pytest.raises(ValueError, match="has no clique of its own"):
-            layout.cut(1)
-
-
-class TestCliqueCutIndices:
-    """The cut's index bookkeeping, over a cover and its clique sizes directly.
-
-    Relocated from ``clique.py`` when ``CliqueCut`` moved to the manifold layer: the class
-    reads dimensions and its operations are array work, so it cannot live in the JAX-free
-    combinatorics module. The cover is given in *storage* order and built by hand, which is
-    what these check the class accepts.
-    """
-
-    # x = 0 (dim 4), y = 1 (dim 2), k = 2 (dim 2): MFA's layout.
-    COVER: tuple[tuple[int, ...], ...] = ((0,), (0, 1), (0, 1, 2), (1,), (1, 2), (2,))
-    DIMS: tuple[int, ...] = (4, 8, 16, 2, 4, 2)
-
-    def test_the_mixture_view_of_mfa(self) -> None:
-        cut = CliqueCut(self.COVER, self.DIMS, 2)
-        assert cut.near_idx == (0, 1, 3)
-        assert cut.cross_idx == (2, 4)
-        assert cut.far_idx == (5,)
-        assert cut.cross_rows == (1, 2)
-        assert cut.n_cols == 2
-
-    def test_the_near_side_is_the_base_harmonium(self) -> None:
-        """The near side sums to the factor analyzer's own parameter vector."""
-        cut = CliqueCut(self.COVER, self.DIMS, 2)
-        assert sum(self.DIMS[i] for i in cut.near_idx) == 4 + 8 + 2
-
-    def test_every_crossing_clique_is_a_full_row_band(self) -> None:
-        cut = CliqueCut(self.COVER, self.DIMS, 2)
-        for pos, i in enumerate(cut.cross_idx):
-            height = self.DIMS[cut.near_idx[cut.cross_rows[pos]]]
-            assert self.DIMS[i] == height * cut.n_cols
-
-    def test_rows_are_distinct_at_a_single_node(self) -> None:
-        """What makes the row assignment total, and the matrix well formed."""
-        cut = CliqueCut(self.COVER, self.DIMS, 2)
-        assert len(set(cut.cross_rows)) == len(cut.cross_rows)
-
-    def test_a_stray_far_node_is_rejected(self) -> None:
-        with pytest.raises(
-            ValueError, match="far_node 7 is not one of the graph's nodes"
-        ):
-            CliqueCut(self.COVER, self.DIMS, 7)
-
-    def test_cutting_the_only_node_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="leaves no near side"):
-            CliqueCut(((0,),), (3,), 0)
-
-    def test_a_far_node_without_a_clique_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="has no clique of its own"):
-            CliqueCut(((0,), (0, 1)), (4, 8), 1)
-
-    def test_a_crossing_clique_without_a_row_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="has no row band"):
-            CliqueCut(((0, 1), (1,)), (8, 2), 1)
-
-    def test_a_partial_coupling_is_rejected(self) -> None:
-        """A linear Gaussian model has no cut at its latent node.
-
-        Combinatorially admissible --- both ``(0,)`` and ``(1,)`` are in the cover --- but
-        the interaction reaches only a subspace of node 1, so the crossing cliques do not
-        share one column axis. This is the condition that keeps a cut from being a mere
-        generalization of a level split.
-        """
-        with pytest.raises(ValueError, match="does not couple the whole far side"):
-            CliqueCut(((0,), (0, 1), (1,)), (4, 4, 2), 1)
-
 
 ### Layout Invariants ###
 
@@ -440,10 +340,10 @@ class TestCliqueCutIndices:
 def layout_problems(man: LinearCliques) -> list[str]:
     """Every way a clique manifold's graph and its parameter layout can disagree.
 
-    Five invariants, in dependency order. **Storage order is the order the graph induces**
-    comes first, and returns on its own: every later check pairs a form with the clique
-    sitting at its position, so under a mismatch they would blame the wrong clique or pass
-    by coincidence. Then the forms tile the coordinate vector, each form has one axis per
+    Five invariants, in dependency order. **Storage lists the level groups in order** comes
+    first, and returns on its own: ``split_coords`` slices the root, cross, and deep
+    partitions as contiguous runs, so a clique stored out of its group lands in the wrong
+    partition. Within a group, storage order is the model's own choice. Then the forms tile the coordinate vector, each form has one axis per
     node, its axes multiply out to its size, and finally every clique touching a node agrees
     about what occupies that node.
 
@@ -453,14 +353,15 @@ def layout_problems(man: LinearCliques) -> list[str]:
     meeting at a node describe the same thing or one of them is coupling something that is
     not there.
 
-    Nothing at runtime requires any of this --- :meth:`clique_offsets` and
-    :meth:`clique_index` both read the layout's own cliques. They are properties of every
-    model the library ships, enforced here rather than at construction.
+    None of this is checked at construction. They are properties of every model the
+    library ships, enforced here.
     """
     canonical = man.canonical_cliques
     members = man.cliques
-    if members != canonical:
-        return [f"storage order {members} is not canonical order {canonical}"]
+    group_of = {c: g for g, group in enumerate(canonical) for c in group}
+    groups = [group_of[c] for c in members]
+    if groups != sorted(groups):
+        return [f"storage order {members} does not follow the level groups {canonical}"]
     dims = man.clique_dims
     axes = man.clique_shapes
     out: list[str] = []
@@ -520,6 +421,13 @@ class TestLayoutInvariants:
     @pytest.mark.parametrize("name", [n for n, _ in shipped_models()])
     def test_layout_agrees_with_graph(self, name: str) -> None:
         assert layout_problems(dict(shipped_models())[name]) == []
+
+    def test_a_clique_stored_out_of_its_group_is_reported(self) -> None:
+        """A crossing clique stored before the root bias would be sliced into the root."""
+        forms = (_place((0, 1), (2, 3)), _place((0,), (2,)), _place((1,), (3,)))
+        problems = layout_problems(_Layout(frozenset({0}), forms))
+        assert len(problems) == 1
+        assert "does not follow the level groups" in problems[0]
 
     @pytest.mark.parametrize("name", [n for n, _ in shipped_models()])
     def test_the_level_split_agrees_with_the_span_dimensions(self, name: str) -> None:
@@ -653,7 +561,6 @@ class TestDeclarationOrderRegressions:
         as the connectivity dictates rather than as the labels suggest.
         """
         man = _misrooted()
-        assert man.node_levels == {0: 0, 2: 1, 1: 2}
         assert man.level_sets == ((0,), (2,), (1,))
 
     def test_misrooted_deep_span_labels_its_own_cliques(self) -> None:
@@ -694,12 +601,7 @@ class _Layout(LinearCliques):
 
 
 def _forked() -> _Layout:
-    """A fork: two crossing cliques, ``(0,1)`` and ``(0,2)``, sharing the near part ``(0,)``.
-
-    The shape that collided when ``cut`` admitted an arbitrary set of far nodes --- cutting
-    across ``{1, 2}`` gave both cliques the same row band. Cutting one node at a time, they
-    land on different sides and the collision cannot arise.
-    """
+    """A fork: two crossing cliques, ``(0,1)`` and ``(0,2)``, below one root ``(0,)``."""
     forms = (
         _place((0,), (2,)),
         _place((0, 1), (2, 4)),
@@ -708,36 +610,6 @@ def _forked() -> _Layout:
         _place((2,), (4,)),
     )
     return _Layout(frozenset({0}), forms)
-
-
-class TestCutGuards:
-    """``cut`` rejects the inputs for which no single matrix view exists."""
-
-    def test_two_crossing_cliques_cannot_share_a_row(self) -> None:
-        """Splitting off one node makes the row assignment total, not merely checked.
-
-        Two crossing cliques sharing a near part $P$ would both be $P \\cup \\{far\\}$ and
-        so be the same clique. The forked graph is the shape that used to collide when an
-        arbitrary set of far nodes was allowed; cutting either branch node is now fine.
-        """
-        man = _forked()
-        for far in (1, 2):
-            cut = man.cut(far)
-            assert len(set(cut.cross_rows)) == len(cut.cross_rows)
-            coords = jnp.arange(float(man.dim))
-            assert jnp.array_equal(cut.join(*cut.project(coords)), coords)
-
-    def test_rejects_a_node_outside_the_graph(self) -> None:
-        with pytest.raises(
-            ValueError, match="far_node 7 is not one of the graph's nodes"
-        ):
-            _forked().cut(7)
-
-    def test_rejects_cutting_the_only_node(self) -> None:
-        forms = (_place((0,), (4,)),)
-        man = _Layout(frozenset({0}), forms)
-        with pytest.raises(ValueError, match="leaves no near side"):
-            man.cut(0)
 
 
 class TestPlacementRules:
@@ -789,13 +661,10 @@ class TestPlacementRules:
         forms = (_place((10,), (2,)), _place((10, 40), (2, 3)), _place((40,), (3,)))
         man = _Layout(frozenset({10}), forms)
         assert man.nodes == (10, 40)
-        assert man.node_levels == {10: 0, 40: 1}
+        assert man.level_sets == ((10,), (40,))
         assert man.dim == 2 + 6 + 3
         assert man.clique_index((10, 40)) == 1
-        assert man.canonical_cliques == ((10,), (10, 40), (40,))
-        cut = man.cut(40)
-        coords = jnp.arange(float(man.dim))
-        assert jnp.array_equal(cut.join(*cut.project(coords)), coords)
+        assert man.canonical_cliques == (((10,),), ((10, 40),), ((40,),))
 
 
 class TestSplitJoinGuards:

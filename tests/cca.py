@@ -45,7 +45,7 @@ class TestGraph:
         model = cca()
         assert model.n_nodes == 3
         assert model.root_nodes == frozenset({0, 1})
-        assert model.canonical_cliques == ((0,), (1,), (0, 2), (1, 2), (2,))
+        assert model.canonical_cliques == (((0,), (1,)), ((0, 2), (1, 2)), ((2,),))
 
     def test_levels_are_depth_two(self) -> None:
         """Both observables sit at level 0; the shared latent is the only deep node."""
@@ -53,7 +53,9 @@ class TestGraph:
 
     def test_one_form_per_clique(self) -> None:
         model = cca()
-        assert len(model.clique_dims) == len(model.canonical_cliques)
+        assert len(model.clique_dims) == sum(
+            len(group) for group in model.canonical_cliques
+        )
         assert sum(model.clique_dims) == model.dim
 
     def test_observable_spans_two_nodes(self) -> None:

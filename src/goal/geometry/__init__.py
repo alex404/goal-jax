@@ -1,5 +1,4 @@
 from .algebra.clique import Cliques
-from .algebra.cut import CliqueCut
 from .algebra.matrix import (
     Diagonal,
     Identity,
@@ -96,7 +95,6 @@ __all__ = [
     "AnalyticConjugated",
     "AnalyticPair",
     "AnalyticProduct",
-    "CliqueCut",
     "CliqueEmbedding",
     "CliqueProduct",
     "Cliques",

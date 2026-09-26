@@ -34,7 +34,6 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..algebra.clique import Cliques
-from ..algebra.cut import CliqueCut
 from ..algebra.matrix import MatrixRep
 from ..algebra.util import split_by_dims
 from .base import Manifold
@@ -273,13 +272,6 @@ class LinearCliques(Cliques, Manifold, ABC):
                 raise ValueError(f"{msg}, expected ({size},)")
         return jnp.concatenate(parts)
 
-    def cut(self, far_node: int) -> CliqueCut:
-        """Re-view the layout with ``far_node`` split off instead of the root nodes.
-
-        Positions and dimensions both come from :attr:`placements`.
-        """
-        return CliqueCut(self.cliques, self.clique_dims, far_node)
-
     # Private
 
     @staticmethod
@@ -493,14 +485,19 @@ class LevelCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     def split_coords(self, coords: Array) -> tuple[Array, Array, Array]:
         """Split coordinates into the root, cross, and deep partitions.
 
-        The two offsets come from :attr:`placements`, via
-        :meth:`~goal.geometry.algebra.clique.Cliques.level_split`, rather than from the
-        partitions' own dimensions, so the split always matches the stored layout.
+        The two offsets come from :attr:`placements`, each stored clique counted in the
+        group :meth:`~goal.geometry.algebra.clique.Cliques.level_split` puts it in, rather
+        than from the partitions' own dimensions, so the split always matches the stored
+        layout. Storage lists the root, cross, and deep cliques in that order.
         """
-        root_idx, cross_idx, _ = self.level_split()
-        dims = self.clique_dims
-        root_dim = sum(dims[i] for i in root_idx)
-        cross_dim = root_dim + sum(dims[i] for i in cross_idx)
+        root, cross, _ = self.level_split()
+        root_dim = cross_dim = 0
+        for members, dim in zip(self.cliques, self.clique_dims, strict=True):
+            if members in root:
+                root_dim += dim
+            elif members in cross:
+                cross_dim += dim
+        cross_dim += root_dim
         return coords[:root_dim], coords[root_dim:cross_dim], coords[cross_dim:]
 
     @override
@@ -545,7 +542,7 @@ class CliqueProduct[Fst: Manifold, Snd: Manifold](LinearCliques, Pair[Fst, Snd],
     @override
     def root_nodes(self) -> frozenset[int]:
         """Every node: nothing links the two sides, so none is above another."""
-        return frozenset(self.nodes)
+        return frozenset(i for clique in self.cliques for i in clique)
 
     @property
     @override
@@ -588,7 +585,8 @@ class RootEmbedding[
     """The clique manifold with the full root partition."""
 
     def __post_init__(self) -> None:
-        if not self.sub_man.same_graph(self.amb_man):
+        same_roots = self.sub_man.root_nodes == self.amb_man.root_nodes
+        if not same_roots or self.sub_man.cliques != self.amb_man.cliques:
             msg = "sub and ambient must share a clique set: "
             sub_roots = sorted(self.sub_man.root_nodes)
             amb_roots = sorted(self.amb_man.root_nodes)

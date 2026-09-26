@@ -6,8 +6,7 @@ interaction, $(x,y,k)$ for the component-specific coupling, and $(x,k)$ for per-
 observable shifts. That fork --- $y$ and $k$ both adjacent to $x$ --- is why the graph has
 depth two rather than being a chain.
 
-The same coordinates read two ways. :meth:`to_mixture_coords` re-roots the layout at $k$
-via :meth:`~goal.geometry.manifold.clique.LinearCliques.cut`, turning the model into a
+The same coordinates read two ways. :meth:`to_mixture_coords` reorders them into a
 :class:`~goal.models.harmonium.mixture.CompleteMixture` whose observable is the base
 harmonium; :meth:`from_mixture_coords` inverts it. Conjugation and whitening are written
 against whichever view makes them a one-liner.
@@ -26,7 +25,6 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
-    CliqueCut,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
@@ -132,10 +130,6 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
 
 
 # Mixture of Harmoniums
-
-
-_CATEGORY_NODE = 2
-"""Index of the category node $k$ in the $x - y - k$ graph declared below."""
 
 
 @dataclass(frozen=True)
@@ -298,32 +292,33 @@ class CompleteMixtureOfHarmoniums[
         """
         return CompleteMixture(self.bas_hrm, self.n_categories)  # pyright: ignore[reportArgumentType]
 
-    @property
-    def mix_cut(self) -> CliqueCut:
-        """Re-view of the graph across the cut $\\{x, y\\} \\mid \\{k\\}$.
-
-        The mixture layout is this model's own layout under a different bipartition: rather
-        than splitting off the root node $x$, it splits off the category node $k$ and
-        gathers everything coupling to it --- $\\theta_{XK}$, $\\theta_{XYK}$,
-        $\\theta_{YK}$ --- into one matrix whose rows follow the base harmonium's clique
-        order. That is exactly ``mix_man``'s three partitions.
-
-        Note this is *not* ``levels[-1]``: the graph has depth two, so its deepest level
-        holds both $y$ and $k$, and cutting there would take $y$ with it.
-        """
-        return self.cut(_CATEGORY_NODE)
-
     def to_mixture_coords(self, coords: Array) -> Array:
         """Repack coordinates from this model's layout to ``mix_man``'s.
 
-        Works identically in natural and mean coordinates: a ``CliqueCut`` is a block
-        permutation, which is the same linear operation in both dual spaces.
+        The two layouts hold the same seven blocks in different orders:
+
+        - this model: $x$ | $xy$, $xyk$, $xk$ | $y$, $yk$, $k$
+        - ``mix_man``: $x$, $xy$, $y$ | $xk$, $xyk$, $yk$ | $k$
+
+        ``mix_man``'s interaction is a matrix with one row per base-harmonium coordinate and
+        one column per non-reference category, stored row-major, so its row bands for $x$,
+        $xy$ and $y$ are the $xk$, $xyk$ and $yk$ blocks concatenated. A block permutation
+        is the same linear operation in natural and mean coordinates.
         """
-        return self.mix_man.join_level(*self.mix_cut.project(coords))
+        x, int_coords, lat_coords = self.split_level(coords)
+        xy, xyk, xk = self.int_man.coord_blocks(int_coords)
+        y, yk, k = self.deep_man.split_level(lat_coords)
+        hrm = self.bas_hrm.join_level(x, xy, y)
+        return self.mix_man.join_level(hrm, jnp.concatenate([xk, xyk, yk]), k)
 
     def from_mixture_coords(self, mix_coords: Array) -> Array:
         """Repack coordinates from ``mix_man``'s layout back to this model's."""
-        return self.mix_cut.join(*self.mix_man.split_level(mix_coords))
+        hrm, cross, k = self.mix_man.split_level(mix_coords)
+        x, xy, y = self.bas_hrm.split_level(hrm)
+        n_cols = self.n_categories - 1
+        xk, xyk, yk = jnp.split(cross, [x.size * n_cols, (x.size + xy.size) * n_cols])
+        int_coords = jnp.concatenate([xy, xyk, xk])
+        return self.join_level(x, int_coords, self.deep_man.join_level(y, yk, k))
 
 
 # Mixture of Conjugated Harmoniums

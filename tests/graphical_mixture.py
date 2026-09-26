@@ -325,31 +325,25 @@ class TestMFAGraph:
         mix = self._mfa().mix_man
         assert mix.root_nodes == frozenset({0})
         assert mix.cliques == ((0,), (0, 1), (1,))
-        assert mix.level_split() == ((0,), (1,), (2,))
+        assert mix.level_split() == (((0,),), ((0, 1),), ((1,),))
 
     def test_all_seven_cliques(self) -> None:
         """Three biases, three couplings, and the triple interaction."""
         assert self._mfa().canonical_cliques == (
-            (0,),
-            (0, 1),
-            (0, 1, 2),
-            (0, 2),
-            (1,),
-            (1, 2),
-            (2,),
+            ((0,),),
+            ((0, 1), (0, 1, 2), (0, 2)),
+            ((1,), (1, 2), (2,)),
         )
 
     def test_depth_is_two_not_three(self) -> None:
-        """Both $y$ and $k$ are adjacent to $x$, so this is a fork, not a chain.
-
-        This is why ``mix_cut`` cannot use ``levels[-1]``: the deepest level holds $y$ as
-        well as $k$, and cutting there would take $y$ along with it.
-        """
+        """Both $y$ and $k$ are adjacent to $x$, so this is a fork, not a chain."""
         assert self._mfa().level_sets == ((0,), (1, 2))
 
     def test_one_form_per_clique(self) -> None:
         mfa = self._mfa()
-        assert len(mfa.clique_dims) == len(mfa.canonical_cliques)
+        assert len(mfa.clique_dims) == sum(
+            len(group) for group in mfa.canonical_cliques
+        )
         assert sum(mfa.clique_dims) == mfa.dim
 
     def test_layout_follows_the_clique_order(self) -> None:
@@ -359,8 +353,8 @@ class TestMFAGraph:
         expected = (mfa.obs_man.dim, xy, xyk, xk, *mfa.pst_man.clique_dims)
         assert mfa.clique_dims == expected
 
-    def test_cut_still_isolates_the_category_node(self) -> None:
-        """The mixture view is a re-view of the derived graph, so it must survive it."""
+    def test_mixture_view_round_trips_on_the_derived_graph(self) -> None:
+        """The mixture view reorders the derived layout's blocks, so it must survive it."""
         mfa = self._mfa()
         params = jax.random.normal(jax.random.PRNGKey(21), (mfa.dim,))
         assert jnp.allclose(
