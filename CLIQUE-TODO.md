@@ -6,19 +6,14 @@ Branch `clique-container`, last commit `aed0cfb` (2026-09-24). Replaces `REVIEW-
 
 Review in this order; each module depends only on the ones above it.
 
-## 1. `geometry/algebra/clique.py` (217) --- the graph
+## 1. `geometry/algebra/clique.py` --- the graph (reviewed 2026-09-26)
 
-- `Cliques` is a rooted graph given as a clique cover over integer nodes; no JAX, no `Manifold`.
-  Contract is `cliques` and `n_roots`; levels, level split and canonical order derive.
-- `canonical_cliques` has no production callers; kept because it states the nesting the
-  `LevelCliques` recursion rests on.
-- `same_graph` compares cover order as well as content. Rename to `same_cover`?
+- Reviewed method by method. `cliques` is free-form; `level_sets` and `canonical_cliques`
+  are the only readers of it, and every other member derives from those two.
+- `algebra/util.py` removed: `split_by_dims` moved back to `manifold/util.py`, its only callers
+  being in `manifold/`.
 
-## 2. `geometry/algebra/util.py` (25)
-
-- `split_by_dims` lives here; `batched_mean` in `manifold/util.py`. One `geometry/util.py`?
-
-## 3. `geometry/manifold/map.py` (589), `combinators.py` (301) --- `SubspaceMap`, `Product`
+## 2. `geometry/manifold/map.py` (589), `combinators.py` (301) --- `SubspaceMap`, `Product`
 
 - `SubspaceMap`: `rep` plus `cod_embs` / `dom_embs`; direction is group membership, `trn_man`
   swaps the groups; address-free. `SubspaceMap.whole(man)` builds a root form.
@@ -26,7 +21,7 @@ Review in this order; each module depends only on the ones above it.
 - Field order disagrees: `SubspaceMap` is codomain first, `MatrixMap` domain first.
 - `Product` is the tensor product (`Product(())` has dim 1), the counterpart of `Null` for `Tuple`.
 
-## 4. `geometry/manifold/clique.py` (632) --- the layout (**next: walk method by method**)
+## 3. `geometry/manifold/clique.py` (632) --- the layout (**next: walk method by method**)
 
 - `LinearCliques.placements`: one `(members, form)` per clique, member i the node of factor i
   in `cod_embs + dom_embs` order. Placements are validated on access to `cliques`, not at
@@ -41,14 +36,14 @@ Review in this order; each module depends only on the ones above it.
 - Known limitation: a hand-paired form borrowed across a level (MFA's $\theta_{XY}$) that
   arrives transposed is caught only when the two nodes' manifolds differ.
 
-## 5. `geometry/manifold/interaction.py` (172)
+## 4. `geometry/manifold/interaction.py` (172)
 
 - Sums path-conjugated forms: $v \mapsto \sum_t \phi_t(\Theta_t \pi_t(v))$.
 - `placements` and `paths` are parallel tuples aligned only by `strict=True` zips. Replace
   with one `(form, cod_path, dom_path)` per term, which also drops the unused `members` and
   its mismatch under `trn_man`.
 
-## 6. `geometry/exponential_family/harmonium.py` (613)
+## 5. `geometry/exponential_family/harmonium.py` (613)
 
 - Base is `LevelCliques[Observable, Interaction, Posterior]`; `split_level` is unchanged.
 - The interaction is still consumed as a `LinearMap` through `lkl_fun_man` / `pst_fun_man`
@@ -58,7 +53,7 @@ Review in this order; each module depends only on the ones above it.
   Delete?
 - `initialize_from_sample` passes the unsliced sample to `obs_man` (predates the branch).
 
-## 7. Models: `graphical/mixture.py` (607), `harmonium/cca.py` (203), `graphical/hmog.py` (386)
+## 6. Models: `graphical/mixture.py` (607), `harmonium/cca.py` (203), `graphical/hmog.py` (386)
 
 - MFA's mixture view (`to_mixture_coords` / `from_mixture_coords`) is a block permutation
   written on the model; `CliqueCut` was removed 2026-09-25.
@@ -68,7 +63,7 @@ Review in this order; each module depends only on the ones above it.
   exposes no canonical directions; rename or document.
 - HMoG declares nothing; its chain comes from the defaults.
 
-## 8. Tests: `clique.py`, `graphical.py` (1003), `interaction.py`, `cca.py`, `graphical_mixture.py`
+## 7. Tests: `clique.py`, `graphical.py` (1003), `interaction.py`, `cca.py`, `graphical_mixture.py`
 
 - `graphical.py` is the one to trust least: several pins test layout implementation rather
   than contract.

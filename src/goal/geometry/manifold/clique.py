@@ -35,11 +35,11 @@ from jax import Array
 
 from ..algebra.clique import Cliques
 from ..algebra.matrix import MatrixRep
-from ..algebra.util import split_by_dims
 from .base import Manifold
 from .combinators import Pair, Tuple
 from .embedding import LinearEmbedding
 from .map import SubspaceMap
+from .util import split_by_dims
 
 ### Clique Embeddings ###
 

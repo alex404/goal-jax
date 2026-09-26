@@ -24,10 +24,10 @@ from typing import Any, override
 import jax.numpy as jnp
 from jax import Array
 
-from ..algebra.util import split_by_dims
 from .base import Manifold
 from .embedding import LinearEmbedding
 from .map import LinearMap, SubspaceMap
+from .util import split_by_dims
 
 ### Interactions ###
 
