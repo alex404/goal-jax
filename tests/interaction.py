@@ -3,7 +3,7 @@
 (``tests/clique.py`` tests ``geometry/algebra/clique.py`` and ``tests/graphical.py`` the
 layouts and the bare form algebra; this file is the clique paired with its paths.)
 
-A ``SubspaceMap`` is a linear map between its node groups, and an ``Interaction`` is a sum
+A ``CliqueMap`` is a linear map between its node groups, and an ``Interaction`` is a sum
 of path-conjugated cliques. Each case takes a live model's interaction and checks that the
 clique operations reproduce the interaction operations once the paths are applied: the
 outer product that builds a sufficient statistic, the application that builds a likelihood,
@@ -46,7 +46,7 @@ def _as_map(int_man: LinearMap[Any, Any]) -> Interaction[Any, Any]:
 def _block(int_man: LinearMap[Any, Any], index: int) -> Interaction[Any, Any]:
     """One term of a multi-form interaction, as an interaction of the same shape."""
     m = _as_map(int_man)
-    return Interaction(m.cod_man, m.dom_man, (m.placements[index],), (m.paths[index],))
+    return Interaction(m.cod_man, m.dom_man, (m.potentials[index],), (m.paths[index],))
 
 
 def _cod_node(m: Interaction[Any, Any], w: Array) -> Array:
@@ -195,7 +195,7 @@ class TestJointDomainCliques:
 
     @pytest.mark.parametrize(("index", "nodes"), [(0, (0, 1)), (2, (0, 2))])
     def test_nodes_and_arity_agree(self, index: int, nodes: tuple[int, ...]) -> None:
-        placed, clique = self._mfa().cross_placements[index]
+        placed, clique = self._mfa().cross_potentials[index]
         assert placed == nodes
         assert clique.arity == 2
 
@@ -215,8 +215,8 @@ class TestJointBlocksAreNotProductsOfMarginals:
 
     Multiplying the nodes' statistics together is exact when every node is observed. When
     two nodes are latent the clique's parameters are $\\mathbb E[\\bigotimes_i \\mathbf s_i]$
-    jointly, and expectation does not pass through a tensor product. ``project_dom`` is the
-    operation for that case: it restricts each embedding along an axis of the joint
+    jointly, and expectation does not pass through a tensor product. ``CliqueMap.outer_product`` is
+    the operation for that case: it restricts each embedding along an axis of the joint
     statistic and never forms a marginal.
     """
 
@@ -281,7 +281,7 @@ class TestArityThreeReproducesMFA:
     def test_dimension_matches_the_live_map(self) -> None:
         _, xyk, clique = self._setup()
         assert clique.dim == xyk.dim
-        assert clique.sub_dims == (4, 2, 2)
+        assert tuple(emb.sub_man.dim for emb in clique.factor_embs) == (4, 2, 2)
 
     def test_mean_parameters_match_at_the_e_step(self) -> None:
         """The decisive one: mean coordinates, both latent nodes dependent."""
@@ -295,9 +295,7 @@ class TestArityThreeReproducesMFA:
         _, m_yk, _ = mix.split_level(lat_means)
 
         live = xyk.outer_product(s_x, lat_means)
-        rebuilt = jnp.outer(
-            clique.factor_embs[0].project(s_x), clique.project_dom(m_yk)
-        ).ravel()
+        rebuilt = clique.outer_product(s_x, m_yk)
         assert jnp.allclose(live, rebuilt)
 
     def test_mean_parameters_match_over_many_draws(self) -> None:
@@ -311,9 +309,7 @@ class TestArityThreeReproducesMFA:
             lat_means = mix.to_mean(mfa.posterior_at(params, x))
             _, m_yk, _ = mix.split_level(lat_means)
             live = xyk.outer_product(s_x, lat_means)
-            rebuilt = jnp.outer(
-                clique.factor_embs[0].project(s_x), clique.project_dom(m_yk)
-            ).ravel()
+            rebuilt = clique.outer_product(s_x, m_yk)
             assert jnp.allclose(live, rebuilt)
 
     def test_posterior_direction_matches(self) -> None:

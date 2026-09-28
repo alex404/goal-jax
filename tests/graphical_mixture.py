@@ -17,7 +17,8 @@ from goal.geometry import (
     CliqueEmbedding,
     Diagonal,
     Interaction,
-    SubspaceMap,
+    Potential,
+    RecursiveLinearCliques,
 )
 from goal.models import (
     DiagonalNormal,
@@ -271,7 +272,7 @@ class TestMFAGraph:
     """MFA's graph is derived from its coupling pattern, not declared clique by clique.
 
     The model states only which nodes each interaction block couples ---
-    ``cross_placements``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
+    ``cross_potentials``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
     mixture one level up, the levels, and the clique layout all follow from that. These
     tests pin what follows, because a wrong derivation would be silent: every operation
     below reads the level split, which does not consult the graph.
@@ -290,28 +291,30 @@ class TestMFAGraph:
         assert clq.root_nodes == frozenset({0})
 
     def test_expanding_the_observable_is_refused_not_mislabelled(self) -> None:
-        """The guard that would have caught this: a multi-node root needs declared cliques.
+        """The guard that would have caught this: a mislabelled crossing clique.
 
-        ``Harmonium.cross_placements`` labels its clique ``(0, 1)``, which names the latent only
-        when the observable is a single node. Undo the ``root_placements`` override and node 1
-        is a *root*, so the declared clique is a lie --- deriving its interaction must refuse
-        rather than produce a cover with ``(0, 1)`` twice and the category unreachable. The
-        refusal now comes from ``coupling``, which needs exactly one root node to know which
-        side is the output.
+        ``Mixture.cross_potentials`` labels its clique ``(0, 1)``, which names the latent only
+        when the observable is a single node. Declare the observable's own nodes as the root
+        potentials and node 1 is a *root*, so the declared clique is a lie --- deriving its
+        interaction must refuse rather than produce a cover with ``(0, 1)`` twice and the
+        category unreachable. The refusal comes from ``cross_paths``, which needs the map's
+        output factors to be exactly the scope's root nodes.
         """
         base = self._mfa().mix_man
 
         class _Expanded(type(base)):
             @property
             @override
-            def root_placements(
+            def root_potentials(
                 self,
-            ) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
-                return self.placements_of(self.obs_man)
+            ) -> tuple[Potential, ...]:
+                obs = self.obs_man
+                assert isinstance(obs, RecursiveLinearCliques)
+                return obs.potentials
 
         expanded = _Expanded(base.obs_man, base.n_categories)  # pyright: ignore[reportArgumentType]
         assert expanded.root_nodes == frozenset({0, 1})
-        with pytest.raises(ValueError, match="touches 2 root nodes"):
+        with pytest.raises(ValueError, match="must be exactly its root nodes"):
             _ = expanded.int_man
 
     def test_the_mixture_view_is_a_two_node_graph(self) -> None:
@@ -383,8 +386,8 @@ class TestDerivedInteractionEmbeddings:
     def _blocks(cls, **kwargs) -> tuple[Interaction[Any, Any], ...]:
         m = cls._mfa(**kwargs).int_man
         return tuple(
-            Interaction(m.cod_man, m.dom_man, (placement,), (path,))
-            for placement, path in zip(m.placements, m.paths, strict=True)
+            Interaction(m.cod_man, m.dom_man, (potential,), (path,))
+            for potential, path in zip(m.potentials, m.paths, strict=True)
         )
 
     @classmethod
@@ -396,9 +399,9 @@ class TestDerivedInteractionEmbeddings:
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
         xy, xyk, xk = self._dom_paths()
-        assert xy.members == (0,)
-        assert xyk.members == (0, 1)
-        assert xk.members == (1,)
+        assert xy.scope == (0,)
+        assert xyk.scope == (0, 1)
+        assert xk.scope == (1,)
 
     def test_block_dims_are_the_selected_products(self) -> None:
         """obs 4, lat 2, 3 categories: x-location 4, y-location 2, k 2."""
@@ -410,8 +413,8 @@ class TestDerivedInteractionEmbeddings:
     def test_the_three_way_block_selects_from_the_joint_yk_block(self) -> None:
         """The point of the whole exercise: it reads a joint block, not two marginals.
 
-        Two steps now, and they are the separation this design is for: the way in slices
-        the $(y,k)$ clique out whole, and the axis embeddings restrict it.
+        The path slices the $(y,k)$ clique out whole; the axis embeddings then restrict
+        it, which ``tests/interaction.py`` checks against the live map.
         """
         mfa = self._mfa()
         mix = mfa.pst_man
@@ -421,14 +424,7 @@ class TestDerivedInteractionEmbeddings:
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_level(coords)
-        y_emb = mfa.bas_hrm.int_man.clique.factor_embs[1]
-        expected = jax.vmap(y_emb.project, in_axes=1, out_axes=1)(
-            mix.int_man.clique.to_matrix(m_yk)
-        )
         assert jnp.array_equal(dom_path.project(coords), m_yk)
-        assert jnp.allclose(
-            xyk.clique.project_dom(dom_path.project(coords)), expected.ravel()
-        )
 
     def test_embedding_lands_only_in_that_block(self) -> None:
         """A coupling writes to its own clique and nowhere else."""
@@ -451,5 +447,5 @@ class TestDerivedInteractionEmbeddings:
         """The structural condition: there must be a block holding the joint statistic."""
         mfa = self._mfa()
         mix = mfa.pst_man
-        with pytest.raises(ValueError, match="no clique on"):
+        with pytest.raises(ValueError, match="not in tuple"):
             mix.clique_emb((0, 1, 2)).project(jnp.zeros(mix.dim))

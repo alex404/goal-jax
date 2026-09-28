@@ -254,7 +254,7 @@ class TestTail:
     ) -> None:
         """Ascending shifts every remaining node down exactly one level.
 
-        This is what lets ``LevelCliques.split_level`` be applied repeatedly. It holds
+        This is what lets ``RecursiveLinearCliques.split_level`` be applied repeatedly. It holds
         because a clique joining level $k$ to level $k - 1$ for $k \\geq 2$ cannot also
         contain a level-0 node --- that node would be adjacent to a level-$k$ one --- so
         the connectivity that set the level survives the ascent.

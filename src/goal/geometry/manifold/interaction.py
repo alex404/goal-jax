@@ -1,6 +1,6 @@
 """One linear map assembled from several clique forms and the paths that reach them.
 
-A :class:`~goal.geometry.manifold.map.SubspaceMap` is already a linear map between its
+A :class:`~goal.geometry.manifold.clique.CliqueMap` is already a linear map between its
 two node groups. What it does not know is what manifold the caller actually holds, and how
 that manifold reaches the nodes it couples --- facts about the graph rather than about the
 form, which is why a map between whole *partitions* is assembled here.
@@ -9,10 +9,10 @@ An :class:`Interaction` supplies those paths over one or more forms at once, and
 results. That is what lets a fork, a three-way coupling and a plain chain all be one object:
 multiplicity is internal, and the nodes each form couples travel with it. The paths
 themselves are supplied by whoever knows the graph, and derived rather than declared: see
-:meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
+:meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths`.
 
 Reading the same parameters backwards is then just another interaction --- over each form's
-:attr:`~goal.geometry.manifold.map.SubspaceMap.trn_man` and the two paths swapped ---
+:attr:`~goal.geometry.manifold.clique.CliqueMap.trn_man` and the two paths swapped ---
 so there is no separate class for it.
 """
 
@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from .base import Manifold
-from .clique import SubspaceMap
+from .clique import CliqueMap, Potential
 from .embedding import LinearEmbedding
 from .map import LinearMap
 from .util import split_by_dims
@@ -39,14 +39,14 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
     Each form maps its input group's node coordinates to its output group's, and a **path**
     is what carries a domain point down to the nodes one form reads and puts its result back
-    in the codomain. Parameters are the forms' concatenated in placement order, which
+    in the codomain. Parameters are the forms' concatenated in potential order, which
     :meth:`coord_blocks` splits apart again. A fork, a three-way coupling and a plain chain
     differ only in how many terms the sum has.
 
     The domain and codomain are whole manifolds --- a harmonium's observable and posterior,
     say --- rather than individual nodes, which is what the paths bridge. They are supplied
     at construction rather than derived here; for a harmonium
-    :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths` derives them from the
+    :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths` derives them from the
     graph.
 
     Mathematically, writing $\\Theta_t$ for the $t$-th form and $\\pi_t, \\phi_t$ for its
@@ -62,11 +62,11 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     _dom_man: Domain
     """What every form's contracted side is read against."""
 
-    placements: tuple[tuple[tuple[int, ...], SubspaceMap], ...]
-    """One ``(members, form)`` pair per form, in parameter order.
+    potentials: tuple[Potential, ...]
+    """One ``(scope, form)`` pair per form, in parameter order.
 
-    For forward forms, ``members`` ascending pairs positionally with the form's
-    ``cod_embs + dom_embs``. In a *transposed* interaction the members are carried verbatim
+    For forward forms, ``scope`` ascending pairs positionally with the form's
+    ``cod_embs + dom_embs``. In a *transposed* interaction the scopes are carried verbatim
     while the form's groups have swapped, so that positional pairing holds only for the
     forward reading --- nothing here reads it at runtime.
     """
@@ -100,7 +100,7 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     @property
     @override
     def trn_man(self) -> Interaction[Codomain, Domain]:
-        """The same forms read the other way: each form's :attr:`~goal.geometry.manifold.map.SubspaceMap.trn_man`, paths swapped.
+        """The same forms read the other way: each form's :attr:`~goal.geometry.manifold.clique.CliqueMap.trn_man`, paths swapped.
 
         In a harmonium this is what a conditional posterior is, where the forward reading is
         a conditional likelihood. Its own transpose is this map again, so nothing nests.
@@ -108,7 +108,7 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         return Interaction(
             self._dom_man,
             self._cod_man,
-            tuple((members, form.trn_man) for members, form in self.placements),
+            tuple(Potential(scope, form.trn_man) for scope, form in self.potentials),
             tuple((dom_path, cod_path) for cod_path, dom_path in self.paths),
         )
 
@@ -147,9 +147,9 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     # Methods
 
     @property
-    def cliques(self) -> tuple[SubspaceMap, ...]:
+    def cliques(self) -> tuple[CliqueMap, ...]:
         """The forms alone, in parameter order."""
-        return tuple(form for _, form in self.placements)
+        return tuple(form for _, form in self.potentials)
 
     @property
     def clique_dims(self) -> tuple[int, ...]:
@@ -157,14 +157,14 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         return tuple(form.dim for form in self.cliques)
 
     @property
-    def clique(self) -> SubspaceMap:
+    def clique(self) -> CliqueMap:
         """The single form, for an interaction that has exactly one.
 
         Raises:
             ValueError: if the model has several, where there is no one form to talk about.
         """
-        if len(self.placements) != 1:
-            msg = f"this interaction has {len(self.placements)} cliques"
+        if len(self.potentials) != 1:
+            msg = f"this interaction has {len(self.potentials)} cliques"
             raise ValueError(f"{msg}: there is no single form")
         return self.cliques[0]
 

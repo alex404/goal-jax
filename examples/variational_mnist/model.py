@@ -20,12 +20,13 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
+    CliqueMap,
     Diagonal,
     Differentiable,
     Harmonium,
     IdentityEmbedding,
+    Potential,
     Rectangular,
-    SubspaceMap,
 )
 from goal.geometry.exponential_family.variational import (
     VariationalSymmetric,
@@ -102,7 +103,7 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     _obs_man: Observable
     _pst_man: Latent
-    _clique: SubspaceMap
+    _clique: CliqueMap
 
     @property
     @override
@@ -116,8 +117,8 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
-        return (((0, 1), self._clique),)
+    def cross_potentials(self) -> tuple[Potential, ...]:
+        return (Potential((0, 1), self._clique),)
 
 
 ### Concrete mixture of harmoniums ###
@@ -283,7 +284,7 @@ def _hierarchical_harmonium(
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
     mix_man = CompleteMixture(base_lat_man, n_categories)
-    form = SubspaceMap(
+    form = CliqueMap(
         Rectangular(),
         (IdentityEmbedding(obs_man),),
         (IdentityEmbedding(mix_man.obs_man),),
@@ -296,7 +297,7 @@ def _full_base_harmonium(
     base_lat_man: Differentiable,
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, Lat] for fully connected mode."""
-    form = SubspaceMap(
+    form = CliqueMap(
         Rectangular(),
         (IdentityEmbedding(obs_man),),
         (IdentityEmbedding(base_lat_man),),

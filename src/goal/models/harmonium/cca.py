@@ -36,10 +36,12 @@ from jax import Array
 
 from ...geometry import (
     AnalyticPair,
+    CliqueMap,
     DifferentiableConjugated,
+    LinearCliques,
     PositiveDefinite,
+    Potential,
     Rectangular,
-    SubspaceMap,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from .lgm import (
@@ -51,12 +53,12 @@ from .lgm import (
 
 @dataclass(frozen=True)
 class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
-    AnalyticPair[Normal[FstRep], Normal[SndRep]]
+    AnalyticPair[Normal[FstRep], Normal[SndRep]], LinearCliques
 ):
     """Two normals over disjoint data slices, side by side.
 
     Two graph nodes, not one: a model may couple to each component separately, which is
-    what a fork does.
+    what a fork does. The first normal is node $0$ and the second node $1$.
     """
 
     # Fields
@@ -84,6 +86,14 @@ class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
     @override
     def snd_man(self) -> Normal[SndRep]:
         return Normal(self.snd_dim, self.snd_rep)
+
+    @property
+    @override
+    def potentials(self) -> tuple[Potential, ...]:
+        return (
+            Potential((0,), CliqueMap.whole(self.fst_man)),
+            Potential((1,), CliqueMap.whole(self.snd_man)),
+        )
 
 
 @dataclass(frozen=True)
@@ -127,7 +137,7 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
+    def cross_potentials(self) -> tuple[Potential, ...]:
         """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
 
         Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two
@@ -137,8 +147,8 @@ class CanonicalCorrelationAnalysis[
         """
         rect = Rectangular()
         return (
-            self.cross_placement(rect, {0: self._branch_emb(0), 2: self._lat_emb}),
-            self.cross_placement(rect, {1: self._branch_emb(1), 2: self._lat_emb}),
+            self.cross_potential(rect, {0: self._branch_emb(0), 2: self._lat_emb}),
+            self.cross_potential(rect, {1: self._branch_emb(1), 2: self._lat_emb}),
         )
 
     @property

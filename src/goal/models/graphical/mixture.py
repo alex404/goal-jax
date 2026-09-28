@@ -25,14 +25,15 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
+    CliqueMap,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
     Harmonium,
     IdentityEmbedding,
     LinearEmbedding,
+    Potential,
     Rectangular,
-    SubspaceMap,
     SymmetricConjugated,
 )
 from ..base.categorical import Categorical
@@ -144,7 +145,7 @@ class CompleteMixtureOfHarmoniums[
 
     Given a base harmonium over (Observable, Posterior), this constructs a harmonium whose
     latent space is ``CompleteMixture[Posterior]`` = $(Y, K)$. The interaction is three
-    cliques rather than one, and which nodes each couples is what :attr:`cross_placements`
+    cliques rather than one, and which nodes each couples is what :attr:`cross_potentials`
     declares:
 
     - $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
@@ -177,7 +178,7 @@ class CompleteMixtureOfHarmoniums[
         return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
 
     @property
-    def _bas_clique(self) -> SubspaceMap:
+    def _bas_clique(self) -> CliqueMap:
         """The base harmonium's single crossing clique --- the form this level extends."""
         return self.bas_hrm.int_man.clique
 
@@ -187,13 +188,13 @@ class CompleteMixtureOfHarmoniums[
         return IdentityEmbedding(Categorical(self.n_categories))
 
     @property
-    def xy_clique(self) -> SubspaceMap:
+    def xy_clique(self) -> CliqueMap:
         """$\\theta_{XY}$: the base interaction, which couples $x$ to $y$ unchanged."""
         return self._bas_clique
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
+    def cross_potentials(self) -> tuple[Potential, ...]:
         """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
 
         Node $0$ is $x$, node $1$ is $y$, node $2$ is $k$. Everything else about the graph
@@ -208,16 +209,16 @@ class CompleteMixtureOfHarmoniums[
         reaches the mixture's joint $(y,k)$ clique rather than either node alone.
 
         $\\theta_{XY}$ is the base harmonium's own form, borrowed whole. It is the one
-        placement here that names its nodes by hand, because a borrowed form arrives
+        potential here that names its nodes by hand, because a borrowed form arrives
         address-free and this level is asserting where it lands --- which is also why the
         next line can read its embeddings off as $x$ and $y$.
         """
         x_emb, y_emb = self._bas_clique.factor_embs
         rect = Rectangular()
         return (
-            ((0, 1), self.xy_clique),
-            self.cross_placement(rect, {0: x_emb, 1: y_emb, 2: self._cat_emb}),
-            self.cross_placement(
+            Potential((0, 1), self.xy_clique),
+            self.cross_potential(rect, {0: x_emb, 1: y_emb, 2: self._cat_emb}),
+            self.cross_potential(
                 rect,
                 {0: IdentityEmbedding(self.bas_hrm.obs_man), 2: self._cat_emb},
             ),

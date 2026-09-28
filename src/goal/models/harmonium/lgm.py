@@ -19,9 +19,9 @@ from ...geometry import (
     LinearEmbedding,
     MatrixRep,
     PositiveDefinite,
+    Potential,
     Rectangular,
     Scale,
-    SubspaceMap,
     SymmetricConjugated,
 )
 from ..base.gaussian.boltzmann import DiagonalBoltzmann, FullBoltzmann
@@ -257,10 +257,10 @@ class LGM[
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
+    def cross_potentials(self) -> tuple[Potential, ...]:
         """One clique, coupling the observable's location to the latent's."""
         embs = {0: self.int_obs_emb, 1: self.int_pst_emb}
-        return (self.cross_placement(Rectangular(), embs),)
+        return (self.cross_potential(Rectangular(), embs),)
 
     @override
     def conjugation_parameters(

@@ -32,10 +32,11 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
+    CliqueMap,
     Harmonium,
     IdentityEmbedding,
+    Potential,
     Rectangular,
-    SubspaceMap,
 )
 from goal.geometry.exponential_family.variational import (
     regress_conjugation_parameters,
@@ -266,7 +267,7 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
     """Harmonium with interaction restricted to the BaseLatent slot of the mixture."""
 
     _pst_man: Any
-    _clique: SubspaceMap
+    _clique: CliqueMap
 
     @property
     @override
@@ -280,8 +281,8 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
-        return (((0, 1), self._clique),)
+    def cross_potentials(self) -> tuple[Potential, ...]:
+        return (Potential((0, 1), self._clique),)
 
 
 @dataclass(frozen=True)
@@ -300,7 +301,7 @@ def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
     """Small instance: 6 Binomial(3) observables, 3 Bernoulli latents, 3 clusters."""
     obs_man = Binomials(6, 3)
     mix_man = CompleteMixture(Bernoullis(3), 3)
-    clique = SubspaceMap(
+    clique = CliqueMap(
         Rectangular(),
         (IdentityEmbedding(obs_man),),
         (IdentityEmbedding(mix_man.obs_man),),

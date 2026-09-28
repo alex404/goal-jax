@@ -30,8 +30,8 @@ from goal.geometry import (
     IdentityEmbedding,
     MultilayerPerceptron,
     PositiveDefinite,
+    Potential,
     Rectangular,
-    SubspaceMap,
     VariationalLatentProcess,
 )
 from goal.geometry.exponential_family.harmonium import Harmonium
@@ -97,9 +97,9 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
+    def cross_potentials(self) -> tuple[Potential, ...]:
         embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
-        return (self.cross_placement(Rectangular(), embs),)
+        return (self.cross_potential(Rectangular(), embs),)
 
 
 @dataclass(frozen=True)

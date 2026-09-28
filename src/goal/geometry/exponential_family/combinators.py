@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.clique import CliqueProduct
 from ..manifold.combinators import Pair, Replicated
 from .base import (
     Analytic,
@@ -56,13 +55,9 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
 
 
 class ExponentialFamilyPair[A: ExponentialFamily, B: ExponentialFamily](
-    CliqueProduct[A, B], ExponentialFamily, ABC
+    Pair[A, B], ExponentialFamily, ABC
 ):
     """A product of two exponential families over disjoint data slices.
-
-    Two graph nodes, not one: the components are over *different* variables, so a model can
-    couple to each separately. Contrast :class:`ExponentialFamilyProduct`, whose replicates
-    are one node with a vector-valued statistic.
 
     The data array is split along the last axis at ``fst_man.data_dim``, with the leading slice going to the first component and the remainder to the second. Sufficient statistics, log-base-measures, and (in subclasses) sampling/log-partition/negative-entropy decompose additively across the two slots.
 

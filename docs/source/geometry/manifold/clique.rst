@@ -15,17 +15,21 @@ Class Hierarchy
 \
 
 
-Subspace Maps
--------------
+Clique Maps
+-----------
 
 .. autoclass:: goal.geometry.manifold.clique.Product
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.clique.SubspaceMap
+.. autoclass:: goal.geometry.manifold.clique.CliqueMap
    :members:
    :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.clique.Potential
+   :members:
    :show-inheritance:
 
 
@@ -51,12 +55,7 @@ Clique Layouts
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.clique.LevelCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.clique.CliqueProduct
+.. autoclass:: goal.geometry.manifold.clique.RecursiveLinearCliques
    :members:
    :undoc-members:
    :show-inheritance:

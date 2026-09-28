@@ -45,8 +45,8 @@ from ...geometry import (
     LinearEmbedding,
     ObservableEmbedding,
     PositiveDefinite,
+    Potential,
     RootEmbedding,
-    SubspaceMap,
     SymmetricConjugated,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
@@ -100,15 +100,15 @@ class _HMoGBase[
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
+    def cross_potentials(self) -> tuple[Potential, ...]:
         """The lower harmonium's cliques, unchanged.
 
         A hierarchical model declares no coupling of its own: the lower harmonium already
         says which sub-spaces it couples, and that node $y$ now sits inside the mixture
         above is a fact about the graph, derived by
-        :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
+        :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths`.
         """
-        return self.lwr_hrm.cross_placements
+        return self.lwr_hrm.cross_potentials
 
     @property
     @override

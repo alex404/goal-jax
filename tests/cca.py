@@ -2,7 +2,7 @@
 
 ``CanonicalCorrelationAnalysis`` is the first model in the library over a graph with more
 than one root, so these tests double as a check on the multi-root machinery: a
-``CliqueProduct`` observable spanning two nodes, an ``Interaction`` cross partition holding one
+pair observable declared as two root nodes, an ``Interaction`` cross partition holding one
 clique per branch, and a conjugation that is the sum of the branches'.
 
 The decisive test is :meth:`TestConjugation.test_conjugation_equation_holds` --- the
@@ -59,11 +59,12 @@ class TestGraph:
         assert sum(model.clique_dims) == model.dim
 
     def test_observable_spans_two_nodes(self) -> None:
-        """The root partition is a clique product, which is what a multi-root graph needs."""
-        obs = cca().obs_man
-        assert obs.n_nodes == 2
-        assert obs.root_nodes == frozenset({0, 1})
-        assert obs.clique_dims == (obs.fst_man.dim, obs.snd_man.dim)
+        """The observable is a flat two-node layout, so the root potentials are one per observable."""
+        model = cca()
+        obs = model.obs_man
+        assert model.root_nodes == frozenset({0, 1})
+        root_dims = tuple(form.dim for _, form in model.root_potentials)
+        assert root_dims == (obs.fst_man.dim, obs.snd_man.dim)
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:
         model = cca(fst_dim=3, snd_dim=2, lat_dim=2)
@@ -76,7 +77,7 @@ class TestGraph:
         observable node; the interaction's two sides are the whole pair and the latent.
         """
         m = cca().int_man
-        (_, fst_form), (_, snd_form) = m.placements
+        (_, fst_form), (_, snd_form) = m.potentials
         assert fst_form.dom_man == snd_form.dom_man
         assert fst_form.cod_man != snd_form.cod_man
         assert fst_form.cod_man == Product((m.cod_man.fst_man,))

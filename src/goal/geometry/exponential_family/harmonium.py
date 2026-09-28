@@ -14,7 +14,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.clique import LevelCliques, SubspaceMap
+from ..manifold.clique import Potential, RecursiveLinearCliques
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.interaction import Interaction
 from ..manifold.map import AffineMap, LinearMap
@@ -33,12 +33,12 @@ class Harmonium[
     Posterior: Gibbs,
 ](
     Gibbs,
-    LevelCliques[Observable, Interaction[Posterior, Observable], Posterior],
+    RecursiveLinearCliques[Observable, Interaction[Posterior, Observable], Posterior],
     ABC,
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them (:attr:`cross_placements`); the graph, the parameter layout and the interaction :attr:`int_man` are all *derived* from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.LevelCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
+    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them (:attr:`cross_potentials`); which nodes each side occupies is read off the side itself (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`), and the graph, the parameter layout and the interaction :attr:`int_man` are all *derived* from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -58,17 +58,17 @@ class Harmonium[
     @property
     @abstractmethod
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
+    def cross_potentials(self) -> tuple[Potential, ...]:
         """The cliques joining the observable to the latent side, with the nodes they couple.
 
         A model declares its couplings and where they sit; everything else --- the graph,
         the levels, the parameter layout, and :attr:`int_man` itself --- is derived from
         this and the two partition manifolds. A plain two-node harmonium says
-        ``(((0, 1), clique),)``; a fork or a three-way interaction says as much as it has.
+        ``(Potential((0, 1), clique),)``; a fork or a three-way interaction says as much as it has.
 
         A clique states only which sub-space of each node it couples. *How* a partition's
         coordinates reach those nodes is the graph's business and is derived, by
-        :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
+        :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths`.
         """
 
     # Overrides
@@ -97,14 +97,14 @@ class Harmonium[
     def int_man(self) -> Interaction[Posterior, Observable]:
         """The interaction, derived from the cliques and the graph they sit in.
 
-        Nothing here is declared: the forms come from :attr:`cross_placements`, and both the
+        Nothing here is declared: the forms come from :attr:`cross_potentials`, and both the
         paths by which the two partitions reach the nodes they couple *and* the check that
         each form is read in the direction the graph implies come from
-        :meth:`~goal.geometry.manifold.clique.LevelCliques.cross_paths`.
+        :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths`.
         """
-        placements = self.cross_placements
-        paths = tuple(self.cross_paths(place) for place in placements)
-        return Interaction(self.obs_man, self.pst_man, placements, paths)
+        potentials = self.cross_potentials
+        paths = tuple(self.cross_paths(place) for place in potentials)
+        return Interaction(self.obs_man, self.pst_man, potentials, paths)
 
     @property
     def lkl_fun_man(self) -> AffineMap[Posterior, Observable]:
@@ -521,7 +521,7 @@ class HarmoniumEmbedding[
 ](LinearEmbedding[Component, Harmonium[Observable, Posterior]], ABC):
     """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
 
-    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.clique.LevelCliques.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
+    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
     """
 
     # Fields

@@ -23,9 +23,9 @@ from ...geometry import (
     IdentityEmbedding,
     LinearEmbedding,
     Manifold,
+    Potential,
     Rectangular,
     StatisticalMoments,
-    SubspaceMap,
     SymmetricConjugated,
 )
 from ..base.categorical import (
@@ -87,32 +87,19 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def root_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
-        """The observable is one node, however much structure it has of its own.
-
-        A mixture's interaction reaches the observable's parameters as a *unit* --- one
-        column per component --- so it cannot factor across the observable's own nodes.
-        Expanding them would give the interaction more nodes than it has factors, and the
-        cross clique would name the wrong latent. This is what makes a mixture
-        over a harmonium a two-node graph.
-        """
-        return (((0,), SubspaceMap.whole(self.obs_man)),)
-
-    @property
-    @override
     def lat_man(self) -> Categorical:
         return Categorical(self.n_categories)
 
     @property
     @override
-    def cross_placements(self) -> tuple[tuple[tuple[int, ...], SubspaceMap], ...]:
+    def cross_potentials(self) -> tuple[Potential, ...]:
         """The observable (node $0$) coupled to the category (node $1$).
 
         Structure is fixed: a Rectangular form selecting the coupled part of the
         observable, and the whole of the category.
         """
         embs = {0: self.obs_emb, 1: IdentityEmbedding(self.lat_man)}
-        return (self.cross_placement(Rectangular(), embs),)
+        return (self.cross_potential(Rectangular(), embs),)
 
     @property
     @override
