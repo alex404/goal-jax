@@ -15,8 +15,9 @@ against whichever view makes them a one-liner.
 from __future__ import annotations
 
 from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
@@ -25,18 +26,17 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
-    CliqueMap,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
     Harmonium,
     IdentityEmbedding,
     LinearEmbedding,
-    Potential,
+    Manifold,
+    MatrixRep,
     Rectangular,
     SymmetricConjugated,
 )
-from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, Normal
 from ..harmonium.lgm import NormalAnalyticLGM
 from ..harmonium.mixture import AnalyticMixture, CompleteMixture
@@ -145,7 +145,7 @@ class CompleteMixtureOfHarmoniums[
 
     Given a base harmonium over (Observable, Posterior), this constructs a harmonium whose
     latent space is ``CompleteMixture[Posterior]`` = $(Y, K)$. The interaction is three
-    cliques rather than one, and which nodes each couples is what :attr:`cross_potentials`
+    cliques rather than one, and which nodes each couples is what :attr:`cross_cliques`
     declares:
 
     - $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
@@ -178,23 +178,8 @@ class CompleteMixtureOfHarmoniums[
         return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
 
     @property
-    def _bas_clique(self) -> CliqueMap:
-        """The base harmonium's single crossing clique --- the form this level extends."""
-        return self.bas_hrm.int_man.clique
-
-    @property
-    def _cat_emb(self) -> IdentityEmbedding[Categorical]:
-        """The category node in full: every component gets its own coefficient."""
-        return IdentityEmbedding(Categorical(self.n_categories))
-
-    @property
-    def xy_clique(self) -> CliqueMap:
-        """$\\theta_{XY}$: the base interaction, which couples $x$ to $y$ unchanged."""
-        return self._bas_clique
-
-    @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
         """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
 
         Node $0$ is $x$, node $1$ is $y$, node $2$ is $k$. Everything else about the graph
@@ -203,26 +188,31 @@ class CompleteMixtureOfHarmoniums[
         $y$ and $k$ are adjacent to $x$, so the graph has depth two, not three.
 
         This has to be declared: the three forms share a domain and a codomain, so nothing
-        but the model knows which nodes each couples. Each says only what it uses at each
-        node --- the arity, the storage order and the reading all follow from the node set,
-        which is why the middle one needs no mention of being arity three even though it
-        reaches the mixture's joint $(y,k)$ clique rather than either node alone.
-
-        $\\theta_{XY}$ is the base harmonium's own form, borrowed whole. It is the one
-        potential here that names its nodes by hand, because a borrowed form arrives
-        address-free and this level is asserting where it lands --- which is also why the
-        next line can read its embeddings off as $x$ and $y$.
+        but the model knows which nodes each couples. The $(x,y,k)$ clique reaches the
+        mixture's joint $(y,k)$ clique rather than either node alone; that follows from the
+        node set.
         """
-        x_emb, y_emb = self._bas_clique.factor_embs
-        rect = Rectangular()
-        return (
-            Potential((0, 1), self.xy_clique),
-            self.cross_potential(rect, {0: x_emb, 1: y_emb, 2: self._cat_emb}),
-            self.cross_potential(
-                rect,
-                {0: IdentityEmbedding(self.bas_hrm.obs_man), 2: self._cat_emb},
-            ),
-        )
+        return ((0, 1), (0, 1, 2), (0, 2))
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        """$\\theta_{XY}$ keeps the base interaction's representation."""
+        if clique == (0, 1):
+            return self.bas_hrm.clique_rep((0, 1))
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        """The base interaction's subspaces at $x$ and $y$, except that $\\theta_{XK}$ uses all of $x$, and all of $k$ throughout.
+
+        Labels $0$ and $1$ are $x$ and $y$ in the base harmonium too, so its subspaces are
+        borrowed without relabelling.
+        """
+        if node == 2 or clique == (0, 2):
+            return IdentityEmbedding
+        return self.bas_hrm.subspace((0, 1), node)
 
     @property
     @override

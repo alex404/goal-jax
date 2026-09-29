@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
     IdentityEmbedding,
-    Potential,
+    LinearEmbedding,
+    Manifold,
+    MatrixRep,
     Rectangular,
 )
 from ...geometry.exponential_family.base import Differentiable
@@ -51,9 +53,18 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
     @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
-        embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
-        return (self.cross_potential(Rectangular(), embs),)
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return ((0, 1),)
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return IdentityEmbedding
 
     @property
     @override
@@ -181,9 +192,18 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
 
     @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
-        embs = {0: IdentityEmbedding(self.obs_man), 1: IdentityEmbedding(self.pst_man)}
-        return (self.cross_potential(Rectangular(), embs),)
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return ((0, 1),)
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return IdentityEmbedding
 
     @property
     @override

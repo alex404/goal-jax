@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -17,9 +18,9 @@ from ...geometry import (
     Identity,
     IdentityEmbedding,
     LinearEmbedding,
+    Manifold,
     MatrixRep,
     PositiveDefinite,
-    Potential,
     Rectangular,
     Scale,
     SymmetricConjugated,
@@ -247,20 +248,20 @@ class LGM[
         return Normal(self.obs_dim, self.obs_rep)
 
     @property
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
-        return GeneralizedGaussianLocationEmbedding(self.obs_man)
-
-    @property
-    def int_pst_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
-        """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
-        return GeneralizedGaussianLocationEmbedding(self.pst_man)
-
-    @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
         """One clique, coupling the observable's location to the latent's."""
-        embs = {0: self.int_obs_emb, 1: self.int_pst_emb}
-        return (self.cross_potential(Rectangular(), embs),)
+        return ((0, 1),)
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return GeneralizedGaussianLocationEmbedding
 
     @override
     def conjugation_parameters(

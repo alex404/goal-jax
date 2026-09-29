@@ -6,7 +6,7 @@ posterior computation, interaction cliques, mixture representation round-trips,
 asymmetric pst/prr handling, and to_natural/to_mean inversion.
 """
 
-from typing import Any, override
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -17,8 +17,6 @@ from goal.geometry import (
     CliqueEmbedding,
     Diagonal,
     Interaction,
-    Potential,
-    RecursiveLinearCliques,
 )
 from goal.models import (
     DiagonalNormal,
@@ -272,7 +270,7 @@ class TestMFAGraph:
     """MFA's graph is derived from its coupling pattern, not declared clique by clique.
 
     The model states only which nodes each interaction block couples ---
-    ``cross_potentials``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
+    ``cross_cliques``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
     mixture one level up, the levels, and the clique layout all follow from that. These
     tests pin what follows, because a wrong derivation would be silent: every operation
     below reads the level split, which does not consult the graph.
@@ -289,33 +287,6 @@ class TestMFAGraph:
         clq = self._mfa()
         assert clq.n_nodes == 3
         assert clq.root_nodes == frozenset({0})
-
-    def test_expanding_the_observable_is_refused_not_mislabelled(self) -> None:
-        """The guard that would have caught this: a mislabelled crossing clique.
-
-        ``Mixture.cross_potentials`` labels its clique ``(0, 1)``, which names the latent only
-        when the observable is a single node. Declare the observable's own nodes as the root
-        potentials and node 1 is a *root*, so the declared clique is a lie --- deriving its
-        interaction must refuse rather than produce a cover with ``(0, 1)`` twice and the
-        category unreachable. The refusal comes from ``cross_paths``, which needs the map's
-        output factors to be exactly the scope's root nodes.
-        """
-        base = self._mfa().mix_man
-
-        class _Expanded(type(base)):
-            @property
-            @override
-            def root_potentials(
-                self,
-            ) -> tuple[Potential, ...]:
-                obs = self.obs_man
-                assert isinstance(obs, RecursiveLinearCliques)
-                return obs.potentials
-
-        expanded = _Expanded(base.obs_man, base.n_categories)  # pyright: ignore[reportArgumentType]
-        assert expanded.root_nodes == frozenset({0, 1})
-        with pytest.raises(ValueError, match="must be exactly its root nodes"):
-            _ = expanded.int_man
 
     def test_the_mixture_view_is_a_two_node_graph(self) -> None:
         """``mix_man`` holds the base harmonium as one node, not as its own two.
@@ -386,8 +357,8 @@ class TestDerivedInteractionEmbeddings:
     def _blocks(cls, **kwargs) -> tuple[Interaction[Any, Any], ...]:
         m = cls._mfa(**kwargs).int_man
         return tuple(
-            Interaction(m.cod_man, m.dom_man, (potential,), (path,))
-            for potential, path in zip(m.potentials, m.paths, strict=True)
+            Interaction(m.cod_man, m.dom_man, (clique,), (path,))
+            for clique, path in zip(m.cliques, m.paths, strict=True)
         )
 
     @classmethod

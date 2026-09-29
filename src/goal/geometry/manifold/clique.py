@@ -1,21 +1,22 @@
 """Manifolds whose parameters are laid out over the cliques of a graph.
 
 A :class:`CliqueMap` is a tensor over selected subspaces of the manifolds it couples, and
-knows nothing about where they sit. A :class:`Potential` pairs one with its *scope*, the
-nodes its factors occupy. A :class:`LinearCliques` lays a coordinate vector out over its
-potentials, and a :class:`RecursiveLinearCliques` stores them as ``[root | cross | deep]``,
-recursing into the deep partition.
+knows nothing about where they sit. A :class:`LinearCliques` lays a coordinate vector out
+over the cliques of a graph: it states the nodes' base spaces, the cliques, and for each
+clique a matrix representation and the subspace it uses at each node, and derives the map
+on each clique from these. A :class:`RecursiveLinearCliques` stores its cliques as
+``[root | cross | deep]``, recursing into the deep partition.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import chain
 from math import prod
-from typing import Any, NamedTuple, Self, override
+from typing import Any, Self, override
 
-import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -70,23 +71,15 @@ class TensorProductEmbedding(LinearEmbedding[TensorProduct, TensorProduct]):
     def project(self, coords: Array) -> Array:
         out = coords.reshape(tuple(emb.amb_man.dim for emb in self.factors))
         for axis, emb in enumerate(self.factors):
-            out = _map_axis(out, axis, emb.project)
+            out = jnp.apply_along_axis(emb.project, axis, out)
         return out.reshape(-1)
 
     @override
     def embed(self, coords: Array) -> Array:
         out = coords.reshape(tuple(emb.sub_man.dim for emb in self.factors))
         for axis, emb in enumerate(self.factors):
-            out = _map_axis(out, axis, emb.embed)
+            out = jnp.apply_along_axis(emb.embed, axis, out)
         return out.reshape(-1)
-
-
-def _map_axis(tensor: Array, axis: int, fn: Any) -> Array:
-    """Apply a vector function along one axis of a tensor."""
-    moved = jnp.moveaxis(tensor, axis, 0)
-    columns = moved.reshape(moved.shape[0], -1)
-    mapped = jax.vmap(fn, in_axes=1, out_axes=1)(columns)
-    return jnp.moveaxis(mapped.reshape((-1, *moved.shape[1:])), 0, axis)
 
 
 @dataclass(frozen=True)
@@ -99,6 +92,9 @@ class CliqueMap(LinearMap[TensorProduct, TensorProduct]):
     Mathematically, the parameters are a tensor $\\Theta \\in \\mathbb R^{d_1 \\times \\cdots
     \\times d_j \\times e_1 \\times \\cdots \\times e_k}$ over the selected subspaces, stored
     as the matricization with the codomain axes as rows and the domain axes as columns.
+    The representation acts on that matricization, so a representation with structure
+    (diagonal, convolutional) sees the flattened shape $(\\prod_i d_i, \\prod_i e_i)$ when
+    a group has more than one factor.
     """
 
     # Fields
@@ -177,13 +173,6 @@ class CliqueMap(LinearMap[TensorProduct, TensorProduct]):
         return self.rep.from_matrix(matrix)
 
 
-class Potential(NamedTuple):
-    """A :class:`CliqueMap` and its scope: factor $i$ sits at node ``scope[i]``."""
-
-    scope: tuple[int, ...]
-    map: CliqueMap
-
-
 ### Clique Layouts ###
 
 
@@ -191,7 +180,23 @@ class Potential(NamedTuple):
 class CliqueEmbedding[AmbientCliques: LinearCliques](
     LinearEmbedding[CliqueMap, AmbientCliques]
 ):
-    """The coordinates of the potential on ``scope`` inside a layout. Build with :meth:`LinearCliques.clique_emb`."""
+    """The coordinates of one clique of a layout, as a subspace of the whole layout.
+
+    ``project`` reads the block of the clique on ``scope`` out of the layout's coordinates,
+    and ``embed`` writes a block back with every other clique zero. The subspace is that
+    clique's :class:`CliqueMap`, so a projected block reads as a tensor over the clique's
+    nodes. Its main use is as a path in an
+    :class:`~goal.geometry.manifold.interaction.Interaction`: when a crossing clique reaches
+    a clique inside a partition that has several (MFA's $(x, y, k)$ reaching the mixture's
+    $(y, k)$), the path lets the interaction act on the whole partition's coordinates.
+    :meth:`RecursiveLinearCliques.cross_paths` builds these. Build one directly with
+    :meth:`LinearCliques.clique_emb`, which sorts ``scope``.
+
+    Mathematically, a layout's coordinates are a direct sum $\\bigoplus_C \\Theta^C$, and for
+    the clique $C_0$ on ``scope``, ``project`` is the coordinate projection onto the summand
+    $\\Theta^{C_0}$ and ``embed`` its inclusion. The two are transposes of each other, so one
+    path serves both directions of an interaction.
+    """
 
     scope: tuple[int, ...]
     _amb_man: AmbientCliques
@@ -204,7 +209,7 @@ class CliqueEmbedding[AmbientCliques: LinearCliques](
     @property
     @override
     def sub_man(self) -> CliqueMap:
-        return self.amb_man.potentials[self.index].map
+        return self.amb_man.clique_map(self.scope)
 
     @override
     def project(self, coords: Array) -> Array:
@@ -218,15 +223,19 @@ class CliqueEmbedding[AmbientCliques: LinearCliques](
 
     @property
     def index(self) -> int:
-        """The position of the potential on :attr:`scope` in storage order."""
-        return self.amb_man.cliques.index(self.scope)
+        """The position of the clique on :attr:`scope` in storage order."""
+        return self.amb_man.clique_order.index(self.scope)
 
 
 @dataclass(frozen=True)
 class LinearCliques(Cliques, Manifold, ABC):
-    """A manifold whose coordinates are one potential per clique of a graph, in storage order.
+    """A manifold whose coordinates are one linear map per clique of a graph.
 
-    Flat: every node is a root, so the graph has one level.
+    A subclass states the nodes' base spaces, the cliques as ascending node tuples, and
+    for each clique a matrix representation and the subspace it uses at each of its nodes.
+    The map on a clique is derived from these. Flat: every node is a root, so the graph has
+    one level, and every node of a clique is an output factor. A multi-node clique with a
+    structured representation therefore sees a matrix with a single column.
 
     Mathematically, a point is a family $(\\Theta^C)_C$ indexed by the cliques, with $\\dim =
     \\sum_C \\dim(\\Theta^C)$.
@@ -236,8 +245,18 @@ class LinearCliques(Cliques, Manifold, ABC):
 
     @property
     @abstractmethod
-    def potentials(self) -> tuple[Potential, ...]:
-        """Every potential, in storage order."""
+    def node_mans(self) -> tuple[Manifold, ...]:
+        """The base space of each node; node $i$ is ``node_mans[i]``."""
+
+    @abstractmethod
+    def clique_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        """The matrix representation of the map on ``clique``."""
+
+    @abstractmethod
+    def subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        """The subspace ``clique`` uses at ``node``, as a constructor applied to its ambient space."""
 
     # Overrides
 
@@ -249,37 +268,26 @@ class LinearCliques(Cliques, Manifold, ABC):
     @property
     @override
     def root_nodes(self) -> frozenset[int]:
-        return frozenset(i for scope, _ in self.potentials for i in scope)
-
-    @property
-    @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        """The scopes of :attr:`potentials`, in storage order.
-
-        Raises:
-            ValueError: if a scope and its map's arity disagree, a scope is not ascending
-                and distinct, or two potentials share a scope.
-        """
-        scopes = tuple(scope for scope, _ in self.potentials)
-        for scope, form in self.potentials:
-            if (
-                len(scope) != len(form.factor_embs)
-                or tuple(sorted(set(scope))) != scope
-            ):
-                msg = f"clique {scope} must name {len(form.factor_embs)} distinct nodes, ascending"
-                raise ValueError(msg)
-        if len(set(scopes)) != len(scopes):
-            raise ValueError(f"duplicate cliques in {scopes}")
-        return scopes
+        return frozenset(range(len(self.node_mans)))
 
     # Methods
 
     @property
+    def clique_order(self) -> tuple[tuple[int, ...], ...]:
+        """The cliques in storage order: :attr:`canonical_cliques`, flattened."""
+        return tuple(chain.from_iterable(self.canonical_cliques))
+
+    def clique_map(self, clique: tuple[int, ...]) -> CliqueMap:
+        """The map on ``clique``, each node's subspace applied to its base space."""
+        embs = tuple(self.subspace(clique, i)(self.node_mans[i]) for i in clique)
+        return CliqueMap(self.clique_rep(clique), embs, ())
+
+    @property
     def clique_dims(self) -> tuple[int, ...]:
-        return tuple(form.dim for _, form in self.potentials)
+        return tuple(self.clique_map(clique).dim for clique in self.clique_order)
 
     def coord_blocks(self, coords: Array) -> tuple[Array, ...]:
-        """Split coordinates into one block per potential, in storage order."""
+        """Split coordinates into one block per clique, in storage order."""
         return split_by_dims(coords, self.clique_dims)
 
     def join_blocks(self, *blocks: Array) -> Array:
@@ -290,17 +298,44 @@ class LinearCliques(Cliques, Manifold, ABC):
 
 
 @dataclass(frozen=True)
+class SingletonCliques(LinearCliques):
+    """A manifold as a one-node layout: its only clique is the node, using all of it."""
+
+    node_man: Manifold
+
+    @property
+    @override
+    def node_mans(self) -> tuple[Manifold, ...]:
+        return (self.node_man,)
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return ((0,),)
+
+    @override
+    def clique_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return IdentityEmbedding
+
+
+@dataclass(frozen=True)
 class RecursiveLinearCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     LinearCliques, Tuple, ABC
 ):
     """A :class:`LinearCliques` stored ``[root | cross | deep]``, recursing into the deep partition.
 
-    A subclass states the three partitions and the cross potentials; the rest is read off
-    the partitions. The root partition contributes its potentials if it is a flat
-    :class:`LinearCliques`, and is otherwise one node --- a recursive layout spans several
-    levels, so it cannot be the root level. The deep partition contributes its potentials
-    if it is any :class:`LinearCliques`, renumbered past the root nodes, and is otherwise
-    one node.
+    A subclass states the three partitions and the crossing cliques; the rest is read off
+    the partitions through :attr:`root_layout` and :attr:`deep_layout`, with deep nodes
+    numbered after the root nodes. A crossing clique's output factors are its root nodes.
+    At each node, its subspace is applied to the subspace that the partition's clique on
+    the same nodes uses there, which is the node's base space when that clique is the
+    node alone.
     """
 
     # Contract
@@ -319,31 +354,91 @@ class RecursiveLinearCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
 
     @property
     @abstractmethod
-    def cross_potentials(self) -> tuple[Potential, ...]:
-        """The potentials joining the root nodes to the deep ones, in this level's labels."""
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
+        """The cliques joining root nodes to deep ones, each an ascending node tuple."""
+
+    @abstractmethod
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        """The matrix representation of the map on a crossing clique."""
+
+    @abstractmethod
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        """The subspace a crossing clique uses at ``node``."""
 
     # Overrides
 
     @property
     @override
-    def root_nodes(self) -> frozenset[int]:
-        return frozenset(i for scope, _ in self.root_potentials for i in scope)
+    def node_mans(self) -> tuple[Manifold, ...]:
+        return self.root_layout.node_mans + self.deep_layout.node_mans
 
     @property
     @override
-    def potentials(self) -> tuple[Potential, ...]:
-        """Root, cross, then deep renumbered past the root nodes."""
-        offset = max(self.root_nodes) + 1
-        deep = tuple(
-            Potential(tuple(i + offset for i in scope), form)
-            for scope, form in self.deep_potentials
+    def root_nodes(self) -> frozenset[int]:
+        return frozenset(range(self.offset))
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return (
+            self.root_layout.cliques
+            + self.cross_cliques
+            + self.from_deep(self.deep_layout.cliques)
         )
-        return self.root_potentials + self.cross_potentials + deep
+
+    @property
+    @override
+    def clique_order(self) -> tuple[tuple[int, ...], ...]:
+        """Root storage, the crossing cliques in canonical order, then deep storage."""
+        return (
+            self.root_layout.clique_order
+            + self.level_split()[1]
+            + self.from_deep(self.deep_layout.clique_order)
+        )
+
+    @override
+    def clique_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        if clique[-1] < self.offset:
+            return self.root_layout.clique_rep(clique)
+        if clique[0] >= self.offset:
+            return self.deep_layout.clique_rep(self.to_deep(clique))
+        return self.cross_rep(clique)
+
+    @override
+    def subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        if clique[-1] < self.offset:
+            return self.root_layout.subspace(clique, node)
+        if clique[0] >= self.offset:
+            return self.deep_layout.subspace(self.to_deep(clique), node - self.offset)
+        return self.cross_subspace(clique, node)
+
+    @override
+    def clique_map(self, clique: tuple[int, ...]) -> CliqueMap:
+        if clique[-1] < self.offset:
+            return self.root_layout.clique_map(clique)
+        if clique[0] >= self.offset:
+            return self.deep_layout.clique_map(self.to_deep(clique))
+        near, far = self.split_clique(clique)
+        near_map = self.root_layout.clique_map(near)
+        far_map = self.deep_layout.clique_map(self.to_deep(far))
+        near_embs = tuple(
+            self.cross_subspace(clique, i)(emb.sub_man)
+            for i, emb in zip(near, near_map.factor_embs, strict=True)
+        )
+        far_embs = tuple(
+            self.cross_subspace(clique, i)(emb.sub_man)
+            for i, emb in zip(far, far_map.factor_embs, strict=True)
+        )
+        return CliqueMap(self.cross_rep(clique), near_embs, far_embs)
 
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array, Array]:
-        root = sum(form.dim for _, form in self.root_potentials)
-        cross = root + sum(form.dim for _, form in self.cross_potentials)
+        root = self.root_man.dim
+        cross = root + sum(self.clique_map(c).dim for c in self.cross_cliques)
         return coords[:root], coords[root:cross], coords[cross:]
 
     @override
@@ -353,64 +448,59 @@ class RecursiveLinearCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
     # Methods
 
     @property
-    def root_potentials(self) -> tuple[Potential, ...]:
+    def root_layout(self) -> LinearCliques:
+        """The root partition as a layout: itself if flat, otherwise one node.
+
+        A recursive layout spans several levels, so it cannot be the root level.
+        """
         man = self.root_man
         if isinstance(man, LinearCliques) and not isinstance(
             man, RecursiveLinearCliques
         ):
-            return man.potentials
-        return (
-            Potential((0,), CliqueMap(Rectangular(), (IdentityEmbedding(man),), ())),
-        )
+            return man
+        return SingletonCliques(man)
 
     @property
-    def deep_potentials(self) -> tuple[Potential, ...]:
-        """The deep partition's potentials, in its own labels."""
+    def deep_layout(self) -> LinearCliques:
+        """The deep partition as a layout, in its own labels: itself if any layout, otherwise one node."""
         man = self.deep_man
-        if isinstance(man, LinearCliques):
-            return man.potentials
-        return (
-            Potential((0,), CliqueMap(Rectangular(), (IdentityEmbedding(man),), ())),
-        )
+        return man if isinstance(man, LinearCliques) else SingletonCliques(man)
 
-    def cross_potential(
-        self, rep: MatrixRep, node_embs: Mapping[int, LinearEmbedding[Any, Any]]
-    ) -> Potential:
-        """A crossing potential on the given nodes, using the given subspace at each.
+    @property
+    def offset(self) -> int:
+        """The label of the first deep node."""
+        return len(self.root_layout.node_mans)
 
-        Factor order is the nodes ascending; the root nodes among them are the output
-        group. Deep labels always follow root labels, so the root nodes come first.
-        :meth:`cross_paths` checks the result.
-        """
-        scope = tuple(sorted(node_embs))
-        n_near = sum(i in self.root_nodes for i in scope)
-        embs = tuple(node_embs[i] for i in scope)
-        return Potential(scope, CliqueMap(rep, embs[:n_near], embs[n_near:]))
+    def from_deep(
+        self, cliques: tuple[tuple[int, ...], ...]
+    ) -> tuple[tuple[int, ...], ...]:
+        """Deep cliques relabelled from the deep partition's labels to this level's."""
+        return tuple(tuple(i + self.offset for i in c) for c in cliques)
+
+    def to_deep(self, clique: tuple[int, ...]) -> tuple[int, ...]:
+        """Deep nodes relabelled from this level's labels to the deep partition's."""
+        return tuple(i - self.offset for i in clique)
+
+    def split_clique(
+        self, clique: tuple[int, ...]
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """A crossing clique's root nodes and its deep nodes, in this level's labels."""
+        near = tuple(i for i in clique if i < self.offset)
+        return near, clique[len(near) :]
 
     def cross_paths(
-        self, potential: Potential
-    ) -> tuple[LinearEmbedding[Any, Any] | None, LinearEmbedding[Any, Any] | None]:
-        """How :attr:`root_man` and :attr:`deep_man` reach a crossing potential's nodes.
+        self, clique: tuple[int, ...]
+    ) -> tuple[CliqueEmbedding[Any] | None, CliqueEmbedding[Any] | None]:
+        """How :attr:`root_man` and :attr:`deep_man` reach a crossing clique's nodes.
 
-        The root nodes of the scope must be the map's output factors, and the rest its
-        input factors; each group must be a clique of its partition. A path is ``None``
-        when its partition is that one clique already.
-
-        Raises:
-            ValueError: unless the output factors are exactly the scope's root nodes, and
-                there is at least one of each.
+        Each side's nodes must be a clique of its partition. A path is ``None`` when its
+        partition is that one clique already.
         """
-        scope, form = potential
-        roots = self.root_nodes
-        n_near = len(form.cod_embs)
-        near, far = scope[:n_near], scope[n_near:]
-        if not (near and far) or not roots.issuperset(near) or roots & set(far):
-            msg = f"crossing clique {scope}: its {n_near} output factors must be"
-            raise ValueError(f"{msg} exactly its root nodes, with deep nodes besides")
-        offset = max(roots) + 1
+        near, far = self.split_clique(clique)
+        root, deep = self.root_layout, self.deep_layout
         return (
-            _path(self.root_man, self.root_potentials, near),
-            _path(self.deep_man, self.deep_potentials, tuple(i - offset for i in far)),
+            None if len(root.cliques) == 1 else root.clique_emb(near),
+            None if len(deep.cliques) == 1 else deep.clique_emb(self.to_deep(far)),
         )
 
     def split_level(self, coords: Array) -> tuple[Array, Array, Array]:
@@ -418,15 +508,6 @@ class RecursiveLinearCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
 
     def join_level(self, root: Array, cross: Array, deep: Array) -> Array:
         return self.join_coords(root, cross, deep)
-
-
-def _path(
-    man: Manifold, potentials: tuple[Potential, ...], scope: tuple[int, ...]
-) -> LinearEmbedding[Any, Any] | None:
-    """How a partition reaches its clique on ``scope``, or ``None`` if it is that clique."""
-    if len(potentials) == 1 or not isinstance(man, LinearCliques):
-        return None
-    return man.clique_emb(scope)
 
 
 @dataclass(frozen=True)

@@ -29,6 +29,7 @@ sums across the pair.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -36,12 +37,13 @@ from jax import Array
 
 from ...geometry import (
     AnalyticPair,
-    CliqueMap,
     DifferentiableConjugated,
     IdentityEmbedding,
     LinearCliques,
+    LinearEmbedding,
+    Manifold,
+    MatrixRep,
     PositiveDefinite,
-    Potential,
     Rectangular,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
@@ -90,15 +92,23 @@ class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
 
     @property
     @override
-    def potentials(self) -> tuple[Potential, ...]:
-        return (
-            Potential(
-                (0,), CliqueMap(Rectangular(), (IdentityEmbedding(self.fst_man),), ())
-            ),
-            Potential(
-                (1,), CliqueMap(Rectangular(), (IdentityEmbedding(self.snd_man),), ())
-            ),
-        )
+    def node_mans(self) -> tuple[Manifold, ...]:
+        return (self.fst_man, self.snd_man)
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return ((0,), (1,))
+
+    @override
+    def clique_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return IdentityEmbedding
 
 
 @dataclass(frozen=True)
@@ -142,19 +152,26 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
         """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
 
         Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two
-        roots come from the observable being a pair, so the levels come out $(2, 1)$. Each
-        branch couples the two locations; that one branch reaches only its own side of the
-        observable pair is derived from the graph, not declared here.
+        roots come from the observable being a pair, so the levels come out $(2, 1)$. That
+        one branch reaches only its own side of the observable pair is derived from the
+        graph, not declared here.
         """
-        rect = Rectangular()
-        return (
-            self.cross_potential(rect, {0: self._branch_emb(0), 2: self._lat_emb}),
-            self.cross_potential(rect, {1: self._branch_emb(1), 2: self._lat_emb}),
-        )
+        return ((0, 2), (1, 2))
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        """Each branch couples the two locations."""
+        return GeneralizedGaussianLocationEmbedding
 
     @property
     @override
@@ -204,15 +221,3 @@ class CanonicalCorrelationAnalysis[
     def snd_lgm(self) -> NormalLGM[SndRep, PstRep]:
         """The second branch as a standalone linear Gaussian model."""
         return NormalLGM(self.snd_dim, self.snd_rep, self.lat_dim, self.pst_rep)
-
-    # Private
-
-    def _branch_emb(self, idx: int) -> GeneralizedGaussianLocationEmbedding[Any]:
-        """What one branch's coupling uses inside that branch: its location."""
-        branch = self.obs_man.fst_man if idx == 0 else self.obs_man.snd_man
-        return GeneralizedGaussianLocationEmbedding(branch)
-
-    @property
-    def _lat_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[PstRep]]:
-        """What every branch's coupling uses inside the shared latent: its location."""
-        return GeneralizedGaussianLocationEmbedding(self.pst_man)

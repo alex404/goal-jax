@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from .base import Manifold
-from .clique import CliqueMap, Potential
+from .clique import CliqueMap
 from .embedding import LinearEmbedding
 from .map import LinearMap
 from .util import split_by_dims
@@ -39,7 +39,7 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
     Each form maps its input group's node coordinates to its output group's, and a **path**
     is what carries a domain point down to the nodes one form reads and puts its result back
-    in the codomain. Parameters are the forms' concatenated in potential order, which
+    in the codomain. Parameters are the forms' concatenated in order, which
     :meth:`coord_blocks` splits apart again. A fork, a three-way coupling and a plain chain
     differ only in how many terms the sum has.
 
@@ -62,14 +62,8 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     _dom_man: Domain
     """What every form's contracted side is read against."""
 
-    potentials: tuple[Potential, ...]
-    """One ``(scope, form)`` pair per form, in parameter order.
-
-    For forward forms, ``scope`` ascending pairs positionally with the form's
-    ``cod_embs + dom_embs``. In a *transposed* interaction the scopes are carried verbatim
-    while the form's groups have swapped, so that positional pairing holds only for the
-    forward reading --- nothing here reads it at runtime.
-    """
+    cliques: tuple[CliqueMap, ...]
+    """The forms, in parameter order."""
 
     paths: tuple[
         tuple[LinearEmbedding[Any, Any] | None, LinearEmbedding[Any, Any] | None], ...
@@ -108,7 +102,7 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         return Interaction(
             self._dom_man,
             self._cod_man,
-            tuple(Potential(scope, form.trn_man) for scope, form in self.potentials),
+            tuple(form.trn_man for form in self.cliques),
             tuple((dom_path, cod_path) for cod_path, dom_path in self.paths),
         )
 
@@ -147,11 +141,6 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
     # Methods
 
     @property
-    def cliques(self) -> tuple[CliqueMap, ...]:
-        """The forms alone, in parameter order."""
-        return tuple(form for _, form in self.potentials)
-
-    @property
     def clique_dims(self) -> tuple[int, ...]:
         """Parameter dimension of each form, in parameter order."""
         return tuple(form.dim for form in self.cliques)
@@ -163,8 +152,8 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
         Raises:
             ValueError: if the model has several, where there is no one form to talk about.
         """
-        if len(self.potentials) != 1:
-            msg = f"this interaction has {len(self.potentials)} cliques"
+        if len(self.cliques) != 1:
+            msg = f"this interaction has {len(self.cliques)} cliques"
             raise ValueError(f"{msg}: there is no single form")
         return self.cliques[0]
 

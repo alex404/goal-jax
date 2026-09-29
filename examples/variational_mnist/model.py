@@ -12,6 +12,7 @@ This module provides:
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportArgumentType=false
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, override
 
@@ -20,12 +21,13 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    CliqueMap,
     Diagonal,
     Differentiable,
     Harmonium,
     IdentityEmbedding,
-    Potential,
+    LinearEmbedding,
+    Manifold,
+    MatrixRep,
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
@@ -98,12 +100,12 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 ):
     """Concrete harmonium coupling an observable to a latent manifold.
 
-    A thin wrapper that stores the two partitions and the clique joining them.
+    A thin wrapper that stores the two partitions, coupled in full by one rectangular
+    clique.
     """
 
     _obs_man: Observable
     _pst_man: Latent
-    _clique: CliqueMap
 
     @property
     @override
@@ -117,8 +119,18 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
-        return (Potential((0, 1), self._clique),)
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return ((0, 1),)
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return IdentityEmbedding
 
 
 ### Concrete mixture of harmoniums ###
@@ -284,12 +296,7 @@ def _hierarchical_harmonium(
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
     mix_man = CompleteMixture(base_lat_man, n_categories)
-    form = CliqueMap(
-        Rectangular(),
-        (IdentityEmbedding(obs_man),),
-        (IdentityEmbedding(mix_man.obs_man),),
-    )
-    return ConcreteHarmonium(obs_man, mix_man, form)
+    return ConcreteHarmonium(obs_man, mix_man)
 
 
 def _full_base_harmonium(
@@ -297,12 +304,7 @@ def _full_base_harmonium(
     base_lat_man: Differentiable,
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, Lat] for fully connected mode."""
-    form = CliqueMap(
-        Rectangular(),
-        (IdentityEmbedding(obs_man),),
-        (IdentityEmbedding(base_lat_man),),
-    )
-    return ConcreteHarmonium(obs_man, base_lat_man, form)
+    return ConcreteHarmonium(obs_man, base_lat_man)
 
 
 def _chain_edges(n: int) -> list[tuple[int, int]]:

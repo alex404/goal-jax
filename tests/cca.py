@@ -63,7 +63,7 @@ class TestGraph:
         model = cca()
         obs = model.obs_man
         assert model.root_nodes == frozenset({0, 1})
-        root_dims = tuple(form.dim for _, form in model.root_potentials)
+        root_dims = model.root_layout.clique_dims
         assert root_dims == (obs.fst_man.dim, obs.snd_man.dim)
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:
@@ -77,7 +77,7 @@ class TestGraph:
         observable node; the interaction's two sides are the whole pair and the latent.
         """
         m = cca().int_man
-        (_, fst_form), (_, snd_form) = m.potentials
+        fst_form, snd_form = m.cliques
         assert fst_form.dom_man == snd_form.dom_man
         assert fst_form.cod_man != snd_form.cod_man
         assert fst_form.cod_man == TensorProduct((m.cod_man.fst_man,))

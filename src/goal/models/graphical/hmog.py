@@ -32,6 +32,7 @@ for common configurations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -43,9 +44,10 @@ from ...geometry import (
     AnalyticConjugated,
     DifferentiableConjugated,
     LinearEmbedding,
+    Manifold,
+    MatrixRep,
     ObservableEmbedding,
     PositiveDefinite,
-    Potential,
     RootEmbedding,
     SymmetricConjugated,
 )
@@ -100,7 +102,7 @@ class _HMoGBase[
 
     @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
         """The lower harmonium's cliques, unchanged.
 
         A hierarchical model declares no coupling of its own: the lower harmonium already
@@ -108,7 +110,17 @@ class _HMoGBase[
         above is a fact about the graph, derived by
         :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths`.
         """
-        return self.lwr_hrm.cross_potentials
+        return self.lwr_hrm.cross_cliques
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return self.lwr_hrm.cross_rep(clique)
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return self.lwr_hrm.cross_subspace(clique, node)
 
     @property
     @override

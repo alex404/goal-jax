@@ -46,7 +46,7 @@ def _as_map(int_man: LinearMap[Any, Any]) -> Interaction[Any, Any]:
 def _block(int_man: LinearMap[Any, Any], index: int) -> Interaction[Any, Any]:
     """One term of a multi-form interaction, as an interaction of the same shape."""
     m = _as_map(int_man)
-    return Interaction(m.cod_man, m.dom_man, (m.potentials[index],), (m.paths[index],))
+    return Interaction(m.cod_man, m.dom_man, (m.cliques[index],), (m.paths[index],))
 
 
 def _cod_node(m: Interaction[Any, Any], w: Array) -> Array:
@@ -197,9 +197,9 @@ class TestJointDomainCliques:
 
     @pytest.mark.parametrize(("index", "nodes"), [(0, (0, 1)), (2, (0, 2))])
     def test_nodes_and_arity_agree(self, index: int, nodes: tuple[int, ...]) -> None:
-        placed, clique = self._mfa().cross_potentials[index]
-        assert placed == nodes
-        assert len(clique.factor_embs) == 2
+        mfa = self._mfa()
+        assert mfa.level_split()[1][index] == nodes
+        assert len(mfa.int_man.cliques[index].factor_embs) == 2
 
     @pytest.mark.parametrize("index", [0, 2])
     def test_posterior_direction_matches_at_the_node(self, index: int) -> None:

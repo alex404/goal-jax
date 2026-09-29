@@ -24,6 +24,7 @@ of the residual at exact conjugation, and agreement between
 ``regress_conjugation_parameters`` and the prior conjugation loss.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -32,10 +33,11 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    CliqueMap,
     Harmonium,
     IdentityEmbedding,
-    Potential,
+    LinearEmbedding,
+    Manifold,
+    MatrixRep,
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
@@ -267,7 +269,6 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
     """Harmonium with interaction restricted to the BaseLatent slot of the mixture."""
 
     _pst_man: Any
-    _clique: CliqueMap
 
     @property
     @override
@@ -281,8 +282,18 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
-        return (Potential((0, 1), self._clique),)
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return ((0, 1),)
+
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        return IdentityEmbedding
 
 
 @dataclass(frozen=True)
@@ -299,14 +310,8 @@ class _ConcreteHierarchicalMixture(
 
 def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
     """Small instance: 6 Binomial(3) observables, 3 Bernoulli latents, 3 clusters."""
-    obs_man = Binomials(6, 3)
     mix_man = CompleteMixture(Bernoullis(3), 3)
-    clique = CliqueMap(
-        Rectangular(),
-        (IdentityEmbedding(obs_man),),
-        (IdentityEmbedding(mix_man.obs_man),),
-    )
-    return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(mix_man, clique))
+    return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(mix_man))
 
 
 class TestVariationalHierarchicalMixture:

@@ -8,8 +8,9 @@ This module implements mixture models using a harmonium structure where
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
@@ -23,7 +24,7 @@ from ...geometry import (
     IdentityEmbedding,
     LinearEmbedding,
     Manifold,
-    Potential,
+    MatrixRep,
     Rectangular,
     StatisticalMoments,
     SymmetricConjugated,
@@ -92,14 +93,22 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def cross_potentials(self) -> tuple[Potential, ...]:
-        """The observable (node $0$) coupled to the category (node $1$).
+    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
+        """The observable (node $0$) coupled to the category (node $1$)."""
+        return ((0, 1),)
 
-        Structure is fixed: a Rectangular form selecting the coupled part of the
-        observable, and the whole of the category.
-        """
-        embs = {0: self.obs_emb, 1: IdentityEmbedding(self.lat_man)}
-        return (self.cross_potential(Rectangular(), embs),)
+    @override
+    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def cross_subspace(
+        self, clique: tuple[int, ...], node: int
+    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+        """The coupled part of the observable, and the whole of the category."""
+        if node == 0:
+            return lambda _: self.obs_emb
+        return IdentityEmbedding
 
     @property
     @override
