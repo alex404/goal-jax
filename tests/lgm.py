@@ -182,7 +182,9 @@ class TestNormalAnalyticLGM:
         for i in range(3):
             z = jax.random.normal(jax.random.fold_in(key, i), (lat_dim,))
             s_z = model.pst_man.sufficient_statistic(z)
-            lhs = model.obs_man.log_partition_function(model.lkl_fun_man(lkl_params, z))
+            lhs = model.obs_man.log_partition_function(
+                model.lkl_fun_man(lkl_params, s_z)
+            )
             rhs = jnp.dot(rho, s_z) + model.obs_man.log_partition_function(obs_params)
             assert jnp.abs(lhs - rhs) < 1e-5
 
@@ -211,7 +213,7 @@ class TestBoltzmannLGM:
             state = states[idx]
             s_z = model.lat_man.sufficient_statistic(state)
             lhs = model.obs_man.log_partition_function(
-                model.lkl_fun_man(lkl_params, state)
+                model.lkl_fun_man(lkl_params, s_z)
             )
             rhs = jnp.dot(rho, s_z) + model.obs_man.log_partition_function(obs_params)
             assert jnp.abs(lhs - rhs) < ATOL
@@ -227,7 +229,8 @@ class TestBoltzmannLGM:
         lkl_params, prior_params = model.split_conjugated(params)
 
         def joint_density(state: Array) -> Array:
-            conditional_obs = model.lkl_fun_man(lkl_params, state)
+            s_z = model.pst_man.sufficient_statistic(state)
+            conditional_obs = model.lkl_fun_man(lkl_params, s_z)
             return model.obs_man.density(conditional_obs, obs) * model.lat_man.density(
                 prior_params, state
             )

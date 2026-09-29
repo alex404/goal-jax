@@ -406,7 +406,7 @@ class TestLayoutInvariants:
         """
         mfa = _mfa()
         form = mfa.clique_emb((0, 1, 2)).sub_man
-        assert form.arity == 3
+        assert len(form.factor_embs) == 3
         assert tuple(emb.sub_man.dim for emb in form.factor_embs) == (4, 2, 2)
 
 
@@ -613,9 +613,9 @@ def _flat_root() -> _Layout:
     x1, x2 = Euclidean(2), Euclidean(3)
     pair = CliqueMap(Rectangular(), (IdentityEmbedding(x1), IdentityEmbedding(x2)), ())
     potentials = (
-        Potential((0,), CliqueMap.whole(x1)),
+        Potential((0,), CliqueMap(Rectangular(), (IdentityEmbedding(x1),), ())),
         Potential((0, 1), pair),
-        Potential((1,), CliqueMap.whole(x2)),
+        Potential((1,), CliqueMap(Rectangular(), (IdentityEmbedding(x2),), ())),
     )
     return _Layout(frozenset({0, 1}), potentials)
 
@@ -789,7 +789,7 @@ class TestHigherArity:
 
     def test_dim_is_the_product(self) -> None:
         assert self.form.dim == 24
-        assert self.form.arity == 3
+        assert len(self.form.factor_embs) == 3
 
     def test_every_reading_of_one_tensor_contracts_correctly(self) -> None:
         """Contracting a rank-one tensor against its own axes rescales the kept one.
@@ -846,8 +846,8 @@ class TestArityOne:
         assert form.dim == 5
         assert form.matrix_shape == (5, 1)
         assert form.dom_embs == ()
-        # The empty input group's joint is the constant 1, whatever is handed to it.
-        assert jnp.array_equal(form.outer_product(v, jnp.zeros(0)), v)
+        # The empty input group's joint is the constant 1.
+        assert jnp.array_equal(form.outer_product(v, jnp.ones(1)), v)
         assert jnp.array_equal(form(v, jnp.ones(1)), v)
 
 

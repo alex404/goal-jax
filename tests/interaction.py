@@ -99,7 +99,9 @@ def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]
 
 CASES = _interactions()
 NAMES = sorted(CASES)
-NODE_NAMES = [name for name in NAMES if _as_map(CASES[name][0]).clique.arity == 2]
+NODE_NAMES = [
+    name for name in NAMES if len(_as_map(CASES[name][0]).clique.factor_embs) == 2
+]
 """Cases contracting a single node.
 
 There the clique reading and the interaction reading coincide up to the paths: contracting
@@ -197,7 +199,7 @@ class TestJointDomainCliques:
     def test_nodes_and_arity_agree(self, index: int, nodes: tuple[int, ...]) -> None:
         placed, clique = self._mfa().cross_potentials[index]
         assert placed == nodes
-        assert clique.arity == 2
+        assert len(clique.factor_embs) == 2
 
     @pytest.mark.parametrize("index", [0, 2])
     def test_posterior_direction_matches_at_the_node(self, index: int) -> None:

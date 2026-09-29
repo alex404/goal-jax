@@ -132,7 +132,7 @@ class Mixture[Observable: Differentiable](
         ).T  # [n_categories-1, sub_obs_dim]
 
         def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = self.int_man.clique.factor_embs[0].translate(
+            adjusted_obs = self.int_man.clique.cod_embs[0].translate(
                 obs_bias, comp_params
             )
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
@@ -175,7 +175,7 @@ class Mixture[Observable: Differentiable](
         obs_means = jnp.sum(weighted_comps, axis=0)
 
         # Project components (excluding first) to interaction subspace
-        projected_comps = jax.vmap(self.int_man.clique.factor_embs[0].project)(
+        projected_comps = jax.vmap(self.int_man.clique.cod_embs[0].project)(
             weighted_comps[1:]
         )
         # [n_categories-1, sub_obs_dim]
@@ -215,7 +215,7 @@ class Mixture[Observable: Differentiable](
 
         # Translate each column from subspace to full observable space
         def translate_col(col: Array) -> Array:
-            return self.int_man.clique.factor_embs[0].translate(obs_bias, col)
+            return self.int_man.clique.cod_embs[0].translate(obs_bias, col)
 
         translated = jax.vmap(translate_col)(int_cols)
 

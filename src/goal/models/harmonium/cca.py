@@ -38,6 +38,7 @@ from ...geometry import (
     AnalyticPair,
     CliqueMap,
     DifferentiableConjugated,
+    IdentityEmbedding,
     LinearCliques,
     PositiveDefinite,
     Potential,
@@ -91,8 +92,12 @@ class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
     @override
     def potentials(self) -> tuple[Potential, ...]:
         return (
-            Potential((0,), CliqueMap.whole(self.fst_man)),
-            Potential((1,), CliqueMap.whole(self.snd_man)),
+            Potential(
+                (0,), CliqueMap(Rectangular(), (IdentityEmbedding(self.fst_man),), ())
+            ),
+            Potential(
+                (1,), CliqueMap(Rectangular(), (IdentityEmbedding(self.snd_man),), ())
+            ),
         )
 
 

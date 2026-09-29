@@ -25,14 +25,13 @@ from .base import Manifold
 from .combinators import Tuple
 from .embedding import IdentityEmbedding, LinearEmbedding
 from .map import LinearMap
-
-type Embs = tuple[LinearEmbedding[Any, Any], ...]
+from .util import split_by_dims
 
 ### Clique Maps ###
 
 
 @dataclass(frozen=True)
-class Product(Manifold):
+class TensorProduct(Manifold):
     """Tensor product of manifolds, with coordinates stored as the flattened joint.
 
     Mathematically, $\\mathcal M_1 \\otimes \\cdots \\otimes \\mathcal M_k$ with $\\dim =
@@ -48,12 +47,54 @@ class Product(Manifold):
 
 
 @dataclass(frozen=True)
-class CliqueMap(LinearMap[Product, Product]):
-    """A linear map acting on a chosen subspace of each manifold it couples.
+class TensorProductEmbedding(LinearEmbedding[TensorProduct, TensorProduct]):
+    """A tensor product of linear embeddings, applied to a joint one axis at a time.
 
-    Each manifold is a **factor**, reached by one embedding: :attr:`cod_embs` are the
-    output factors, :attr:`dom_embs` the contracted ones. A map with no domain factors is a
-    bias.
+    Mathematically, $\\phi_1 \\otimes \\cdots \\otimes \\phi_k$. Each factor is
+    linear, so it acts on any joint, not only on products of factor points.
+    """
+
+    factors: tuple[LinearEmbedding[Any, Any], ...]
+
+    @property
+    @override
+    def amb_man(self) -> TensorProduct:
+        return TensorProduct(tuple(emb.amb_man for emb in self.factors))
+
+    @property
+    @override
+    def sub_man(self) -> TensorProduct:
+        return TensorProduct(tuple(emb.sub_man for emb in self.factors))
+
+    @override
+    def project(self, coords: Array) -> Array:
+        out = coords.reshape(tuple(emb.amb_man.dim for emb in self.factors))
+        for axis, emb in enumerate(self.factors):
+            out = _map_axis(out, axis, emb.project)
+        return out.reshape(-1)
+
+    @override
+    def embed(self, coords: Array) -> Array:
+        out = coords.reshape(tuple(emb.sub_man.dim for emb in self.factors))
+        for axis, emb in enumerate(self.factors):
+            out = _map_axis(out, axis, emb.embed)
+        return out.reshape(-1)
+
+
+def _map_axis(tensor: Array, axis: int, fn: Any) -> Array:
+    """Apply a vector function along one axis of a tensor."""
+    moved = jnp.moveaxis(tensor, axis, 0)
+    columns = moved.reshape(moved.shape[0], -1)
+    mapped = jax.vmap(fn, in_axes=1, out_axes=1)(columns)
+    return jnp.moveaxis(mapped.reshape((-1, *moved.shape[1:])), 0, axis)
+
+
+@dataclass(frozen=True)
+class CliqueMap(LinearMap[TensorProduct, TensorProduct]):
+    """The linear map of a clique potential, acting on a chosen subspace of each factor.
+
+    Each factor is a manifold reached by one embedding: :attr:`cod_embs` are the output
+    factors, :attr:`dom_embs` the contracted ones. A map with no domain factors is a bias.
 
     Mathematically, the parameters are a tensor $\\Theta \\in \\mathbb R^{d_1 \\times \\cdots
     \\times d_j \\times e_1 \\times \\cdots \\times e_k}$ over the selected subspaces, stored
@@ -63,20 +104,20 @@ class CliqueMap(LinearMap[Product, Product]):
     # Fields
 
     rep: MatrixRep
-    cod_embs: Embs
-    dom_embs: Embs
+    cod_embs: tuple[LinearEmbedding[Any, Any], ...]
+    dom_embs: tuple[LinearEmbedding[Any, Any], ...]
 
     # Overrides
 
     @property
     @override
-    def dom_man(self) -> Product:
-        return Product(tuple(emb.amb_man for emb in self.dom_embs))
+    def dom_man(self) -> TensorProduct:
+        return self.dom_emb.amb_man
 
     @property
     @override
-    def cod_man(self) -> Product:
-        return Product(tuple(emb.amb_man for emb in self.cod_embs))
+    def cod_man(self) -> TensorProduct:
+        return self.cod_emb.amb_man
 
     @property
     @override
@@ -90,9 +131,9 @@ class CliqueMap(LinearMap[Product, Product]):
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        selected = _project(self.dom_embs, v_coords)
-        return _embed(
-            self.cod_embs, self.rep.matvec(self.matrix_shape, f_coords, selected)
+        selected = self.dom_emb.project(v_coords)
+        return self.cod_emb.embed(
+            self.rep.matvec(self.matrix_shape, f_coords, selected)
         )
 
     @override
@@ -107,70 +148,33 @@ class CliqueMap(LinearMap[Product, Product]):
         when the factors within a group are dependent.
         """
         return self.rep.outer_product(
-            _project(self.cod_embs, w_coords), _project(self.dom_embs, v_coords)
+            self.cod_emb.project(w_coords), self.dom_emb.project(v_coords)
         )
 
     # Methods
 
     @property
-    def factor_embs(self) -> Embs:
+    def cod_emb(self) -> TensorProductEmbedding:
+        return TensorProductEmbedding(self.cod_embs)
+
+    @property
+    def dom_emb(self) -> TensorProductEmbedding:
+        return TensorProductEmbedding(self.dom_embs)
+
+    @property
+    def factor_embs(self) -> tuple[LinearEmbedding[Any, Any], ...]:
         """All embeddings in factor order: codomain, then domain."""
         return self.cod_embs + self.dom_embs
 
     @property
-    def arity(self) -> int:
-        return len(self.factor_embs)
-
-    @property
     def matrix_shape(self) -> tuple[int, int]:
-        return (
-            prod(emb.sub_man.dim for emb in self.cod_embs),
-            prod(emb.sub_man.dim for emb in self.dom_embs),
-        )
-
-    @classmethod
-    def whole(cls, man: Manifold) -> CliqueMap:
-        """The bias holding ``man`` whole: one factor, nothing selected or contracted."""
-        return cls(Rectangular(), (IdentityEmbedding(man),), ())
+        return (self.cod_emb.sub_man.dim, self.dom_emb.sub_man.dim)
 
     def to_matrix(self, params: Array) -> Array:
         return self.rep.to_matrix(self.matrix_shape, params)
 
     def from_matrix(self, matrix: Array) -> Array:
         return self.rep.from_matrix(matrix)
-
-
-def _map_axis(tensor: Array, axis: int, fn: Any) -> Array:
-    """Apply a vector function along one axis of a tensor."""
-    moved = jnp.moveaxis(tensor, axis, 0)
-    columns = moved.reshape(moved.shape[0], -1)
-    mapped = jax.vmap(fn, in_axes=1, out_axes=1)(columns)
-    return jnp.moveaxis(mapped.reshape((-1, *moved.shape[1:])), 0, axis)
-
-
-def _project(embs: Embs, joint: Array) -> Array:
-    """Restrict a joint over the factors' ambient dimensions to their selected ones."""
-    if not embs:
-        return jnp.ones(1)
-    if len(embs) == 1:
-        # An embedding may restrict a point whose size is not exactly its ambient dim.
-        return embs[0].project(joint)
-    out = joint.reshape(tuple(emb.amb_man.dim for emb in embs))
-    for axis, emb in enumerate(embs):
-        out = _map_axis(out, axis, emb.project)
-    return out.reshape(-1)
-
-
-def _embed(embs: Embs, selected: Array) -> Array:
-    """Extend a joint over the factors' selected dimensions to their ambient ones."""
-    if not embs:
-        return selected
-    if len(embs) == 1:
-        return embs[0].embed(selected)
-    out = selected.reshape(tuple(emb.sub_man.dim for emb in embs))
-    for axis, emb in enumerate(embs):
-        out = _map_axis(out, axis, emb.embed)
-    return out.reshape(-1)
 
 
 class Potential(NamedTuple):
@@ -184,41 +188,38 @@ class Potential(NamedTuple):
 
 
 @dataclass(frozen=True)
-class CliqueEmbedding[Ambient: LinearCliques](LinearEmbedding[CliqueMap, Ambient]):
+class CliqueEmbedding[AmbientCliques: LinearCliques](
+    LinearEmbedding[CliqueMap, AmbientCliques]
+):
     """The coordinates of the potential on ``scope`` inside a layout. Build with :meth:`LinearCliques.clique_emb`."""
 
     scope: tuple[int, ...]
-    _amb_man: Ambient
+    _amb_man: AmbientCliques
 
     @property
     @override
-    def amb_man(self) -> Ambient:
+    def amb_man(self) -> AmbientCliques:
         return self._amb_man
 
     @property
     @override
     def sub_man(self) -> CliqueMap:
-        return self.amb_man.potentials[self._index].map
+        return self.amb_man.potentials[self.index].map
 
     @override
     def project(self, coords: Array) -> Array:
-        start, stop = self._span
-        return coords[start:stop]
+        return self.amb_man.coord_blocks(coords)[self.index]
 
     @override
     def embed(self, coords: Array) -> Array:
-        start, stop = self._span
-        return jnp.zeros(self.amb_man.dim).at[start:stop].set(coords)
+        blocks = list(self.amb_man.coord_blocks(self.amb_man.zeros()))
+        blocks[self.index] = coords
+        return self.amb_man.join_blocks(*blocks)
 
     @property
-    def _index(self) -> int:
+    def index(self) -> int:
+        """The position of the potential on :attr:`scope` in storage order."""
         return self.amb_man.cliques.index(self.scope)
-
-    @property
-    def _span(self) -> tuple[int, int]:
-        dims = self.amb_man.clique_dims
-        start = sum(dims[: self._index])
-        return start, start + dims[self._index]
 
 
 @dataclass(frozen=True)
@@ -261,8 +262,11 @@ class LinearCliques(Cliques, Manifold, ABC):
         """
         scopes = tuple(scope for scope, _ in self.potentials)
         for scope, form in self.potentials:
-            if len(scope) != form.arity or tuple(sorted(set(scope))) != scope:
-                msg = f"clique {scope} must name {form.arity} distinct nodes, ascending"
+            if (
+                len(scope) != len(form.factor_embs)
+                or tuple(sorted(set(scope))) != scope
+            ):
+                msg = f"clique {scope} must name {len(form.factor_embs)} distinct nodes, ascending"
                 raise ValueError(msg)
         if len(set(scopes)) != len(scopes):
             raise ValueError(f"duplicate cliques in {scopes}")
@@ -273,6 +277,13 @@ class LinearCliques(Cliques, Manifold, ABC):
     @property
     def clique_dims(self) -> tuple[int, ...]:
         return tuple(form.dim for _, form in self.potentials)
+
+    def coord_blocks(self, coords: Array) -> tuple[Array, ...]:
+        """Split coordinates into one block per potential, in storage order."""
+        return split_by_dims(coords, self.clique_dims)
+
+    def join_blocks(self, *blocks: Array) -> Array:
+        return jnp.concatenate(blocks)
 
     def clique_emb(self, scope: tuple[int, ...]) -> CliqueEmbedding[Self]:
         return CliqueEmbedding(tuple(sorted(scope)), self)
@@ -348,7 +359,9 @@ class RecursiveLinearCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
             man, RecursiveLinearCliques
         ):
             return man.potentials
-        return (Potential((0,), CliqueMap.whole(man)),)
+        return (
+            Potential((0,), CliqueMap(Rectangular(), (IdentityEmbedding(man),), ())),
+        )
 
     @property
     def deep_potentials(self) -> tuple[Potential, ...]:
@@ -356,7 +369,9 @@ class RecursiveLinearCliques[Root: Manifold, Cross: Manifold, Deep: Manifold](
         man = self.deep_man
         if isinstance(man, LinearCliques):
             return man.potentials
-        return (Potential((0,), CliqueMap.whole(man)),)
+        return (
+            Potential((0,), CliqueMap(Rectangular(), (IdentityEmbedding(man),), ())),
+        )
 
     def cross_potential(
         self, rep: MatrixRep, node_embs: Mapping[int, LinearEmbedding[Any, Any]]

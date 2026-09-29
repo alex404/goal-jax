@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import Diagonal, PositiveDefinite, Product, Scale
+from goal.geometry import Diagonal, PositiveDefinite, Scale, TensorProduct
 from goal.models import CanonicalCorrelationAnalysis
 
 jax.config.update("jax_platform_name", "cpu")
@@ -80,8 +80,8 @@ class TestGraph:
         (_, fst_form), (_, snd_form) = m.potentials
         assert fst_form.dom_man == snd_form.dom_man
         assert fst_form.cod_man != snd_form.cod_man
-        assert fst_form.cod_man == Product((m.cod_man.fst_man,))
-        assert snd_form.cod_man == Product((m.cod_man.snd_man,))
+        assert fst_form.cod_man == TensorProduct((m.cod_man.fst_man,))
+        assert snd_form.cod_man == TensorProduct((m.cod_man.snd_man,))
 
 
 class TestDimensions:

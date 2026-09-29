@@ -18,7 +18,12 @@ Class Hierarchy
 Clique Maps
 -----------
 
-.. autoclass:: goal.geometry.manifold.clique.Product
+.. autoclass:: goal.geometry.manifold.clique.TensorProduct
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.clique.TensorProductEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

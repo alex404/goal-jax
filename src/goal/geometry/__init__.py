@@ -57,9 +57,10 @@ from .manifold.clique import (
     CliqueMap,
     LinearCliques,
     Potential,
-    Product,
     RecursiveLinearCliques,
     RootEmbedding,
+    TensorProduct,
+    TensorProductEmbedding,
 )
 from .manifold.combinators import (
     Null,
@@ -133,7 +134,6 @@ __all__ = [
     "PositiveDefinite",
     "PosteriorEmbedding",
     "Potential",
-    "Product",
     "Quadruple",
     "Rectangular",
     "RecursiveLinearCliques",
@@ -145,6 +145,8 @@ __all__ = [
     "StatisticalMoments",
     "Symmetric",
     "SymmetricConjugated",
+    "TensorProduct",
+    "TensorProductEmbedding",
     "Triple",
     "TrivialEmbedding",
     "TupleEmbedding",

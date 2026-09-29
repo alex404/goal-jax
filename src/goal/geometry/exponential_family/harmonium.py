@@ -313,13 +313,6 @@ class Conjugated[
         lkl_params = self.likelihood_function(params)
         return lkl_params, self.prior(params)
 
-    def extract_likelihood_input(self, prr_sample: Array) -> Array:
-        """Extract the variables needed to condition the likelihood from a prior sample.
-
-        Returns the full sample by default. Hierarchical models override to extract only the immediate child latent (e.g., $y$ from a joint $yz$ sample).
-        """
-        return prr_sample
-
     def observable_sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Sample from the observable marginal $p(x)$ by discarding latent components."""
         xzs = self.sample(key, params, n)
@@ -334,9 +327,8 @@ class Conjugated[
 
         nat_prior = self.prior(params)
         z_sample = self.prr_man.sample(key1, nat_prior, n)
-        z0_sample = self.extract_likelihood_input(z_sample)
 
-        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z0_sample)
+        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z_sample)
         x_keys = jax.random.split(key2, n)
         x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
             x_keys, x_params, 1

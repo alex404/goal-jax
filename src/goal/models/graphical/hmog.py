@@ -133,10 +133,6 @@ class _HMoGBase[
         )
 
     @override
-    def extract_likelihood_input(self, prr_sample: Array) -> Array:
-        return prr_sample[:, : self.lwr_hrm.prr_man.data_dim]
-
-    @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
         """Place the lower harmonium's conjugation parameters into node $y$'s slot of the upper mixture."""
         return ObservableEmbedding(self.prr_upr_hrm).embed(
