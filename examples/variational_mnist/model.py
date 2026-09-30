@@ -13,7 +13,7 @@ This module provides:
 # pyright: reportArgumentType=false
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, override
 
 import jax
@@ -107,6 +107,11 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
     _obs_man: Observable
     _pst_man: Latent
 
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((0,), (0, 1), (1,)), kw_only=True
+    )
+    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
+
     @property
     @override
     def obs_man(self) -> Observable:
@@ -119,18 +124,23 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return ((0, 1),)
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
+
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return IdentityEmbedding
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        return (IdentityEmbedding,) * len(clique)
 
 
 ### Concrete mixture of harmoniums ###
@@ -295,8 +305,12 @@ def _hierarchical_harmonium(
     n_categories: int,
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
-    mix_man = CompleteMixture(base_lat_man, n_categories)
-    return ConcreteHarmonium(obs_man, mix_man)
+    mix_man = CompleteMixture(base_lat_man, n_categories).impose(
+        ((1,), (1, 2), (2,)), frozenset({1})
+    )
+    return ConcreteHarmonium(
+        obs_man, mix_man, _cliques=((0,), (0, 1), (1,), (1, 2), (2,))
+    )
 
 
 def _full_base_harmonium(

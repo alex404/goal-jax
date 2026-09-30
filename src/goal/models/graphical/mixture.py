@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, override
 
 import jax
@@ -145,7 +145,7 @@ class CompleteMixtureOfHarmoniums[
 
     Given a base harmonium over (Observable, Posterior), this constructs a harmonium whose
     latent space is ``CompleteMixture[Posterior]`` = $(Y, K)$. The interaction is three
-    cliques rather than one, and which nodes each couples is what :attr:`cross_cliques`
+    cliques rather than one, and which nodes each couples is what the stored graph
     declares:
 
     - $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
@@ -155,6 +155,11 @@ class CompleteMixtureOfHarmoniums[
     The graph is a **fork, not a chain**: both $y$ and $k$ are adjacent to $x$ through the
     three-way clique, so the levels come out $(1, 2)$ and the depth is two. This matters
     wherever the deepest level is used --- it holds $y$ as well as $k$.
+
+    The mixture's split of $(y, k)$ into its observable $y$ and latent $k$ is therefore a
+    split *within* one level of this graph, which the graph's canonical order does not
+    see. The two agree because $y$ is labelled before $k$: canonical order stores the level
+    as $(y), (y, k), (k)$, which is the mixture's own ``[root | cross | deep]``.
 
     This class does NOT require conjugation — it provides the pure harmonium
     structure that can be wrapped in either:
@@ -172,47 +177,79 @@ class CompleteMixtureOfHarmoniums[
     bas_hrm: Harmonium[Observable, Posterior]
     """Base harmonium (lower level)."""
 
-    @property
-    def bas_pst_man(self) -> CompleteMixture[Posterior]:
-        """Complete mixture over base posterior (avoids circular dependency with pst_man)."""
-        return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((0,), (0, 1), (0, 1, 2), (0, 2), (1,), (1, 2), (2,)), kw_only=True
+    )
+    """Nodes $x = 0$, $y = 1$, $k = 2$, with crossing cliques $(x,y)$, $(x,y,k)$ and $(x,k)$."""
+
+    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
+    """The observable."""
+
+    # Overrides
 
     @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        """The three interaction blocks couple $(x,y)$, $(x,y,k)$, and $(x,k)$.
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
 
-        Node $0$ is $x$, node $1$ is $y$, node $2$ is $k$. Everything else about the graph
-        follows: the three biases come from the partitions, the $(y,k)$ coupling comes from the
-        mixture one level up, and the levels come out $(1, 2)$ rather than a chain --- both
-        $y$ and $k$ are adjacent to $x$, so the graph has depth two, not three.
-
-        This has to be declared: the three forms share a domain and a codomain, so nothing
-        but the model knows which nodes each couples. The $(x,y,k)$ clique reaches the
-        mixture's joint $(y,k)$ clique rather than either node alone; that follows from the
-        node set.
-        """
-        return ((0, 1), (0, 1, 2), (0, 2))
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         """$\\theta_{XY}$ keeps the base interaction's representation."""
-        if clique == (0, 1):
-            return self.bas_hrm.clique_rep((0, 1))
+        _, k = self.mix_nodes
+        if k not in clique:
+            return self.bas_hrm.crs_rep(self.bas_clique)
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        """The base interaction's subspaces at $x$ and $y$, except that $\\theta_{XK}$ uses all of $x$, and all of $k$ throughout.
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        """The base interaction's subspaces at $x$ and $y$, except that $\\theta_{XK}$ uses all of $x$, and all of $k$ throughout."""
+        y, k = self.mix_nodes
+        if y not in clique:
+            return (IdentityEmbedding,) * len(clique)
+        bas = dict(
+            zip(
+                (i in self.bas_hrm.root_nodes for i in self.bas_clique),
+                self.bas_hrm.crs_emb_constructors(self.bas_clique),
+                strict=True,
+            )
+        )
+        return tuple(
+            IdentityEmbedding if i == k else bas[i in self.root_nodes] for i in clique
+        )
 
-        Labels $0$ and $1$ are $x$ and $y$ in the base harmonium too, so its subspaces are
-        borrowed without relabelling.
-        """
-        if node == 2 or clique == (0, 2):
-            return IdentityEmbedding
-        return self.bas_hrm.subspace((0, 1), node)
+    # Methods
+
+    @property
+    def mix_nodes(self) -> tuple[int, int]:
+        """The mixture's nodes $(y, k)$: the level above the observable, $y$ labelled first."""
+        y, k = self.level_sets[1]
+        return y, k
+
+    @property
+    def mix_graph(self) -> tuple[tuple[tuple[int, ...], ...], frozenset[int]]:
+        """The cliques and root set this model imposes on its mixture over $(y, k)$."""
+        y, _ = self.mix_nodes
+        return self.level_split()[2], frozenset({y})
+
+    @property
+    def bas_clique(self) -> tuple[int, ...]:
+        """The base harmonium's crossing clique, in its own labels."""
+        (clique,) = self.bas_hrm.level_split()[1]
+        return clique
+
+    @property
+    def bas_pst_man(self) -> CompleteMixture[Posterior]:
+        """Complete mixture over base posterior (avoids circular dependency with pst_man)."""
+        return CompleteMixture(self.bas_hrm.pst_man, self.n_categories).impose(
+            *self.mix_graph
+        )
 
     @property
     @override
@@ -298,7 +335,7 @@ class CompleteMixtureOfHarmoniums[
         """
         x, int_coords, lat_coords = self.split_level(coords)
         xy, xyk, xk = self.int_man.coord_blocks(int_coords)
-        y, yk, k = self.deep_man.split_level(lat_coords)
+        y, yk, k = self.dep_man.split_level(lat_coords)
         hrm = self.bas_hrm.join_level(x, xy, y)
         return self.mix_man.join_level(hrm, jnp.concatenate([xk, xyk, yk]), k)
 
@@ -309,7 +346,7 @@ class CompleteMixtureOfHarmoniums[
         n_cols = self.n_categories - 1
         xk, xyk, yk = jnp.split(cross, [x.size * n_cols, (x.size + xy.size) * n_cols])
         int_coords = jnp.concatenate([xy, xyk, xk])
-        return self.join_level(x, int_coords, self.deep_man.join_level(y, yk, k))
+        return self.join_level(x, int_coords, self.dep_man.join_level(y, yk, k))
 
 
 # Mixture of Conjugated Harmoniums
@@ -460,7 +497,9 @@ class CompleteMixtureOfSymmetric[
     @override
     def lat_man(self) -> CompleteMixture[Latent]:
         """The shared latent manifold (posterior == prior)."""
-        return CompleteMixture(self.bas_hrm.lat_man, self.n_categories)
+        return CompleteMixture(self.bas_hrm.lat_man, self.n_categories).impose(
+            *self.mix_graph
+        )
 
     @property
     @override
@@ -501,7 +540,9 @@ class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues,repo
     @override
     def lat_man(self) -> AnalyticMixture[Latent]:
         """The shared latent manifold as an AnalyticMixture (supports to_natural)."""
-        return AnalyticMixture(self.bas_hrm.lat_man, self.n_categories)
+        return AnalyticMixture(self.bas_hrm.lat_man, self.n_categories).impose(
+            *self.mix_graph
+        )
 
     @override
     def to_natural_likelihood(self, means: Array) -> Array:

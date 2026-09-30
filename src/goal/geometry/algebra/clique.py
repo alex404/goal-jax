@@ -1,6 +1,6 @@
 """Rooted graphs given by their cliques.
 
-A ``Cliques`` is a graph described by two things a subclass states: its **cliques**,
+A ``RecursiveCliques`` is a graph described by two things a subclass states: its **cliques**,
 each a set of node labels, and a nonempty **root set** $R$ of labels that cliques name.
 The list need not hold every clique of the graph: it is whichever cliques the subclass
 carries, so singletons, or the smaller cliques inside a larger one, may be absent. The
@@ -15,10 +15,10 @@ spans two consecutive ones.
 
 **Representation.** The cliques as a subclass writes them are free-form: their order, the
 order of labels within one, repeats, and empty cliques change nothing. Two members read
-them. :attr:`Cliques.level_sets` asks only which labels share a clique, which the writing
-cannot change, and :attr:`Cliques.canonical_cliques` is the one normalized form, each
+them. :attr:`RecursiveCliques.level_sets` asks only which labels share a clique, which the writing
+cannot change, and :attr:`RecursiveCliques.canonical_cliques` is the one normalized form, each
 clique once and grouped by level. Every other member reads these two, so a component with
-no root is left out everywhere. :meth:`Cliques.level_split` coarsens the canonical form to
+no root is left out everywhere. :meth:`RecursiveCliques.level_split` coarsens the canonical form to
 what a layout stores: the cliques inside $R$, those crossing out of it, and the rest,
 which are the cliques of the graph one level up, rooted at the level-1 nodes. Node indices
 are labels, and results are sorted tuples, which is only a fixed way of writing a set
@@ -38,7 +38,7 @@ from itertools import chain
 
 
 @dataclass(frozen=True)
-class Cliques(ABC):
+class RecursiveCliques(ABC):
     """A rooted graph as $(V, R, C)$: its nodes, its root set, and its cliques.
 
     Subclasses state the cliques and the root set; everything else is derived.
@@ -159,7 +159,7 @@ class Cliques(ABC):
         cross = above[0] if above else ()
         return root, cross, tuple(chain.from_iterable(above[1:]))
 
-    def same_graph(self, other: Cliques) -> bool:
+    def same_graph(self, other: RecursiveCliques) -> bool:
         """Whether ``other`` has the same root set and :attr:`canonical_cliques`.
 
         Compares the two descriptions, not the objects, so subclasses of different types

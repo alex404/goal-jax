@@ -9,8 +9,8 @@ This module implements mixture models using a harmonium structure where
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
-from typing import Any, override
+from dataclasses import dataclass, field, replace
+from typing import Any, Self, override
 
 import jax
 import jax.numpy as jnp
@@ -32,6 +32,12 @@ from ...geometry import (
 from ..base.categorical import (
     Categorical,
 )
+
+MIXTURE_CLIQUES: tuple[tuple[int, ...], ...] = ((0,), (0, 1), (1,))
+"""A standalone mixture's cliques: observable $0$ and category $1$, coupled."""
+
+MIXTURE_ROOT_NODES: frozenset[int] = frozenset({0})
+"""A standalone mixture's root set: the observable."""
 
 
 @dataclass(frozen=True)
@@ -84,31 +90,42 @@ class Mixture[Observable: Differentiable](
     obs_emb: LinearEmbedding[Manifold, Observable]
     """Observable embedding - determines which observable parameters are mixed."""
 
+    _cliques: tuple[tuple[int, ...], ...] = field(default=MIXTURE_CLIQUES, kw_only=True)
+    """The observable and the category, coupled."""
+
+    _root_nodes: frozenset[int] = field(default=MIXTURE_ROOT_NODES, kw_only=True)
+    """The observable."""
+
     # Overrides
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
+
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @property
     @override
     def lat_man(self) -> Categorical:
         return Categorical(self.n_categories)
 
-    @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        """The observable (node $0$) coupled to the category (node $1$)."""
-        return ((0, 1),)
-
-    @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
         """The coupled part of the observable, and the whole of the category."""
-        if node == 0:
-            return lambda _: self.obs_emb
-        return IdentityEmbedding
+        return tuple(
+            (lambda _: self.obs_emb) if i in self.root_nodes else IdentityEmbedding
+            for i in clique
+        )
 
     @property
     @override
@@ -121,6 +138,12 @@ class Mixture[Observable: Differentiable](
     def pst_man(self) -> Categorical:
         """A mixture's posterior is its categorical latent."""
         return self.lat_man
+
+    def impose(
+        self, cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
+    ) -> Self:
+        """This mixture with the cliques and root set an enclosing model assigns it."""
+        return replace(self, _cliques=cliques, _root_nodes=root_nodes)
 
     @override
     def conjugation_parameters(
@@ -274,10 +297,28 @@ class CompleteMixture[Observable: Differentiable](
 
     # Constructor
 
-    def __init__(self, obs_man: Observable, n_categories: int):
+    def __init__(
+        self,
+        obs_man: Observable,
+        n_categories: int,
+        *,
+        _cliques: tuple[tuple[int, ...], ...] = MIXTURE_CLIQUES,
+        _root_nodes: frozenset[int] = MIXTURE_ROOT_NODES,
+    ):
         # Use identity observable embedding for complete mixture
         obs_emb = IdentityEmbedding(obs_man)
-        super().__init__(n_categories, obs_emb)
+        super().__init__(
+            n_categories, obs_emb, _cliques=_cliques, _root_nodes=_root_nodes
+        )
+
+    @override
+    def impose(
+        self, cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
+    ) -> Self:
+        """Rebuilt through the constructor, which takes the observable rather than its embedding."""
+        return type(self)(
+            self.obs_man, self.n_categories, _cliques=cliques, _root_nodes=root_nodes
+        )
 
     def split_mean_mixture(
         self,

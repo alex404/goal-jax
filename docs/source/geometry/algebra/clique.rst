@@ -5,7 +5,7 @@ Cliques
    :noindex:
    :no-members:
 
-.. autoclass:: goal.geometry.algebra.clique.Cliques
+.. autoclass:: goal.geometry.algebra.clique.RecursiveCliques
    :members:
    :undoc-members:
    :show-inheritance:

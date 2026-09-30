@@ -18,7 +18,7 @@ Usage::
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, override
 
 import jax
@@ -87,6 +87,20 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
     """Poisson observation harmonium over the pendulum latent."""
 
     n_neurons: int
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((0,), (0, 1), (1,)), kw_only=True
+    )
+    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
+
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @property
     @override
@@ -98,20 +112,15 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
     def pst_man(self) -> VonMisesNormalPair:
         return VonMisesNormalPair()
 
-    @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return ((0, 1),)
-
-    @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return IdentityEmbedding
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        return (IdentityEmbedding,) * len(clique)
 
 
 @dataclass(frozen=True)

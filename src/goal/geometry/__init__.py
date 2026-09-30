@@ -1,4 +1,4 @@
-from .algebra.clique import Cliques
+from .algebra.clique import RecursiveCliques
 from .algebra.matrix import (
     Diagonal,
     Identity,
@@ -55,10 +55,9 @@ from .manifold.base import (
 from .manifold.clique import (
     CliqueEmbedding,
     CliqueMap,
-    LinearCliques,
+    Interaction,
     RecursiveLinearCliques,
     RootEmbedding,
-    SingletonCliques,
     TensorProduct,
     TensorProductEmbedding,
 )
@@ -78,7 +77,6 @@ from .manifold.embedding import (
     TrivialEmbedding,
     TupleEmbedding,
 )
-from .manifold.interaction import Interaction
 from .manifold.map import (
     AffineMap,
     LinearMap,
@@ -96,7 +94,6 @@ __all__ = [
     "AnalyticProduct",
     "CliqueEmbedding",
     "CliqueMap",
-    "Cliques",
     "ComposedEmbedding",
     "Conjugated",
     "Diagonal",
@@ -118,7 +115,6 @@ __all__ = [
     "IdentityEmbedding",
     "Interaction",
     "InteractionEmbedding",
-    "LinearCliques",
     "LinearComposedEmbedding",
     "LinearEmbedding",
     "LinearMap",
@@ -135,11 +131,11 @@ __all__ = [
     "PosteriorEmbedding",
     "Quadruple",
     "Rectangular",
+    "RecursiveCliques",
     "RecursiveLinearCliques",
     "Replicated",
     "RootEmbedding",
     "Scale",
-    "SingletonCliques",
     "Square",
     "SquareMap",
     "StatisticalMoments",

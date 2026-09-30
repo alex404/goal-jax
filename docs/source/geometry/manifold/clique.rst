@@ -33,11 +33,21 @@ Clique Maps
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.manifold.clique.Interaction
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 
 Clique Embeddings
 -----------------
 
 .. autoclass:: goal.geometry.manifold.clique.CliqueEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.clique.RootCliqueEmbedding
    :members:
    :undoc-members:
    :show-inheritance:
@@ -50,16 +60,6 @@ Clique Embeddings
 
 Clique Layouts
 --------------
-
-.. autoclass:: goal.geometry.manifold.clique.LinearCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.clique.SingletonCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 .. autoclass:: goal.geometry.manifold.clique.RecursiveLinearCliques
    :members:

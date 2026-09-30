@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, override
 
 import jax
@@ -239,7 +239,25 @@ class LGM[
     obs_rep: ObsRep
     """Covariance structure of the observable variables."""
 
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((0,), (0, 1), (1,)), kw_only=True
+    )
+    """The observable and the latent, coupled."""
+
+    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
+    """The observable."""
+
     # Overrides
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
+
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @property
     @override
@@ -247,21 +265,15 @@ class LGM[
         """Override to construct directly from fields, avoiding circular dependency."""
         return Normal(self.obs_dim, self.obs_rep)
 
-    @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        """One clique, coupling the observable's location to the latent's."""
-        return ((0, 1),)
-
-    @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return GeneralizedGaussianLocationEmbedding
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        return (GeneralizedGaussianLocationEmbedding,) * len(clique)
 
     @override
     def conjugation_parameters(

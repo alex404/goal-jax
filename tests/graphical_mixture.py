@@ -269,8 +269,8 @@ def test_mfa_to_natural_round_trip() -> None:
 class TestMFAGraph:
     """MFA's graph is derived from its coupling pattern, not declared clique by clique.
 
-    The model states only which nodes each interaction block couples ---
-    ``cross_cliques``, three cliques. Node count, root count, the biases, the ``(y, k)`` coupling from the
+    The model states only which nodes each interaction block couples --- three crossing
+    cliques in its stored graph. Node count, root count, the biases, the ``(y, k)`` coupling from the
     mixture one level up, the levels, and the clique layout all follow from that. These
     tests pin what follows, because a wrong derivation would be silent: every operation
     below reads the level split, which does not consult the graph.
@@ -315,17 +315,15 @@ class TestMFAGraph:
 
     def test_one_form_per_clique(self) -> None:
         mfa = self._mfa()
-        assert len(mfa.clique_dims) == sum(
-            len(group) for group in mfa.canonical_cliques
-        )
-        assert sum(mfa.clique_dims) == mfa.dim
+        assert len(mfa.clq_dims) == sum(len(group) for group in mfa.canonical_cliques)
+        assert sum(mfa.clq_dims) == mfa.dim
 
     def test_layout_follows_the_clique_order(self) -> None:
         """obs, then the interaction's three blocks, then the mixture's three."""
         mfa = self._mfa(obs_dim=4, lat_dim=2, n_categories=3)
-        xy, xyk, xk = mfa.int_man.clique_dims
-        expected = (mfa.obs_man.dim, xy, xyk, xk, *mfa.pst_man.clique_dims)
-        assert mfa.clique_dims == expected
+        xy, xyk, xk = mfa.int_man.clq_dims
+        expected = (mfa.obs_man.dim, xy, xyk, xk, *mfa.pst_man.clq_dims)
+        assert mfa.clq_dims == expected
 
     def test_mixture_view_round_trips_on_the_derived_graph(self) -> None:
         """The mixture view reorders the derived layout's blocks, so it must survive it."""
@@ -343,7 +341,7 @@ class TestDerivedInteractionEmbeddings:
     in addresses (a ``CliqueEmbedding`` on the mixture above) and how much of each one's
     statistic the axis embeddings select. These tests pin both halves.
 
-    The mixture's node frame is $y = 0$, $k = 1$.
+    Labels are global, so the mixture's nodes are MFA's: $y = 1$, $k = 2$.
     """
 
     @staticmethod
@@ -362,7 +360,7 @@ class TestDerivedInteractionEmbeddings:
         )
 
     @classmethod
-    def _dom_paths(cls, **kwargs) -> tuple[CliqueEmbedding[Any], ...]:
+    def _dom_paths(cls, **kwargs) -> tuple[CliqueEmbedding, ...]:
         paths = tuple(block.paths[0][1] for block in cls._blocks(**kwargs))
         for path in paths:
             assert isinstance(path, CliqueEmbedding)
@@ -370,9 +368,9 @@ class TestDerivedInteractionEmbeddings:
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
         xy, xyk, xk = self._dom_paths()
-        assert xy.scope == (0,)
-        assert xyk.scope == (0, 1)
-        assert xk.scope == (1,)
+        assert xy.clique == (1,)
+        assert xyk.clique == (1, 2)
+        assert xk.clique == (2,)
 
     def test_block_dims_are_the_selected_products(self) -> None:
         """obs 4, lat 2, 3 categories: x-location 4, y-location 2, k 2."""
@@ -391,7 +389,6 @@ class TestDerivedInteractionEmbeddings:
         mix = mfa.pst_man
         xyk = self._blocks()[1]
         dom_path = xyk.paths[0][1]
-        assert dom_path is not None
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_level(coords)
@@ -419,4 +416,4 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         with pytest.raises(ValueError, match="not in tuple"):
-            mix.clique_emb((0, 1, 2)).project(jnp.zeros(mix.dim))
+            mix.clq_emb((0, 1, 2)).project(jnp.zeros(mix.dim))

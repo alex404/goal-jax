@@ -53,22 +53,22 @@ class TestGraph:
 
     def test_one_form_per_clique(self) -> None:
         model = cca()
-        assert len(model.clique_dims) == sum(
+        assert len(model.clq_dims) == sum(
             len(group) for group in model.canonical_cliques
         )
-        assert sum(model.clique_dims) == model.dim
+        assert sum(model.clq_dims) == model.dim
 
     def test_observable_spans_two_nodes(self) -> None:
-        """The observable is a flat two-node layout, so the root potentials are one per observable."""
+        """The observable is two root nodes, so the root potentials are one per observable."""
         model = cca()
         obs = model.obs_man
         assert model.root_nodes == frozenset({0, 1})
-        root_dims = model.root_layout.clique_dims
-        assert root_dims == (obs.fst_man.dim, obs.snd_man.dim)
+        assert model.rot_nod_mans == (obs.fst_man, obs.snd_man)
+        assert model.clq_dims[:2] == (obs.fst_man.dim, obs.snd_man.dim)
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:
         model = cca(fst_dim=3, snd_dim=2, lat_dim=2)
-        assert model.int_man.clique_dims == (3 * 2, 2 * 2)
+        assert model.int_man.clq_dims == (3 * 2, 2 * 2)
 
     def test_branch_forms_contract_the_shared_latent(self) -> None:
         """What lets a single ``Interaction`` hold both branches.
@@ -232,4 +232,4 @@ class TestBranchRepresentations:
         )
         params = model.initialize(jax.random.PRNGKey(14), shape=0.3)
         assert params.shape == (model.dim,)
-        assert sum(model.clique_dims) == model.dim
+        assert sum(model.clq_dims) == model.dim

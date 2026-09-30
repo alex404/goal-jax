@@ -18,7 +18,8 @@ contraction order does not matter, and that partial contraction composes.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from itertools import chain
 from typing import Any, override
 
 import jax
@@ -27,14 +28,11 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
-    CliqueEmbedding,
     CliqueMap,
     Diagonal,
     ExponentialFamily,
     IdentityEmbedding,
-    Interaction,
     InteractionEmbedding,
-    LinearCliques,
     LinearEmbedding,
     Manifold,
     MatrixMap,
@@ -59,60 +57,61 @@ from goal.models import (
     factor_analysis,
 )
 
-
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
 
 
 @dataclass(frozen=True)
-class _Partitions(
-    RecursiveLinearCliques[ExponentialFamily, Manifold, ExponentialFamily]
-):
+class _Partitions(RecursiveLinearCliques[ExponentialFamily, ExponentialFamily]):
     """A clique manifold assembled from three explicit partition manifolds.
 
-    The crossing cliques are those of ``_source``.
+    The graph and the crossing cliques' maps are those of ``_source``.
     """
 
-    _root_man: ExponentialFamily
-    _cross_man: Manifold
-    _deep_man: ExponentialFamily
-    _source: RecursiveLinearCliques[Any, Any, Any]
+    _rot_man: ExponentialFamily
+    _dep_man: ExponentialFamily
+    _source: RecursiveLinearCliques[Any, Any]
 
     @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._source.cross_cliques
-
-    @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
-        return self._source.cross_rep(clique)
-
-    @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return self._source.cross_subspace(clique, node)
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._source.cliques
 
     @property
     @override
-    def root_man(self) -> ExponentialFamily:
-        return self._root_man
+    def root_nodes(self) -> frozenset[int]:
+        return self._source.root_nodes
+
+    @override
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return self._source.crs_rep(clique)
+
+    @override
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        return self._source.crs_emb_constructors(clique)
 
     @property
     @override
-    def cross_man(self) -> Manifold:
-        return self._cross_man
+    def rot_man(self) -> ExponentialFamily:
+        return self._rot_man
 
     @property
     @override
-    def deep_man(self) -> ExponentialFamily:
-        return self._deep_man
+    def rot_nod_mans(self) -> tuple[Manifold, ...]:
+        return (self._rot_man,)
+
+    @property
+    @override
+    def dep_man(self) -> ExponentialFamily:
+        return self._dep_man
 
 
 def _hmog_partitions():
     """The analytic HMoG alongside a bare clique manifold with the same three partitions."""
     model = analytic_hmog(obs_dim=8, obs_rep=Diagonal(), lat_dim=3, n_components=4)
-    partitions = _Partitions(model.obs_man, model.int_man, model.pst_man, model)
+    partitions = _Partitions(model.obs_man, model.pst_man, model)
     return model, partitions
 
 
@@ -121,9 +120,9 @@ class TestPartitionLayout:
 
     def test_span_dims_match_the_model(self) -> None:
         model, partitions = _hmog_partitions()
-        assert partitions.root_man.dim == model.obs_man.dim
-        assert partitions.cross_man.dim == model.int_man.dim
-        assert partitions.deep_man.dim == model.pst_man.dim
+        assert partitions.rot_man.dim == model.obs_man.dim
+        assert partitions.crs_man.dim == model.int_man.dim
+        assert partitions.dep_man.dim == model.pst_man.dim
 
     def test_total_dim_matches_the_model(self) -> None:
         model, partitions = _hmog_partitions()
@@ -169,29 +168,28 @@ class TestHarmoniumSpans:
         """The three partitions are the observable, the interaction, and the posterior.
 
         The cross partition *is* the interaction --- no wrapper. Which nodes its pieces couple
-        is reported separately, by ``cross_cliques``, because that is the part only the model
-        knows.
+        is read off the model's graph, as the crossing group of its level split.
         """
         model, _ = _hmog_partitions()
-        assert model.root_man == model.obs_man
-        assert model.cross_man == model.int_man
-        assert model.deep_man == model.pst_man
-        assert model.cross_cliques == ((0, 1),)
-        assert model.clique_map((0, 1)).dim == model.int_man.dim
+        assert model.rot_man == model.obs_man
+        assert model.crs_man == model.int_man
+        assert model.dep_man == model.pst_man
+        assert model.level_split()[1] == ((0, 1),)
+        assert model.clq_map((0, 1)).dim == model.int_man.dim
 
     def test_the_reading_is_derived_from_the_graph(self) -> None:
         """Nothing positional is declared: the node set fixes order, arity and reading.
 
-        A model states which nodes a coupling touches and what it uses at each. The factor
+        A model states which nodes a coupling touches and what it uses at each. The axis
         order is those nodes ascending, the arity is how many there are, and the output
         group is the root nodes among them.
         """
         model, _ = _hmog_partitions()
-        form = model.clique_map((0, 1))
+        form = model.clq_map((0, 1))
         assert len(form.cod_embs) == 1, "the output group is the root node"
         assert len(form.dom_embs) == 1
-        assert form.cod_man.factors == (model.obs_man,)
-        assert form.dom_man.factors == (model.lwr_hrm.pst_man,)
+        assert form.cod_man.mans == (model.obs_man,)
+        assert form.dom_man.mans == (model.lwr_hrm.pst_man,)
 
     @pytest.mark.parametrize(
         ("emb_cls", "idx"),
@@ -275,7 +273,7 @@ def test_layout_is_jit_static() -> None:
         return jnp.sum(man.split_level(coords)[0])
 
     coords = jnp.arange(float(partitions.dim))
-    assert jnp.allclose(total(coords), jnp.sum(coords[: partitions.root_man.dim]))
+    assert jnp.allclose(total(coords), jnp.sum(coords[: partitions.rot_man.dim]))
 
 
 class TestCliqueAddressing:
@@ -283,38 +281,43 @@ class TestCliqueAddressing:
 
     def test_clique_dims_sum_to_dim(self) -> None:
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        assert sum(model.clique_dims) == model.dim
+        assert sum(model.clq_dims) == model.dim
 
     def test_one_form_per_clique(self) -> None:
         """The declared graph and the parameter layout must agree clique for clique."""
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        assert len(model.clique_dims) == sum(
+        assert len(model.clq_dims) == sum(
             len(group) for group in model.canonical_cliques
         )
+
+    def test_a_path_to_an_absent_clique_is_rejected(self) -> None:
+        man = CompleteMixture(Poissons(2), 3)
+        with pytest.raises(ValueError, match="not in tuple"):
+            man.clq_emb((0, 5))
 
 
 ### Layout Invariants ###
 
 
-def layout_problems(man: LinearCliques) -> list[str]:
+def layout_problems(man: RecursiveLinearCliques[Any, Any]) -> list[str]:
     """Every way a clique manifold's graph and its parameter layout can disagree.
 
-    Storage must list the level groups in order, since ``split_coords`` slices the root,
-    cross, and deep partitions as contiguous runs. The cliques must also tile the
-    coordinate vector. Neither is checked at construction.
+    Blocks are stored in the graph's canonical order, so a recursive deep partition must
+    store its own blocks in the order canonical order gives its segment. The cliques must
+    also tile the coordinate vector. Neither is checked at construction.
     """
-    canonical = man.canonical_cliques
-    stored = man.clique_order
-    group_of = {c: g for g, group in enumerate(canonical) for c in group}
-    groups = [group_of[c] for c in stored]
-    if groups != sorted(groups):
-        return [f"storage order {stored} does not follow the level groups {canonical}"]
-    if sum(man.clique_dims) != man.dim:
-        return [f"cliques sum to {sum(man.clique_dims)}, but dim is {man.dim}"]
+    if sum(man.clq_dims) != man.dim:
+        return [f"cliques sum to {sum(man.clq_dims)}, but dim is {man.dim}"]
+    dep = man.dep_man_rlc
+    if dep is not None:
+        segment = tuple(chain.from_iterable(man.canonical_cliques[2:]))
+        own = tuple(chain.from_iterable(dep.canonical_cliques))
+        if segment != own:
+            return [f"deep storage {own} is not canonical order {segment}"]
     return []
 
 
-def shipped_models() -> list[tuple[str, RecursiveLinearCliques[Any, Any, Any]]]:
+def shipped_models() -> list[tuple[str, RecursiveLinearCliques[Any, Any]]]:
     """One instance of every model shape the library ships a graph for."""
     return [
         ("factor_analysis", factor_analysis(obs_dim=4, lat_dim=2)),
@@ -365,7 +368,7 @@ class TestLayoutInvariants:
         man = dict(shipped_models())[name]
         coords = jnp.arange(float(man.dim))
         root, cross, deep = man.split_level(coords)
-        partitions = (man.root_man.dim, man.cross_man.dim, man.deep_man.dim)
+        partitions = (man.rot_man.dim, man.crs_man.dim, man.dep_man.dim)
         assert (root.size, cross.size, deep.size) == partitions
         assert jnp.array_equal(man.join_level(root, cross, deep), coords)
 
@@ -376,9 +379,9 @@ class TestLayoutInvariants:
         node rather than one for the pair --- which is what makes the axis count the arity.
         """
         mfa = _mfa()
-        form = mfa.clique_emb((0, 1, 2)).sub_man
-        assert len(form.factor_embs) == 3
-        assert tuple(emb.sub_man.dim for emb in form.factor_embs) == (4, 2, 2)
+        form = mfa.clq_emb((0, 1, 2)).sub_man
+        assert len(form.embs) == 3
+        assert tuple(emb.sub_man.dim for emb in form.embs) == (4, 2, 2)
 
 
 ### Ordering Regressions ###
@@ -388,63 +391,63 @@ class TestLayoutInvariants:
 class _ReversedCCA(
     CanonicalCorrelationAnalysis[PositiveDefinite, PositiveDefinite, PositiveDefinite]
 ):
-    """CCA declaring its branches in non-canonical order.
+    """CCA declaring its cliques in non-canonical order.
 
     Nothing forbids this: the two branches are symmetric, and a model author has no reason
-    to know that ``Cliques`` will sort them.
+    to know that ``RecursiveCliques`` will sort them.
     """
 
-    @property
-    @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return ((1, 2), (0, 2))
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((2,), (1, 2), (1,), (0, 2), (0,)), kw_only=True
+    )
 
 
 @dataclass(frozen=True)
-class _DerivedPartitions(
-    RecursiveLinearCliques[Manifold, Interaction[Any, Any], Manifold]
-):
-    """Two explicit partitions and the crossing cliques between them, all in full.
+class _DerivedPartitions(RecursiveLinearCliques[Manifold, Manifold]):
+    """Two explicit partitions and the graph over them, all in full.
 
     The interaction is derived as a harmonium derives it.
     """
 
-    _root_man: Manifold
-    _deep_man: Manifold
-    _cross_cliques: tuple[tuple[int, ...], ...]
+    _rot_man: Manifold
+    _dep_man: Manifold
+    _cliques: tuple[tuple[int, ...], ...]
+    _root_nodes: frozenset[int]
 
     @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cross_cliques
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
+
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return IdentityEmbedding
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        return (IdentityEmbedding,) * len(clique)
 
     @property
     @override
-    def root_man(self) -> Manifold:
-        return self._root_man
+    def rot_man(self) -> Manifold:
+        return self._rot_man
 
     @property
     @override
-    def cross_man(self) -> Interaction[Any, Any]:
-        cross = self.level_split()[1]
-        maps = tuple(self.clique_map(clique) for clique in cross)
-        paths = tuple(self.cross_paths(clique) for clique in cross)
-        return Interaction(self.root_man, self.deep_man, maps, paths)
+    def rot_nod_mans(self) -> tuple[Manifold, ...]:
+        return (self._rot_man,)
 
     @property
     @override
-    def deep_man(self) -> Manifold:
-        return self._deep_man
+    def dep_man(self) -> Manifold:
+        return self._dep_man
 
 
 def _misrooted() -> _DerivedPartitions:
@@ -453,11 +456,16 @@ def _misrooted() -> _DerivedPartitions:
     The deep partition is a mixture rooted at $y$, but the crossing clique couples the
     observable to $k$. The glued graph therefore reroots at $k$, while the deep partition still
     lays itself out $y$-first --- so $k$ lands at level 1 and $y$ at level 2, and levels
-    descend with the node index. This is the shape the numbering invariant now rejects.
+    descend with the node index. Canonical order and the mixture's own storage then disagree
+    on the deep segment, so this shape is inconsistent.
     """
     obs = Normal(3, Diagonal())
-    mix = CompleteMixture(Normal(2, Diagonal()), 4)
-    return _DerivedPartitions(obs, mix, ((0, 2),))
+    mix = CompleteMixture(Normal(2, Diagonal()), 4).impose(
+        ((1,), (1, 2), (2,)), frozenset({1})
+    )
+    return _DerivedPartitions(
+        obs, mix, ((0,), (0, 2), (1,), (1, 2), (2,)), frozenset({0})
+    )
 
 
 class TestDeclarationOrderRegressions:
@@ -473,144 +481,26 @@ class TestDeclarationOrderRegressions:
             lat_dim=2,
             pst_rep=PositiveDefinite(),
         )
-        assert model.clique_order == _cca().clique_order
+        assert model.canonical_cliques == _cca().canonical_cliques
         params = jnp.arange(float(model.dim))
         blocks = model.int_man.coord_blocks(model.split_level(params)[1])
-        found = model.clique_emb((0, 2)).project(params)
+        found = model.clq_emb((0, 2)).project(params)
         assert jnp.array_equal(found, blocks[0])
 
     def test_misrooted_deep_span_is_still_a_graph(self) -> None:
         """Labels need not ascend with level, so this is a graph like any other.
 
         Node 2 is at level 1 and node 1 at level 2. Nothing renumbers between levels ---
-        ``RecursiveLinearCliques`` relabels its deep partition past the root nodes and the graph reads
-        membership rather than comparing indices --- so the level structure comes out
-        as the connectivity dictates rather than as the labels suggest.
+        labels are global and the graph reads membership rather than comparing indices ---
+        so the level structure comes out as the connectivity dictates rather than as the
+        labels suggest.
         """
         man = _misrooted()
         assert man.level_sets == ((0,), (2,), (1,))
 
-    def test_misrooted_deep_span_labels_its_own_cliques(self) -> None:
-        """``clique_emb`` reads the layout's own cliques."""
-        man = _misrooted()
-        params = jnp.arange(float(man.dim))
-        deep = man.split_level(params)[2]
-        y_bias, _, k_bias = man.deep_man.split_level(deep)  # pyright: ignore[reportAttributeAccessIssue]
-        assert jnp.array_equal(man.clique_emb((1,)).project(params), y_bias)
-        assert jnp.array_equal(man.clique_emb((2,)).project(params), k_bias)
-
-
-### Guards ###
-
-
-@dataclass(frozen=True)
-class _Layout(LinearCliques):
-    """A flat layout over the given nodes and cliques, using every node in full."""
-
-    _node_mans: tuple[Manifold, ...]
-    _cliques: tuple[tuple[int, ...], ...]
-
-    @property
-    @override
-    def node_mans(self) -> tuple[Manifold, ...]:
-        return self._node_mans
-
-    @property
-    @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
-
-    @override
-    def clique_rep(self, clique: tuple[int, ...]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return IdentityEmbedding
-
-
-class TestFlatLayout:
-    """A flat layout is read off its nodes and cliques."""
-
-    def test_storage_is_canonical(self) -> None:
-        """However the cliques are written, storage is the canonical order."""
-        nodes = (Euclidean(2), Euclidean(3))
-        man = _Layout(nodes, ((1,), (0, 1), (0,)))
-        assert man.clique_order == ((0,), (0, 1), (1,))
-        assert man.clique_dims == (2, 6, 3)
-        assert jnp.array_equal(
-            man.clique_emb((0, 1)).project(jnp.arange(11.0)), jnp.arange(2.0, 8.0)
-        )
-
-    def test_every_node_of_a_flat_clique_is_an_output(self) -> None:
-        nodes = (Euclidean(2), Euclidean(3))
-        form = _Layout(nodes, ((0,), (0, 1), (1,))).clique_map((0, 1))
-        assert form.matrix_shape == (6, 1)
-        assert form.dom_embs == ()
-
-    def test_clique_emb_refuses_nodes_no_form_holds_jointly(self) -> None:
-        """The structural condition a coupling to a group of nodes needs."""
-        man = CompleteMixture(Poissons(2), 3)
-        with pytest.raises(ValueError, match="not in tuple"):
-            man.clique_emb((0, 5)).project(man.zeros())
-
-
-### Several Root Nodes ###
-
-
-def _flat_root() -> _Layout:
-    """Root nodes of sizes 2 and 3, with a pairwise clique of their own."""
-    return _Layout((Euclidean(2), Euclidean(3)), ((0,), (0, 1), (1,)))
-
-
-@dataclass(frozen=True)
-class _TwoRootFork(_DerivedPartitions):
-    """A three-way clique $(x_1, x_2, z)$ whose output group is both root nodes."""
-
-
-def _two_root_fork() -> _TwoRootFork:
-    return _TwoRootFork(_flat_root(), Euclidean(2), ((0, 1, 2),))
-
-
-class TestSeveralRootNodes:
-    """A crossing clique may touch several root nodes when the root side is a flat layout.
-
-    The root path is then the root layout's own clique on those nodes, as the deep path is
-    on the deep side. No shipped model has this shape, so these tests are its only cover.
-    """
-
-    def test_the_layout(self) -> None:
-        model = _two_root_fork()
-        assert model.root_nodes == frozenset({0, 1})
-        assert model.level_sets == ((0, 1), (2,))
-        assert model.cliques == ((0,), (0, 1), (1,), (0, 1, 2), (2,))
-        assert model.dim == 2 + 6 + 3 + 12 + 2
-        root, cross, deep = model.split_level(jnp.arange(float(model.dim)))
-        assert (root.size, cross.size, deep.size) == (11, 12, 2)
-        assert layout_problems(model) == []
-
-    def test_the_root_path_is_the_root_clique(self) -> None:
-        model = _two_root_fork()
-        assert len(model.clique_map((0, 1, 2)).cod_embs) == 2
-        root_path, deep_path = model.cross_paths((0, 1, 2))
-        assert isinstance(root_path, CliqueEmbedding)
-        assert root_path.scope == (0, 1)
-        assert deep_path is None
-
-    def test_the_interaction_writes_only_the_root_clique(self) -> None:
-        """Forward, transposed and outer product all go through the $(x_1, x_2)$ block."""
-        int_man = _two_root_fork().cross_man
-        params = jax.random.normal(_key(20), (int_man.dim,))
-        z = jax.random.normal(_key(21), (2,))
-        w = jax.random.normal(_key(22), (11,))
-        matrix = params.reshape(6, 2)
-
-        expected = jnp.zeros(11).at[2:8].set(matrix @ z)
-        assert jnp.allclose(int_man(params, z), expected)
-        assert jnp.allclose(int_man.transpose_apply(params, w), matrix.T @ w[2:8])
-        assert jnp.allclose(int_man.outer_product(w, z), jnp.outer(w[2:8], z).ravel())
+    def test_misrooted_deep_span_disagrees_with_canonical_order(self) -> None:
+        """Canonical order is the storage order, and the mixture does not follow it here."""
+        assert layout_problems(_misrooted()) != []
 
 
 ### Form algebra ###
@@ -702,7 +592,7 @@ class TestHigherArity:
 
     def test_dim_is_the_product(self) -> None:
         assert self.form.dim == 24
-        assert len(self.form.factor_embs) == 3
+        assert len(self.form.embs) == 3
 
     def test_every_reading_of_one_tensor_contracts_correctly(self) -> None:
         """Contracting a rank-one tensor against its own axes rescales the kept one.

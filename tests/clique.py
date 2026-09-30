@@ -1,13 +1,13 @@
 """Tests for geometry/algebra/clique.py.
 
 Verifies levels as distance from the root set, the split a cover induces against its root
-set, canonical clique ordering, and level ascent. ``Cliques`` is pure Python, so this file
+set, canonical clique ordering, and level ascent. ``RecursiveCliques`` is pure Python, so this file
 imports no JAX and needs no platform configuration.
 
 Node indices are labels: the tests use ascending contiguous ones because they are easy to
 read, and ``TestRelabelling`` checks that nothing depends on that.
 
-``Cliques`` is an ABC and the library ships no instance of it carrying no parameters: a
+``RecursiveCliques`` is an ABC and the library ships no instance of it carrying no parameters: a
 cover with nothing laid out on it is a thing to test with, not a thing to model with. So
 the concrete cover and the level ascent both live here, as ``Cover`` and ``ascend``.
 """
@@ -17,11 +17,11 @@ from typing import ClassVar, override
 
 import pytest
 
-from goal.geometry import Cliques
+from goal.geometry import RecursiveCliques
 
 
 @dataclass(frozen=True)
-class Cover(Cliques):
+class Cover(RecursiveCliques):
     """A cover and a root set, both stated outright.
 
     The test's instance of the ABC. Nothing normalizes or checks the cover, here or in the
@@ -42,7 +42,7 @@ class Cover(Cliques):
         return self._root_nodes
 
 
-def ascend(clique_set: Cliques) -> Cover:
+def ascend(clique_set: RecursiveCliques) -> Cover:
     """Drop the root level and reroot at the level-1 nodes, keeping the labels.
 
     The level-1 nodes become the new root set, so the resulting graph's levels are this
@@ -59,7 +59,7 @@ def ascend(clique_set: Cliques) -> Cover:
 def path(n_nodes: int) -> Cover:
     """The path ``0 --- 1 --- ... --- (n_nodes - 1)`` rooted at node 0, depth ``n_nodes``.
 
-    Test scaffolding for parametrizing over depth. Deliberately not a ``Cliques``
+    Test scaffolding for parametrizing over depth. Deliberately not a ``RecursiveCliques``
     classmethod: level structure does not determine a cover, so no factory keyed on
     hierarchy can exist, and paths are only one of the shapes this module has to serve.
     """
@@ -68,7 +68,7 @@ def path(n_nodes: int) -> Cover:
     return Cover(singletons + links, frozenset({0}))
 
 
-def levels_of(clique_set: Cliques) -> dict[int, int]:
+def levels_of(clique_set: RecursiveCliques) -> dict[int, int]:
     """Each node's level, read off ``level_sets``, for tests that look nodes up one by one."""
     return {i: k for k, level in enumerate(clique_set.level_sets) for i in level}
 
@@ -98,7 +98,7 @@ class TestLevels:
         ],
     )
     def test_levels(
-        self, clique_set: Cliques, expected: tuple[tuple[int, ...], ...]
+        self, clique_set: RecursiveCliques, expected: tuple[tuple[int, ...], ...]
     ) -> None:
         assert clique_set.level_sets == expected
 
@@ -106,7 +106,9 @@ class TestLevels:
         ("clique_set", "expected"),
         [(HMOG, (1, 1, 1)), (MFA, (1, 2)), (CCA, (2, 1))],
     )
-    def test_level_sizes(self, clique_set: Cliques, expected: tuple[int, ...]) -> None:
+    def test_level_sizes(
+        self, clique_set: RecursiveCliques, expected: tuple[int, ...]
+    ) -> None:
         assert tuple(len(level) for level in clique_set.level_sets) == expected
 
     def test_graph_is_derived_from_the_cover(self) -> None:
@@ -164,7 +166,7 @@ class TestLevelSplit:
     def test_a_bare_edge_has_no_root_or_deep_clique(self) -> None:
         """An interaction with no bias on either node: one crossing clique and nothing else.
 
-        The graph is legitimate --- ``Cliques`` does not require singletons --- so the
+        The graph is legitimate --- ``RecursiveCliques`` does not require singletons --- so the
         split has to stay total on it.
         """
         edge = Cover(((0, 1),), frozenset({0}))
@@ -192,7 +194,7 @@ class TestCanonicalOrder:
 
     @pytest.mark.parametrize("clique_set", [path(2), path(4), HMOG, MFA, CCA])
     def test_the_groups_above_the_root_are_the_ascended_graphs(
-        self, clique_set: Cliques
+        self, clique_set: RecursiveCliques
     ) -> None:
         """The deep partition of a layout is the layout one level up, on its own."""
         above = ascend(clique_set).canonical_cliques
@@ -219,7 +221,7 @@ class TestCanonicalOrder:
         assert chain.canonical_cliques == ((), ((0, 1),), (), ((1, 2),), ())
 
     @pytest.mark.parametrize("clique_set", [path(2), HMOG, MFA, CCA])
-    def test_each_clique_appears_once(self, clique_set: Cliques) -> None:
+    def test_each_clique_appears_once(self, clique_set: RecursiveCliques) -> None:
         flat = [c for group in clique_set.canonical_cliques for c in group]
         assert sorted(flat) == sorted(set(clique_set.cliques))
 
@@ -250,7 +252,7 @@ class TestTail:
 
     @pytest.mark.parametrize("clique_set", [path(2), path(4), HMOG, MFA, CCA])
     def test_ascended_levels_are_this_graphs_levels_minus_one(
-        self, clique_set: Cliques
+        self, clique_set: RecursiveCliques
     ) -> None:
         """Ascending shifts every remaining node down exactly one level.
 
@@ -373,10 +375,10 @@ class TestRelabelling:
 
 
 class TestSpelling:
-    """How the cliques are written changes nothing but :attr:`~Cliques.cliques` itself.
+    """How the cliques are written changes nothing but :attr:`~RecursiveCliques.cliques` itself.
 
     Clique order, label order within a clique, repeated labels, repeated cliques, and empty
-    cliques all normalize away in :attr:`~Cliques.canonical_cliques`.
+    cliques all normalize away in :attr:`~RecursiveCliques.canonical_cliques`.
     """
 
     PLAIN: ClassVar[Cover] = Cover(((0,), (0, 1), (1,)), frozenset({0}))

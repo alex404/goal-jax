@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, override
 
 import jax
@@ -62,6 +62,7 @@ from ..harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 # HMoG Classes
 
 
+@dataclass(frozen=True)
 class _HMoGBase[
     LowerHarmonium: DifferentiableConjugated[Any, Any, Any],
     PstUpperHarmonium: CompleteMixture[Any],
@@ -96,31 +97,39 @@ class _HMoGBase[
     @property
     @abstractmethod
     def prr_upr_hrm(self) -> PrrUpperHarmonium:
-        """Prior upper harmonium (for conjugation)."""
+        """Prior upper harmonium (for conjugation), with the same graph as :attr:`pst_upr_hrm`."""
+
+    # Fields
+
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((0,), (0, 1), (1,), (1, 2), (2,)), kw_only=True
+    )
+    """The chain $x - y - k$; the $(x, y)$ clique is the lower harmonium's."""
+
+    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
+    """The observable."""
 
     # Overrides
 
     @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        """The lower harmonium's cliques, unchanged.
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
 
-        A hierarchical model declares no coupling of its own: the lower harmonium already
-        says which sub-spaces it couples, and that node $y$ now sits inside the mixture
-        above is a fact about the graph, derived by
-        :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths`.
-        """
-        return self.lwr_hrm.cross_cliques
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
-        return self.lwr_hrm.cross_rep(clique)
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+        return self.lwr_hrm.crs_rep(clique)
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return self.lwr_hrm.cross_subspace(clique, node)
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        return self.lwr_hrm.crs_emb_constructors(clique)
 
     @property
     @override
@@ -152,6 +161,11 @@ class _HMoGBase[
         )
 
     # Methods
+
+    @property
+    def upr_graph(self) -> tuple[tuple[tuple[int, ...], ...], frozenset[int]]:
+        """The cliques and root set imposed on the upper mixtures: the chain above $x$, rooted at $y$."""
+        return self.level_split()[2], frozenset(self.level_sets[1])
 
     def whiten_prior(self, means: Array) -> Array:
         """Reparameterize the latent Y-space to have zero mean and identity covariance.
@@ -242,12 +256,12 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
     @property
     @override
     def pst_upr_hrm(self) -> AnalyticMixture[Normal[PstRep]]:
-        return self._pst_upr_hrm
+        return self._pst_upr_hrm.impose(*self.upr_graph)
 
     @property
     @override
     def prr_upr_hrm(self) -> Mixture[FullNormal]:
-        return self._prr_upr_hrm
+        return self._prr_upr_hrm.impose(*self.upr_graph)
 
 
 class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
@@ -315,7 +329,7 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
     @property
     @override
     def upr_hrm(self) -> AnalyticMixture[FullNormal]:
-        return self._upr_hrm
+        return self._upr_hrm.impose(*self.upr_graph)
 
     @override
     def to_natural_likelihood(self, means: Array) -> Array:

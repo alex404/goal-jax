@@ -102,7 +102,7 @@ def main() -> None:
     )
     print(f"CCA over {model.n_nodes} nodes, levels {model.level_sets}")
     print(f"  cliques {model.canonical_cliques}")
-    print(f"  blocks  {model.clique_dims}  (dim {model.dim})")
+    print(f"  blocks  {model.clq_dims}  (dim {model.dim})")
 
     fst_loadings = jnp.array([[1.4, 0.2], [0.9, -0.8], [0.1, 1.3], [-1.1, 0.5]])
     snd_loadings = jnp.array([[1.2, -0.4], [-0.3, 1.5], [0.8, 0.9]])

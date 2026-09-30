@@ -14,9 +14,8 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.clique import RecursiveLinearCliques
+from ..manifold.clique import Interaction, RecursiveLinearCliques
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
-from ..manifold.interaction import Interaction
 from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
 from .base import (
@@ -33,12 +32,12 @@ class Harmonium[
     Posterior: Gibbs,
 ](
     Gibbs,
-    RecursiveLinearCliques[Observable, Interaction[Posterior, Observable], Posterior],
+    RecursiveLinearCliques[Observable, Posterior],
     ABC,
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them (:attr:`cross_cliques`, with :meth:`cross_rep` and :meth:`cross_subspace`); which nodes each side occupies is read off the side itself (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`), and the graph, the parameter layout and the interaction :attr:`int_man` are all *derived* from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
+    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`), stores its graph, and gives :meth:`crs_rep` and :meth:`crs_emb_constructors` for the cliques joining the sides (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); the observable is one root node unless :attr:`rot_nod_mans` says otherwise. The parameter layout and the interaction :attr:`int_man` are derived from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -59,36 +58,28 @@ class Harmonium[
 
     @property
     @override
-    def root_man(self) -> Observable:
+    def rot_man(self) -> Observable:
         """The root partition is the observable biases."""
         return self.obs_man
 
     @property
     @override
-    def cross_man(self) -> Interaction[Posterior, Observable]:
-        """The cross partition *is* the interaction. No wrapper."""
-        return self.int_man
+    def dep_man(self) -> Posterior:
+        """The deep partition is the latent side, however deep it goes."""
+        return self.pst_man
 
     @property
     @override
-    def deep_man(self) -> Posterior:
-        """The deep partition is the latent side, however deep it goes."""
-        return self.pst_man
+    def rot_nod_mans(self) -> tuple[Manifold, ...]:
+        """The observable is one root node."""
+        return (self.obs_man,)
 
     # Methods
 
     @property
     def int_man(self) -> Interaction[Posterior, Observable]:
-        """The interaction, derived from the cliques and the graph they sit in.
-
-        Nothing here is declared: the forms are the maps on the crossing cliques, in storage
-        order, and the paths by which the two partitions reach them come from
-        :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.cross_paths`.
-        """
-        cross = self.level_split()[1]
-        maps = tuple(self.clique_map(clique) for clique in cross)
-        paths = tuple(self.cross_paths(clique) for clique in cross)
-        return Interaction(self.obs_man, self.pst_man, maps, paths)
+        """The interaction: the cross partition."""
+        return self.crs_man
 
     @property
     def lkl_fun_man(self) -> AffineMap[Posterior, Observable]:

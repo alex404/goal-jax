@@ -25,7 +25,7 @@ of the residual at exact conjugation, and agreement between
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, override
 
 import jax
@@ -270,6 +270,11 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     _pst_man: Any
 
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((0,), (0, 1), (1,), (1, 2), (2,)), kw_only=True
+    )
+    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
+
     @property
     @override
     def obs_man(self) -> Binomials:
@@ -282,18 +287,23 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return ((0, 1),)
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
+
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return IdentityEmbedding
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        return (IdentityEmbedding,) * len(clique)
 
 
 @dataclass(frozen=True)
@@ -311,6 +321,7 @@ class _ConcreteHierarchicalMixture(
 def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
     """Small instance: 6 Binomial(3) observables, 3 Bernoulli latents, 3 clusters."""
     mix_man = CompleteMixture(Bernoullis(3), 3)
+    mix_man = mix_man.impose(((1,), (1, 2), (2,)), frozenset({1}))
     return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(mix_man))
 
 

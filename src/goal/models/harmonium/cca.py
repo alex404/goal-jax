@@ -30,7 +30,7 @@ sums across the pair.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, override
 
 from jax import Array
@@ -38,8 +38,6 @@ from jax import Array
 from ...geometry import (
     AnalyticPair,
     DifferentiableConjugated,
-    IdentityEmbedding,
-    LinearCliques,
     LinearEmbedding,
     Manifold,
     MatrixRep,
@@ -56,12 +54,12 @@ from .lgm import (
 
 @dataclass(frozen=True)
 class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
-    AnalyticPair[Normal[FstRep], Normal[SndRep]], LinearCliques
+    AnalyticPair[Normal[FstRep], Normal[SndRep]]
 ):
     """Two normals over disjoint data slices, side by side.
 
-    Two graph nodes, not one: a model may couple to each component separately, which is
-    what a fork does. The first normal is node $0$ and the second node $1$.
+    :class:`CanonicalCorrelationAnalysis` declares the two normals as separate root nodes,
+    $0$ and $1$, so that each branch of its fork couples to one of them.
     """
 
     # Fields
@@ -89,26 +87,6 @@ class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
     @override
     def snd_man(self) -> Normal[SndRep]:
         return Normal(self.snd_dim, self.snd_rep)
-
-    @property
-    @override
-    def node_mans(self) -> tuple[Manifold, ...]:
-        return (self.fst_man, self.snd_man)
-
-    @property
-    @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return ((0,), (1,))
-
-    @override
-    def clique_rep(self, clique: tuple[int, ...]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
-        return IdentityEmbedding
 
 
 @dataclass(frozen=True)
@@ -148,30 +126,36 @@ class CanonicalCorrelationAnalysis[
     pst_rep: PstRep
     """Covariance structure of the posterior latent."""
 
+    _cliques: tuple[tuple[int, ...], ...] = field(
+        default=((0,), (1,), (0, 2), (1, 2), (2,)), kw_only=True
+    )
+    """The fork $x - z - y$: observables $0$ and $1$, shared latent $2$."""
+
+    _root_nodes: frozenset[int] = field(default=frozenset({0, 1}), kw_only=True)
+    """The two observables."""
+
     # Overrides
 
     @property
     @override
-    def cross_cliques(self) -> tuple[tuple[int, ...], ...]:
-        """One branch per root: $(x,z)$ and $(y,z)$, giving the fork $x - z - y$.
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._cliques
 
-        Nodes $0$ and $1$ are the two observables and node $2$ the shared latent. The two
-        roots come from the observable being a pair, so the levels come out $(2, 1)$. That
-        one branch reaches only its own side of the observable pair is derived from the
-        graph, not declared here.
-        """
-        return ((0, 2), (1, 2))
+    @property
+    @override
+    def root_nodes(self) -> frozenset[int]:
+        return self._root_nodes
 
     @override
-    def cross_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
         return Rectangular()
 
     @override
-    def cross_subspace(
-        self, clique: tuple[int, ...], node: int
-    ) -> Callable[[Manifold], LinearEmbedding[Any, Any]]:
+    def crs_emb_constructors(
+        self, clique: tuple[int, ...]
+    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
         """Each branch couples the two locations."""
-        return GeneralizedGaussianLocationEmbedding
+        return (GeneralizedGaussianLocationEmbedding,) * len(clique)
 
     @property
     @override
@@ -183,6 +167,12 @@ class CanonicalCorrelationAnalysis[
     @override
     def pst_man(self) -> Normal[PstRep]:
         return Normal(self.lat_dim, self.pst_rep)
+
+    @property
+    @override
+    def rot_nod_mans(self) -> tuple[Manifold, ...]:
+        """The two observables are separate root nodes, $0$ and $1$."""
+        return (self.obs_man.fst_man, self.obs_man.snd_man)
 
     @property
     @override

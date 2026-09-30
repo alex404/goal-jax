@@ -1,4 +1,4 @@
-"""Tests for ``Interaction`` in geometry/manifold/interaction.py.
+"""Tests for ``Interaction`` in geometry/manifold/clique.py.
 
 (``tests/clique.py`` tests ``geometry/algebra/clique.py`` and ``tests/graphical.py`` the
 layouts and the bare form algebra; this file is the clique paired with its paths.)
@@ -52,25 +52,25 @@ def _block(int_man: LinearMap[Any, Any], index: int) -> Interaction[Any, Any]:
 def _cod_node(m: Interaction[Any, Any], w: Array) -> Array:
     """A codomain point taken down to the node the single form's output couples."""
     path = m.paths[0][0]
-    return w if path is None else path.project(w)
+    return path.project(w)
 
 
 def _dom_node(m: Interaction[Any, Any], v: Array) -> Array:
     """A domain point taken down to the node group the single form contracts."""
     path = m.paths[0][1]
-    return v if path is None else path.project(v)
+    return path.project(v)
 
 
 def _cod_amb(m: Interaction[Any, Any], w_node: Array) -> Array:
     """The single form's output, placed back where the caller holds it."""
     path = m.paths[0][0]
-    return w_node if path is None else path.embed(w_node)
+    return path.embed(w_node)
 
 
 def _dom_amb(m: Interaction[Any, Any], v_node: Array) -> Array:
     """The single form's contracted-side node coordinates, placed back."""
     path = m.paths[0][1]
-    return v_node if path is None else path.embed(v_node)
+    return path.embed(v_node)
 
 
 def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]:
@@ -99,9 +99,7 @@ def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]
 
 CASES = _interactions()
 NAMES = sorted(CASES)
-NODE_NAMES = [
-    name for name in NAMES if len(_as_map(CASES[name][0]).clique.factor_embs) == 2
-]
+NODE_NAMES = [name for name in NAMES if len(_as_map(CASES[name][0]).clique.embs) == 2]
 """Cases contracting a single node.
 
 There the clique reading and the interaction reading coincide up to the paths: contracting
@@ -199,7 +197,7 @@ class TestJointDomainCliques:
     def test_nodes_and_arity_agree(self, index: int, nodes: tuple[int, ...]) -> None:
         mfa = self._mfa()
         assert mfa.level_split()[1][index] == nodes
-        assert len(mfa.int_man.cliques[index].factor_embs) == 2
+        assert len(mfa.int_man.cliques[index].embs) == 2
 
     @pytest.mark.parametrize("index", [0, 2])
     def test_posterior_direction_matches_at_the_node(self, index: int) -> None:
@@ -283,7 +281,7 @@ class TestArityThreeReproducesMFA:
     def test_dimension_matches_the_live_map(self) -> None:
         _, xyk, clique = self._setup()
         assert clique.dim == xyk.dim
-        assert tuple(emb.sub_man.dim for emb in clique.factor_embs) == (4, 2, 2)
+        assert tuple(emb.sub_man.dim for emb in clique.embs) == (4, 2, 2)
 
     def test_mean_parameters_match_at_the_e_step(self) -> None:
         """The decisive one: mean coordinates, both latent nodes dependent."""
