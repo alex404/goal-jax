@@ -101,7 +101,7 @@ class _HMoGBase[
 
     # Fields
 
-    _cliques: tuple[tuple[int, ...], ...] = field(
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
         default=((0,), (0, 1), (1,), (1, 2), (2,)), kw_only=True
     )
     """The chain $x - y - k$; the $(x, y)$ clique is the lower harmonium's."""
@@ -113,8 +113,8 @@ class _HMoGBase[
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override
@@ -196,12 +196,12 @@ class _HMoGBase[
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        lwr_int_mat = self.lwr_hrm.int_man.clique.to_matrix(lwr_int_means)
+        lwr_int_mat = self.lwr_hrm.int_man.clq_map.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T
-        new_lwr_int_means = self.lwr_hrm.int_man.clique.from_matrix(new_lwr_int_mat)
+        new_lwr_int_means = self.lwr_hrm.int_man.clq_map.from_matrix(new_lwr_int_mat)
 
         return self.join_level(obs_means, new_lwr_int_means, new_lat_means)
 

@@ -2,7 +2,7 @@
 
 ``CanonicalCorrelationAnalysis`` is the first model in the library over a graph with more
 than one root, so these tests double as a check on the multi-root machinery: a
-pair observable declared as two root nodes, an ``Interaction`` cross partition holding one
+pair observable declared as two root nodes, a ``CrossMap`` cross partition holding one
 clique per branch, and a conjugation that is the sum of the branches'.
 
 The decisive test is :meth:`TestConjugation.test_conjugation_equation_holds` --- the
@@ -45,7 +45,7 @@ class TestGraph:
         model = cca()
         assert model.n_nodes == 3
         assert model.root_nodes == frozenset({0, 1})
-        assert model.canonical_cliques == (((0,), (1,)), ((0, 2), (1, 2)), ((2,),))
+        assert model.level_cliques == (((0,), (1,)), ((0, 2), (1, 2)), ((2,),))
 
     def test_levels_are_depth_two(self) -> None:
         """Both observables sit at level 0; the shared latent is the only deep node."""
@@ -53,35 +53,34 @@ class TestGraph:
 
     def test_one_form_per_clique(self) -> None:
         model = cca()
-        assert len(model.clq_dims) == sum(
-            len(group) for group in model.canonical_cliques
-        )
+        assert len(model.clq_dims) == sum(len(group) for group in model.level_cliques)
         assert sum(model.clq_dims) == model.dim
 
     def test_observable_spans_two_nodes(self) -> None:
-        """The observable is two root nodes, so the root potentials are one per observable."""
+        """The observable is a flat container over the two root nodes, one bias each."""
         model = cca()
         obs = model.obs_man
         assert model.root_nodes == frozenset({0, 1})
-        assert model.rot_nod_mans == (obs.fst_man, obs.snd_man)
-        assert model.clq_dims[:2] == (obs.fst_man.dim, obs.snd_man.dim)
+        assert obs.cliques == model.level_split()[0]
+        assert obs.clq_dims == (obs.fst_man.dim, obs.snd_man.dim)
+        assert model.clq_dims[:2] == obs.clq_dims
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:
         model = cca(fst_dim=3, snd_dim=2, lat_dim=2)
         assert model.int_man.clq_dims == (3 * 2, 2 * 2)
 
     def test_branch_forms_contract_the_shared_latent(self) -> None:
-        """What lets a single ``Interaction`` hold both branches.
+        """What lets a single ``CrossMap`` hold both branches.
 
-        Each branch's form contracts the same latent node and outputs into its own
+        Each branch's clique map contracts the same latent node and outputs into its own
         observable node; the interaction's two sides are the whole pair and the latent.
         """
         m = cca().int_man
-        fst_form, snd_form = m.cliques
-        assert fst_form.dom_man == snd_form.dom_man
-        assert fst_form.cod_man != snd_form.cod_man
-        assert fst_form.cod_man == TensorProduct((m.cod_man.fst_man,))
-        assert snd_form.cod_man == TensorProduct((m.cod_man.snd_man,))
+        fst, snd = (term.clq_map for term in m.terms)
+        assert fst.dom_man == snd.dom_man
+        assert fst.cod_man != snd.cod_man
+        assert fst.cod_man == TensorProduct((m.cod_man.fst_man,))
+        assert snd.cod_man == TensorProduct((m.cod_man.snd_man,))
 
 
 class TestDimensions:

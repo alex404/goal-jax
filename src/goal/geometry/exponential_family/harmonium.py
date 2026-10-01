@@ -14,7 +14,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.clique import Interaction, RecursiveLinearCliques
+from ..manifold.clique import CrossMap, RecursiveLinearCliques
 from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
 from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
@@ -37,7 +37,7 @@ class Harmonium[
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`), stores its graph, and gives :meth:`crs_rep` and :meth:`crs_emb_constructors` for the cliques joining the sides (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); the observable is one root node unless :attr:`rot_nod_mans` says otherwise. The parameter layout and the interaction :attr:`int_man` are derived from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
+    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`), stores its graph, and gives :meth:`crs_rep` and :meth:`crs_emb_constructors` for the cliques joining the sides (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); the observable is one root node unless it is itself a :class:`~goal.geometry.manifold.clique.LinearCliques` over several (CCA). The parameter layout and the interaction :attr:`int_man` are derived from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -68,16 +68,10 @@ class Harmonium[
         """The deep partition is the latent side, however deep it goes."""
         return self.pst_man
 
-    @property
-    @override
-    def rot_nod_mans(self) -> tuple[Manifold, ...]:
-        """The observable is one root node."""
-        return (self.obs_man,)
-
     # Methods
 
     @property
-    def int_man(self) -> Interaction[Posterior, Observable]:
+    def int_man(self) -> CrossMap[Posterior, Observable]:
         """The interaction: the cross partition."""
         return self.crs_man
 

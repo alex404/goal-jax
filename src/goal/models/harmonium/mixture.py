@@ -90,7 +90,9 @@ class Mixture[Observable: Differentiable](
     obs_emb: LinearEmbedding[Manifold, Observable]
     """Observable embedding - determines which observable parameters are mixed."""
 
-    _cliques: tuple[tuple[int, ...], ...] = field(default=MIXTURE_CLIQUES, kw_only=True)
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
+        default=MIXTURE_CLIQUES, kw_only=True
+    )
     """The observable and the category, coupled."""
 
     _root_nodes: frozenset[int] = field(default=MIXTURE_ROOT_NODES, kw_only=True)
@@ -100,8 +102,8 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override
@@ -140,10 +142,10 @@ class Mixture[Observable: Differentiable](
         return self.lat_man
 
     def impose(
-        self, cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
+        self, raw_cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
     ) -> Self:
         """This mixture with the cliques and root set an enclosing model assigns it."""
-        return replace(self, _cliques=cliques, _root_nodes=root_nodes)
+        return replace(self, _raw_cliques=raw_cliques, _root_nodes=root_nodes)
 
     @override
     def conjugation_parameters(
@@ -159,12 +161,12 @@ class Mixture[Observable: Differentiable](
         rho_0 = self.obs_man.log_partition_function(obs_bias)
 
         # Convert to 2D matrix and transpose to get columns as rows
-        int_comps = self.int_man.clique.to_matrix(
+        int_comps = self.int_man.clq_map.to_matrix(
             int_mat
         ).T  # [n_categories-1, sub_obs_dim]
 
         def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = self.int_man.clique.cod_embs[0].translate(
+            adjusted_obs = self.int_man.clq_map.cod_embs[0].translate(
                 obs_bias, comp_params
             )
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
@@ -207,7 +209,7 @@ class Mixture[Observable: Differentiable](
         obs_means = jnp.sum(weighted_comps, axis=0)
 
         # Project components (excluding first) to interaction subspace
-        projected_comps = jax.vmap(self.int_man.clique.cod_embs[0].project)(
+        projected_comps = jax.vmap(self.int_man.clq_map.cod_embs[0].project)(
             weighted_comps[1:]
         )
         # [n_categories-1, sub_obs_dim]
@@ -241,13 +243,13 @@ class Mixture[Observable: Differentiable](
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
 
         # Convert to 2D matrix and transpose to get columns as rows
-        int_cols = self.int_man.clique.to_matrix(
+        int_cols = self.int_man.clq_map.to_matrix(
             int_mat
         ).T  # [n_categories-1, sub_obs_dim]
 
         # Translate each column from subspace to full observable space
         def translate_col(col: Array) -> Array:
-            return self.int_man.clique.cod_embs[0].translate(obs_bias, col)
+            return self.int_man.clq_map.cod_embs[0].translate(obs_bias, col)
 
         translated = jax.vmap(translate_col)(int_cols)
 
@@ -302,22 +304,25 @@ class CompleteMixture[Observable: Differentiable](
         obs_man: Observable,
         n_categories: int,
         *,
-        _cliques: tuple[tuple[int, ...], ...] = MIXTURE_CLIQUES,
+        _raw_cliques: tuple[tuple[int, ...], ...] = MIXTURE_CLIQUES,
         _root_nodes: frozenset[int] = MIXTURE_ROOT_NODES,
     ):
         # Use identity observable embedding for complete mixture
         obs_emb = IdentityEmbedding(obs_man)
         super().__init__(
-            n_categories, obs_emb, _cliques=_cliques, _root_nodes=_root_nodes
+            n_categories, obs_emb, _raw_cliques=_raw_cliques, _root_nodes=_root_nodes
         )
 
     @override
     def impose(
-        self, cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
+        self, raw_cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
     ) -> Self:
         """Rebuilt through the constructor, which takes the observable rather than its embedding."""
         return type(self)(
-            self.obs_man, self.n_categories, _cliques=cliques, _root_nodes=root_nodes
+            self.obs_man,
+            self.n_categories,
+            _raw_cliques=raw_cliques,
+            _root_nodes=root_nodes,
         )
 
     def split_mean_mixture(
@@ -339,7 +344,7 @@ class CompleteMixture[Observable: Differentiable](
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
         # Convert to 2D matrix and transpose to get columns as rows [n_categories-1, obs_dim]
-        int_dense = self.int_man.clique.to_matrix(
+        int_dense = self.int_man.clq_map.to_matrix(
             int_means
         )  # [obs_dim, n_categories-1]
         int_cols = int_dense.T  # [n_categories-1, obs_dim]
@@ -393,7 +398,7 @@ class CompleteMixture[Observable: Differentiable](
         projected_comps = cmp_man_minus.map(to_interaction, components_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.clique.from_matrix(projected_comps.T)
+        int_mat = self.int_man.clq_map.from_matrix(projected_comps.T)
         lkl_params = self.lkl_fun_man.join_coords(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
@@ -449,6 +454,6 @@ class AnalyticMixture[Observable: Analytic](
         int_cols = cmp_man1.map(to_interaction, nat_comps_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.clique.from_matrix(int_cols.T)
+        int_mat = self.int_man.clq_map.from_matrix(int_cols.T)
 
         return self.lkl_fun_man.join_coords(obs_bias, int_mat)

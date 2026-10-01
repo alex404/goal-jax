@@ -1,4 +1,4 @@
-from .algebra.clique import RecursiveCliques
+from .algebra.clique import Cliques, RecursiveCliques
 from .algebra.matrix import (
     Diagonal,
     Identity,
@@ -55,11 +55,14 @@ from .manifold.base import (
 from .manifold.clique import (
     CliqueEmbedding,
     CliqueMap,
-    Interaction,
+    CrossMap,
+    EmbeddedCliqueMap,
+    LinearCliques,
     RecursiveLinearCliques,
     RootEmbedding,
     TensorProduct,
     TensorProductEmbedding,
+    bias_map,
 )
 from .manifold.combinators import (
     Null,
@@ -94,13 +97,16 @@ __all__ = [
     "AnalyticProduct",
     "CliqueEmbedding",
     "CliqueMap",
+    "Cliques",
     "ComposedEmbedding",
     "Conjugated",
+    "CrossMap",
     "Diagonal",
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiablePair",
     "DifferentiableProduct",
+    "EmbeddedCliqueMap",
     "Embedding",
     "ExponentialFamily",
     "ExponentialFamilyPair",
@@ -113,8 +119,8 @@ __all__ = [
     "HarmoniumEmbedding",
     "Identity",
     "IdentityEmbedding",
-    "Interaction",
     "InteractionEmbedding",
+    "LinearCliques",
     "LinearComposedEmbedding",
     "LinearEmbedding",
     "LinearMap",
@@ -150,4 +156,5 @@ __all__ = [
     "VariationalDifferentiable",
     "VariationalLatentProcess",
     "VariationalSymmetric",
+    "bias_map",
 ]

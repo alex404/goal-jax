@@ -87,7 +87,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Embed each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (sub_obs_dim, n_categories-1)
-            int_matrix = self.sub_man.int_man.clique.to_matrix(int_params)
+            int_matrix = self.sub_man.int_man.clq_map.to_matrix(int_params)
             # Apply embedding to each column
             emb_int_matrix = jax.vmap(self.component_emb.embed, in_axes=1, out_axes=1)(
                 int_matrix
@@ -111,7 +111,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Project each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (amb_obs_dim, n_categories-1)
-            int_matrix = self.amb_man.int_man.clique.to_matrix(int_means)
+            int_matrix = self.amb_man.int_man.clq_map.to_matrix(int_means)
             # Apply projection to each column
             proj_int_matrix = jax.vmap(
                 self.component_emb.project, in_axes=1, out_axes=1
@@ -177,7 +177,7 @@ class CompleteMixtureOfHarmoniums[
     bas_hrm: Harmonium[Observable, Posterior]
     """Base harmonium (lower level)."""
 
-    _cliques: tuple[tuple[int, ...], ...] = field(
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
         default=((0,), (0, 1), (0, 1, 2), (0, 2), (1,), (1, 2), (2,)), kw_only=True
     )
     """Nodes $x = 0$, $y = 1$, $k = 2$, with crossing cliques $(x,y)$, $(x,y,k)$ and $(x,k)$."""
@@ -189,8 +189,8 @@ class CompleteMixtureOfHarmoniums[
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override

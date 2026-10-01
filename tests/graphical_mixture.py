@@ -15,8 +15,8 @@ from jax import Array
 
 from goal.geometry import (
     CliqueEmbedding,
+    CrossMap,
     Diagonal,
-    Interaction,
 )
 from goal.models import (
     DiagonalNormal,
@@ -303,7 +303,7 @@ class TestMFAGraph:
 
     def test_all_seven_cliques(self) -> None:
         """Three biases, three couplings, and the triple interaction."""
-        assert self._mfa().canonical_cliques == (
+        assert self._mfa().level_cliques == (
             ((0,),),
             ((0, 1), (0, 1, 2), (0, 2)),
             ((1,), (1, 2), (2,)),
@@ -315,7 +315,7 @@ class TestMFAGraph:
 
     def test_one_form_per_clique(self) -> None:
         mfa = self._mfa()
-        assert len(mfa.clq_dims) == sum(len(group) for group in mfa.canonical_cliques)
+        assert len(mfa.clq_dims) == sum(len(group) for group in mfa.level_cliques)
         assert sum(mfa.clq_dims) == mfa.dim
 
     def test_layout_follows_the_clique_order(self) -> None:
@@ -337,8 +337,8 @@ class TestMFAGraph:
 class TestDerivedInteractionEmbeddings:
     """MFA's three interaction blocks are derived from embeddings plus the nodes they name.
 
-    All three are one construction differing in two independent ways: which nodes the way
-    in addresses (a ``CliqueEmbedding`` on the mixture above) and how much of each one's
+    All three are one construction differing in two independent ways: where the clique they
+    reach is located (a ``CliqueEmbedding`` on the mixture above) and how much of each one's
     statistic the axis embeddings select. These tests pin both halves.
 
     Labels are global, so the mixture's nodes are MFA's: $y = 1$, $k = 2$.
@@ -352,22 +352,19 @@ class TestDerivedInteractionEmbeddings:
         )
 
     @classmethod
-    def _blocks(cls, **kwargs) -> tuple[Interaction[Any, Any], ...]:
+    def _blocks(cls, **kwargs) -> tuple[CrossMap[Any, Any], ...]:
         m = cls._mfa(**kwargs).int_man
-        return tuple(
-            Interaction(m.cod_man, m.dom_man, (clique,), (path,))
-            for clique, path in zip(m.cliques, m.paths, strict=True)
-        )
+        return tuple(CrossMap(m.cod_man, m.dom_man, (term,)) for term in m.terms)
 
     @classmethod
-    def _dom_paths(cls, **kwargs) -> tuple[CliqueEmbedding, ...]:
-        paths = tuple(block.paths[0][1] for block in cls._blocks(**kwargs))
-        for path in paths:
-            assert isinstance(path, CliqueEmbedding)
-        return paths  # pyright: ignore[reportReturnType]
+    def _dom_clq_embs(cls, **kwargs) -> tuple[CliqueEmbedding, ...]:
+        embs = tuple(block.terms[0].dom_clq_emb for block in cls._blocks(**kwargs))
+        for emb in embs:
+            assert isinstance(emb, CliqueEmbedding)
+        return embs  # pyright: ignore[reportReturnType]
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
-        xy, xyk, xk = self._dom_paths()
+        xy, xyk, xk = self._dom_clq_embs()
         assert xy.clique == (1,)
         assert xyk.clique == (1, 2)
         assert xk.clique == (2,)
@@ -382,23 +379,23 @@ class TestDerivedInteractionEmbeddings:
     def test_the_three_way_block_selects_from_the_joint_yk_block(self) -> None:
         """The point of the whole exercise: it reads a joint block, not two marginals.
 
-        The path slices the $(y,k)$ clique out whole; the axis embeddings then restrict
+        The clique embedding slices the $(y,k)$ clique out whole; the axis embeddings then restrict
         it, which ``tests/interaction.py`` checks against the live map.
         """
         mfa = self._mfa()
         mix = mfa.pst_man
         xyk = self._blocks()[1]
-        dom_path = xyk.paths[0][1]
+        dom_clq_emb = xyk.terms[0].dom_clq_emb
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_level(coords)
-        assert jnp.array_equal(dom_path.project(coords), m_yk)
+        assert jnp.array_equal(dom_clq_emb.project(coords), m_yk)
 
     def test_embedding_lands_only_in_that_block(self) -> None:
         """A coupling writes to its own clique and nowhere else."""
         mfa = self._mfa()
         mix = mfa.pst_man
-        for idx, emb in enumerate(self._dom_paths()):
+        for idx, emb in enumerate(self._dom_clq_embs()):
             v = jnp.arange(1.0, emb.sub_man.dim + 1)
             partitions = mix.split_level(emb.embed(v))
             touched = [i for i, s in enumerate(partitions) if jnp.any(s != 0.0)]
@@ -407,7 +404,7 @@ class TestDerivedInteractionEmbeddings:
             )
 
     def test_project_after_embed_round_trips(self) -> None:
-        for emb in self._dom_paths():
+        for emb in self._dom_clq_embs():
             v = jax.random.normal(jax.random.PRNGKey(31), (emb.sub_man.dim,))
             assert jnp.allclose(emb.project(emb.embed(v)), v)
 

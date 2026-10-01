@@ -1,11 +1,11 @@
 """Manifolds whose parameters are laid out over the cliques of a graph.
 
 A :class:`CliqueMap` is a tensor over selected subspaces of the manifolds it couples, and
-knows nothing about where they sit. An :class:`Interaction` sums several of them, each
-reached through a pair of embeddings, into one map between whole manifolds. A
-:class:`RecursiveLinearCliques` lays a coordinate
-vector out over the cliques of a graph, as ``[root | cross | deep]`` with one block per
-clique in the graph's canonical order, recursing into the deep partition.
+knows nothing about where they sit. An :class:`EmbeddedCliqueMap` places one between
+whole manifolds through a pair of clique embeddings, and a :class:`CrossMap` adds
+several into one map. A :class:`LinearCliques` stores one block per clique, and a :class:`RecursiveLinearCliques`
+is one laid out as ``[root | cross | deep]`` over a rooted graph, with blocks in the
+graph's canonical order, recursing into the deep partition.
 """
 
 from __future__ import annotations
@@ -13,14 +13,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from itertools import chain
 from math import prod
 from typing import Any, override
 
 import jax.numpy as jnp
 from jax import Array
 
-from ..algebra.clique import RecursiveCliques
+from ..algebra.clique import Cliques, RecursiveCliques
 from ..algebra.matrix import MatrixRep, Rectangular
 from .base import Manifold
 from .combinators import Triple
@@ -173,45 +172,48 @@ class CliqueMap(LinearMap[TensorProduct, TensorProduct]):
         return self.rep.from_matrix(matrix)
 
 
-### Interactions ###
+### Cross Maps ###
 
 
 @dataclass(frozen=True)
-class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
-    """Several clique forms summed into one linear map between whole manifolds.
+class EmbeddedCliqueMap:
+    """One clique map of a :class:`CrossMap`, with the clique embeddings that reach it.
 
-    Each form maps its input group's node coordinates to its output group's, and a **path**
-    is what carries a domain point down to the nodes one form reads and puts its result back
-    in the codomain. Parameters are the forms' concatenated in order, which
-    :meth:`coord_blocks` splits apart again. A fork, a three-way coupling and a plain chain
-    differ only in how many terms the sum has.
+    The map's output axes live on nodes of the codomain and its contracted axes on nodes of
+    the domain; :attr:`cod_clq_emb` and :attr:`dom_clq_emb` take the whole codomain and
+    domain to those nodes. :meth:`RecursiveLinearCliques.crs_embs` supplies them, usually as
+    a partition's :class:`CliqueEmbedding`, or an :class:`IdentityEmbedding` when the
+    partition is the clique.
+    """
 
-    The domain and codomain are whole manifolds --- a harmonium's observable and posterior,
-    say --- rather than individual nodes, which is what the paths bridge. The paths are
-    supplied at construction; :attr:`RecursiveLinearCliques.crs_man` derives them from the
-    graph through :meth:`RecursiveLinearCliques.crs_embs`.
+    clq_map: CliqueMap
+    cod_clq_emb: LinearEmbedding[Any, Any]
+    dom_clq_emb: LinearEmbedding[Any, Any]
 
-    Mathematically, writing $\\Theta_t$ for the $t$-th form and $\\pi_t, \\phi_t$ for its
-    domain and codomain paths, the map is $v \\mapsto \\sum_t \\phi_t(\\Theta_t \\cdot
-    \\pi_t(v))$.
+
+@dataclass(frozen=True)
+class CrossMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
+    """Several clique maps summed into one linear map between whole manifolds.
+
+    The domain and codomain are whole manifolds --- a harmonium's posterior and observable,
+    say --- rather than the nodes a clique map acts on. Each :class:`EmbeddedCliqueMap`
+    bridges that gap with a clique embedding on either side. Parameters are the terms'
+    concatenated in order, which :meth:`coord_blocks` splits apart again. A fork, a three-way
+    coupling and a plain chain differ only in how many terms the sum has.
+    :attr:`RecursiveLinearCliques.crs_man` builds one from the graph's crossing cliques,
+    which is where the name comes from.
+
+    Mathematically, writing $\\Theta_t$ for the $t$-th clique map and $\\pi_t, \\phi_t$
+    for its domain and codomain clique embeddings, the map is
+    $v \\mapsto \\sum_t \\phi_t(\\Theta_t \\cdot \\pi_t(v))$.
     """
 
     # Fields
 
     _cod_man: Codomain
-    """What every form's output lands in."""
-
     _dom_man: Domain
-    """What every form's contracted side is read against."""
-
-    cliques: tuple[CliqueMap, ...]
-    """The forms, in parameter order."""
-
-    paths: tuple[tuple[LinearEmbedding[Any, Any], LinearEmbedding[Any, Any]], ...]
-    """Per form, how the codomain and the domain reach the nodes it couples.
-
-    Transposing an interaction swaps the pair, since the two sides exchange roles.
-    """
+    terms: tuple[EmbeddedCliqueMap, ...]
+    """The terms, in parameter order."""
 
     # Overrides
 
@@ -232,44 +234,43 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
     @property
     @override
-    def trn_man(self) -> Interaction[Codomain, Domain]:
-        """The same forms read the other way: each form's :attr:`~goal.geometry.manifold.clique.CliqueMap.trn_man`, paths swapped.
+    def trn_man(self) -> CrossMap[Codomain, Domain]:
+        """Each clique map transposed, with its two clique embeddings swapped.
 
         In a harmonium this is what a conditional posterior is, where the forward reading is
-        a conditional likelihood. Its own transpose is this map again, so nothing nests.
+        a conditional likelihood.
         """
-        return Interaction(
-            self._dom_man,
-            self._cod_man,
-            tuple(form.trn_man for form in self.cliques),
-            tuple((dom_path, cod_path) for cod_path, dom_path in self.paths),
+        terms = tuple(
+            EmbeddedCliqueMap(term.clq_map.trn_man, term.dom_clq_emb, term.cod_clq_emb)
+            for term in self.terms
         )
+        return CrossMap(self._dom_man, self._cod_man, terms)
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         out = self.cod_man.zeros()
-        for part, clique, (cod_path, dom_path) in zip(
-            self.coord_blocks(f_coords), self.cliques, self.paths, strict=True
-        ):
-            w_node = clique(part, dom_path.project(v_coords))
-            out = out + cod_path.embed(w_node)
+        for term, params in zip(self.terms, self.coord_blocks(f_coords), strict=True):
+            w_node = term.clq_map(params, term.dom_clq_emb.project(v_coords))
+            out = out + term.cod_clq_emb.embed(w_node)
         return out
 
     @override
     def transpose(self, f_coords: Array) -> Array:
         parts = [
-            clique.transpose(part)
-            for clique, part in zip(self.cliques, self.coord_blocks(f_coords))
+            term.clq_map.transpose(params)
+            for term, params in zip(
+                self.terms, self.coord_blocks(f_coords), strict=True
+            )
         ]
         return jnp.concatenate(parts)
 
     @override
     def outer_product(self, w_coords: Array, v_coords: Array) -> Array:
         parts = [
-            clique.outer_product(cod_path.project(w_coords), dom_path.project(v_coords))
-            for clique, (cod_path, dom_path) in zip(
-                self.cliques, self.paths, strict=True
+            term.clq_map.outer_product(
+                term.cod_clq_emb.project(w_coords), term.dom_clq_emb.project(v_coords)
             )
+            for term in self.terms
         ]
         return jnp.concatenate(parts)
 
@@ -277,23 +278,23 @@ class Interaction[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codoma
 
     @property
     def clq_dims(self) -> tuple[int, ...]:
-        """Parameter dimension of each form, in parameter order."""
-        return tuple(form.dim for form in self.cliques)
+        """Parameter dimension of each term, in parameter order."""
+        return tuple(term.clq_map.dim for term in self.terms)
 
     @property
-    def clique(self) -> CliqueMap:
-        """The single form, for an interaction that has exactly one.
+    def clq_map(self) -> CliqueMap:
+        """The clique map of a sum with exactly one term.
 
         Raises:
-            ValueError: if the model has several, where there is no one form to talk about.
+            ValueError: if there are several terms, where there is no single map.
         """
-        if len(self.cliques) != 1:
-            msg = f"this interaction has {len(self.cliques)} cliques"
-            raise ValueError(f"{msg}: there is no single form")
-        return self.cliques[0]
+        if len(self.terms) != 1:
+            msg = f"this sum has {len(self.terms)} terms"
+            raise ValueError(f"{msg}: there is no single clique map")
+        return self.terms[0].clq_map
 
     def coord_blocks(self, coords: Array) -> tuple[Array, ...]:
-        """Split flat parameters into one array per form."""
+        """Split flat parameters into one array per term."""
         return split_by_dims(coords, self.clq_dims)
 
 
@@ -305,26 +306,69 @@ def bias_map(man: Manifold) -> CliqueMap:
     return CliqueMap(Rectangular(), (IdentityEmbedding(man),), ())
 
 
+def part_emb(partition: Manifold, part: tuple[int, ...]) -> LinearEmbedding[Any, Any]:
+    """How ``partition`` reaches its clique ``part``.
+
+    The clique's block when ``partition`` is a :class:`LinearCliques` holding other cliques
+    too, and the identity when it is a single node or that clique alone.
+    """
+    if isinstance(partition, LinearCliques) and partition.cliques != (part,):
+        return partition.clq_emb(part)
+    return IdentityEmbedding(partition)
+
+
+@dataclass(frozen=True)
+class LinearCliques(Cliques, Manifold, ABC):
+    """A manifold stored as one block per clique, in the order of :attr:`cliques`, with a linear map on each.
+
+    Its dimension, from wherever a subclass takes it, must equal the summed block
+    dimensions. It is not a :class:`~goal.geometry.manifold.combinators.Tuple`, because a
+    subclass may already be one over coarser components (a :class:`RecursiveLinearCliques`
+    is the ``Triple`` of its partitions), so the block split is :meth:`coord_blocks`.
+    """
+
+    # Contract
+
+    @abstractmethod
+    def clq_map(self, clique: tuple[int, ...]) -> CliqueMap:
+        """The map on ``clique``."""
+
+    # Methods
+
+    @property
+    def clq_dims(self) -> tuple[int, ...]:
+        """Parameter dimension of each clique, in storage order."""
+        return tuple(self.clq_map(clique).dim for clique in self.cliques)
+
+    def coord_blocks(self, coords: Array) -> tuple[Array, ...]:
+        """Split coordinates into one block per clique, in storage order."""
+        return split_by_dims(coords, self.clq_dims)
+
+    def clq_emb(self, clique: tuple[int, ...]) -> CliqueEmbedding:
+        """The block of ``clique`` in this manifold's coordinates."""
+        return CliqueEmbedding(clique, self)
+
+
 @dataclass(frozen=True)
 class RecursiveLinearCliques[Root: Manifold, Deep: Manifold](
-    RecursiveCliques, Triple[Root, Interaction[Deep, Root], Deep], ABC
+    RecursiveCliques, LinearCliques, Triple[Root, CrossMap[Deep, Root], Deep], ABC
 ):
     """A manifold stored ``[root | cross | deep]``, with one linear map per clique of its graph.
 
-    A concrete subclass stores its graph (:attr:`cliques`, :attr:`root_nodes`) and states the
-    root and deep partitions, the base space of each root node, and for each crossing clique
-    a matrix representation and one subspace per node; the cross partition is derived from
-    these. Blocks are stored in canonical order
-    (:attr:`canonical_cliques` flattened), which keeps the partitions contiguous. It is the
+    A concrete subclass stores its graph (:attr:`raw_cliques`, :attr:`root_nodes`) and states
+    the root and deep partitions, and for each crossing clique a matrix representation and
+    one subspace per node; the cross partition is derived from these. Blocks are stored in
+    the order of :attr:`cliques`, which keeps the partitions contiguous. It is the
     :class:`~goal.geometry.manifold.combinators.Triple` of its partitions, so their
     dimensions must equal the summed dimensions of their clique blocks.
 
-    Labels are global. The deep partition is either a single node or another
-    :class:`RecursiveLinearCliques` holding the cliques and root set this graph assigns it,
-    so cliques pass down unrelabelled.
+    Labels are global. Each of the root and deep partitions is either a single node or a
+    :class:`LinearCliques` holding the cliques this graph assigns it, so cliques pass down
+    unrelabelled: the root partition a flat one (CCA's observable pair), the deep partition
+    another :class:`RecursiveLinearCliques`.
 
     A crossing clique splits into its root nodes, which are its output axes, and its deep
-    nodes. Each part must be a clique of its partition whose map uses all of each node.
+    nodes. Each part must be a clique of its partition.
 
     Mathematically, a point is a family $(\\Theta^C)_C$ indexed by the cliques, with $\\dim =
     \\sum_C \\dim(\\Theta^C)$.
@@ -341,11 +385,6 @@ class RecursiveLinearCliques[Root: Manifold, Deep: Manifold](
     @abstractmethod
     def dep_man(self) -> Deep:
         """The deep partition."""
-
-    @property
-    @abstractmethod
-    def rot_nod_mans(self) -> tuple[Manifold, ...]:
-        """The base space of each root node, in label order."""
 
     @abstractmethod
     def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
@@ -366,7 +405,7 @@ class RecursiveLinearCliques[Root: Manifold, Deep: Manifold](
 
     @property
     @override
-    def snd_man(self) -> Interaction[Deep, Root]:
+    def snd_man(self) -> CrossMap[Deep, Root]:
         return self.crs_man
 
     @property
@@ -377,31 +416,13 @@ class RecursiveLinearCliques[Root: Manifold, Deep: Manifold](
     # Methods
 
     @property
-    def crs_man(self) -> Interaction[Deep, Root]:
+    def crs_man(self) -> CrossMap[Deep, Root]:
         """The cross partition: the maps on the crossing cliques, reached through :meth:`crs_embs`."""
-        cross = self.level_split()[1]
-        maps = tuple(self.clq_map(clique) for clique in cross)
-        embs = tuple(self.crs_embs(clique) for clique in cross)
-        return Interaction(self.rot_man, self.dep_man, maps, embs)
-
-    @property
-    def dep_man_rlc(self) -> RecursiveLinearCliques[Any, Any] | None:
-        """The manifold of the deep partition which is either a RecursiveLinearCliques, or ``None`` when it is a single node."""
-        dep = self.dep_man
-        return dep if isinstance(dep, RecursiveLinearCliques) else None
-
-    @property
-    def clq_dims(self) -> tuple[int, ...]:
-        """Parameter dimension of each clique, in storage order."""
-        order = chain.from_iterable(self.canonical_cliques)
-        return tuple(self.clq_map(clique).dim for clique in order)
-
-    def nod_man(self, node: int) -> Manifold:
-        """The base space of ``node``."""
-        if node in self.root_nodes:
-            return self.rot_nod_mans[self.level_sets[0].index(node)]
-        dep = self.dep_man_rlc
-        return self.dep_man if dep is None else dep.nod_man(node)
+        terms = tuple(
+            EmbeddedCliqueMap(self.clq_map(clique), *self.crs_embs(clique))
+            for clique in self.level_split()[1]
+        )
+        return CrossMap(self.rot_man, self.dep_man, terms)
 
     def split_clique(
         self, clique: tuple[int, ...]
@@ -411,15 +432,15 @@ class RecursiveLinearCliques[Root: Manifold, Deep: Manifold](
         far = tuple(i for i in clique if i not in self.root_nodes)
         return near, far
 
+    @override
     def clq_map(self, clique: tuple[int, ...]) -> CliqueMap:
         """The map on ``clique``, one axis per node.
 
         A crossing clique's axes are built on the subspaces used by the root and deep cliques
-        it reaches. A clique of a recursive deep partition is that partition's, and any other
-        clique is the bias of its node.
+        it reaches. Any other clique lies in one partition, which gives its map if it is a
+        :class:`LinearCliques`, and is otherwise a single node whose bias it is.
         """
         near, far = self.split_clique(clique)
-        dep = self.dep_man_rlc
         if near and far:
             cons = dict(zip(clique, self.crs_emb_constructors(clique), strict=True))
             reached = self.clq_map(near).embs + self.clq_map(far).embs
@@ -429,40 +450,20 @@ class RecursiveLinearCliques[Root: Manifold, Deep: Manifold](
             return CliqueMap(
                 self.crs_rep(clique), tuple(embs[: len(near)]), tuple(embs[len(near) :])
             )
-        if far and dep is not None:
-            return dep.clq_map(clique)
-        (node,) = clique
-        return bias_map(self.nod_man(node))
-
-    def clq_emb(self, clique: tuple[int, ...]) -> CliqueEmbedding:
-        """The block of ``clique`` in this manifold's coordinates."""
-        return CliqueEmbedding(clique, self)
+        partition = self.rot_man if near else self.dep_man
+        if isinstance(partition, LinearCliques):
+            return partition.clq_map(clique)
+        return bias_map(partition)
 
     def crs_embs(
         self, clique: tuple[int, ...]
     ) -> tuple[LinearEmbedding[Any, Any], LinearEmbedding[Any, Any]]:
         """How :attr:`rot_man` and :attr:`dep_man` reach the two parts of a crossing clique.
 
-        An embedding is the identity when its partition is that part alone.
+        See :func:`part_emb`.
         """
         near, far = self.split_clique(clique)
-        root_part, _, deep_part = self.level_split()
-        root = (
-            IdentityEmbedding(self.rot_man)
-            if root_part == (near,)
-            else RootCliqueEmbedding(near, self)
-        )
-        dep = self.dep_man_rlc
-        deep = (
-            IdentityEmbedding(self.dep_man)
-            if dep is None or deep_part == (far,)
-            else dep.clq_emb(far)
-        )
-        return root, deep
-
-    def coord_blocks(self, coords: Array) -> tuple[Array, ...]:
-        """Split coordinates into one block per clique, in storage order."""
-        return split_by_dims(coords, self.clq_dims)
+        return part_emb(self.rot_man, near), part_emb(self.dep_man, far)
 
     def split_level(self, coords: Array) -> tuple[Array, Array, Array]:
         return self.split_coords(coords)
@@ -472,13 +473,12 @@ class RecursiveLinearCliques[Root: Manifold, Deep: Manifold](
 
 
 @dataclass(frozen=True)
-class CliqueEmbedding(LinearEmbedding[CliqueMap, RecursiveLinearCliques[Any, Any]]):
-    """The block of one clique in a layout's coordinates.
+class CliqueEmbedding(LinearEmbedding[CliqueMap, LinearCliques]):
+    """The block of one clique in a :class:`LinearCliques`' coordinates.
 
     ``project`` reads the block and ``embed`` writes it with every other coordinate zero; the
-    subspace is the clique's :class:`CliqueMap`. It is the path an
-    :class:`Interaction` takes when a crossing clique
-    reaches one clique of a partition that holds several (MFA's $(x, y, k)$ reaching the
+    subspace is the clique's :class:`CliqueMap`. It is the clique embedding of an
+    :class:`EmbeddedCliqueMap` when a crossing clique reaches one clique of a partition that holds several (MFA's $(x, y, k)$ reaching the
     mixture's $(y, k)$).
 
     Mathematically, the coordinates are a direct sum $\\bigoplus_C \\Theta^C$: ``project`` is
@@ -490,7 +490,7 @@ class CliqueEmbedding(LinearEmbedding[CliqueMap, RecursiveLinearCliques[Any, Any
     clique: tuple[int, ...]
     """The clique, as an ascending node tuple."""
 
-    _amb_man: RecursiveLinearCliques[Any, Any]
+    _amb_man: LinearCliques
 
     def __post_init__(self) -> None:
         # Reject a node set that is not a clique of the ambient.
@@ -505,7 +505,7 @@ class CliqueEmbedding(LinearEmbedding[CliqueMap, RecursiveLinearCliques[Any, Any
 
     @property
     @override
-    def amb_man(self) -> RecursiveLinearCliques[Any, Any]:
+    def amb_man(self) -> LinearCliques:
         return self._amb_man
 
     @override
@@ -525,57 +525,8 @@ class CliqueEmbedding(LinearEmbedding[CliqueMap, RecursiveLinearCliques[Any, Any
     @property
     def start(self) -> int:
         """Where the block begins."""
-        order = tuple(chain.from_iterable(self.amb_man.canonical_cliques))
-        return sum(self.amb_man.clq_dims[: order.index(self.clique)])
-
-
-@dataclass(frozen=True)
-class RootCliqueEmbedding(LinearEmbedding[CliqueMap, Manifold]):
-    """The block of one root-partition clique in :attr:`RecursiveLinearCliques.rot_man` coordinates.
-
-    The root partition is stored first, so the block sits where it does in the layout's own
-    coordinates. It is the root path when the root partition holds several cliques (CCA's
-    observable pair).
-    """
-
-    # Fields
-
-    clique: tuple[int, ...]
-    """The clique, as an ascending node tuple."""
-
-    layout: RecursiveLinearCliques[Any, Any]
-    """The layout whose root partition holds the clique."""
-
-    # Overrides
-
-    @property
-    @override
-    def sub_man(self) -> CliqueMap:
-        return self.layout.clq_map(self.clique)
-
-    @property
-    @override
-    def amb_man(self) -> Manifold:
-        return self.layout.rot_man
-
-    @override
-    def project(self, coords: Array) -> Array:
-        return coords[self.start : self.start + self.sub_man.dim]
-
-    @override
-    def embed(self, coords: Array) -> Array:
-        return (
-            self.amb_man.zeros()
-            .at[self.start : self.start + coords.shape[0]]
-            .set(coords)
-        )
-
-    # Methods
-
-    @property
-    def start(self) -> int:
-        """Where the block begins."""
-        return self.layout.clq_emb(self.clique).start
+        amb = self.amb_man
+        return sum(amb.clq_dims[: amb.cliques.index(self.clique)])
 
 
 @dataclass(frozen=True)

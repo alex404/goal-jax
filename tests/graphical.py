@@ -74,8 +74,8 @@ class _Partitions(RecursiveLinearCliques[ExponentialFamily, ExponentialFamily]):
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._source.cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._source.raw_cliques
 
     @property
     @override
@@ -96,11 +96,6 @@ class _Partitions(RecursiveLinearCliques[ExponentialFamily, ExponentialFamily]):
     @override
     def rot_man(self) -> ExponentialFamily:
         return self._rot_man
-
-    @property
-    @override
-    def rot_nod_mans(self) -> tuple[Manifold, ...]:
-        return (self._rot_man,)
 
     @property
     @override
@@ -276,7 +271,7 @@ def test_layout_is_jit_static() -> None:
     assert jnp.allclose(total(coords), jnp.sum(coords[: partitions.rot_man.dim]))
 
 
-class TestCliqueAddressing:
+class TestCliqueLocations:
     """Per-clique coordinates."""
 
     def test_clique_dims_sum_to_dim(self) -> None:
@@ -286,11 +281,9 @@ class TestCliqueAddressing:
     def test_one_form_per_clique(self) -> None:
         """The declared graph and the parameter layout must agree clique for clique."""
         model = analytic_hmog(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, n_components=4)
-        assert len(model.clq_dims) == sum(
-            len(group) for group in model.canonical_cliques
-        )
+        assert len(model.clq_dims) == sum(len(group) for group in model.level_cliques)
 
-    def test_a_path_to_an_absent_clique_is_rejected(self) -> None:
+    def test_an_embedding_of_an_absent_clique_is_rejected(self) -> None:
         man = CompleteMixture(Poissons(2), 3)
         with pytest.raises(ValueError, match="not in tuple"):
             man.clq_emb((0, 5))
@@ -308,10 +301,10 @@ def layout_problems(man: RecursiveLinearCliques[Any, Any]) -> list[str]:
     """
     if sum(man.clq_dims) != man.dim:
         return [f"cliques sum to {sum(man.clq_dims)}, but dim is {man.dim}"]
-    dep = man.dep_man_rlc
-    if dep is not None:
-        segment = tuple(chain.from_iterable(man.canonical_cliques[2:]))
-        own = tuple(chain.from_iterable(dep.canonical_cliques))
+    dep = man.dep_man
+    if isinstance(dep, RecursiveLinearCliques):
+        segment = tuple(chain.from_iterable(man.level_cliques[2:]))
+        own = dep.cliques
         if segment != own:
             return [f"deep storage {own} is not canonical order {segment}"]
     return []
@@ -397,7 +390,7 @@ class _ReversedCCA(
     to know that ``RecursiveCliques`` will sort them.
     """
 
-    _cliques: tuple[tuple[int, ...], ...] = field(
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
         default=((2,), (1, 2), (1,), (0, 2), (0,)), kw_only=True
     )
 
@@ -411,13 +404,13 @@ class _DerivedPartitions(RecursiveLinearCliques[Manifold, Manifold]):
 
     _rot_man: Manifold
     _dep_man: Manifold
-    _cliques: tuple[tuple[int, ...], ...]
+    _raw_cliques: tuple[tuple[int, ...], ...]
     _root_nodes: frozenset[int]
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override
@@ -438,11 +431,6 @@ class _DerivedPartitions(RecursiveLinearCliques[Manifold, Manifold]):
     @override
     def rot_man(self) -> Manifold:
         return self._rot_man
-
-    @property
-    @override
-    def rot_nod_mans(self) -> tuple[Manifold, ...]:
-        return (self._rot_man,)
 
     @property
     @override
@@ -481,7 +469,7 @@ class TestDeclarationOrderRegressions:
             lat_dim=2,
             pst_rep=PositiveDefinite(),
         )
-        assert model.canonical_cliques == _cca().canonical_cliques
+        assert model.level_cliques == _cca().level_cliques
         params = jnp.arange(float(model.dim))
         blocks = model.int_man.coord_blocks(model.split_level(params)[1])
         found = model.clq_emb((0, 2)).project(params)

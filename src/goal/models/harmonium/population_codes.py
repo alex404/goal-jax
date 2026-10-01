@@ -49,7 +49,7 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
     n_latent: int
     """Number of VonMises latent dimensions."""
 
-    _cliques: tuple[tuple[int, ...], ...] = field(
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
         default=((0,), (0, 1), (1,)), kw_only=True
     )
     """The observable and the latent, coupled."""
@@ -61,8 +61,8 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override
@@ -201,7 +201,7 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
     lat_dim: int
     """Dimension of the Gaussian latent."""
 
-    _cliques: tuple[tuple[int, ...], ...] = field(
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
         default=((0,), (0, 1), (1,)), kw_only=True
     )
     """The observable and the latent, coupled."""
@@ -213,8 +213,8 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override

@@ -270,7 +270,7 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     _pst_man: Any
 
-    _cliques: tuple[tuple[int, ...], ...] = field(
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
         default=((0,), (0, 1), (1,), (1, 2), (2,)), kw_only=True
     )
     _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
@@ -287,8 +287,8 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override

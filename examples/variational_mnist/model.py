@@ -107,7 +107,7 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
     _obs_man: Observable
     _pst_man: Latent
 
-    _cliques: tuple[tuple[int, ...], ...] = field(
+    _raw_cliques: tuple[tuple[int, ...], ...] = field(
         default=((0,), (0, 1), (1,)), kw_only=True
     )
     _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
@@ -124,8 +124,8 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override
@@ -309,7 +309,7 @@ def _hierarchical_harmonium(
         ((1,), (1, 2), (2,)), frozenset({1})
     )
     return ConcreteHarmonium(
-        obs_man, mix_man, _cliques=((0,), (0, 1), (1,), (1, 2), (2,))
+        obs_man, mix_man, _raw_cliques=((0,), (0, 1), (1,), (1, 2), (2,))
     )
 
 

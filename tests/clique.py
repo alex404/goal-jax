@@ -28,13 +28,13 @@ class Cover(RecursiveCliques):
     library, so these tuples are exactly what every property reads.
     """
 
-    _cliques: tuple[tuple[int, ...], ...]
+    _raw_cliques: tuple[tuple[int, ...], ...]
     _root_nodes: frozenset[int]
 
     @property
     @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
+    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
+        return self._raw_cliques
 
     @property
     @override
@@ -133,7 +133,7 @@ class TestLevels:
     def test_cliques_span_at_most_two_levels(self) -> None:
         for clique_set in (path(4), HMOG, MFA, CCA):
             levels = levels_of(clique_set)
-            for clique in clique_set.cliques:
+            for clique in clique_set.raw_cliques:
                 spanned = {levels[i] for i in clique}
                 assert max(spanned) - min(spanned) <= 1
 
@@ -145,7 +145,7 @@ class TestLevelSplit:
     def test_the_groups_partition_the_cliques(self, name: str) -> None:
         clq = {"hmog": HMOG, "mfa": MFA, "cca": CCA}[name]
         root, cross, deep = clq.level_split()
-        flat = [c for group in clq.canonical_cliques for c in group]
+        flat = [c for group in clq.level_cliques for c in group]
         assert sorted(root + cross + deep) == sorted(flat)
 
     @pytest.mark.parametrize("name", ["hmog", "mfa", "cca"])
@@ -181,10 +181,10 @@ class TestCanonicalOrder:
     """Within level 0, crossing 0 to 1, within level 1, and so on up the graph."""
 
     def test_pair_reproduces_harmonium_layout(self) -> None:
-        assert path(2).canonical_cliques == (((0,),), ((0, 1),), ((1,),))
+        assert path(2).level_cliques == (((0,),), ((0, 1),), ((1,),))
 
     def test_chain_nests(self) -> None:
-        assert HMOG.canonical_cliques == (
+        assert HMOG.level_cliques == (
             ((0,),),
             ((0, 1),),
             ((1,),),
@@ -197,33 +197,37 @@ class TestCanonicalOrder:
         self, clique_set: RecursiveCliques
     ) -> None:
         """The deep partition of a layout is the layout one level up, on its own."""
-        above = ascend(clique_set).canonical_cliques
-        assert clique_set.canonical_cliques[2:] == above
+        above = ascend(clique_set).level_cliques
+        assert clique_set.level_cliques[2:] == above
 
     def test_mfa_order(self) -> None:
         """A fork: both crossing cliques reach level 1, which holds y and k together."""
-        assert MFA.canonical_cliques == (
+        assert MFA.level_cliques == (
             ((0,),),
             ((0, 1), (0, 1, 2)),
             ((1,), (1, 2), (2,)),
         )
 
     def test_cca_order(self) -> None:
-        assert CCA.canonical_cliques == (((0,), (1,)), ((0, 2), (1, 2)), ((2,),))
+        assert CCA.level_cliques == (((0,), (1,)), ((0, 2), (1, 2)), ((2,),))
 
     def test_depth_one_has_one_group(self) -> None:
         every = Cover(((0,), (0, 1), (1,)), frozenset({0, 1}))
-        assert every.canonical_cliques == (((0,), (0, 1), (1,)),)
+        assert every.level_cliques == (((0,), (0, 1), (1,)),)
 
     def test_an_empty_group_is_kept(self) -> None:
         """No clique lies within level 1 of a bare chain, but its slot stays."""
         chain = Cover(((0, 1), (1, 2)), frozenset({0}))
-        assert chain.canonical_cliques == ((), ((0, 1),), (), ((1, 2),), ())
+        assert chain.level_cliques == ((), ((0, 1),), (), ((1, 2),), ())
 
     @pytest.mark.parametrize("clique_set", [path(2), HMOG, MFA, CCA])
     def test_each_clique_appears_once(self, clique_set: RecursiveCliques) -> None:
-        flat = [c for group in clique_set.canonical_cliques for c in group]
-        assert sorted(flat) == sorted(set(clique_set.cliques))
+        flat = [c for group in clique_set.level_cliques for c in group]
+        assert sorted(flat) == sorted(set(clique_set.raw_cliques))
+
+    def test_cliques_are_the_level_cliques_flattened(self) -> None:
+        """The stored order: CCA's root cliques come before both crossing cliques."""
+        assert CCA.cliques == ((0,), (1,), (0, 2), (1, 2), (2,))
 
 
 class TestTail:
@@ -238,7 +242,7 @@ class TestTail:
         """One level up is the same nodes minus the root level, under the same names."""
         for clique_set in (HMOG, MFA, CCA):
             above = ascend(clique_set)
-            assert sorted(above.cliques) == sorted(clique_set.level_split()[2])
+            assert sorted(above.raw_cliques) == sorted(clique_set.level_split()[2])
             assert set(above.nodes) <= set(clique_set.nodes)
             assert above.n_nodes == clique_set.n_nodes - len(clique_set.root_nodes)
 
@@ -279,13 +283,13 @@ class TestAtomicShapes:
         node = Cover(((0,),), frozenset({0}))
         assert node.level_sets == ((0,),)
         assert node.edges == ()
-        assert node.canonical_cliques == (((0,),),)
+        assert node.level_cliques == (((0,),),)
 
     def test_edge_atom(self) -> None:
         edge = Cover(((0, 1),), frozenset({0}))
         assert edge.level_sets == ((0,), (1,))
         assert edge.edges == ((0, 1),)
-        assert edge.canonical_cliques == ((), ((0, 1),), ())
+        assert edge.level_cliques == ((), ((0, 1),), ())
         assert edge.level_split() == ((), ((0, 1),), ())
 
     def test_multi_clique_edge_atom(self) -> None:
@@ -300,13 +304,13 @@ class TestAtomicShapes:
         assert split.level_sets == ((0,), (1,))
         assert split.nodes == (0, 1)
         assert split.graph == {0: (1,), 1: (0,)}
-        assert split.canonical_cliques == ((), ((0, 1),), ())
+        assert split.level_cliques == ((), ((0, 1),), ())
 
     def test_components_are_fine_when_each_has_a_root(self) -> None:
         """Two disjoint edges, one root in each: levels are measured from either root."""
         split = Cover(((0, 1), (2, 3)), frozenset({0, 2}))
         assert split.level_sets == ((0, 2), (1, 3))
-        assert split.canonical_cliques == ((), ((0, 1), (2, 3)), ())
+        assert split.level_cliques == ((), ((0, 1), (2, 3)), ())
 
     def test_singleton_is_optional_not_forbidden(self) -> None:
         """Dropping the requirement must not make a node-only cover invalid."""
@@ -328,7 +332,9 @@ class TestRelabelling:
 
     @classmethod
     def _renamed(cls) -> Cover:
-        cliques = tuple(tuple(sorted(cls.RENAME[i] for i in c)) for c in HMOG.cliques)
+        cliques = tuple(
+            tuple(sorted(cls.RENAME[i] for i in c)) for c in HMOG.raw_cliques
+        )
         return Cover(cliques, frozenset({cls.RENAME[0]}))
 
     def test_nodes_are_whatever_the_cover_names(self) -> None:
@@ -351,7 +357,7 @@ class TestRelabelling:
 
     def test_canonical_groups_are_the_same_groups(self) -> None:
         odd = self._renamed()
-        pairs = zip(odd.canonical_cliques, HMOG.canonical_cliques, strict=True)
+        pairs = zip(odd.level_cliques, HMOG.level_cliques, strict=True)
         for mine, theirs in pairs:
             assert {frozenset(c) for c in mine} == self._rename(theirs)
 
@@ -363,9 +369,9 @@ class TestRelabelling:
 
     def test_a_root_set_that_is_not_the_lowest_labels(self) -> None:
         """Rooting at the *highest* label: level order and index order run opposite."""
-        rooted_high = Cover(HMOG.cliques, frozenset({2}))
+        rooted_high = Cover(HMOG.raw_cliques, frozenset({2}))
         assert rooted_high.level_sets == ((2,), (1,), (0,))
-        assert rooted_high.canonical_cliques == (
+        assert rooted_high.level_cliques == (
             ((2,),),
             ((1, 2),),
             ((1,),),
@@ -375,10 +381,10 @@ class TestRelabelling:
 
 
 class TestSpelling:
-    """How the cliques are written changes nothing but :attr:`~RecursiveCliques.cliques` itself.
+    """How the raw cliques are written changes nothing but :attr:`~RecursiveCliques.raw_cliques` itself.
 
     Clique order, label order within a clique, repeated labels, repeated cliques, and empty
-    cliques all normalize away in :attr:`~RecursiveCliques.canonical_cliques`.
+    cliques all normalize away in :attr:`~RecursiveCliques.level_cliques`.
     """
 
     PLAIN: ClassVar[Cover] = Cover(((0,), (0, 1), (1,)), frozenset({0}))
@@ -387,7 +393,7 @@ class TestSpelling:
     )
 
     def test_the_cliques_normalize(self) -> None:
-        assert self.RESPELT.canonical_cliques == (((0,),), ((0, 1),), ((1,),))
+        assert self.RESPELT.level_cliques == (((0,),), ((0, 1),), ((1,),))
 
     def test_every_derived_member_agrees(self) -> None:
         for name in (
@@ -395,7 +401,8 @@ class TestSpelling:
             "graph",
             "edges",
             "level_sets",
-            "canonical_cliques",
+            "level_cliques",
+            "cliques",
         ):
             assert getattr(self.RESPELT, name) == getattr(self.PLAIN, name), name
         assert self.RESPELT.level_split() == self.PLAIN.level_split()
@@ -410,4 +417,4 @@ class TestSpelling:
         assert not triangle.same_graph(edges)
 
     def test_same_graph_compares_roots(self) -> None:
-        assert not self.PLAIN.same_graph(Cover(self.PLAIN.cliques, frozenset({1})))
+        assert not self.PLAIN.same_graph(Cover(self.PLAIN.raw_cliques, frozenset({1})))
