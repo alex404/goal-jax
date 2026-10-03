@@ -12,6 +12,7 @@ This module provides:
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportArgumentType=false
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, override
 
@@ -20,12 +21,12 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    Crossing,
     Diagonal,
     Differentiable,
-    EmbeddingConstructor,
     Harmonium,
     IdentityEmbedding,
+    LinearEmbedding,
+    Manifold,
     MatrixRep,
     Rectangular,
 )
@@ -119,17 +120,20 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         return (IdentityEmbedding,), (IdentityEmbedding,)
 
 

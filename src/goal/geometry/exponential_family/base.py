@@ -25,7 +25,7 @@ class ExponentialFamily(LinearCliques, ABC):
 
     Subclasses define the sufficient statistic $\\mathbf{s}(x)$ and base measure $\\mu(x)$; higher levels of the hierarchy add the normalizing constant and its dual.
 
-    Its parameters are laid out over the cliques of its graph (:class:`~goal.geometry.manifold.clique.LinearCliques`). By default the family is one node, whose one clique holds all its parameters as a bias; families over several nodes (pairs, harmoniums) override :attr:`cliques` and :meth:`clq_map`.
+    Its parameters are laid out over the cliques of its graph (:class:`~goal.geometry.manifold.clique.LinearCliques`). By default the family is one node, whose one clique holds all its parameters as a bias; families over several nodes (pairs, harmoniums) override :attr:`cliques` and :attr:`clq_maps`.
 
     Mathematically, an exponential family is a set of distributions whose densities share the form $p(x; \\theta) \\propto \\mu(x)\\exp(\\theta \\cdot \\mathbf{s}(x))$, where $\\theta \\in \\mathbb{R}^n$ are the natural parameters, $\\mathbf{s}(x)$ is the sufficient statistic --- a fixed mapping from data to $\\mathbb{R}^n$ that captures all information the data carries about $\\theta$ --- and $\\mu(x)$ is the base measure, a fixed reference density independent of $\\theta$.
     """
@@ -53,10 +53,11 @@ class ExponentialFamily(LinearCliques, ABC):
         """One node."""
         return ((0,),)
 
+    @property
     @override
-    def clq_map(self, clique: tuple[int, ...]) -> CliqueMap:
+    def clq_maps(self) -> tuple[CliqueMap, ...]:
         """The bias over the whole family."""
-        return bias_map(self)
+        return (bias_map(self),)
 
     # Methods
 

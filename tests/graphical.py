@@ -16,6 +16,7 @@ contraction order does not matter, and that partial contraction composes.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -25,13 +26,16 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
+    CliqueEmbedding,
     CliqueMap,
-    Crossing,
     Diagonal,
-    EmbeddingConstructor,
     ExponentialFamily,
+    ExponentialFamilyPair,
     IdentityEmbedding,
     InteractionEmbedding,
+    LatentHarmoniumEmbedding,
+    LinearEmbedding,
+    Manifold,
     MatrixMap,
     MatrixRep,
     ObservableEmbedding,
@@ -39,7 +43,6 @@ from goal.geometry import (
     PosteriorEmbedding,
     Rectangular,
     RecursiveLinearCliques,
-    RootEmbedding,
     Scale,
 )
 from goal.models import (
@@ -71,17 +74,20 @@ class _Partitions(RecursiveLinearCliques[ExponentialFamily, ExponentialFamily]):
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         return self._source.crs_cliques
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return self._source.crs_rep(crossing)
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         return self._source.crs_emb_constructors(crossing)
 
     @property
@@ -117,12 +123,12 @@ class TestPartitionLayout:
 
     def test_deep_span_is_laid_out_as_the_upper_harmonium(self) -> None:
         # The deep partition is byte-identical to what the mixture one level up produces,
-        # which is what lets split_level be applied again to it.
+        # which is what lets split_coords be applied again to it.
         model, partitions = _hmog_partitions()
         coords = jnp.arange(float(partitions.dim))
-        deep = partitions.split_level(coords)[2]
+        deep = partitions.split_coords(coords)[2]
         assert deep.shape[0] == model.upr_hrm.dim
-        y, yk, k = model.upr_hrm.split_level(deep)
+        y, yk, k = model.upr_hrm.split_coords(deep)
         assert jnp.array_equal(jnp.concatenate([y, yk, k]), deep)
         assert y.shape[0] == model.upr_hrm.obs_man.dim
 
@@ -132,14 +138,6 @@ class TestPartitionLayout:
         assert jnp.array_equal(
             partitions.join_coords(*partitions.split_coords(coords)), coords
         )
-
-    def test_split_level_is_split_coords(self) -> None:
-        _, partitions = _hmog_partitions()
-        coords = jnp.arange(float(partitions.dim))
-        for a, b in zip(
-            partitions.split_level(coords), partitions.split_coords(coords), strict=True
-        ):
-            assert jnp.array_equal(a, b)
 
 
 class TestHarmoniumSpans:
@@ -163,7 +161,7 @@ class TestHarmoniumSpans:
         assert tuple((cod, dom) for cod, dom, _ in model.int_man.terms) == (
             ((0,), (0,)),
         )
-        assert model.clq_map((0, 1)).dim == model.int_man.dim
+        assert CliqueEmbedding((0, 1), model).sub_man.dim == model.int_man.dim
 
     def test_the_reading_is_derived_from_the_graph(self) -> None:
         """A crossing's parts fix its order, arity and reading.
@@ -173,7 +171,7 @@ class TestHarmoniumSpans:
         part, and the arity is how many nodes the two hold.
         """
         model, _ = _hmog_partitions()
-        form = model.clq_map((0, 1))
+        form = CliqueEmbedding((0, 1), model).sub_man
         assert len(form.cod_embs) == 1, "the output group is the root node"
         assert len(form.dom_embs) == 1
         assert form.cod_man.mans == (model.obs_man,)
@@ -188,14 +186,14 @@ class TestHarmoniumSpans:
         emb = emb_cls(model)
         v = jnp.arange(1.0, emb.sub_man.dim + 1)
         assert jnp.array_equal(emb.project(emb.embed(v)), v)
-        partitions = model.split_level(emb.embed(v))
+        partitions = model.split_coords(emb.embed(v))
         for other in range(3):
             if other != idx:
                 assert jnp.all(partitions[other] == 0.0)
 
 
-class TestRootEmbedding:
-    """Transforms the root partition; the cross and deep partitions pass through untouched."""
+class TestLatentHarmoniumEmbedding:
+    """Transforms the observable; the interaction and posterior pass through untouched."""
 
     @staticmethod
     def _asymmetric_pair():
@@ -212,21 +210,21 @@ class TestRootEmbedding:
     def test_root_span_is_the_lower_embedding(self) -> None:
         model, emb = self._asymmetric_pair()
         v = jax.random.normal(jax.random.PRNGKey(2), (model.pst_upr_hrm.dim,))
-        pst_root, _, _ = model.pst_upr_hrm.split_level(v)
-        prr_root, _, _ = model.prr_upr_hrm.split_level(emb.embed(v))
+        pst_root, _, _ = model.pst_upr_hrm.split_coords(v)
+        prr_root, _, _ = model.prr_upr_hrm.split_coords(emb.embed(v))
         assert jnp.array_equal(prr_root, model.lwr_hrm.pst_prr_emb.embed(pst_root))
 
     def test_cross_and_deep_spans_pass_through(self) -> None:
         model, emb = self._asymmetric_pair()
         v = jax.random.normal(jax.random.PRNGKey(5), (model.pst_upr_hrm.dim,))
-        _, sub_cross, sub_deep = model.pst_upr_hrm.split_level(v)
-        _, amb_cross, amb_deep = model.prr_upr_hrm.split_level(emb.embed(v))
+        _, sub_cross, sub_deep = model.pst_upr_hrm.split_coords(v)
+        _, amb_cross, amb_deep = model.prr_upr_hrm.split_coords(emb.embed(v))
         assert jnp.array_equal(amb_cross, sub_cross)
         assert jnp.array_equal(amb_deep, sub_deep)
 
         w = jax.random.normal(jax.random.PRNGKey(6), (model.prr_upr_hrm.dim,))
-        _, amb_cross, amb_deep = model.prr_upr_hrm.split_level(w)
-        _, sub_cross, sub_deep = model.pst_upr_hrm.split_level(emb.project(w))
+        _, amb_cross, amb_deep = model.prr_upr_hrm.split_coords(w)
+        _, sub_cross, sub_deep = model.pst_upr_hrm.split_coords(emb.project(w))
         assert jnp.array_equal(sub_cross, amb_cross)
         assert jnp.array_equal(sub_deep, amb_deep)
 
@@ -247,8 +245,8 @@ class TestRootEmbedding:
         model, _ = self._asymmetric_pair()
         pst = model.pst_upr_hrm
         assert pst.cliques != model.cliques
-        with pytest.raises(ValueError, match="differ only in the root partition"):
-            RootEmbedding(model.lwr_hrm.pst_prr_emb, model, pst)
+        with pytest.raises(ValueError, match="differ only in their observable"):
+            LatentHarmoniumEmbedding(model.lwr_hrm.pst_prr_emb, model, pst)
 
 
 def test_layout_is_jit_static() -> None:
@@ -257,7 +255,7 @@ def test_layout_is_jit_static() -> None:
 
     @jax.jit
     def total(coords: Array, man: _Partitions = partitions) -> Array:
-        return jnp.sum(man.split_level(coords)[0])
+        return jnp.sum(man.split_coords(coords)[0])
 
     coords = jnp.arange(float(partitions.dim))
     assert jnp.allclose(total(coords), jnp.sum(coords[: partitions.rot_man.dim]))
@@ -278,7 +276,7 @@ class TestCliqueLocations:
     def test_an_embedding_of_an_absent_clique_is_rejected(self) -> None:
         man = CompleteMixture(Poissons(2), 3)
         with pytest.raises(ValueError, match="not in tuple"):
-            man.clq_emb((0, 5)).project(man.zeros())
+            CliqueEmbedding((0, 5), man).project(man.zeros())
 
 
 ### Layout Invariants ###
@@ -297,19 +295,19 @@ def layout_problems(man: RecursiveLinearCliques[Any, Any]) -> list[str]:
     if man.clq_dims != parts:
         return [f"block sizes {man.clq_dims} are not the partitions' {parts}"]
     coords = jnp.arange(float(man.dim))
-    root, _, deep = man.split_level(coords)
+    root, _, deep = man.split_coords(coords)
     n_rot = man.rot_man.n_nodes
     for clique in man.rot_man.cliques:
         if not jnp.array_equal(
-            man.clq_emb(clique).project(coords),
-            man.rot_man.clq_emb(clique).project(root),
+            CliqueEmbedding(clique, man).project(coords),
+            CliqueEmbedding(clique, man.rot_man).project(root),
         ):
             return [f"root clique {clique} is misplaced"]
     for clique in man.dep_man.cliques:
         lifted = tuple(i + n_rot for i in clique)
         if not jnp.array_equal(
-            man.clq_emb(lifted).project(coords),
-            man.dep_man.clq_emb(clique).project(deep),
+            CliqueEmbedding(lifted, man).project(coords),
+            CliqueEmbedding(clique, man.dep_man).project(deep),
         ):
             return [f"deep clique {clique} is misplaced as {lifted}"]
     return []
@@ -365,10 +363,10 @@ class TestLayoutInvariants:
         """
         man = dict(shipped_models())[name]
         coords = jnp.arange(float(man.dim))
-        root, cross, deep = man.split_level(coords)
+        root, cross, deep = man.split_coords(coords)
         partitions = (man.rot_man.dim, man.crs_man.dim, man.dep_man.dim)
         assert (root.size, cross.size, deep.size) == partitions
-        assert jnp.array_equal(man.join_level(root, cross, deep), coords)
+        assert jnp.array_equal(man.join_coords(root, cross, deep), coords)
 
     def test_the_arity_three_clique_has_three_axes(self) -> None:
         """MFA's $(x,y,k)$ clique is a three-way interaction, so it has three axes.
@@ -377,7 +375,7 @@ class TestLayoutInvariants:
         node rather than one for the pair --- which is what makes the axis count the arity.
         """
         mfa = _mfa()
-        form = mfa.clq_emb((0, 1, 2)).sub_man
+        form = CliqueEmbedding((0, 1, 2), mfa).sub_man
         assert len(form.embs) == 3
         assert tuple(emb.sub_man.dim for emb in form.embs) == (4, 2, 2)
 
@@ -393,7 +391,7 @@ class _ReversedCCA(
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         return (((1,), (0,)), ((0,), (0,)))
 
 
@@ -406,21 +404,24 @@ class _DerivedPartitions(RecursiveLinearCliques[ExponentialFamily, ExponentialFa
 
     _rot_man: ExponentialFamily
     _dep_man: ExponentialFamily
-    _crs_cliques: tuple[Crossing, ...]
+    _crs_cliques: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         return self._crs_cliques
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         near, far = crossing
         return (IdentityEmbedding,) * len(near), (IdentityEmbedding,) * len(far)
 
@@ -463,15 +464,64 @@ class TestDeclarationOrderRegressions:
         assert model.cliques == ((0,), (1,), (1, 2), (0, 2), (2,))
         assert layout_problems(model) == []
         params = jnp.arange(float(model.dim))
-        blocks = model.crs_man.coord_blocks(model.split_level(params)[1])
-        assert jnp.array_equal(model.clq_emb((1, 2)).project(params), blocks[0])
-        assert jnp.array_equal(model.clq_emb((0, 2)).project(params), blocks[1])
+        blocks = model.crs_man.coord_blocks(model.split_coords(params)[1])
+        assert jnp.array_equal(
+            CliqueEmbedding((1, 2), model).project(params), blocks[0]
+        )
+        assert jnp.array_equal(
+            CliqueEmbedding((0, 2), model).project(params), blocks[1]
+        )
 
     def test_a_crossing_past_the_deep_root_composes(self) -> None:
         """The deep partition is stored in its own order whatever the crossings touch."""
         man = _past_the_root()
         assert man.cliques == ((0,), (0, 2), (1,), (1, 2), (2,))
         assert layout_problems(man) == []
+
+
+@dataclass(frozen=True)
+class _Pair(ExponentialFamilyPair[Any, Any]):
+    """A pair of two given families, for testing how a pair composes its components."""
+
+    _fst: ExponentialFamily
+    _snd: ExponentialFamily
+
+    @property
+    @override
+    def fst_man(self) -> Any:
+        return self._fst
+
+    @property
+    @override
+    def snd_man(self) -> Any:
+        return self._snd
+
+
+class TestPairComposition:
+    """A pair places its components' graphs side by side and keeps their cliques."""
+
+    def test_single_node_components_make_two_nodes(self) -> None:
+        pair = _Pair(Normal(2, PositiveDefinite()), Normal(3, Diagonal()))
+        assert pair.cliques == ((0,), (1,))
+        assert pair.clq_maps == (
+            pair.fst_man.clq_maps[0],
+            pair.snd_man.clq_maps[0],
+        )
+
+    def test_a_multi_clique_component_keeps_its_cliques(self) -> None:
+        cca = _cca()
+        pair = _Pair(cca, Normal(2, PositiveDefinite()))
+        n = cca.n_nodes
+        assert pair.cliques == (*cca.cliques, (n,))
+        assert pair.clq_maps == (*cca.clq_maps, *pair.snd_man.clq_maps)
+        assert sum(pair.clq_dims) == pair.dim
+        params = jnp.arange(float(pair.dim))
+        fst, snd = pair.split_coords(params)
+        for clique, emb in zip(cca.cliques, cca.clq_embs, strict=True):
+            assert jnp.array_equal(
+                CliqueEmbedding(clique, pair).project(params), emb.project(fst)
+            )
+        assert jnp.array_equal(CliqueEmbedding((n,), pair).project(params), snd)
 
 
 ### Form algebra ###
@@ -588,7 +638,7 @@ class TestHigherArity:
     def test_partial_contraction_composes(self) -> None:
         """Contracting axes one at a time equals contracting them together.
 
-        This is what lets a level split contract the root axes and leave the deep ones:
+        This is what lets the partition split contract the root axes and leave the deep ones:
         the result must not depend on the order the root axes are taken in.
         """
         params = jax.random.normal(_key(9), (self.form.dim,))

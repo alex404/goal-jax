@@ -32,6 +32,7 @@ for common configurations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -41,14 +42,13 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
-    Crossing,
     DifferentiableConjugated,
-    EmbeddingConstructor,
+    LatentHarmoniumEmbedding,
     LinearEmbedding,
+    Manifold,
     MatrixRep,
     ObservableEmbedding,
     PositiveDefinite,
-    RootEmbedding,
     SymmetricConjugated,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
@@ -103,18 +103,21 @@ class _HMoGBase[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         """The lower harmonium's: its latent is the upper mixture's observable, node $0$ of each."""
         return self.lwr_hrm.crs_cliques
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return self.lwr_hrm.crs_rep(crossing)
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         return self.lwr_hrm.crs_emb_constructors(crossing)
 
     @property
@@ -133,7 +136,7 @@ class _HMoGBase[
     @override
     def pst_prr_emb(self) -> LinearEmbedding[PrrUpperHarmonium, PstUpperHarmonium]:
         """The posterior and prior mixtures differ only at node $y$, i.e. in their root partition."""
-        return RootEmbedding(
+        return LatentHarmoniumEmbedding(
             self.lwr_hrm.pst_prr_emb,
             self.prr_upr_hrm,
             self.pst_upr_hrm,
@@ -155,10 +158,10 @@ class _HMoGBase[
         - The lower LGM interaction (loading matrix + observable bias adjustment)
         - Each GMM component (via the existing Normal.whiten relative to GMM marginal)
         """
-        obs_means, lwr_int_means, lat_means = self.split_level(means)
+        obs_means, lwr_int_means, lat_means = self.split_coords(means)
 
         # GMM marginal statistics (obs_means_gmm = E[s_Y(y)] w.r.t. joint)
-        obs_means_gmm, _, cat_means = self.pst_upr_hrm.split_level(lat_means)
+        obs_means_gmm, _, cat_means = self.pst_upr_hrm.split_coords(lat_means)
         lat_mean_y, lat_cov_y = self.pst_upr_hrm.obs_man.split_mean_covariance(
             obs_means_gmm
         )
@@ -177,8 +180,7 @@ class _HMoGBase[
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        (xy,) = self.lwr_hrm.crs_cliques
-        lwr_int_map = self.lwr_hrm.crs_map(xy)
+        (lwr_int_map,) = self.lwr_hrm.crs_maps
         lwr_int_mat = lwr_int_map.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
@@ -186,7 +188,7 @@ class _HMoGBase[
         ).T
         new_lwr_int_means = lwr_int_map.from_matrix(new_lwr_int_mat)
 
-        return self.join_level(obs_means, new_lwr_int_means, new_lat_means)
+        return self.join_coords(obs_means, new_lwr_int_means, new_lat_means)
 
     def posterior_categorical(self, params: Array, x: Array) -> Array:
         """Compute posterior categorical distribution p(Z|x) in natural coordinates."""
@@ -321,9 +323,9 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
         The deep partition is the upper mixture; its own root partition is node $y$, which is the
         lower harmonium's latent side. So the projection is one nested root read.
         """
-        obs_means, lwr_int_means, lat_means = self.split_level(means)
+        obs_means, lwr_int_means, lat_means = self.split_coords(means)
         lwr_lat_means = ObservableEmbedding(self.upr_hrm).project(lat_means)
-        lwr_means = self.lwr_hrm.join_level(obs_means, lwr_int_means, lwr_lat_means)
+        lwr_means = self.lwr_hrm.join_coords(obs_means, lwr_int_means, lwr_lat_means)
         return self.lwr_hrm.to_natural_likelihood(lwr_means)
 
     @override

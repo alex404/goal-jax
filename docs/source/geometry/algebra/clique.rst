@@ -9,8 +9,3 @@ Cliques
    :members:
    :undoc-members:
    :show-inheritance:
-
-.. autoclass:: goal.geometry.algebra.clique.RecursiveCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:

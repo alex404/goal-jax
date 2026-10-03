@@ -15,7 +15,13 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import Diagonal, PositiveDefinite, Scale, TensorProduct
+from goal.geometry import (
+    CliqueEmbedding,
+    Diagonal,
+    PositiveDefinite,
+    Scale,
+    TensorProduct,
+)
 from goal.models import CanonicalCorrelationAnalysis
 
 jax.config.update("jax_platform_name", "cpu")
@@ -51,7 +57,7 @@ class TestGraph:
         """The pair's two nodes come first; the shared latent is numbered after them."""
         model = cca()
         assert model.obs_man.n_nodes == 2
-        assert model.clq_map((2,)).dim == model.pst_man.dim
+        assert CliqueEmbedding((2,), model).sub_man.dim == model.pst_man.dim
 
     def test_one_form_per_clique(self) -> None:
         model = cca()

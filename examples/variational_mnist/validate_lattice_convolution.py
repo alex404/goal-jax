@@ -151,7 +151,7 @@ def main() -> None:
     # 5. MNIST-shaped tractability summary
     conv = make((7, 7), (4, 4), (6, 6))
     deg = int(jnp.max(jnp.sum(conv.induced_coupling_graph(), axis=1)))
-    msg = f" (nn on 7x7 => treewidth ~7, junction-tree tractable)."
+    msg = " (nn on 7x7 => treewidth ~7, junction-tree tractable)."
     print(
         f"\nMNIST decoder 7x7 -> 28x28 (k=6,s=4): induced latent graph max degree {deg}"
         + msg

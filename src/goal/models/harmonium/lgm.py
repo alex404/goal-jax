@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -12,13 +13,12 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
-    Crossing,
     Diagonal,
     DifferentiableConjugated,
-    EmbeddingConstructor,
     Identity,
     IdentityEmbedding,
     LinearEmbedding,
+    Manifold,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
@@ -249,18 +249,21 @@ class LGM[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         """The observable and the latent, coupled."""
         return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         """The two locations."""
         return (GeneralizedGaussianLocationEmbedding,), (
             GeneralizedGaussianLocationEmbedding,
@@ -283,8 +286,7 @@ class LGM[
 
         # Conjugation parameters
 
-        (xz,) = self.crs_cliques
-        im = self.crs_map(xz)
+        (im,) = self.crs_maps
         int_mat_trn = im.transpose(int_mat)
         rho_mean = im.trn_man.rep.matvec(im.trn_man.matrix_shape, int_mat_trn, obs_mean)
 
@@ -346,13 +348,13 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         )
 
         # Construct parameters for transposed model
-        obs_params, int_params, lat_params = self.split_level(params)
+        obs_params, int_params, lat_params = self.split_coords(params)
         nor_man = transposed_lgm.prr_man
         obs_params_emb = self.obs_man.embed_rep(nor_man, obs_params)
         lat_params_emb = self.pst_man.embed_rep(transposed_lgm.obs_man, lat_params)
 
         # Join parameters with interaction matrix transposed
-        transposed_params = transposed_lgm.join_level(
+        transposed_params = transposed_lgm.join_coords(
             lat_params_emb,  # Original latent becomes observable
             self.int_man.transpose(int_params),
             obs_params_emb,
@@ -369,13 +371,12 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         - lat_means: set to standard_normal() (mean coords of N(0,I))
         - int_means: updated to WL where W \\Sigma_z = E[x \\otimes z] - E[x] \\otimes E[z] and L = chol(\\Sigma_z)
         """
-        obs_means, int_means, lat_means = self.split_level(means)
+        obs_means, int_means, lat_means = self.split_coords(means)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
         lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
 
         # W \Sigma_z = E[x \otimes z] - E[x] \otimes E[z]
-        (xz,) = self.crs_cliques
-        im = self.crs_map(xz)
+        (im,) = self.crs_maps
         int_mat = im.to_matrix(int_means)  # (obs_dim, lat_dim)
         cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # W \Sigma_z
 
@@ -385,7 +386,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
         new_int_means = im.from_matrix(wl_mat)
         new_lat_means = self.prr_man.standard_normal()
-        return self.join_level(obs_means, new_int_means, new_lat_means)
+        return self.join_coords(obs_means, new_int_means, new_lat_means)
 
     def to_normal(self, params: Array) -> Array:
         """Convert to a joint Normal distribution in natural parameters."""
@@ -396,7 +397,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
             lat_dim=lat_dim,
             pst_rep=PositiveDefinite(),
         )
-        obs_params, int_params, lat_params = self.split_level(params)
+        obs_params, int_params, lat_params = self.split_coords(params)
         emb_obs_params = self.obs_man.embed_rep(new_man.obs_man, obs_params)
         emb_lat_params = self.pst_man.embed_rep(new_man.prr_man, lat_params)
 
@@ -406,8 +407,8 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         nor_loc = jnp.concatenate([obs_loc, lat_loc])
         obs_prs_array = new_man.obs_man.cov_man.to_matrix(obs_prs)
         lat_prs_array = new_man.prr_man.cov_man.to_matrix(lat_prs)
-        (xz,) = self.crs_cliques
-        int_array = -self.crs_map(xz).to_matrix(int_params)
+        (xz_map,) = self.crs_maps
+        int_array = -xz_map.to_matrix(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
@@ -542,8 +543,8 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
         obs_prs = om.split_location_precision(obs_params)[1]
         dns_prs = om.cov_man.to_matrix(obs_prs)
-        (xz,) = self.crs_cliques
-        int_mat = self.crs_map(xz).from_matrix(dns_prs @ loadings)
+        (xz_map,) = self.crs_maps
+        int_mat = xz_map.from_matrix(dns_prs @ loadings)
         return self.lkl_fun_man.join_coords(obs_params, int_mat)
 
     def initialize_from_loadings(
@@ -566,11 +567,10 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         # Get relevant manifolds
         ocm = self.obs_man.cov_man
         lcm = self.lat_man.cov_man
-        (xz,) = self.crs_cliques
-        im = self.crs_map(xz)
+        (im,) = self.crs_maps
 
         # Deconstruct parameters
-        obs_means, int_means, lat_means = self.split_level(means)
+        obs_means, int_means, lat_means = self.split_coords(means)
         obs_mean, obs_cov = self.obs_man.split_mean_covariance(obs_means)
         lat_mean, lat_cov = self.lat_man.split_mean_covariance(lat_means)
         int_cov = int_means - im.rep.outer_product(obs_mean, lat_mean)

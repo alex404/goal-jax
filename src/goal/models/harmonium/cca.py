@@ -29,16 +29,17 @@ sums across the pair.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 from jax import Array
 
 from ...geometry import (
     AnalyticPair,
-    Crossing,
     DifferentiableConjugated,
-    EmbeddingConstructor,
+    LinearEmbedding,
+    Manifold,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
@@ -128,18 +129,21 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         """The fork $x - z - y$: each observable of the pair with the shared latent."""
         return (((0,), (0,)), ((1,), (0,)))
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         """Each branch couples the two locations."""
         return (GeneralizedGaussianLocationEmbedding,), (
             GeneralizedGaussianLocationEmbedding,

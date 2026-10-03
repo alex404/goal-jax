@@ -6,7 +6,7 @@ posterior computation, interaction cliques, mixture representation round-trips,
 asymmetric pst/prr handling, and to_natural/to_mean inversion.
 """
 
-from typing import Any, cast
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -273,7 +273,7 @@ class TestMFAGraph:
     couples --- three crossing cliques. Node count, the biases, the ``(y, k)`` coupling from
     the mixture, and the clique layout all follow from that and from the partitions. These
     tests pin what follows, because a wrong derivation would be silent: every operation
-    below reads the level split, which does not consult the graph.
+    below reads the partition split, which does not consult the graph.
     """
 
     @staticmethod
@@ -308,8 +308,8 @@ class TestMFAGraph:
         mix_params = mfa.to_mixture_coords(params)
         for clique in mfa.cliques:
             assert jnp.array_equal(
-                mfa.clq_emb(clique).project(params),
-                mix.clq_emb(clique).project(mix_params),
+                CliqueEmbedding(clique, mfa).project(params),
+                CliqueEmbedding(clique, mix).project(mix_params),
             ), clique
 
     def test_the_mixture_view_matrix_is_its_interaction(self) -> None:
@@ -381,11 +381,10 @@ class TestDerivedInteractionEmbeddings:
 
     @classmethod
     def _dom_clq_embs(cls, **kwargs) -> tuple[CliqueEmbedding, ...]:
-        embs = [
-            block.dom_man.clq_emb(block.terms[0][1]) for block in cls._blocks(**kwargs)
-        ]
-        assert all(isinstance(emb, CliqueEmbedding) for emb in embs)
-        return tuple(cast(CliqueEmbedding, emb) for emb in embs)
+        return tuple(
+            CliqueEmbedding(block.terms[0][1], block.dom_man)
+            for block in cls._blocks(**kwargs)
+        )
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
         xy, xyk, xk = self._dom_clq_embs()
@@ -409,10 +408,10 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         xyk = self._blocks()[1]
-        dom_clq_emb = xyk.dom_man.clq_emb(xyk.terms[0][1])
+        dom_clq_emb = CliqueEmbedding(xyk.terms[0][1], xyk.dom_man)
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
-        _, m_yk, _ = mix.split_level(coords)
+        _, m_yk, _ = mix.split_coords(coords)
         assert jnp.array_equal(dom_clq_emb.project(coords), m_yk)
 
     def test_embedding_lands_only_in_that_block(self) -> None:
@@ -421,7 +420,7 @@ class TestDerivedInteractionEmbeddings:
         mix = mfa.pst_man
         for idx, emb in enumerate(self._dom_clq_embs()):
             v = jnp.arange(1.0, emb.sub_man.dim + 1)
-            partitions = mix.split_level(emb.embed(v))
+            partitions = mix.split_coords(emb.embed(v))
             touched = [i for i, s in enumerate(partitions) if jnp.any(s != 0.0)]
             assert touched == [{0: 0, 1: 1, 2: 2}[idx]], (
                 f"block {idx} touched {touched}"
@@ -437,4 +436,4 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         with pytest.raises(ValueError, match="not in tuple"):
-            mix.clq_emb((0, 1, 2)).project(jnp.zeros(mix.dim))
+            CliqueEmbedding((0, 1, 2), mix).project(jnp.zeros(mix.dim))

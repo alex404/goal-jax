@@ -15,8 +15,9 @@ against whichever view makes them a one-liner.
 from __future__ import annotations
 
 from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
@@ -25,14 +26,13 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
-    Crossing,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
-    EmbeddingConstructor,
     Harmonium,
     IdentityEmbedding,
     LinearEmbedding,
+    Manifold,
     MatrixRep,
     Rectangular,
     SymmetricConjugated,
@@ -79,7 +79,7 @@ class CompleteMixtureEmbedding[Ambient: Differentiable, Sub: Differentiable](
     @override
     def embed(self, coords: Array) -> Array:
         """Embed by applying base embedding to observable and interaction components."""
-        obs_params, int_params, cat_params = self.sub_man.split_level(coords)
+        obs_params, int_params, cat_params = self.sub_man.split_coords(coords)
 
         # Embed observable component
         emb_obs = self.component_emb.embed(obs_params)
@@ -98,12 +98,12 @@ class CompleteMixtureEmbedding[Ambient: Differentiable, Sub: Differentiable](
             emb_int = jnp.array([])
 
         # Categorical params unchanged
-        return self.amb_man.join_level(emb_obs, emb_int, cat_params)
+        return self.amb_man.join_coords(emb_obs, emb_int, cat_params)
 
     @override
     def project(self, coords: Array) -> Array:
         """Project by applying base projection to observable and interaction components."""
-        obs_means, int_means, cat_means = self.amb_man.split_level(coords)
+        obs_means, int_means, cat_means = self.amb_man.split_coords(coords)
 
         # Project observable component
         proj_obs = self.component_emb.project(obs_means)
@@ -122,7 +122,7 @@ class CompleteMixtureEmbedding[Ambient: Differentiable, Sub: Differentiable](
             proj_int = jnp.array([])
 
         # Categorical params unchanged
-        return self.sub_man.join_level(proj_obs, proj_int, cat_means)
+        return self.sub_man.join_coords(proj_obs, proj_int, cat_means)
 
     @override
     def translate(self, p_coords: Array, q_coords: Array) -> Array:
@@ -175,38 +175,37 @@ class CompleteMixtureOfHarmoniums[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         """$(x, y)$, $(x, y, k)$ and $(x, k)$, with $y$ and $k$ the mixture's nodes $0$ and $1$."""
         return (((0,), (0,)), ((0,), (0, 1)), ((0,), (1,)))
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         """$\\theta_{XY}$ keeps the base interaction's representation."""
         _, far = crossing
         if far == (0,):
-            return self.bas_hrm.crs_rep(self.bas_crossing)
+            (bas_crossing,) = self.bas_hrm.crs_cliques
+            return self.bas_hrm.crs_rep(bas_crossing)
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         """The base interaction's subspaces at $x$ and $y$, except that $\\theta_{XK}$ uses all of $x$, and all of $k$ throughout."""
         _, far = crossing
         if far == (1,):
             return (IdentityEmbedding,), (IdentityEmbedding,)
-        bas_cod, bas_dom = self.bas_hrm.crs_emb_constructors(self.bas_crossing)
+        (bas_crossing,) = self.bas_hrm.crs_cliques
+        bas_cod, bas_dom = self.bas_hrm.crs_emb_constructors(bas_crossing)
         if far == (0,):
             return bas_cod, bas_dom
         return bas_cod, (*bas_dom, IdentityEmbedding)
 
     # Methods
-
-    @property
-    def bas_crossing(self) -> Crossing:
-        """The base harmonium's crossing clique."""
-        (crossing,) = self.bas_hrm.crs_cliques
-        return crossing
 
     @property
     def bas_pst_man(self) -> CompleteMixture[Posterior]:
@@ -295,20 +294,20 @@ class CompleteMixtureOfHarmoniums[
         $xy$ and $y$ are the $xk$, $xyk$ and $yk$ blocks concatenated. A block permutation
         is the same linear operation in natural and mean coordinates.
         """
-        x, int_coords, lat_coords = self.split_level(coords)
+        x, int_coords, lat_coords = self.split_coords(coords)
         xy, xyk, xk = self.crs_man.coord_blocks(int_coords)
-        y, yk, k = self.dep_man.split_level(lat_coords)
-        hrm = self.bas_hrm.join_level(x, xy, y)
-        return self.mix_man.join_level(hrm, jnp.concatenate([xk, xyk, yk]), k)
+        y, yk, k = self.dep_man.split_coords(lat_coords)
+        hrm = self.bas_hrm.join_coords(x, xy, y)
+        return self.mix_man.join_coords(hrm, jnp.concatenate([xk, xyk, yk]), k)
 
     def from_mixture_coords(self, mix_coords: Array) -> Array:
         """Repack coordinates from ``mix_man``'s layout back to this model's."""
-        hrm, cross, k = self.mix_man.split_level(mix_coords)
-        x, xy, y = self.bas_hrm.split_level(hrm)
+        hrm, cross, k = self.mix_man.split_coords(mix_coords)
+        x, xy, y = self.bas_hrm.split_coords(hrm)
         n_cols = self.n_categories - 1
         xk, xyk, yk = jnp.split(cross, [x.size * n_cols, (x.size + xy.size) * n_cols])
         int_coords = jnp.concatenate([xy, xyk, xk])
-        return self.join_level(x, int_coords, self.dep_man.join_level(y, yk, k))
+        return self.join_coords(x, int_coords, self.dep_man.join_coords(y, yk, k))
 
 
 # Mixture of Conjugated Harmoniums
@@ -395,7 +394,7 @@ class CompleteMixtureOfConjugated[
         # Handle trivial case: n_categories=1 means no mixture
         if self.n_categories == 1:
             # No additional components, return base conjugation with empty interaction/categorical
-            return self.prr_man.join_level(rho_y, jnp.array([]), jnp.array([]))
+            return self.prr_man.join_coords(rho_y, jnp.array([]), jnp.array([]))
 
         # reshape xk_params into (obs_dim, n_categories-1)
         xk_params = xk_params.reshape(-1, self.n_categories - 1)
@@ -429,7 +428,7 @@ class CompleteMixtureOfConjugated[
         # Join into complete mixture coordinates using prr_man (prior manifold)
         # rho_yz has shape (n_categories-1, prr_lat_dim), need to transpose to (prr_lat_dim, n_categories-1)
         # before flattening to match prr_man's expected interaction layout
-        return self.prr_man.join_level(rho_y, rho_yz.T.ravel(), rho_z)
+        return self.prr_man.join_coords(rho_y, rho_yz.T.ravel(), rho_z)
 
 
 @dataclass(frozen=True)
@@ -473,7 +472,7 @@ class CompleteMixtureOfSymmetric[
 
 
 @dataclass(frozen=True)
-class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues,reportIncompatibleMethodOverride]
+class CompleteMixtureOfAnalytic[  # pyright: ignore[reportIncompatibleMethodOverride]
     Observable: Differentiable,
     Latent: Analytic,
 ](

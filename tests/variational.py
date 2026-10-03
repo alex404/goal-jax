@@ -24,6 +24,7 @@ of the residual at exact conjugation, and agreement between
 ``regress_conjugation_parameters`` and the prior conjugation loss.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -32,10 +33,10 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
-    Crossing,
-    EmbeddingConstructor,
     Harmonium,
     IdentityEmbedding,
+    LinearEmbedding,
+    Manifold,
     MatrixRep,
     Rectangular,
 )
@@ -281,18 +282,21 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         """The observable with the mixture's observable node."""
         return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         return (IdentityEmbedding,), (IdentityEmbedding,)
 
 

@@ -8,8 +8,9 @@ This module implements mixture models using a harmonium structure where
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
@@ -19,9 +20,7 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     CliqueMap,
-    Crossing,
     Differentiable,
-    EmbeddingConstructor,
     ExponentialFamilyProduct,
     IdentityEmbedding,
     LinearEmbedding,
@@ -95,18 +94,21 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         """The observable and the category, coupled."""
         return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         """The coupled part of the observable, and the whole of the category."""
         return (lambda _: self.obs_emb,), (IdentityEmbedding,)
 
@@ -201,7 +203,7 @@ class Mixture[Observable: Differentiable](
         # Transpose and convert to int_man storage format
         int_means = projected_comps.T.ravel()
 
-        return self.join_level(obs_means, int_means, weights)
+        return self.join_coords(obs_means, int_means, weights)
 
     def split_natural_mixture(
         self,
@@ -288,7 +290,7 @@ class CompleteMixture[Observable: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[Crossing, ...]:
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
         """The category with every clique of the observable.
 
         One crossing when the observable is one node. When it has several cliques (a
@@ -300,8 +302,11 @@ class CompleteMixture[Observable: Differentiable](
 
     @override
     def crs_emb_constructors(
-        self, crossing: Crossing
-    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
         """Every node in full."""
         near, _ = crossing
         return (IdentityEmbedding,) * len(near), (IdentityEmbedding,)
@@ -321,7 +326,7 @@ class CompleteMixture[Observable: Differentiable](
             Tuple of (components, weights) where components is a flat 1D array of shape
             ``[n_categories * obs_dim]`` representing parameters on ``cmp_man``.
         """
-        obs_means, int_means, cat_means = self.split_level(means)
+        obs_means, int_means, cat_means = self.split_coords(means)
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
         # Convert to 2D matrix and transpose to get columns as rows [n_categories-1, obs_dim]

@@ -15,7 +15,7 @@ from jax import Array
 
 from ..manifold.base import Manifold
 from ..manifold.clique import CrossMap, RecursiveLinearCliques
-from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
+from ..manifold.embedding import IdentityEmbedding, LinearEmbedding, TupleEmbedding
 from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
 from .base import (
@@ -37,7 +37,7 @@ class Harmonium[
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them, with :meth:`crs_rep` and :meth:`crs_emb_constructors` for each (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); each side is an exponential family and so carries its own cliques, one node unless it says otherwise (CCA's observable pair, a deeper harmonium as posterior). The graph, the parameter layout and the interaction :attr:`int_man` are derived from that. The composed graph comes before the single-node default of :class:`~goal.geometry.exponential_family.base.ExponentialFamily` in the method order, which is why ``RecursiveLinearCliques`` is listed first among the bases. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
+    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them, with :meth:`crs_rep` and :meth:`crs_emb_constructors` for each (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); each side is an exponential family and so carries its own cliques, one node unless it says otherwise (CCA's observable pair, a deeper harmonium as posterior). The graph, the parameter layout and the interaction :attr:`int_man` are derived from that. The composed graph comes before the single-node default of :class:`~goal.geometry.exponential_family.base.ExponentialFamily` in the method order, which is why ``RecursiveLinearCliques`` is listed first among the bases. The observable, the interaction and the posterior are the root, cross, and deep partitions, so :meth:`~goal.geometry.manifold.combinators.Triple.split_coords` returns ``(obs_params, int_params, lat_params)`` however many cliques the deep partition holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -87,12 +87,12 @@ class Harmonium[
 
     def likelihood_function(self, params: Array) -> Array:
         """Extract the likelihood affine map $\\eta \\mapsto \\theta_X + \\Theta_{XZ} \\cdot \\eta$ from the given natural parameters."""
-        obs_params, int_params, _ = self.split_level(params)
+        obs_params, int_params, _ = self.split_coords(params)
         return self.lkl_fun_man.join_coords(obs_params, int_params)
 
     def posterior_function(self, params: Array) -> Array:
         """Extract the posterior affine map $\\eta \\mapsto \\theta_Z + \\Theta_{XZ}^\\top \\cdot \\eta$ from the given natural parameters."""
-        _, int_params, lat_params = self.split_level(params)
+        _, int_params, lat_params = self.split_coords(params)
         int_mat_t = self.int_man.transpose(int_params)
         return self.pst_fun_man.join_coords(lat_params, int_mat_t)
 
@@ -125,7 +125,7 @@ class Harmonium[
 
         int_stats = self.int_man.outer_product(obs_stats, lat_stats)
 
-        return self.join_level(obs_stats, int_stats, lat_stats)
+        return self.join_coords(obs_stats, int_stats, lat_stats)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -150,7 +150,7 @@ class Harmonium[
         scaling = shape / jnp.sqrt(self.int_man.dim)
         int_params = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
 
-        return self.join_level(obs_params, int_params, lat_params)
+        return self.join_coords(obs_params, int_params, lat_params)
 
     @override
     def initialize_from_sample(
@@ -167,7 +167,7 @@ class Harmonium[
         scaling = shape / jnp.sqrt(self.int_man.dim)
         int_params = scaling * jax.random.normal(keys[2], shape=[self.int_man.dim])
 
-        return self.join_level(obs_params, int_params, lat_params)
+        return self.join_coords(obs_params, int_params, lat_params)
 
     @override
     def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
@@ -272,7 +272,7 @@ class Conjugated[
 
     def prior(self, params: Array) -> Array:
         """Compute prior natural parameters $p(z)$ from the given harmonium natural parameters."""
-        obs_params, int_params, lat_params = self.split_level(params)
+        obs_params, int_params, lat_params = self.split_coords(params)
         lkl_params = self.lkl_fun_man.join_coords(obs_params, int_params)
         rho = self.conjugation_parameters(lkl_params)
         return self.pst_prr_emb.translate(rho, lat_params)
@@ -322,7 +322,7 @@ class DifferentiableConjugated[
     @override
     def log_partition_function(self, params: Array) -> Array:
         """Compute $\\psi(\\theta) = \\psi_Z(\\theta_Z + \\rho) + \\chi$ at the given natural parameters, with $\\chi$ from :meth:`Conjugated.conjugation_offset`."""
-        obs_params, int_params, lat_params = self.split_level(params)
+        obs_params, int_params, lat_params = self.split_coords(params)
         lkl_params = self.lkl_fun_man.join_coords(obs_params, int_params)
 
         chi = self.conjugation_offset(lkl_params)
@@ -335,7 +335,7 @@ class DifferentiableConjugated[
 
     def log_observable_density(self, params: Array, x: Array) -> Array:
         """Compute log marginal density $\\log p(x)$ at the given natural parameters by integrating out the latent variable analytically."""
-        obs_params, _, _ = self.split_level(params)
+        obs_params, _, _ = self.split_coords(params)
 
         chi = self.conjugation_offset(self.likelihood_function(params))
         obs_stats = self.obs_man.sufficient_statistic(x)
@@ -370,7 +370,7 @@ class DifferentiableConjugated[
         lat_means = self.pst_man.to_mean(lat_params)
 
         int_means = self.int_man.outer_product(obs_stats, lat_means)
-        return self.join_level(obs_stats, int_means, lat_means)
+        return self.join_coords(obs_stats, int_means, lat_means)
 
     def mean_posterior_statistics(
         self,
@@ -426,7 +426,7 @@ class SymmetricConjugated[
         rho = self.conjugation_parameters(lkl_params)
         lat_params = prior_params - rho
         obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
-        return self.join_level(obs_params, int_params, lat_params)
+        return self.join_coords(obs_params, int_params, lat_params)
 
 
 class AnalyticConjugated[
@@ -451,7 +451,7 @@ class AnalyticConjugated[
     def to_natural(self, means: Array) -> Array:
         """Convert harmonium mean parameters to natural parameters."""
         lkl_params = self.to_natural_likelihood(means)
-        mean_lat = self.split_level(means)[2]
+        mean_lat = self.split_coords(means)[2]
         nat_lat = self.pst_man.to_natural(mean_lat)
         return self.join_conjugated(lkl_params, nat_lat)
 
@@ -479,22 +479,15 @@ class HarmoniumEmbedding[
     Observable: Gibbs,
     Posterior: Gibbs,
     Component: Manifold,
-](LinearEmbedding[Harmonium[Observable, Posterior], Component], ABC):
+](TupleEmbedding[Harmonium[Observable, Posterior], Component], ABC):
     """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
 
-    Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
+    The blocks are the observable, interaction and posterior partitions of :meth:`~goal.geometry.manifold.combinators.Triple.split_coords`, so a deeper graph changes what the posterior block holds but not which block it is.
     """
 
     # Fields
 
     hrm_man: Harmonium[Observable, Posterior]
-
-    # Contract
-
-    @property
-    @abstractmethod
-    def hrm_idx(self) -> int:
-        """Which block: ``0`` observable, ``1`` interaction, ``2`` posterior."""
 
     # Overrides
 
@@ -503,29 +496,19 @@ class HarmoniumEmbedding[
     def amb_man(self) -> Harmonium[Observable, Posterior]:
         return self.hrm_man
 
-    @override
-    def project(self, coords: Array) -> Array:
-        return self.hrm_man.split_level(coords)[self.hrm_idx]
-
-    @override
-    def embed(self, coords: Array) -> Array:
-        blocks = list(self.hrm_man.split_level(self.hrm_man.zeros()))
-        blocks[self.hrm_idx] = coords
-        return self.hrm_man.join_level(blocks[0], blocks[1], blocks[2])
-
 
 @dataclass(frozen=True)
 class ObservableEmbedding[
     Observable: Gibbs,
     Posterior: Gibbs,
 ](HarmoniumEmbedding[Observable, Posterior, Observable]):
-    """Embeds the observable manifold of a harmonium into the full harmonium space."""
+    """Embeds the observable manifold of a harmonium into the full harmonium space (index 0)."""
 
     # Overrides
 
     @property
     @override
-    def hrm_idx(self) -> int:
+    def tup_idx(self) -> int:
         return 0
 
     @property
@@ -539,13 +522,13 @@ class InteractionEmbedding[
     Observable: Gibbs,
     Posterior: Gibbs,
 ](HarmoniumEmbedding[Observable, Posterior, LinearMap[Observable, Posterior]]):
-    """Embeds the interaction manifold of a harmonium into the full harmonium space."""
+    """Embeds the interaction manifold of a harmonium into the full harmonium space (index 1)."""
 
     # Overrides
 
     @property
     @override
-    def hrm_idx(self) -> int:
+    def tup_idx(self) -> int:
         return 1
 
     @property
@@ -559,13 +542,13 @@ class PosteriorEmbedding[
     Observable: Gibbs,
     Posterior: Gibbs,
 ](HarmoniumEmbedding[Observable, Posterior, Posterior]):
-    """Embeds the posterior manifold of a harmonium into the full harmonium space."""
+    """Embeds the posterior manifold of a harmonium into the full harmonium space (index 2)."""
 
     # Overrides
 
     @property
     @override
-    def hrm_idx(self) -> int:
+    def tup_idx(self) -> int:
         return 2
 
     @property
@@ -575,48 +558,53 @@ class PosteriorEmbedding[
 
 
 @dataclass(frozen=True)
-class RootEmbedding[
-    Ambient: RecursiveLinearCliques[Any, Any],
-    Sub: RecursiveLinearCliques[Any, Any],
-](LinearEmbedding[Ambient, Sub]):
-    """Embeds one layout into another over the same graph, transforming only the root partition.
+class LatentHarmoniumEmbedding[
+    PriorHarmonium: Harmonium[Any, Any],
+    PostHarmonium: Harmonium[Any, Any],
+](LinearEmbedding[PriorHarmonium, PostHarmonium]):
+    """Embeds one harmonium into another by embedding only the observable component.
 
-    Mathematically, ``embed`` maps $(r, c, d) \\mapsto (\\phi(r), c, d)$ and ``project``
-    maps $(r, c, d) \\mapsto (\\pi(r), c, d)$, with $\\phi, \\pi$ those of :attr:`rot_emb`.
+    Used in hierarchical models where the posterior uses a restricted observable representation (e.g., diagonal covariance) while the prior uses a fuller one. Interaction and latent components pass through unchanged.
+
+    Mathematically, for harmonium points $(o, i, l)$: embedding maps $(o, i, l) \\mapsto (\\phi(o), i, l)$ and projection maps $(o, i, l) \\mapsto (\\pi(o), i, l)$, with $\\phi, \\pi$ those of :attr:`obs_emb`.
     """
 
     # Fields
 
-    rot_emb: LinearEmbedding[Any, Any]
-    _amb_man: Ambient
-    _sub_man: Sub
+    obs_emb: LinearEmbedding[Any, Any]
+    """Embedding of the restricted observable manifold into the full observable manifold."""
+
+    _amb_man: PriorHarmonium
+    _sub_man: PostHarmonium
 
     def __post_init__(self) -> None:
         sub, amb = self.sub_man, self.amb_man
-        if sub.cliques != amb.cliques or (sub.crs_man.dim, sub.dep_man.dim) != (
-            amb.crs_man.dim,
-            amb.dep_man.dim,
+        if sub.cliques != amb.cliques or (sub.int_man.dim, sub.pst_man.dim) != (
+            amb.int_man.dim,
+            amb.pst_man.dim,
         ):
-            raise ValueError("sub and ambient may differ only in the root partition")
+            raise ValueError("the two harmoniums may differ only in their observable")
 
     # Overrides
 
     @property
     @override
-    def sub_man(self) -> Sub:
+    def sub_man(self) -> PostHarmonium:
         return self._sub_man
 
     @property
     @override
-    def amb_man(self) -> Ambient:
+    def amb_man(self) -> PriorHarmonium:
         return self._amb_man
 
     @override
     def project(self, coords: Array) -> Array:
-        root, cross, deep = self.amb_man.split_level(coords)
-        return self.sub_man.join_level(self.rot_emb.project(root), cross, deep)
+        obs_params, int_params, lat_params = self.amb_man.split_coords(coords)
+        prj_obs_params = self.obs_emb.project(obs_params)
+        return self.sub_man.join_coords(prj_obs_params, int_params, lat_params)
 
     @override
     def embed(self, coords: Array) -> Array:
-        root, cross, deep = self.sub_man.split_level(coords)
-        return self.amb_man.join_level(self.rot_emb.embed(root), cross, deep)
+        obs_params, int_params, lat_params = self.sub_man.split_coords(coords)
+        emb_obs_params = self.obs_emb.embed(obs_params)
+        return self.amb_man.join_coords(emb_obs_params, int_params, lat_params)

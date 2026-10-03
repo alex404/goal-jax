@@ -20,6 +20,7 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
+    CliqueEmbedding,
     CliqueMap,
     CrossMap,
     Diagonal,
@@ -60,7 +61,7 @@ def _clq_map(int_man: LinearMap[Any, Any]) -> CliqueMap:
 def _term_embs(m: CrossMap[Any, Any]) -> tuple[Any, Any]:
     """The blocks of the first term's codomain and domain cliques."""
     cod, dom, _ = m.terms[0]
-    return m.cod_man.clq_emb(cod), m.dom_man.clq_emb(dom)
+    return CliqueEmbedding(cod, m.cod_man), CliqueEmbedding(dom, m.dom_man)
 
 
 def _cod_node(m: CrossMap[Any, Any], w: Array) -> Array:
@@ -187,7 +188,7 @@ class TestSufficientStatistic:
         z = jax.random.normal(key_z, (fa.pst_man.data_dim,))
 
         joint = jnp.concatenate([x, z])
-        _, int_stats, _ = fa.split_level(fa.sufficient_statistic(joint))
+        _, int_stats, _ = fa.split_coords(fa.sufficient_statistic(joint))
         s_x = fa.obs_man.sufficient_statistic(x)
         s_z = fa.pst_man.sufficient_statistic(z)
         assert jnp.allclose(clique.outer_product(s_x, s_z), int_stats)
@@ -258,7 +259,7 @@ class TestJointBlocksAreNotProductsOfMarginals:
         y = jax.random.normal(jax.random.PRNGKey(1), (mix.obs_man.data_dim,))
         z = jnp.concatenate([y, jnp.array([1.0])])
 
-        _, s_yk, _ = mix.split_level(mix.sufficient_statistic(z))
+        _, s_yk, _ = mix.split_coords(mix.sufficient_statistic(z))
         s_y = mix.obs_man.sufficient_statistic(y)
         s_k = mix.lat_man.sufficient_statistic(jnp.array([1.0]))
         assert jnp.allclose(s_yk, mix.int_man.outer_product(s_y, s_k))
@@ -274,7 +275,7 @@ class TestJointBlocksAreNotProductsOfMarginals:
         params = mfa.initialize(jax.random.PRNGKey(0), shape=0.5)
         x = jax.random.normal(jax.random.PRNGKey(2), (mfa.obs_man.data_dim,))
 
-        m_y, m_yk, m_k = mix.split_level(mix.to_mean(mfa.posterior_at(params, x)))
+        m_y, m_yk, m_k = mix.split_coords(mix.to_mean(mfa.posterior_at(params, x)))
         factored = mix.int_man.outer_product(m_y, m_k)
         gap = jnp.max(jnp.abs(m_yk - factored)) / jnp.max(jnp.abs(m_yk))
         assert gap > 0.1, "expected an order-one gap, not a rounding difference"
@@ -317,7 +318,7 @@ class TestArityThreeReproducesMFA:
 
         s_x = mfa.obs_man.sufficient_statistic(x)
         lat_means = mix.to_mean(mfa.posterior_at(params, x))
-        _, m_yk, _ = mix.split_level(lat_means)
+        _, m_yk, _ = mix.split_coords(lat_means)
 
         live = xyk.outer_product(s_x, lat_means)
         rebuilt = clique.outer_product(s_x, m_yk)
@@ -332,7 +333,7 @@ class TestArityThreeReproducesMFA:
         for x in xs:
             s_x = mfa.obs_man.sufficient_statistic(x)
             lat_means = mix.to_mean(mfa.posterior_at(params, x))
-            _, m_yk, _ = mix.split_level(lat_means)
+            _, m_yk, _ = mix.split_coords(lat_means)
             live = xyk.outer_product(s_x, lat_means)
             rebuilt = clique.outer_product(s_x, m_yk)
             assert jnp.allclose(live, rebuilt)
@@ -343,7 +344,7 @@ class TestArityThreeReproducesMFA:
         params = mfa.initialize(jax.random.PRNGKey(3), shape=0.5)
         x = jax.random.normal(jax.random.PRNGKey(4), (mfa.obs_man.data_dim,))
         s_x = mfa.obs_man.sufficient_statistic(x)
-        _, int_params, _ = mfa.split_level(params)
+        _, int_params, _ = mfa.split_coords(params)
         xyk_params = mfa.crs_man.coord_blocks(int_params)[1]
 
         live = _dom_node(xyk, xyk.transpose_apply(xyk_params, s_x))
@@ -360,7 +361,7 @@ class TestArityThreeReproducesMFA:
         mfa, xyk, clique = self._setup()
         mix = mfa.pst_man
         params = mfa.initialize(jax.random.PRNGKey(5), shape=0.5)
-        _, int_params, _ = mfa.split_level(params)
+        _, int_params, _ = mfa.split_coords(params)
         xyk_params = mfa.crs_man.coord_blocks(int_params)[1]
 
         y = jax.random.normal(jax.random.PRNGKey(6), (mix.obs_man.data_dim,))

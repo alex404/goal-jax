@@ -41,8 +41,8 @@ def create_ground_truth() -> tuple[AnalyticHMoG[Diagonal], Array]:
     obs_natural = om.to_natural(obs_mean)
     int_mat0 = jnp.array([1.0, 0.0])
     obs_prs = om.split_location_precision(obs_natural)[1]
-    (xy,) = hmog.crs_cliques
-    int_mat = hmog.crs_map(xy).from_matrix(om.cov_man.to_matrix(obs_prs) @ int_mat0)
+    (xy_map,) = hmog.crs_maps
+    int_mat = xy_map.from_matrix(om.cov_man.to_matrix(obs_prs) @ int_mat0)
 
     lkl_params = hmog.lkl_fun_man.join_coords(obs_natural, int_mat)
     return hmog, hmog.join_conjugated(lkl_params, mix_natural)

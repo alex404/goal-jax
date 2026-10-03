@@ -1,4 +1,4 @@
-from .algebra.clique import Cliques, RecursiveCliques
+from .algebra.clique import Cliques
 from .algebra.matrix import (
     Diagonal,
     Identity,
@@ -37,9 +37,9 @@ from .exponential_family.harmonium import (
     Harmonium,
     HarmoniumEmbedding,
     InteractionEmbedding,
+    LatentHarmoniumEmbedding,
     ObservableEmbedding,
     PosteriorEmbedding,
-    RootEmbedding,
     SymmetricConjugated,
 )
 from .exponential_family.protocols import (
@@ -56,9 +56,7 @@ from .manifold.base import (
 from .manifold.clique import (
     CliqueEmbedding,
     CliqueMap,
-    Crossing,
     CrossMap,
-    EmbeddingConstructor,
     LinearCliques,
     RecursiveLinearCliques,
     TensorProduct,
@@ -102,14 +100,12 @@ __all__ = [
     "ComposedEmbedding",
     "Conjugated",
     "CrossMap",
-    "Crossing",
     "Diagonal",
     "Differentiable",
     "DifferentiableConjugated",
     "DifferentiablePair",
     "DifferentiableProduct",
     "Embedding",
-    "EmbeddingConstructor",
     "ExponentialFamily",
     "ExponentialFamilyPair",
     "ExponentialFamilyProduct",
@@ -122,6 +118,7 @@ __all__ = [
     "Identity",
     "IdentityEmbedding",
     "InteractionEmbedding",
+    "LatentHarmoniumEmbedding",
     "LinearCliques",
     "LinearComposedEmbedding",
     "LinearEmbedding",
@@ -139,10 +136,8 @@ __all__ = [
     "PosteriorEmbedding",
     "Quadruple",
     "Rectangular",
-    "RecursiveCliques",
     "RecursiveLinearCliques",
     "Replicated",
-    "RootEmbedding",
     "Scale",
     "Square",
     "SquareMap",

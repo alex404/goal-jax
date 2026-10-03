@@ -8,20 +8,29 @@ history.
 ## Current state
 
 - Every `ExponentialFamily` is a `LinearCliques`. By default it is one node, `cliques = ((0,),)`,
-  whose map is `bias_map(self)`. `ExponentialFamilyPair` is two nodes. A harmonium composes
-  its graph.
+  whose map is `bias_map(self)`. `ExponentialFamilyPair` places its components' graphs side by
+  side. A harmonium composes its graph.
+- `LinearCliques`' contract is `clq_maps`, the map on each clique in storage order; each map is
+  oriented, and that orientation is part of the parameterization.
 - Node numbers are local: each `LinearCliques` numbers its own nodes $0, \ldots, n-1$.
 - `CrossMap(cod_man, dom_man, terms)`: each term is `(cod_clique, dom_clique, CliqueMap)`, with
-  each clique in its own side's numbering, read and written through `clq_emb`.
-- `RecursiveLinearCliques[Root: LinearCliques, Deep: LinearCliques]` is no longer a
-  `RecursiveCliques`.
-  - A model declares `rot_man`, `dep_man`, `crs_cliques` (`Crossing` pairs: a root clique and a
-    deep clique) and, per crossing, `crs_rep` and `crs_emb_constructors` (codomain constructors,
+  each clique in its own side's numbering, read and written through `CliqueEmbedding`.
+- `RecursiveLinearCliques[Root: LinearCliques, Deep: LinearCliques]` composes its graph from its
+  parts.
+  - A model declares `rot_man`, `dep_man`, `crs_cliques` (pairs: a root clique and a deep
+    clique) and, per crossing, `crs_rep` and `crs_emb_constructors` (codomain constructors,
     domain constructors).
   - Derived: the numbering (root first, deep offset by the root's node count), `cliques` (root,
-    crossings, deep: the triple's storage order), `clq_map`, `crs_map`, `crs_man`.
+    crossings, deep: the triple's storage order), `clq_maps` (concatenated in the same order),
+    `crs_maps`, `crs_man`.
 - Deleted: `part_emb`, `cod_group`/`dom_group`, the bias branch, `split_clique`, `Mixture.impose`,
   `upr_graph`, `mix_nodes`/`mix_graph`, and every `_raw_cliques`/`_root_nodes` field.
+- `clq_map(clique)`, `clq_emb(clique)` and `crs_map(crossing)` are replaced by the tuples
+  `clq_maps`, `clq_embs` and `crs_maps`, and the `Crossing`/`EmbeddingConstructor` aliases are
+  removed.
+- `RecursiveCliques` is deleted. Its levels are distances from the root set, which agree with
+  the partition nesting for chains but not in general: MFA's distance levels are x | {y, k},
+  its nesting x | (y | k). The layout and conjugation follow the nesting.
 - `Harmonium` lists `RecursiveLinearCliques` before `Gibbs` among its bases, so the composed
   graph comes before the one-node default in the method order.
 - `CompleteMixture` declares one crossing per clique of its observable. For a one-node
@@ -112,9 +121,11 @@ cascades upward.
 
 ### Raised by the composed graph
 
-- `RecursiveCliques` (`algebra/clique.py`, with `tests/clique.py`) is no longer used in `src/`:
-  levels, `level_split` and canonical order are replaced by composition. Delete, or keep as a
-  graph tool?
+- A clique's map has one orientation (output axes against contracted axes), fixed by the level
+  that introduced it, and supports only that reading and its transpose. A conditional that
+  groups a clique's nodes differently (MFA's $k \mid x, y$, for Gibbs over arbitrary nodes)
+  needs a re-matricization `CliqueMap` does not have. For `Rectangular` cliques it would be a
+  reshape and transpose. No current use needs it.
 - A crossing part that is a multi-node clique with a structured (non-`Rectangular`)
   representation cannot be coupled per node: the axes are the clique's nodes, but its block
   holds fewer parameters than their product. `CompleteMixture` over such an observable fails
@@ -143,7 +154,7 @@ cascades upward.
 
 ### `exponential_family/harmonium.py`
 
-- `RootEmbedding` moved here from `manifold/clique.py` (2026-10-03): its only role is
+- `LatentHarmoniumEmbedding` (briefly `RootEmbedding`, restricted to harmoniums again) moved here from `manifold/clique.py` (2026-10-03): its only role is
   `pst_prr_emb` for HMoG. Generalize it into a cliquewise posterior-to-prior embedding (one
   embedding per clique block the fill-in reaches; `TensorProductEmbedding` on crossing blocks),
   which would also replace MFA's `CompleteMixtureEmbedding`, and later derive it from the fill-in.
@@ -184,9 +195,9 @@ cascades upward.
 Decided to avoid generalizing before a model needs it.
 
 - **Partial (embedded) biases.** A bias covers its whole node (`bias_map`). Under the composed
-  graph this becomes a family's own choice of `clq_map`.
+  graph this becomes a family's own choice of `clq_maps`.
 - **Validation of the composed graph.** Nothing checks that crossings touch both partitions,
-  that each part is a clique of its partition (it fails only in `clq_emb`, with `ValueError`
+  that each part is a clique of its partition (it fails only in the clique lookup, with `ValueError`
   from `cliques.index`), or that the fill-in condition of the conjugation calculus holds.
 - **One role for a map read through embeddings** (2026-10-03). $v \mapsto \iota(A(\pi(v)))$ is
   implemented twice: `CliqueMap` and each term of `CrossMap`. Reconsider if a third occurrence

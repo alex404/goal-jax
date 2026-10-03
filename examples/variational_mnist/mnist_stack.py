@@ -43,6 +43,7 @@ from jax import Array
 jax.config.update("jax_enable_x64", True)
 
 from goal.geometry import Diagonal, EmbeddedMap, Rectangular  # noqa: E402
+from goal.geometry.manifold.map import MultilayerPerceptron  # noqa: E402
 from goal.models import ChordalBoltzmann, Normal, full_normal  # noqa: E402
 from goal.models.harmonium.lgm import (  # noqa: E402
     GeneralizedGaussianLocationEmbedding,
@@ -51,7 +52,6 @@ from goal.models.harmonium.population_codes import (  # noqa: E402
     BoltzmannNormalHarmonium,
     BoltzmannPopulationCode,
 )
-from goal.geometry.manifold.map import MultilayerPerceptron  # noqa: E402
 
 from ..shared import example_paths  # noqa: E402
 from . import mnist_hierarchical as MH  # noqa: E402,N812
