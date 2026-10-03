@@ -1,135 +1,183 @@
-# Clique container: review order
+# Clique container: plan
 
-Branch `clique-container`, last commit `6c1eb6e` (2026-09-30). Replaces `REVIEW-TODO.md` and
-`TODO-GPT.md`, which described earlier designs (`LinearClique`, `BlockMap`, `EFClique`,
-`CliqueSet`); recover them from git history if needed.
+Branch `clique-container`. Baseline: commit `1dbf826` (2026-10-03), the "integrated" design
+below. `CLAUDE.md` (Architecture) describes that baseline. Older designs (`LinearClique`,
+`BlockMap`, `EFClique`, `CliqueSet`, `Interaction`) are in git history.
 
-Review in this order; each module depends only on the ones above it.
+## Baseline state (`1dbf826`)
 
-Done: `algebra/clique.py`, and `map.py` / `combinators.py` / `embedding.py` (diffed
-against main). Remaining in `src/`: `manifold/clique.py` and `cca.py` (new), the rewritten
-consumers below (~800 changed lines), and `lgm.py` / `population_codes.py`, ports
-following one pattern.
+- `manifold/clique.py`, 560 lines: `TensorProduct`, `TensorProductEmbedding`, `CliqueMap`,
+  `bias_map`; `LinearCliques`, `CliqueEmbedding`, `part_emb`; `CrossMap`;
+  `RecursiveLinearCliques[Root, Deep]`, `RootEmbedding`.
+- `CrossMap(cod_man, dom_man, cod_group, dom_group, terms)` maps the whole deep partition
+  to the whole root partition. `cod_group`/`dom_group` are the clique labels of its
+  codomain and domain; `clq_embs(clique)` locates a term's blocks with
+  `part_emb(partition, group, clique)`: the identity if the term's nodes there are the
+  partition's only clique, `clq_emb` otherwise.
+- `RecursiveLinearCliques.clq_map` ends with a bias branch: a non-crossing clique that is
+  its partition's only clique gets `bias_map(partition)`.
+- `Harmonium.int_man` is `crs_man`, typed `CrossMap[Observable, Posterior]`.
+- Type parameters are target-first for maps and embeddings (`Map[Codomain, Domain]`,
+  `Embedding[Ambient, Sub]`) and storage order for layouts (`RecursiveLinearCliques[Root,
+  Deep]`, `Harmonium[Observable, Posterior]`); the two agree because the root is the
+  output of the cross map.
+- Single-term models get their one map from their own `clq_map(clique)`, with
+  `(xz,) = self.level_split()[1]` (`CrossMap.clq_map` was removed).
+- Verified at baseline: full suite 531 passed (2026-10-02), ruff and basedpyright clean,
+  `examples.hmog.run` and `examples.dimensionality_reduction.run` complete.
 
-## Before merging
+## What we learned: where do a single node's labels live?
+
+The user's principle: a class may hold structure --- embeddings or labels --- only about
+itself or its own domain and codomain, never about a manifold containing it (`CLAUDE.md`,
+"Embeddings are stored at the level of their ambient"). A multi-clique partition is a
+`LinearCliques` and carries its own labels; a single node (a `Normal`, a `Categorical`)
+carries none. Every design so far has had to put those labels somewhere.
+
+1. **`EmbeddedCliqueMap`** (dropped 2026-10-01): each term stored embeddings into the whole
+   partitions, which enclose it. Breaks the principle.
+2. **Spans** (dropped 2026-10-02): `CrossMap` between `CliqueSpan`s of just the blocks it
+   couples, `SpanEmbedding` placing them, `ConjugatedMap` lifting the map back to the
+   partitions. About 150 lines and three classes, the pattern
+   $v \mapsto \iota(A(\pi(v)))$ implemented three times, and a single-node partition still
+   could not carry its span's labels (`SpanEmbedding` had to store them).
+3. **Integrated, with groups** (baseline): works and is the smallest so far. The user's
+   objection: the map stores labels for its codomain and domain that those manifolds do not
+   carry themselves, and singleton handling is spread over `part_emb` and `clq_map`.
+4. **`SingleClique` wrapper** (tried 2026-10-03, not committed): a one-clique
+   `LinearCliques` wrapping a family, with `RecursiveLinearCliques.part_clqs` presenting
+   both partitions as layouts. In `clique.py` it removed the groups, `part_emb` and the bias
+   branch, and the clique tests passed (118). It failed one level up: the interaction's
+   sides became wrapper objects, not the families, so `AffineMap(int_man, pst_man)` held two
+   different domain objects for one space, `lkl_fun_man` stopped being
+   `AffineMap[Observable, Posterior]`, and basedpyright reported 6 errors (`harmonium.py` 3,
+   `dynamical.py` 2, `variational.py` 1). Making `Observable` the wrapper fails because
+   `Observable: Gibbs` and the harmonium uses it as an exponential family. It also grew
+   `clique.py` to 583 lines.
+
+Conclusion: a single node's label has to live on the family itself. Then every partition
+is a `LinearCliques` by type, and nothing in `clique.py` needs to know whether a partition
+is a single node.
+
+## Plan: `ExponentialFamily` as a `LinearCliques`
+
+Make `ExponentialFamily` subclass `LinearCliques`. A single-node family has one clique, its
+node, with `clq_map` = `bias_map(self)`; a harmonium already is a `LinearCliques`.
+
+What goes away in `clique.py`: `CrossMap.cod_group`/`dom_group` (`clq_embs` reads
+`cod.nodes`/`cod.clq_emb` directly), `part_emb` and its `cast`, the bias branch of
+`RecursiveLinearCliques.clq_map`, and the rule "a partition's structure comes from its
+group, not its type". `CrossMap[Observable, Posterior]` stays exact and `AffineMap` keeps
+one domain object. Partial biases (below) become a family's own choice of `clq_map`.
+
+Costs and open questions:
+
+1. **Where the label is stored.** Labels are global (an LGM's latent is node 1), so each
+   single-node family needs a node label, as a private keyword-only field with a default
+   (the `_raw_cliques` precedent). It cannot go on `ExponentialFamily`: harmoniums derive
+   their cliques from their graph, and abstract classes carry only fields every subclass
+   shares. Options: one field on each concrete family (about 15 classes), or a small shared
+   base class for single-node families. Unresolved.
+2. **Models label their sides.** Each model builds `obs_man`/`pst_man` with the labels from
+   its `level_split()`, generalizing `Mixture.impose`. Touches roughly every harmonium and
+   dynamical model.
+3. **Equality.** `Normal(..., node 0) != Normal(..., node 1)`. Comparisons of manifolds
+   (`pst_man == prr_man`, embeddings' sub and ambient, `same_graph`, test assertions) will
+   see the label. Expected to hold where both sides come from one graph; not verified.
+4. **`exponential_family/base.py` changes**, and it is as well tested as `map.py`. The user
+   proposed this, so it is in scope, but it is the largest change to core on this branch.
+
+### Step 1: prototype on factor analysis (about an hour)
+
+Start from `1dbf826`.
+
+1. Give `Normal` a node label and make it a `LinearCliques` (one clique, `bias_map(self)`).
+2. Make `FactorAnalysis` (via `LGM`) build its observable and latent with labels from its
+   graph.
+3. Remove the singleton handling from `clique.py`: the groups, `part_emb`, the bias branch.
+4. Run `tests/lgm.py`, `tests/interaction.py` and `uvx basedpyright src tests`.
+
+Decide from the result: how many families and models need edits, what the label field
+looks like, and whether any equality check breaks. Bring the numbers back before step 2.
+
+### Step 2: roll out (about half a day, if step 1 holds)
+
+All single-node families, all models' sides, tests, `CLAUDE.md` Architecture, the `.rst`,
+then the full suite and the CCA numeric gate.
+
+## Other open items
+
+### Before merging
 
 - Some `variational_mnist` scripts still import `EmbeddedMap` / `BlockMap` (experimental,
-  left broken). They are committed on this branch: decide whether they belong in it.
+  left broken; 124 basedpyright errors predate this work). They are committed on this
+  branch: decide whether they belong in it.
 
-## 1. `geometry/manifold/clique.py` --- maps and layout (restructured 2026-09-30, 2026-10-01)
+### `manifold/clique.py`
 
-State (see `CLAUDE.md`, Architecture): graph stored on the concrete model, global labels,
-`RecursiveLinearCliques[Root, Deep]` is a `LinearCliques` and the
-`Triple[Root, CrossMap[Root, Deep], Deep]` with `crs_man` derived, `CrossMap` moved in
-from `interaction.py`, crossing axes built on the subspaces used by their root and deep parts. Each
-of the root and deep partitions is a single node or a `LinearCliques` (CCA's `NormalPair`
-is a flat one); `clq_map` and `part_emb` treat both sides alike.
-`RootCliqueEmbedding`, `rot_nod_mans`, `nod_man` and `dep_man_rlc` were removed 2026-10-01.
+- Walk the module method by method once the singleton question is settled.
+- `CliqueEmbedding.sub_man` returns the clique's map itself. Should it be the node space?
+- `CrossMap` keeps its own `clq_dims`/`coord_blocks`; it could become a `LinearCliques`
+  with `clq_map(clique) = dict(terms)[clique]` now that nothing collides with that name.
 
-Open:
-- Walk the module method by method, starting at `LinearCliques`, `part_emb` and `clq_map`.
-- `CliqueEmbedding.sub_man` returns the clique's map itself. Should it be the node space instead?
-- `CrossMap` (2026-10-01): `terms` pairs each clique's node labels with its `CliqueMap`;
-  `clq_embs(clique)` derives the clique embeddings into its sides via `part_emb`, which
-  splits the clique by each side's clique group (`cod_group`/`dom_group`). `EmbeddedCliqueMap` and
-  `RecursiveLinearCliques.crs_embs` are gone (embeddings are stored at the level of their
-  ambient, see `CLAUDE.md`). Still keeps its own `clq_dims`/`coord_blocks`. Its single-term
-  `clq_map` property is gone (2026-10-02), so becoming a `LinearCliques` with
-  `clq_map(clique)` no longer collides with anything.
-- Partitions are read from their clique groups, not their types (2026-10-01): one clique
-  means the partition is that clique (bias, identity), several mean it must be a
-  `LinearCliques` (a cast, no guard: a wrong partition fails on `clq_map`/`clq_emb`).
-- `CrossMap` maps between the whole root and deep partitions, with their clique groups as
-  fields (2026-10-02): the groups describe its own codomain and domain, so locating a term
-  there stays within its scope. The span design (`CliqueSpan`, `SpanEmbedding`,
-  `ConjugatedMap`, `crs_spans`, `span_embs`) was tried and dropped: about 150 lines, and a
-  single-node partition could not carry its span's labels. `int_man` is `crs_man` again.
-  A `LinearCliques` partition's `cliques` and the group come from the same graph.
+### `exponential_family/harmonium.py`
 
-## 2. `geometry/exponential_family/harmonium.py` (580)
-
-Mostly mechanical: ~10 `split_coords`/`join_coords` -> `split_level`/`join_level`, and
-`HarmoniumEmbedding` with its three subclasses moved in unchanged from the deleted
-`exponential_family/graphical.py` (~100 of 193 changed lines). ~10 minutes.
-
-- Base is `RecursiveLinearCliques[Observable, Posterior]`; `obs_man`/`pst_man` are the
-  contract, `rot_man`/`dep_man` forward to them, and `int_man` is `crs_man`.
 - `Conjugated.extract_likelihood_input` was removed (6e2b96d): `sample` passes the whole
-  prior sample to `likelihood_at`. Inferred, not verified: correct because `pst_man` is now
-  the whole deep partition and the interaction reads $y$'s block of it through `clq_emb`, so
-  `pst_man.sufficient_statistic` of a joint $yk$ sample is the right input.
+  prior sample to `likelihood_at`. Inferred, not verified: correct because `pst_man` is the
+  whole deep partition and the interaction reads $y$'s block of it through `clq_emb`.
   `tests/hmog.py::test_sampling` checks shape and finiteness only; add a moment check.
-- The interaction is still consumed as a `LinearMap` through `lkl_fun_man` / `pst_fun_man`
+- The interaction is consumed as a `LinearMap` through `lkl_fun_man` / `pst_fun_man`
   (`AffineMap`s). Contracting cliques directly is the agreed next structural step; large
   blast radius.
 - `InteractionEmbedding` / `PosteriorEmbedding` have no callers in `models/` or `examples/`
   (only exports and `tests/graphical.py`). Delete?
 - `initialize_from_sample` passes the unsliced sample to `obs_man` (predates the branch).
 
-## 3. Models: `graphical/mixture.py` (634), `harmonium/cca.py` (213), `graphical/hmog.py` (408)
+### Models
 
-Also `harmonium/mixture.py` (mechanical, ~10 minutes: `EmbeddedMap` `int_man` replaced by
-`crs_rep`/`crs_emb_constructors`, `impose` added, `int_man.to_matrix` ->
-`crs_man.clq_map.to_matrix`, most changed lines are ruff wrapping). The other two need
-about an hour together:
+- MFA (`graphical/mixture.py`): `crs_emb_constructors` (~15 lines) is the densest code
+  downstream of `clique.py`; it relies on `bas_clique`, `mix_nodes` and roots-first
+  labelling. Check the `jnp.split` offsets in `from_mixture_coords`.
+- HMoG (`graphical/hmog.py`): `_HMoGBase` defines `pst_prr_emb` (a `RootEmbedding`) and
+  `conjugation_parameters`, and delegates `crs_rep`/`crs_emb_constructors` to `lwr_hrm`.
+  `AnalyticHMoG.to_natural_likelihood` is new.
+- CCA is probabilistic CCA and exposes no canonical directions; rename or document.
 
-- MFA (`graphical/mixture.py`): `RowEmbedding`, `xy_man`/`xyk_man`/`xk_man` and the
-  `BlockMap` (~60 lines) became `crs_rep` and `crs_emb_constructors`. The latter (~15 lines)
-  is the densest code downstream of `clique.py`: it keys the base harmonium's constructors
-  by root/non-root and relies on `bas_clique`, `mix_nodes` and roots-first labelling.
-- MFA's mixture view (`to_mixture_coords` / `from_mixture_coords`) is a block permutation
-  written on the model; rewritten on this branch. Check the `jnp.split` offsets in
-  `from_mixture_coords` (covered by `tests/graphical_mixture.py`).
-- HMoG (`graphical/hmog.py`): the `*Hierarchical` bases are gone and `_HMoGBase` now
-  defines `pst_prr_emb` (a `RootEmbedding`), `conjugation_parameters` (lower $\rho$ embedded
-  by `ObservableEmbedding` of the upper prior), and delegates `crs_rep` /
-  `crs_emb_constructors` to `lwr_hrm`. `upr_graph` + `impose` hand the upper mixture its
-  graph. `AnalyticHMoG.to_natural_likelihood` is new (~6 lines).
-- MFA: three crossing cliques $(x,y)$, $(x,y,k)$, $(x,k)$; a fork, depth 2. The arity-3
-  clique still executes as a matrix over the joint $(y,k)$ statistic.
-- CCA: multi-root fork, conjugation as a sum of two LGMs. It is probabilistic CCA and
-  exposes no canonical directions; rename or document.
-
-## 4. Tests: `clique.py`, `graphical.py`, `interaction.py`, `cca.py`, `graphical_mixture.py`
+### Tests
 
 - `graphical.py` is the one to trust least: several pins test layout implementation rather
   than contract.
-- `interaction.py` now tests a class in `manifold/clique.py`; merge into `graphical.py` or keep?
+- `interaction.py` tests a class in `manifold/clique.py`; merge into `graphical.py` or keep?
 - CCA test is gradient-step smoke coverage; compare against an independent joint covariance.
-- Root cliques of several nodes are possible since 2026-10-01 but untested.
+- Root cliques of several nodes are possible but untested.
 
-## Pre-existing sharp edges (not this branch)
+### Pre-existing sharp edges (not this branch)
 
 - Diagonal posteriors do not conjugate exactly (residual ~4.5e-2 for `NormalLGM`).
 - `NormalCovarianceEmbedding` with `Scale` is an adjoint pair, not `project ∘ embed = id`.
 
 ## Deliberately not implemented
 
-Decided 2026-09-30 to avoid generalizing before a model needs it.
+Decided to avoid generalizing before a model needs it.
 
-- **Partial (embedded) biases.** A bias covers its whole node (`bias_map`). Crossing axes are
-  already built on the subspaces used by their root and deep parts, so enabling this changes only the
-  bias line of `clq_map`; harmoniums would still treat `rot_man` as the observable family.
+- **Partial (embedded) biases.** A bias covers its whole node (`bias_map`). Crossing axes
+  are already built on the subspaces used by their root and deep parts. Under the plan
+  above this becomes a family's choice of `clq_map`.
 - **Validation of the stored graph.** Nothing checks that every node has a singleton, that a
-  partition's `cliques` equal its parent's group (`level_split()[0]` or `[2]`), or that a flat
-  container's `cliques` are normalized (a repeated clique silently gets two blocks). A node
-  that appears only in crossing cliques is missing from its side's group, so it is dropped
-  from that side's part, silently if the rest is a clique there (raised in `clq_emb` before
-  2026-10-01). A crossing clique whose part is not a clique of its partition fails only in
-  `clq_emb`.
-- **One role for a map read through embeddings** (decided 2026-10-03). $v \mapsto
-  \iota(A(\pi(v)))$, a linear map between subspaces read in the manifolds containing them,
-  is implemented twice: `CliqueMap` (its representation between the axes' subspaces, through
-  `cod_emb`/`dom_emb`) and each term of `CrossMap` (the clique map, through the
-  `part_emb` blocks). An abstract role with contract `cod_emb`/`map_man`/`dom_emb` would
-  state it once, but saves about 10 lines for an extra class. Reconsider if a third
-  occurrence appears; the role would belong in `map.py`.
+  partition's `cliques` equal its parent's group, or that a flat container's `cliques` are
+  normalized (a repeated clique silently gets two blocks). A node that appears only in
+  crossing cliques is dropped from its side's part. A crossing clique whose part is not a
+  clique of its partition fails only in `clq_emb` (`ValueError` from `cliques.index`).
+- **One role for a map read through embeddings** (2026-10-03). $v \mapsto \iota(A(\pi(v)))$
+  is implemented twice: `CliqueMap` and each term of `CrossMap`. An abstract role with
+  contract `cod_emb`/`map_man`/`dom_emb` would save about 10 lines for an extra class.
+  Reconsider if a third occurrence appears; it would belong in `map.py`.
 
 ## Later (out of scope)
 
 - Convolutional `MatrixRep`.
-- Generic conjugation cascade over `RecursiveLinearCliques`, and the variational $\rho$ slot. Trap:
-  ~10 sites unpack `split_coords` positionally; rename the method in the same change.
+- Generic conjugation cascade over `RecursiveLinearCliques`, and the variational $\rho$
+  slot. Trap: ~10 sites unpack `split_coords` positionally; rename in the same change.
 - Short user-facing architecture page (chain, fork, arity-3 example).
 
 ## Verification
@@ -139,5 +187,5 @@ Decided 2026-09-30 to avoid generalizing before a model needs it.
 | lint | `uvx ruff check src/ tests/` |
 | types | `uvx basedpyright src/ tests/` |
 | docs | `uv run sphinx-build -q docs/source docs/build` |
-| suite | `uv run python -m pytest tests/ -q` (531 passed on 2026-10-01, ~17 min) |
-| numeric | `uv run python -m examples.cca.run` (CPU): alignment RMSE `0.24031811353161686` (2026-10-01: c45178c, 6c1eb6e and the working tree agree; the earlier `0.24029927646203073` predates an environment change) |
+| suite | `uv run python -m pytest tests/ -q` (531 passed on 2026-10-02, ~17 min) |
+| numeric | `uv run python -m examples.cca.run` (CPU): alignment RMSE `0.24031811353161686` (2026-10-01) |
