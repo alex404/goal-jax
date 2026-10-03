@@ -269,9 +269,9 @@ def test_mfa_to_natural_round_trip() -> None:
 class TestMFAGraph:
     """MFA's graph is derived from its coupling pattern, not declared clique by clique.
 
-    The model states only which nodes each interaction block couples --- three crossing
-    cliques in its stored graph. Node count, root count, the biases, the ``(y, k)`` coupling from the
-    mixture one level up, the levels, and the clique layout all follow from that. These
+    The model states only which cliques of its two partitions each interaction block
+    couples --- three crossing cliques. Node count, the biases, the ``(y, k)`` coupling from
+    the mixture, and the clique layout all follow from that and from the partitions. These
     tests pin what follows, because a wrong derivation would be silent: every operation
     below reads the level split, which does not consult the graph.
     """
@@ -286,36 +286,59 @@ class TestMFAGraph:
     def test_three_nodes_one_root(self) -> None:
         clq = self._mfa()
         assert clq.n_nodes == 3
-        assert clq.root_nodes == frozenset({0})
+        assert clq.obs_man.n_nodes == 1
 
-    def test_the_mixture_view_is_a_two_node_graph(self) -> None:
-        """``mix_man`` holds the base harmonium as one node, not as its own two.
+    def test_the_mixture_view_is_the_same_graph(self) -> None:
+        """``mix_man`` couples $k$ to every clique of the base harmonium.
 
-        Its interaction reads the base harmonium's whole parameter vector --- 21 numbers
-        that are not a tensor product of node statistics --- so it cannot factor across
-        $x$ and $y$. Expanding them would give the graph three nodes, a cross clique whose
-        clique named the wrong latent, and ``(0, 1)`` listed twice.
+        So it is MFA's graph again --- the same seven cliques under the same numbering ---
+        stored in the mixture's order rather than MFA's.
         """
+        mfa = self._mfa()
+        mix = mfa.mix_man
+        assert mix.crs_cliques == (((0,), (0,)), ((0, 1), (0,)), ((1,), (0,)))
+        assert mix.cliques == ((0,), (0, 1), (1,), (0, 2), (0, 1, 2), (1, 2), (2,))
+        assert sorted(mix.cliques) == sorted(mfa.cliques)
+
+    def test_the_mixture_view_moves_every_clique_whole(self) -> None:
+        """``to_mixture_coords`` carries each clique's block to that clique's block."""
+        mfa = self._mfa()
+        mix = mfa.mix_man
+        params = jax.random.normal(jax.random.PRNGKey(20), (mfa.dim,))
+        mix_params = mfa.to_mixture_coords(params)
+        for clique in mfa.cliques:
+            assert jnp.array_equal(
+                mfa.clq_emb(clique).project(params),
+                mix.clq_emb(clique).project(mix_params),
+            ), clique
+
+    def test_the_mixture_view_matrix_is_its_interaction(self) -> None:
+        """The one-matrix reading and the per-clique crossings act alike."""
         mix = self._mfa().mix_man
-        assert mix.root_nodes == frozenset({0})
-        assert mix.cliques == ((0,), (0, 1), (1,))
-        assert mix.level_split() == (((0,),), ((0, 1),), ((1,),))
+        key_p, key_v = jax.random.split(jax.random.PRNGKey(23))
+        params = jax.random.normal(key_p, (mix.int_man.dim,))
+        v = jax.random.normal(key_v, (mix.lat_man.dim,))
+        assert jnp.allclose(mix.int_man(params, v), mix.cmp_int_map(params, v))
 
     def test_all_seven_cliques(self) -> None:
         """Three biases, three couplings, and the triple interaction."""
-        assert self._mfa().level_cliques == (
-            ((0,),),
-            ((0, 1), (0, 1, 2), (0, 2)),
-            ((1,), (1, 2), (2,)),
+        assert self._mfa().cliques == (
+            (0,),
+            (0, 1),
+            (0, 1, 2),
+            (0, 2),
+            (1,),
+            (1, 2),
+            (2,),
         )
 
-    def test_depth_is_two_not_three(self) -> None:
+    def test_a_fork_not_a_chain(self) -> None:
         """Both $y$ and $k$ are adjacent to $x$, so this is a fork, not a chain."""
-        assert self._mfa().level_sets == ((0,), (1, 2))
+        assert self._mfa().graph[0] == (1, 2)
 
     def test_one_form_per_clique(self) -> None:
         mfa = self._mfa()
-        assert len(mfa.clq_dims) == sum(len(group) for group in mfa.level_cliques)
+        assert len(mfa.clq_dims) == len(mfa.cliques)
         assert sum(mfa.clq_dims) == mfa.dim
 
     def test_layout_follows_the_clique_order(self) -> None:
@@ -341,7 +364,7 @@ class TestDerivedInteractionEmbeddings:
     their deep part is located (a ``CliqueEmbedding`` on the mixture above) and how much of each one's
     statistic the axis embeddings select. These tests pin both halves.
 
-    Labels are global, so the mixture's nodes are MFA's: $y = 1$, $k = 2$.
+    Each term names its deep part in the mixture's own numbering: $y = 0$, $k = 1$.
     """
 
     @staticmethod
@@ -354,22 +377,21 @@ class TestDerivedInteractionEmbeddings:
     @classmethod
     def _blocks(cls, **kwargs) -> tuple[CrossMap[Any, Any], ...]:
         m = cls._mfa(**kwargs).crs_man
-        return tuple(
-            CrossMap(m.cod_man, m.dom_man, m.cod_group, m.dom_group, (term,))
-            for term in m.terms
-        )
+        return tuple(CrossMap(m.cod_man, m.dom_man, (term,)) for term in m.terms)
 
     @classmethod
     def _dom_clq_embs(cls, **kwargs) -> tuple[CliqueEmbedding, ...]:
-        embs = [block.clq_embs(block.terms[0][0])[1] for block in cls._blocks(**kwargs)]
+        embs = [
+            block.dom_man.clq_emb(block.terms[0][1]) for block in cls._blocks(**kwargs)
+        ]
         assert all(isinstance(emb, CliqueEmbedding) for emb in embs)
         return tuple(cast(CliqueEmbedding, emb) for emb in embs)
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
         xy, xyk, xk = self._dom_clq_embs()
-        assert xy.clique == (1,)
-        assert xyk.clique == (1, 2)
-        assert xk.clique == (2,)
+        assert xy.clique == (0,)
+        assert xyk.clique == (0, 1)
+        assert xk.clique == (1,)
 
     def test_block_dims_are_the_selected_products(self) -> None:
         """obs 4, lat 2, 3 categories: x-location 4, y-location 2, k 2."""
@@ -387,7 +409,7 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         xyk = self._blocks()[1]
-        dom_clq_emb = xyk.clq_embs(xyk.terms[0][0])[1]
+        dom_clq_emb = xyk.dom_man.clq_emb(xyk.terms[0][1])
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_level(coords)

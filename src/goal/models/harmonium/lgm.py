@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, override
 
 import jax
@@ -13,12 +12,13 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
+    Crossing,
     Diagonal,
     DifferentiableConjugated,
+    EmbeddingConstructor,
     Identity,
     IdentityEmbedding,
     LinearEmbedding,
-    Manifold,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
@@ -239,25 +239,7 @@ class LGM[
     obs_rep: ObsRep
     """Covariance structure of the observable variables."""
 
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (0, 1), (1,)), kw_only=True
-    )
-    """The observable and the latent, coupled."""
-
-    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
-    """The observable."""
-
     # Overrides
-
-    @property
-    @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
 
     @property
     @override
@@ -265,15 +247,24 @@ class LGM[
         """Override to construct directly from fields, avoiding circular dependency."""
         return Normal(self.obs_dim, self.obs_rep)
 
+    @property
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The observable and the latent, coupled."""
+        return (((0,), (0,)),)
+
+    @override
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
-        return (GeneralizedGaussianLocationEmbedding,) * len(clique)
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        """The two locations."""
+        return (GeneralizedGaussianLocationEmbedding,), (
+            GeneralizedGaussianLocationEmbedding,
+        )
 
     @override
     def conjugation_parameters(
@@ -292,8 +283,8 @@ class LGM[
 
         # Conjugation parameters
 
-        (xz,) = self.level_split()[1]
-        im = self.clq_map(xz)
+        (xz,) = self.crs_cliques
+        im = self.crs_map(xz)
         int_mat_trn = im.transpose(int_mat)
         rho_mean = im.trn_man.rep.matvec(im.trn_man.matrix_shape, int_mat_trn, obs_mean)
 
@@ -383,8 +374,8 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
 
         # W \Sigma_z = E[x \otimes z] - E[x] \otimes E[z]
-        (xz,) = self.level_split()[1]
-        im = self.clq_map(xz)
+        (xz,) = self.crs_cliques
+        im = self.crs_map(xz)
         int_mat = im.to_matrix(int_means)  # (obs_dim, lat_dim)
         cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # W \Sigma_z
 
@@ -415,8 +406,8 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         nor_loc = jnp.concatenate([obs_loc, lat_loc])
         obs_prs_array = new_man.obs_man.cov_man.to_matrix(obs_prs)
         lat_prs_array = new_man.prr_man.cov_man.to_matrix(lat_prs)
-        (xz,) = self.level_split()[1]
-        int_array = -self.clq_map(xz).to_matrix(int_params)
+        (xz,) = self.crs_cliques
+        int_array = -self.crs_map(xz).to_matrix(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
@@ -551,8 +542,8 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
         obs_prs = om.split_location_precision(obs_params)[1]
         dns_prs = om.cov_man.to_matrix(obs_prs)
-        (xz,) = self.level_split()[1]
-        int_mat = self.clq_map(xz).from_matrix(dns_prs @ loadings)
+        (xz,) = self.crs_cliques
+        int_mat = self.crs_map(xz).from_matrix(dns_prs @ loadings)
         return self.lkl_fun_man.join_coords(obs_params, int_mat)
 
     def initialize_from_loadings(
@@ -575,8 +566,8 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         # Get relevant manifolds
         ocm = self.obs_man.cov_man
         lcm = self.lat_man.cov_man
-        (xz,) = self.level_split()[1]
-        im = self.clq_map(xz)
+        (xz,) = self.crs_cliques
+        im = self.crs_map(xz)
 
         # Deconstruct parameters
         obs_means, int_means, lat_means = self.split_level(means)

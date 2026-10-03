@@ -8,9 +8,8 @@ This module implements mixture models using a harmonium structure where
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
-from typing import Any, Self, override
+from dataclasses import dataclass, replace
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -19,7 +18,10 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
+    CliqueMap,
+    Crossing,
     Differentiable,
+    EmbeddingConstructor,
     ExponentialFamilyProduct,
     IdentityEmbedding,
     LinearEmbedding,
@@ -32,12 +34,6 @@ from ...geometry import (
 from ..base.categorical import (
     Categorical,
 )
-
-MIXTURE_CLIQUES: tuple[tuple[int, ...], ...] = ((0,), (0, 1), (1,))
-"""A standalone mixture's cliques: observable $0$ and category $1$, coupled."""
-
-MIXTURE_ROOT_NODES: frozenset[int] = frozenset({0})
-"""A standalone mixture's root set: the observable."""
 
 
 @dataclass(frozen=True)
@@ -90,44 +86,29 @@ class Mixture[Observable: Differentiable](
     obs_emb: LinearEmbedding[Observable, Manifold]
     """Observable embedding - determines which observable parameters are mixed."""
 
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=MIXTURE_CLIQUES, kw_only=True
-    )
-    """The observable and the category, coupled."""
-
-    _root_nodes: frozenset[int] = field(default=MIXTURE_ROOT_NODES, kw_only=True)
-    """The observable."""
-
     # Overrides
-
-    @property
-    @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
 
     @property
     @override
     def lat_man(self) -> Categorical:
         return Categorical(self.n_categories)
 
+    @property
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The observable and the category, coupled."""
+        return (((0,), (0,)),)
+
+    @override
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
         """The coupled part of the observable, and the whole of the category."""
-        return tuple(
-            (lambda _: self.obs_emb) if i in self.root_nodes else IdentityEmbedding
-            for i in clique
-        )
+        return (lambda _: self.obs_emb,), (IdentityEmbedding,)
 
     @property
     @override
@@ -141,12 +122,6 @@ class Mixture[Observable: Differentiable](
         """A mixture's posterior is its categorical latent."""
         return self.lat_man
 
-    def impose(
-        self, raw_cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
-    ) -> Self:
-        """This mixture with the cliques and root set an enclosing model assigns it."""
-        return replace(self, _raw_cliques=raw_cliques, _root_nodes=root_nodes)
-
     @override
     def conjugation_parameters(
         self,
@@ -159,8 +134,7 @@ class Mixture[Observable: Differentiable](
         # Compute base term from observable bias
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
         rho_0 = self.obs_man.log_partition_function(obs_bias)
-        (xz,) = self.level_split()[1]
-        int_map = self.clq_map(xz)
+        int_map = self.cmp_int_map
 
         # Convert to 2D matrix and transpose to get columns as rows
         int_comps = int_map.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
@@ -172,6 +146,18 @@ class Mixture[Observable: Differentiable](
         return jax.vmap(compute_rho)(int_comps)  # [n_categories-1]
 
     # Methods
+
+    @property
+    def cmp_int_map(self) -> CliqueMap:
+        """The interaction read as one matrix: a row per coupled observable coordinate, a column per non-reference category.
+
+        Its coordinates are those of :attr:`int_man`: the single crossing's here, and in a
+        :class:`CompleteMixture` over an observable of several cliques, each clique's
+        crossing block, which are consecutive row bands of this matrix.
+        """
+        return CliqueMap(
+            Rectangular(), (self.obs_emb,), (IdentityEmbedding(self.lat_man),)
+        )
 
     @property
     def cmp_man(self) -> MixtureComponents[Observable]:
@@ -207,8 +193,7 @@ class Mixture[Observable: Differentiable](
         obs_means = jnp.sum(weighted_comps, axis=0)
 
         # Project components (excluding first) to interaction subspace
-        (xz,) = self.level_split()[1]
-        projected_comps = jax.vmap(self.clq_map(xz).cod_embs[0].project)(
+        projected_comps = jax.vmap(self.cmp_int_map.cod_embs[0].project)(
             weighted_comps[1:]
         )
         # [n_categories-1, sub_obs_dim]
@@ -240,8 +225,7 @@ class Mixture[Observable: Differentiable](
 
         lkl_params, prr_params = self.split_conjugated(natural_params)
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
-        (xz,) = self.level_split()[1]
-        int_map = self.clq_map(xz)
+        int_map = self.cmp_int_map
 
         # Convert to 2D matrix and transpose to get columns as rows
         int_cols = int_map.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
@@ -298,31 +282,29 @@ class CompleteMixture[Observable: Differentiable](
 
     # Constructor
 
-    def __init__(
-        self,
-        obs_man: Observable,
-        n_categories: int,
-        *,
-        _raw_cliques: tuple[tuple[int, ...], ...] = MIXTURE_CLIQUES,
-        _root_nodes: frozenset[int] = MIXTURE_ROOT_NODES,
-    ):
+    def __init__(self, obs_man: Observable, n_categories: int):
         # Use identity observable embedding for complete mixture
-        obs_emb = IdentityEmbedding(obs_man)
-        super().__init__(
-            n_categories, obs_emb, _raw_cliques=_raw_cliques, _root_nodes=_root_nodes
-        )
+        super().__init__(n_categories, IdentityEmbedding(obs_man))
+
+    @property
+    @override
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The category with every clique of the observable.
+
+        One crossing when the observable is one node. When it has several cliques (a
+        harmonium, as in MFA's mixture view) the category couples to each of them in full,
+        so the mixture of a harmonium is the harmonium's graph with $k$ joined to every
+        clique.
+        """
+        return tuple((clique, (0,)) for clique in self.obs_man.cliques)
 
     @override
-    def impose(
-        self, raw_cliques: tuple[tuple[int, ...], ...], root_nodes: frozenset[int]
-    ) -> Self:
-        """Rebuilt through the constructor, which takes the observable rather than its embedding."""
-        return type(self)(
-            self.obs_man,
-            self.n_categories,
-            _raw_cliques=raw_cliques,
-            _root_nodes=root_nodes,
-        )
+    def crs_emb_constructors(
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        """Every node in full."""
+        near, _ = crossing
+        return (IdentityEmbedding,) * len(near), (IdentityEmbedding,)
 
     def split_mean_mixture(
         self,
@@ -343,8 +325,7 @@ class CompleteMixture[Observable: Differentiable](
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
         # Convert to 2D matrix and transpose to get columns as rows [n_categories-1, obs_dim]
-        (xz,) = self.level_split()[1]
-        int_dense = self.clq_map(xz).to_matrix(int_means)  # [obs_dim, n_categories-1]
+        int_dense = self.cmp_int_map.to_matrix(int_means)  # [obs_dim, n_categories-1]
         int_cols = int_dense.T  # [n_categories-1, obs_dim]
 
         # Compute first component
@@ -396,8 +377,7 @@ class CompleteMixture[Observable: Differentiable](
         projected_comps = cmp_man_minus.map(to_interaction, components_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        (xz,) = self.level_split()[1]
-        int_mat = self.clq_map(xz).from_matrix(projected_comps.T)
+        int_mat = self.cmp_int_map.from_matrix(projected_comps.T)
         lkl_params = self.lkl_fun_man.join_coords(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
@@ -453,7 +433,6 @@ class AnalyticMixture[Observable: Analytic](
         int_cols = cmp_man1.map(to_interaction, nat_comps_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        (xz,) = self.level_split()[1]
-        int_mat = self.clq_map(xz).from_matrix(int_cols.T)
+        int_mat = self.cmp_int_map.from_matrix(int_cols.T)
 
         return self.lkl_fun_man.join_coords(obs_bias, int_mat)

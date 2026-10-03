@@ -12,8 +12,7 @@ This module provides:
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportArgumentType=false
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal, override
 
 import jax
@@ -21,12 +20,12 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
+    Crossing,
     Diagonal,
     Differentiable,
+    EmbeddingConstructor,
     Harmonium,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
     MatrixRep,
     Rectangular,
 )
@@ -101,16 +100,12 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
     """Concrete harmonium coupling an observable to a latent manifold.
 
     A thin wrapper that stores the two partitions, coupled in full by one rectangular
-    clique.
+    clique between the observable and the latent's node $0$ (its observable, when the
+    latent is itself a mixture).
     """
 
     _obs_man: Observable
     _pst_man: Latent
-
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (0, 1), (1,)), kw_only=True
-    )
-    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
 
     @property
     @override
@@ -124,23 +119,18 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
-        return (IdentityEmbedding,) * len(clique)
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        return (IdentityEmbedding,), (IdentityEmbedding,)
 
 
 ### Concrete mixture of harmoniums ###
@@ -305,12 +295,8 @@ def _hierarchical_harmonium(
     n_categories: int,
 ) -> ConcreteHarmonium:  # pyright: ignore[reportMissingTypeArgument]
     """Create a ConcreteHarmonium[Obs, CompleteMixture[Lat]] for hierarchical mode."""
-    mix_man = CompleteMixture(base_lat_man, n_categories).impose(
-        ((1,), (1, 2), (2,)), frozenset({1})
-    )
-    return ConcreteHarmonium(
-        obs_man, mix_man, _raw_cliques=((0,), (0, 1), (1,), (1, 2), (2,))
-    )
+    mix_man = CompleteMixture(base_lat_man, n_categories)
+    return ConcreteHarmonium(obs_man, mix_man)
 
 
 def _full_base_harmonium(

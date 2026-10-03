@@ -22,8 +22,9 @@ one, repeats, and empty cliques change nothing. Two members read them.
 cannot change, and :attr:`RecursiveCliques.level_cliques` is the one normalized form, each
 clique once and grouped by level; :attr:`RecursiveCliques.cliques` is that form flattened.
 Every other member reads these, so a component with no root is left out everywhere.
-:meth:`RecursiveCliques.level_split` coarsens the grouped form to what a layout stores: the cliques inside $R$, those crossing out of it, and the rest,
-which are the cliques of the graph one level up, rooted at the level-1 nodes. Node indices
+:meth:`RecursiveCliques.level_split` coarsens the grouped form to three groups: the cliques
+inside $R$, those crossing out of it, and the rest, which are the cliques of the graph one
+level up, rooted at the level-1 nodes. Node indices
 are labels, and results are sorted tuples, which is only a fixed way of writing a set
 down.
 

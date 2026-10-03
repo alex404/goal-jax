@@ -49,8 +49,6 @@ Linear Cliques
    :undoc-members:
    :show-inheritance:
 
-.. autofunction:: goal.geometry.manifold.clique.part_emb
-
 
 Cross Maps
 ----------
@@ -65,11 +63,6 @@ Recursive Layouts
 -----------------
 
 .. autoclass:: goal.geometry.manifold.clique.RecursiveLinearCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.clique.RootEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

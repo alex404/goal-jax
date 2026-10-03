@@ -29,23 +29,19 @@ sums across the pair.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any, override
+from dataclasses import dataclass
+from typing import override
 
 from jax import Array
 
 from ...geometry import (
     AnalyticPair,
-    CliqueMap,
+    Crossing,
     DifferentiableConjugated,
-    LinearCliques,
-    LinearEmbedding,
-    Manifold,
+    EmbeddingConstructor,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
-    bias_map,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from .lgm import (
@@ -57,12 +53,11 @@ from .lgm import (
 
 @dataclass(frozen=True)
 class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
-    AnalyticPair[Normal[FstRep], Normal[SndRep]], LinearCliques
+    AnalyticPair[Normal[FstRep], Normal[SndRep]]
 ):
-    """Two normals over disjoint data slices, side by side, each the bias of one node.
+    """Two normals over disjoint data slices, side by side: nodes $0$ and $1$.
 
-    :class:`CanonicalCorrelationAnalysis` imposes its two root nodes on the pair, so that
-    each branch of its fork couples to one of them.
+    Each branch of :class:`CanonicalCorrelationAnalysis`' fork couples to one of them.
     """
 
     # Fields
@@ -79,9 +74,6 @@ class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
     snd_rep: SndRep
     """Covariance structure of the second normal."""
 
-    _cliques: tuple[tuple[int, ...], ...] = field(default=((0,), (1,)), kw_only=True)
-    """The two nodes, first normal first."""
-
     # Overrides
 
     @property
@@ -93,15 +85,6 @@ class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
     @override
     def snd_man(self) -> Normal[SndRep]:
         return Normal(self.snd_dim, self.snd_rep)
-
-    @property
-    @override
-    def cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._cliques
-
-    @override
-    def clq_map(self, clique: tuple[int, ...]) -> CliqueMap:
-        return bias_map((self.fst_man, self.snd_man)[self.cliques.index(clique)])
 
 
 @dataclass(frozen=True)
@@ -141,48 +124,31 @@ class CanonicalCorrelationAnalysis[
     pst_rep: PstRep
     """Covariance structure of the posterior latent."""
 
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (1,), (0, 2), (1, 2), (2,)), kw_only=True
-    )
-    """The fork $x - z - y$: observables $0$ and $1$, shared latent $2$."""
-
-    _root_nodes: frozenset[int] = field(default=frozenset({0, 1}), kw_only=True)
-    """The two observables."""
-
     # Overrides
 
     @property
     @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The fork $x - z - y$: each observable of the pair with the shared latent."""
+        return (((0,), (0,)), ((1,), (0,)))
 
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
         """Each branch couples the two locations."""
-        return (GeneralizedGaussianLocationEmbedding,) * len(clique)
+        return (GeneralizedGaussianLocationEmbedding,), (
+            GeneralizedGaussianLocationEmbedding,
+        )
 
     @property
     @override
     def obs_man(self) -> NormalPair[FstRep, SndRep]:
-        """The pair, holding the root cliques of this graph."""
-        return NormalPair(
-            self.fst_dim,
-            self.fst_rep,
-            self.snd_dim,
-            self.snd_rep,
-            _cliques=self.level_split()[0],
-        )
+        return NormalPair(self.fst_dim, self.fst_rep, self.snd_dim, self.snd_rep)
 
     @property
     @override

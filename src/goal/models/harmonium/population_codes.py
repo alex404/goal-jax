@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from typing import Any, override
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import override
 
 import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
+    Crossing,
+    EmbeddingConstructor,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
     MatrixRep,
     Rectangular,
 )
@@ -49,35 +49,23 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
     n_latent: int
     """Number of VonMises latent dimensions."""
 
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (0, 1), (1,)), kw_only=True
-    )
-    """The observable and the latent, coupled."""
-
-    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
-    """The observable."""
-
     # Overrides
 
     @property
     @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The observable and the latent, coupled."""
+        return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
-        return (IdentityEmbedding,) * len(clique)
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        return (IdentityEmbedding,), (IdentityEmbedding,)
 
     @property
     @override
@@ -201,35 +189,23 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
     lat_dim: int
     """Dimension of the Gaussian latent."""
 
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (0, 1), (1,)), kw_only=True
-    )
-    """The observable and the latent, coupled."""
-
-    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
-    """The observable."""
-
     # Overrides
 
     @property
     @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The observable and the latent, coupled."""
+        return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
-        return (IdentityEmbedding,) * len(clique)
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        return (IdentityEmbedding,), (IdentityEmbedding,)
 
     @property
     @override

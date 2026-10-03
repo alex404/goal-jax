@@ -17,8 +17,7 @@ Usage::
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, override
 
 import jax
@@ -27,10 +26,10 @@ import optax
 from jax import Array
 
 from goal.geometry import (
+    Crossing,
     DifferentiablePair,
+    EmbeddingConstructor,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
     MatrixRep,
     MultilayerPerceptron,
     PositiveDefinite,
@@ -87,20 +86,6 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
     """Poisson observation harmonium over the pendulum latent."""
 
     n_neurons: int
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (0, 1), (1,)), kw_only=True
-    )
-    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
-
-    @property
-    @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
 
     @property
     @override
@@ -112,15 +97,21 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
     def pst_man(self) -> VonMisesNormalPair:
         return VonMisesNormalPair()
 
+    @property
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The neurons with each node of the latent pair: the angle and the velocity."""
+        return tuple(((0,), clique) for clique in self.pst_man.cliques)
+
+    @override
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
-        return (IdentityEmbedding,) * len(clique)
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        return (IdentityEmbedding,), (IdentityEmbedding,)
 
 
 @dataclass(frozen=True)

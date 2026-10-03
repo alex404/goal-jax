@@ -39,29 +39,31 @@ def cca(
 
 
 class TestGraph:
-    """The fork is a two-root graph of depth two, and the layout matches it."""
+    """The fork: a two-node observable and one latent, and the layout matches it."""
 
     def test_clique_set(self) -> None:
         model = cca()
         assert model.n_nodes == 3
-        assert model.root_nodes == frozenset({0, 1})
-        assert model.level_cliques == (((0,), (1,)), ((0, 2), (1, 2)), ((2,),))
+        assert model.crs_cliques == (((0,), (0,)), ((1,), (0,)))
+        assert model.cliques == ((0,), (1,), (0, 2), (1, 2), (2,))
 
-    def test_levels_are_depth_two(self) -> None:
-        """Both observables sit at level 0; the shared latent is the only deep node."""
-        assert cca().level_sets == ((0, 1), (2,))
+    def test_the_latent_follows_the_observables(self) -> None:
+        """The pair's two nodes come first; the shared latent is numbered after them."""
+        model = cca()
+        assert model.obs_man.n_nodes == 2
+        assert model.clq_map((2,)).dim == model.pst_man.dim
 
     def test_one_form_per_clique(self) -> None:
         model = cca()
-        assert len(model.clq_dims) == sum(len(group) for group in model.level_cliques)
+        assert len(model.clq_dims) == len(model.cliques)
         assert sum(model.clq_dims) == model.dim
 
     def test_observable_spans_two_nodes(self) -> None:
         """The observable is a flat container over the two root nodes, one bias each."""
         model = cca()
         obs = model.obs_man
-        assert model.root_nodes == frozenset({0, 1})
-        assert obs.cliques == model.level_split()[0]
+        assert obs.cliques == ((0,), (1,))
+        assert model.cliques[:2] == obs.cliques
         assert obs.clq_dims == (obs.fst_man.dim, obs.snd_man.dim)
         assert model.clq_dims[:2] == obs.clq_dims
 
@@ -76,7 +78,7 @@ class TestGraph:
         observable node; the interaction's two sides are the whole pair and the latent.
         """
         model = cca()
-        fst, snd = (clq_map for _, clq_map in model.crs_man.terms)
+        fst, snd = (clq_map for _, _, clq_map in model.crs_man.terms)
         assert fst.dom_man == snd.dom_man
         assert fst.cod_man != snd.cod_man
         assert fst.cod_man == TensorProduct((model.obs_man.fst_man,))

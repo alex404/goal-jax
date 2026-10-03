@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..manifold.clique import CliqueMap, bias_map
 from ..manifold.combinators import Pair, Replicated
 from .base import (
     Analytic,
@@ -61,10 +62,22 @@ class ExponentialFamilyPair[A: ExponentialFamily, B: ExponentialFamily](
 
     The data array is split along the last axis at ``fst_man.data_dim``, with the leading slice going to the first component and the remainder to the second. Sufficient statistics, log-base-measures, and (in subclasses) sampling/log-partition/negative-entropy decompose additively across the two slots.
 
-    Contrast with ``LocationShape``, where both components consume the *same* ``x``.
+    Contrast with ``LocationShape``, where both components consume the *same* ``x``. Accordingly the pair is two nodes, the first component node $0$, each holding its component as a bias, where a ``LocationShape`` is one.
     """
 
     # Overrides
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        """The two components."""
+        return ((0,), (1,))
+
+    @override
+    def clq_map(self, clique: tuple[int, ...]) -> CliqueMap:
+        """The bias over one component."""
+        (i,) = clique
+        return bias_map((self.fst_man, self.snd_man)[i])
 
     @property
     @override

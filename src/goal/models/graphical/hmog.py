@@ -32,8 +32,7 @@ for common configurations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, override
 
 import jax
@@ -42,9 +41,10 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
+    Crossing,
     DifferentiableConjugated,
+    EmbeddingConstructor,
     LinearEmbedding,
-    Manifold,
     MatrixRep,
     ObservableEmbedding,
     PositiveDefinite,
@@ -99,37 +99,23 @@ class _HMoGBase[
     def prr_upr_hrm(self) -> PrrUpperHarmonium:
         """Prior upper harmonium (for conjugation), with the same graph as :attr:`pst_upr_hrm`."""
 
-    # Fields
-
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (0, 1), (1,), (1, 2), (2,)), kw_only=True
-    )
-    """The chain $x - y - k$; the $(x, y)$ clique is the lower harmonium's."""
-
-    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
-    """The observable."""
-
     # Overrides
 
     @property
     @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The lower harmonium's: its latent is the upper mixture's observable, node $0$ of each."""
+        return self.lwr_hrm.crs_cliques
 
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
-        return self.lwr_hrm.crs_rep(clique)
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
+        return self.lwr_hrm.crs_rep(crossing)
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
-        return self.lwr_hrm.crs_emb_constructors(clique)
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        return self.lwr_hrm.crs_emb_constructors(crossing)
 
     @property
     @override
@@ -162,11 +148,6 @@ class _HMoGBase[
 
     # Methods
 
-    @property
-    def upr_graph(self) -> tuple[tuple[tuple[int, ...], ...], frozenset[int]]:
-        """The cliques and root set imposed on the upper mixtures: the chain above $x$, rooted at $y$."""
-        return self.level_split()[2], frozenset(self.level_sets[1])
-
     def whiten_prior(self, means: Array) -> Array:
         """Reparameterize the latent Y-space to have zero mean and identity covariance.
 
@@ -196,8 +177,8 @@ class _HMoGBase[
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        (xy,) = self.lwr_hrm.level_split()[1]
-        lwr_int_map = self.lwr_hrm.clq_map(xy)
+        (xy,) = self.lwr_hrm.crs_cliques
+        lwr_int_map = self.lwr_hrm.crs_map(xy)
         lwr_int_mat = lwr_int_map.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
@@ -258,12 +239,12 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
     @property
     @override
     def pst_upr_hrm(self) -> AnalyticMixture[Normal[PstRep]]:
-        return self._pst_upr_hrm.impose(*self.upr_graph)
+        return self._pst_upr_hrm
 
     @property
     @override
     def prr_upr_hrm(self) -> Mixture[FullNormal]:
-        return self._prr_upr_hrm.impose(*self.upr_graph)
+        return self._prr_upr_hrm
 
 
 class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
@@ -331,7 +312,7 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
     @property
     @override
     def upr_hrm(self) -> AnalyticMixture[FullNormal]:
-        return self._upr_hrm.impose(*self.upr_graph)
+        return self._upr_hrm
 
     @override
     def to_natural_likelihood(self, means: Array) -> Array:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
@@ -31,13 +31,13 @@ class Harmonium[
     Observable: Gibbs,
     Posterior: Gibbs,
 ](
-    Gibbs,
     RecursiveLinearCliques[Observable, Posterior],
+    Gibbs,
     ABC,
 ):
     """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
 
-    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`), stores its graph, and gives :meth:`crs_rep` and :meth:`crs_emb_constructors` for the cliques joining the sides (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); the observable is one root node unless it is itself a :class:`~goal.geometry.manifold.clique.LinearCliques` over several (CCA). The parameter layout and the interaction :attr:`int_man` are derived from that. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
+    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them, with :meth:`crs_rep` and :meth:`crs_emb_constructors` for each (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); each side is an exponential family and so carries its own cliques, one node unless it says otherwise (CCA's observable pair, a deeper harmonium as posterior). The graph, the parameter layout and the interaction :attr:`int_man` are derived from that. The composed graph comes before the single-node default of :class:`~goal.geometry.exponential_family.base.ExponentialFamily` in the method order, which is why ``RecursiveLinearCliques`` is listed first among the bases. The observable, the interaction and the posterior are the root, cross, and deep partitions: :attr:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level` returns exactly ``(obs_params, int_params, lat_params)``. However deep the graph, those three partitions stay contiguous, so everything below is written against the level split and needs no notion of how many cliques the deep partition holds.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -572,3 +572,51 @@ class PosteriorEmbedding[
     @override
     def sub_man(self) -> Posterior:
         return self.hrm_man.pst_man
+
+
+@dataclass(frozen=True)
+class RootEmbedding[
+    Ambient: RecursiveLinearCliques[Any, Any],
+    Sub: RecursiveLinearCliques[Any, Any],
+](LinearEmbedding[Ambient, Sub]):
+    """Embeds one layout into another over the same graph, transforming only the root partition.
+
+    Mathematically, ``embed`` maps $(r, c, d) \\mapsto (\\phi(r), c, d)$ and ``project``
+    maps $(r, c, d) \\mapsto (\\pi(r), c, d)$, with $\\phi, \\pi$ those of :attr:`rot_emb`.
+    """
+
+    # Fields
+
+    rot_emb: LinearEmbedding[Any, Any]
+    _amb_man: Ambient
+    _sub_man: Sub
+
+    def __post_init__(self) -> None:
+        sub, amb = self.sub_man, self.amb_man
+        if sub.cliques != amb.cliques or (sub.crs_man.dim, sub.dep_man.dim) != (
+            amb.crs_man.dim,
+            amb.dep_man.dim,
+        ):
+            raise ValueError("sub and ambient may differ only in the root partition")
+
+    # Overrides
+
+    @property
+    @override
+    def sub_man(self) -> Sub:
+        return self._sub_man
+
+    @property
+    @override
+    def amb_man(self) -> Ambient:
+        return self._amb_man
+
+    @override
+    def project(self, coords: Array) -> Array:
+        root, cross, deep = self.amb_man.split_level(coords)
+        return self.sub_man.join_level(self.rot_emb.project(root), cross, deep)
+
+    @override
+    def embed(self, coords: Array) -> Array:
+        root, cross, deep = self.sub_man.split_level(coords)
+        return self.amb_man.join_level(self.rot_emb.embed(root), cross, deep)

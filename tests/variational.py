@@ -24,8 +24,7 @@ of the residual at exact conjugation, and agreement between
 ``regress_conjugation_parameters`` and the prior conjugation loss.
 """
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, override
 
 import jax
@@ -33,10 +32,10 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
+    Crossing,
+    EmbeddingConstructor,
     Harmonium,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
     MatrixRep,
     Rectangular,
 )
@@ -270,11 +269,6 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     _pst_man: Any
 
-    _raw_cliques: tuple[tuple[int, ...], ...] = field(
-        default=((0,), (0, 1), (1,), (1, 2), (2,)), kw_only=True
-    )
-    _root_nodes: frozenset[int] = field(default=frozenset({0}), kw_only=True)
-
     @property
     @override
     def obs_man(self) -> Binomials:
@@ -287,23 +281,19 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     @property
     @override
-    def raw_cliques(self) -> tuple[tuple[int, ...], ...]:
-        return self._raw_cliques
-
-    @property
-    @override
-    def root_nodes(self) -> frozenset[int]:
-        return self._root_nodes
+    def crs_cliques(self) -> tuple[Crossing, ...]:
+        """The observable with the mixture's observable node."""
+        return (((0,), (0,)),)
 
     @override
-    def crs_rep(self, clique: tuple[int, ...]) -> MatrixRep:
+    def crs_rep(self, crossing: Crossing) -> MatrixRep:
         return Rectangular()
 
     @override
     def crs_emb_constructors(
-        self, clique: tuple[int, ...]
-    ) -> tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...]:
-        return (IdentityEmbedding,) * len(clique)
+        self, crossing: Crossing
+    ) -> tuple[tuple[EmbeddingConstructor, ...], tuple[EmbeddingConstructor, ...]]:
+        return (IdentityEmbedding,), (IdentityEmbedding,)
 
 
 @dataclass(frozen=True)
@@ -321,7 +311,6 @@ class _ConcreteHierarchicalMixture(
 def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
     """Small instance: 6 Binomial(3) observables, 3 Bernoulli latents, 3 clusters."""
     mix_man = CompleteMixture(Bernoullis(3), 3)
-    mix_man = mix_man.impose(((1,), (1, 2), (2,)), frozenset({1}))
     return _ConcreteHierarchicalMixture(_gen_hrm=_ConcreteHarmonium(mix_man))
 
 

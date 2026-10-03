@@ -48,33 +48,39 @@ def _as_map(int_man: LinearMap[Any, Any]) -> CrossMap[Any, Any]:
 def _block(int_man: LinearMap[Any, Any], index: int) -> CrossMap[Any, Any]:
     """One term of a multi-form interaction, as an interaction of the same shape."""
     m = _as_map(int_man)
-    return CrossMap(m.cod_man, m.dom_man, m.cod_group, m.dom_group, (m.terms[index],))
+    return CrossMap(m.cod_man, m.dom_man, (m.terms[index],))
 
 
 def _clq_map(int_man: LinearMap[Any, Any]) -> CliqueMap:
     """The clique map of a single-term interaction."""
-    ((_, clq_map),) = _as_map(int_man).terms
+    ((_, _, clq_map),) = _as_map(int_man).terms
     return clq_map
+
+
+def _term_embs(m: CrossMap[Any, Any]) -> tuple[Any, Any]:
+    """The blocks of the first term's codomain and domain cliques."""
+    cod, dom, _ = m.terms[0]
+    return m.cod_man.clq_emb(cod), m.dom_man.clq_emb(dom)
 
 
 def _cod_node(m: CrossMap[Any, Any], w: Array) -> Array:
     """A codomain point taken down to the node the single form's output couples."""
-    return m.clq_embs(m.terms[0][0])[0].project(w)
+    return _term_embs(m)[0].project(w)
 
 
 def _dom_node(m: CrossMap[Any, Any], v: Array) -> Array:
     """A domain point taken down to the node group the single form contracts."""
-    return m.clq_embs(m.terms[0][0])[1].project(v)
+    return _term_embs(m)[1].project(v)
 
 
 def _cod_amb(m: CrossMap[Any, Any], w_node: Array) -> Array:
     """The single form's output, placed back where the caller holds it."""
-    return m.clq_embs(m.terms[0][0])[0].embed(w_node)
+    return _term_embs(m)[0].embed(w_node)
 
 
 def _dom_amb(m: CrossMap[Any, Any], v_node: Array) -> Array:
     """The single form's contracted-side node coordinates, placed back."""
-    return m.clq_embs(m.terms[0][0])[1].embed(v_node)
+    return _term_embs(m)[1].embed(v_node)
 
 
 def _case(m: CrossMap[Any, Any]) -> tuple[CrossMap[Any, Any], Manifold, Manifold]:
@@ -202,11 +208,20 @@ class TestJointDomainCliques:
             n_categories=3, bas_hrm=factor_analysis(obs_dim=4, lat_dim=2)
         )
 
-    @pytest.mark.parametrize(("index", "nodes"), [(0, (0, 1)), (2, (0, 2))])
-    def test_nodes_and_arity_agree(self, index: int, nodes: tuple[int, ...]) -> None:
+    @pytest.mark.parametrize(
+        ("index", "crossing", "nodes"),
+        [(0, ((0,), (0,)), (0, 1)), (2, ((0,), (1,)), (0, 2))],
+    )
+    def test_nodes_and_arity_agree(
+        self,
+        index: int,
+        crossing: tuple[tuple[int, ...], tuple[int, ...]],
+        nodes: tuple[int, ...],
+    ) -> None:
         mfa = self._mfa()
-        assert mfa.level_split()[1][index] == nodes
-        assert len(mfa.crs_man.terms[index][1].embs) == 2
+        assert mfa.crs_cliques[index] == crossing
+        assert mfa.cliques[1 + index] == nodes
+        assert len(mfa.crs_man.terms[index][2].embs) == 2
 
     @pytest.mark.parametrize("index", [0, 2])
     def test_posterior_direction_matches_at_the_node(self, index: int) -> None:
