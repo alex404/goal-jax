@@ -423,7 +423,7 @@ class CoMPoissons(
 
 
 @dataclass(frozen=True)
-class PopulationLocationEmbedding(TupleEmbedding[Poissons, CoMPoissons]):
+class PopulationLocationEmbedding(TupleEmbedding[CoMPoissons, Poissons]):
     """Embedding that projects COM-Poisson to Poisson via location parameters."""
 
     n_neurons: int

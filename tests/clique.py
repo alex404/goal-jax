@@ -201,7 +201,7 @@ class TestCanonicalOrder:
         assert clique_set.level_cliques[2:] == above
 
     def test_mfa_order(self) -> None:
-        """A fork: both crossing cliques reach level 1, which holds y and k together."""
+        """A fork: both crossing cliques couple into level 1, which holds y and k together."""
         assert MFA.level_cliques == (
             ((0,),),
             ((0, 1), (0, 1, 2)),

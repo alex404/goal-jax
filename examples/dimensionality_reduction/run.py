@@ -149,7 +149,8 @@ def reconstruct_observations(
 
     # Get interaction matrix using the model's int_man
     # The matrix has shape (obs_dim, lat_dim) for W @ z
-    int_matrix = model.int_man.clq_map.to_matrix(int_params)
+    (xz,) = model.level_split()[1]
+    int_matrix = model.clq_map(xz).to_matrix(int_params)
 
     def reconstruct_one(x: Array) -> Array:
         # Posterior mean of latent

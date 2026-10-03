@@ -87,7 +87,7 @@ class Mixture[Observable: Differentiable](
     n_categories: int
     """Number of mixture components."""
 
-    obs_emb: LinearEmbedding[Manifold, Observable]
+    obs_emb: LinearEmbedding[Observable, Manifold]
     """Observable embedding - determines which observable parameters are mixed."""
 
     _raw_cliques: tuple[tuple[int, ...], ...] = field(
@@ -159,16 +159,14 @@ class Mixture[Observable: Differentiable](
         # Compute base term from observable bias
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
         rho_0 = self.obs_man.log_partition_function(obs_bias)
+        (xz,) = self.level_split()[1]
+        int_map = self.clq_map(xz)
 
         # Convert to 2D matrix and transpose to get columns as rows
-        int_comps = self.int_man.clq_map.to_matrix(
-            int_mat
-        ).T  # [n_categories-1, sub_obs_dim]
+        int_comps = int_map.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
 
         def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = self.int_man.clq_map.cod_embs[0].translate(
-                obs_bias, comp_params
-            )
+            adjusted_obs = int_map.cod_embs[0].translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
         return jax.vmap(compute_rho)(int_comps)  # [n_categories-1]
@@ -209,7 +207,8 @@ class Mixture[Observable: Differentiable](
         obs_means = jnp.sum(weighted_comps, axis=0)
 
         # Project components (excluding first) to interaction subspace
-        projected_comps = jax.vmap(self.int_man.clq_map.cod_embs[0].project)(
+        (xz,) = self.level_split()[1]
+        projected_comps = jax.vmap(self.clq_map(xz).cod_embs[0].project)(
             weighted_comps[1:]
         )
         # [n_categories-1, sub_obs_dim]
@@ -241,15 +240,15 @@ class Mixture[Observable: Differentiable](
 
         lkl_params, prr_params = self.split_conjugated(natural_params)
         obs_bias, int_mat = self.lkl_fun_man.split_coords(lkl_params)
+        (xz,) = self.level_split()[1]
+        int_map = self.clq_map(xz)
 
         # Convert to 2D matrix and transpose to get columns as rows
-        int_cols = self.int_man.clq_map.to_matrix(
-            int_mat
-        ).T  # [n_categories-1, sub_obs_dim]
+        int_cols = int_map.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
 
         # Translate each column from subspace to full observable space
         def translate_col(col: Array) -> Array:
-            return self.int_man.clq_map.cod_embs[0].translate(obs_bias, col)
+            return int_map.cod_embs[0].translate(obs_bias, col)
 
         translated = jax.vmap(translate_col)(int_cols)
 
@@ -344,9 +343,8 @@ class CompleteMixture[Observable: Differentiable](
         probs = self.lat_man.to_probs(cat_means)  # shape: (n_categories,)
 
         # Convert to 2D matrix and transpose to get columns as rows [n_categories-1, obs_dim]
-        int_dense = self.int_man.clq_map.to_matrix(
-            int_means
-        )  # [obs_dim, n_categories-1]
+        (xz,) = self.level_split()[1]
+        int_dense = self.clq_map(xz).to_matrix(int_means)  # [obs_dim, n_categories-1]
         int_cols = int_dense.T  # [n_categories-1, obs_dim]
 
         # Compute first component
@@ -398,7 +396,8 @@ class CompleteMixture[Observable: Differentiable](
         projected_comps = cmp_man_minus.map(to_interaction, components_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.clq_map.from_matrix(projected_comps.T)
+        (xz,) = self.level_split()[1]
+        int_mat = self.clq_map(xz).from_matrix(projected_comps.T)
         lkl_params = self.lkl_fun_man.join_coords(obs_bias, int_mat)
 
         return self.join_conjugated(lkl_params, prior)
@@ -454,6 +453,7 @@ class AnalyticMixture[Observable: Analytic](
         int_cols = cmp_man1.map(to_interaction, nat_comps_rest)
 
         # Transpose to [obs_dim, n_categories-1] and convert to int_man storage
-        int_mat = self.int_man.clq_map.from_matrix(int_cols.T)
+        (xz,) = self.level_split()[1]
+        int_mat = self.clq_map(xz).from_matrix(int_cols.T)
 
         return self.lkl_fun_man.join_coords(obs_bias, int_mat)

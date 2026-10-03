@@ -67,7 +67,7 @@ class TestGraph:
 
     def test_interaction_holds_one_clique_per_branch(self) -> None:
         model = cca(fst_dim=3, snd_dim=2, lat_dim=2)
-        assert model.int_man.clq_dims == (3 * 2, 2 * 2)
+        assert model.crs_man.clq_dims == (3 * 2, 2 * 2)
 
     def test_branch_forms_contract_the_shared_latent(self) -> None:
         """What lets a single ``CrossMap`` hold both branches.
@@ -75,12 +75,12 @@ class TestGraph:
         Each branch's clique map contracts the same latent node and outputs into its own
         observable node; the interaction's two sides are the whole pair and the latent.
         """
-        m = cca().int_man
-        fst, snd = (term.clq_map for term in m.terms)
+        model = cca()
+        fst, snd = (clq_map for _, clq_map in model.crs_man.terms)
         assert fst.dom_man == snd.dom_man
         assert fst.cod_man != snd.cod_man
-        assert fst.cod_man == TensorProduct((m.cod_man.fst_man,))
-        assert snd.cod_man == TensorProduct((m.cod_man.snd_man,))
+        assert fst.cod_man == TensorProduct((model.obs_man.fst_man,))
+        assert snd.cod_man == TensorProduct((model.obs_man.snd_man,))
 
 
 class TestDimensions:
@@ -132,7 +132,7 @@ class TestConjugation:
 
         obs_bias, int_params = model.lkl_fun_man.split_coords(lkl_params)
         fst_bias, snd_bias = model.obs_man.split_coords(obs_bias)
-        fst_int, snd_int = model.int_man.coord_blocks(int_params)
+        fst_int, snd_int = model.crs_man.coord_blocks(int_params)
         fst_lgm, snd_lgm = model.fst_lgm, model.snd_lgm
 
         expected = fst_lgm.conjugation_parameters(
@@ -149,7 +149,7 @@ class TestConjugation:
         obs_bias, int_params = model.lkl_fun_man.split_coords(
             model.likelihood_function(params)
         )
-        fst_int, snd_int = model.int_man.coord_blocks(int_params)
+        fst_int, snd_int = model.crs_man.coord_blocks(int_params)
         muted = model.lkl_fun_man.join_coords(
             obs_bias, jnp.concatenate([fst_int, jnp.zeros_like(snd_int)])
         )

@@ -73,8 +73,9 @@ CODE_MAX_VAR = 2.0
 CODE_MIN_VAR = 1e-3
 
 
-def build_unit2(code_dim: int, n_nodes: int, top_dim: int,
-                mlp_hidden: tuple[int, ...] = (64,)) -> VariationalHierarchical:
+def build_unit2(
+    code_dim: int, n_nodes: int, top_dim: int, mlp_hidden: tuple[int, ...] = (64,)
+) -> VariationalHierarchical:
     """Unit 2: Normal(code_dim) <- complete-graph Boltzmann(n_nodes) <- Normal(top_dim).
 
     The dense decoder couples every node to every code coordinate, so the
@@ -87,18 +88,22 @@ def build_unit2(code_dim: int, n_nodes: int, top_dim: int,
     top_var = BoltzmannPopulationCode(BoltzmannNormalHarmonium(mid_man, top_dim))
 
     lower_int = EmbeddedMap(
-        Rectangular(), BoltzmannNodeEmbedding(mid_man),
+        Rectangular(),
+        BoltzmannNodeEmbedding(mid_man),
         GeneralizedGaussianLocationEmbedding(obs_man),
     )
     lower_hrm = ConvChordalBoltzmannHarmonium(lower_int, mid_man)
 
-    mlp = MultilayerPerceptron(mid_man, full_normal(top_dim), mlp_hidden, jax.nn.gelu)
+    mlp = MultilayerPerceptron(full_normal(top_dim), mid_man, mlp_hidden, jax.nn.gelu)
     recog = HierarchicalRecognition(mid_man, mlp)
-    return VariationalHierarchical(top_var=top_var, lower_hrm=lower_hrm, recog_man=recog)
+    return VariationalHierarchical(
+        top_var=top_var, lower_hrm=lower_hrm, recog_man=recog
+    )
 
 
-def layer1_codes(model1: VariationalHierarchical, params1: Array, xs: Array,
-                 chunk: int = 256) -> Array:
+def layer1_codes(
+    model1: VariationalHierarchical, params1: Array, xs: Array, chunk: int = 256
+) -> Array:
     """Recognition-posterior means of q(z1 | x) -- unit 2's observable data."""
     d = model1.top_man.data_dim
 
@@ -109,10 +114,12 @@ def layer1_codes(model1: VariationalHierarchical, params1: Array, xs: Array,
         return jnp.linalg.solve(0.5 * (prec + prec.T), loc)
 
     f = jax.jit(jax.vmap(one))
-    return jnp.concatenate([f(xs[i:i + chunk]) for i in range(0, xs.shape[0], chunk)])
+    return jnp.concatenate([f(xs[i : i + chunk]) for i in range(0, xs.shape[0], chunk)])
 
 
-def seed_decoder_pca(model: VariationalHierarchical, params: Array, codes: Array) -> Array:
+def seed_decoder_pca(
+    model: VariationalHierarchical, params: Array, codes: Array
+) -> Array:
     """Seed unit 2's dense decoder from the PCA of the codes (FA-style).
 
     Column i of W (node i's loading) = sqrt(eigval_i) * v_i, so each binary node
@@ -127,7 +134,7 @@ def seed_decoder_pca(model: VariationalHierarchical, params: Array, codes: Array
     cc = codes - mu
     _, s, vt = jnp.linalg.svd(cc, full_matrices=False)
     scales = s[:n] / jnp.sqrt(codes.shape[0])  # component stds
-    w = (vt[:n].T * scales)  # (d, n), zero-padded implicitly if n > d
+    w = vt[:n].T * scales  # (d, n), zero-padded implicitly if n > d
     if n > d:
         w = jnp.concatenate([w, jnp.zeros((d, n - d))], axis=1)
 
@@ -139,14 +146,21 @@ def seed_decoder_pca(model: VariationalHierarchical, params: Array, codes: Array
     loc_mean = mu - 0.5 * jnp.sum(w, axis=1)
     theta_x = model.obs_man.join_location_precision(jnp.asarray(prec) * loc_mean, prec)
     lower_lkl = model.lower_hrm.lkl_fun_man.join_coords(theta_x, w.ravel())
-    print(f"  [seed-decoder-pca] W from top-{n} PCA of codes "
-          f"(component stds {float(scales.min()):.2f}..{float(scales.max()):.2f})")
+    print(
+        f"  [seed-decoder-pca] W from top-{n} PCA of codes "
+        f"(component stds {float(scales.min()):.2f}..{float(scales.max()):.2f})"
+    )
     return model.join_coords(top, lower_lkl, recog)
 
 
-def stack_generate(model1: VariationalHierarchical, params1: Array,
-                   model2: VariationalHierarchical, params2: Array,
-                   key: Array, n: int) -> Array:
+def stack_generate(
+    model1: VariationalHierarchical,
+    params1: Array,
+    model2: VariationalHierarchical,
+    params2: Array,
+    key: Array,
+    n: int,
+) -> Array:
     """Full-stack ancestral samples: z2 -> n2 -> z1 -> n1 -> E[x | n1]."""
     k2, k1y, k1x = jax.random.split(key, 3)
     joint2 = model2.sample(k2, params2, n)  # [z1_code, n2, z2]
@@ -157,7 +171,9 @@ def stack_generate(model1: VariationalHierarchical, params1: Array,
 
     def decode(k: Array, z1: Array) -> Array:
         s_z = model1.top_man.sufficient_statistic(z1)
-        y = model1.mid_man.sample(k, model1.top_var.gen_hrm.lkl_fun_man(top_lkl1, s_z), 1)[0]
+        y = model1.mid_man.sample(
+            k, model1.top_var.gen_hrm.lkl_fun_man(top_lkl1, s_z), 1
+        )[0]
         s_y = model1.mid_man.sufficient_statistic(y)
         x_nat = model1.lower_hrm.lkl_fun_man(lower_lkl1, s_y)
         return model1.obs_man.to_mean(x_nat)[: model1.obs_man.data_dim]
@@ -167,8 +183,11 @@ def stack_generate(model1: VariationalHierarchical, params1: Array,
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--layer1", required=True,
-                    help="unit-1 npz checkpoint (conv model; config via the conv args)")
+    ap.add_argument(
+        "--layer1",
+        required=True,
+        help="unit-1 npz checkpoint (conv model; config via the conv args)",
+    )
     ap.add_argument("--conv-in", type=int, nargs=2, default=list(MH.CONV_IN))
     ap.add_argument("--conv-stride", type=int, nargs=2, default=list(MH.CONV_STRIDE))
     ap.add_argument("--conv-kernel", type=int, nargs=2, default=[6, 4])
@@ -191,43 +210,67 @@ def main() -> None:
     train_x, test_x = MH.load_mnist(args.n_train, MH.N_TEST)
 
     model1 = MH.build_model(
-        "conv", 0, args.top_dim, conv_in=tuple(args.conv_in),
-        conv_stride=tuple(args.conv_stride), conv_kernel=tuple(args.conv_kernel),
-        conv_prior=args.conv_prior)
+        "conv",
+        0,
+        args.top_dim,
+        conv_in=tuple(args.conv_in),
+        conv_stride=tuple(args.conv_stride),
+        conv_kernel=tuple(args.conv_kernel),
+        conv_prior=args.conv_prior,
+    )
     params1 = jnp.asarray(np.load(args.layer1)["params"])
     print(f"unit 1: {args.layer1}")
 
     train_codes = layer1_codes(model1, params1, train_x)
     test_codes = layer1_codes(model1, params1, test_x)
-    print(f"codes: train {train_codes.shape}, per-dim std "
-          f"{float(jnp.std(train_codes, axis=0).min()):.2f}.."
-          f"{float(jnp.std(train_codes, axis=0).max()):.2f}")
+    print(
+        f"codes: train {train_codes.shape}, per-dim std "
+        f"{float(jnp.std(train_codes, axis=0).min()):.2f}.."
+        f"{float(jnp.std(train_codes, axis=0).max()):.2f}"
+    )
 
     model2 = build_unit2(args.top_dim, args.n2, args.z2_dim)
-    print(f"unit 2: Z1({args.top_dim}) <- N2(Boltzmann-{args.n2}, complete) "
-          f"<- Z2(Gaussian-{args.z2_dim}); mid dim={model2.mid_man.dim}")
+    print(
+        f"unit 2: Z1({args.top_dim}) <- N2(Boltzmann-{args.n2}, complete) "
+        f"<- Z2(Gaussian-{args.z2_dim}); mid dim={model2.mid_man.dim}"
+    )
 
     # Exactness self-check: the dense lower edge must be exactly conjugate.
     p0 = model2.initialize(jax.random.PRNGKey(1), 0.0, 0.3)
     ys = jax.random.bernoulli(jax.random.PRNGKey(2), 0.5, (32, args.n2)).astype(float)
-    max_ry = float(jnp.max(jnp.abs(
-        jax.vmap(lambda y: model2.residual_lower(p0, y))(ys))))
+    max_ry = float(
+        jnp.max(jnp.abs(jax.vmap(lambda y: model2.residual_lower(p0, y))(ys)))
+    )
     print(f"unit-2 lower edge max|r_Y| = {max_ry:.2e}")
     assert max_ry < 1e-10, "dense lower edge not exactly conjugate"
 
     # Init: from-code observable stats + PCA decoder seeding (saddle breaker).
-    params2 = model2.initialize_from_sample(jax.random.PRNGKey(3), train_codes,
-                                            location=0.0, shape=0.3)
+    params2 = model2.initialize_from_sample(
+        jax.random.PRNGKey(3), train_codes, location=0.0, shape=0.3
+    )
     params2 = MH.init_observation_noise(
-        model2, params2, jnp.mean(train_codes, axis=0), jnp.var(train_codes, axis=0),
-        min_var=CODE_MIN_VAR, max_var=args.max_var)
+        model2,
+        params2,
+        jnp.mean(train_codes, axis=0),
+        jnp.var(train_codes, axis=0),
+        min_var=CODE_MIN_VAR,
+        max_var=args.max_var,
+    )
     params2 = seed_decoder_pca(model2, params2, train_codes)
 
     params2 = MH.train(
-        model2, train_codes, test_codes, args.steps, k_train,
-        lambda_y=0.0, lambda_z=args.lambda_z, lr=args.lr,
-        max_var=args.max_var, marginal_y=args.marginal_y,
-        init_params=params2)
+        model2,
+        train_codes,
+        test_codes,
+        args.steps,
+        k_train,
+        lambda_y=0.0,
+        lambda_z=args.lambda_z,
+        lr=args.lr,
+        max_var=args.max_var,
+        marginal_y=args.marginal_y,
+        init_params=params2,
+    )
 
     # Metrics: code reconstruction + Z2 liveness through the FULL stack.
     ev = model2.mean_marginal_elbo if args.marginal_y else model2.mean_elbo
@@ -238,25 +281,32 @@ def main() -> None:
     # Figure: data / unit-1 prior samples / full-stack samples.
     n_show = 10
     gens1 = MH.generative_means(model1, params1, jax.random.fold_in(k_gen, 1), n_show)
-    gens_stack = stack_generate(model1, params1, model2, params2,
-                                jax.random.fold_in(k_gen, 2), n_show)
+    gens_stack = stack_generate(
+        model1, params1, model2, params2, jax.random.fold_in(k_gen, 2), n_show
+    )
     fig, axes = plt.subplots(3, n_show, figsize=(1.2 * n_show, 3.8))
     rows = [np.array(test_x[:n_show]), np.array(gens1), np.array(gens_stack)]
     labels = ["data", "unit-1 prior", "stack z2->x"]
     for r in range(3):
         for j in range(n_show):
-            axes[r, j].imshow(np.clip(rows[r][j].reshape(IMG, IMG), 0, 1),
-                              cmap="gray", vmin=0, vmax=1)
+            axes[r, j].imshow(
+                np.clip(rows[r][j].reshape(IMG, IMG), 0, 1), cmap="gray", vmin=0, vmax=1
+            )
             axes[r, j].axis("off")
         axes[r, 0].set_title(labels[r], loc="left", fontsize=9)
-    fig.suptitle(f"Stacked hierarchy: n2={args.n2} z2={args.z2_dim}  "
-                 f"unit-2 ELBO {e2:.1f}  Var[rZ2] {float(vrz2):.2f}")
+    fig.suptitle(
+        f"Stacked hierarchy: n2={args.n2} z2={args.z2_dim}  "
+        f"unit-2 ELBO {e2:.1f}  Var[rZ2] {float(vrz2):.2f}"
+    )
     fig.tight_layout()
 
     results_dir = example_paths(__file__).results_dir / args.outdir
     results_dir.mkdir(parents=True, exist_ok=True)
-    tag = (f"n2{args.n2}_z2{args.z2_dim}_lz{args.lambda_z:g}"
-           + ("_mg" if args.marginal_y else "") + f"_st{args.steps}")
+    tag = (
+        f"n2{args.n2}_z2{args.z2_dim}_lz{args.lambda_z:g}"
+        + ("_mg" if args.marginal_y else "")
+        + f"_st{args.steps}"
+    )
     out = results_dir / f"mnist_stack_{tag}.png"
     fig.savefig(out, dpi=130)
     np.savez(out.with_suffix(".npz"), params=np.asarray(params2))

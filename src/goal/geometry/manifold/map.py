@@ -22,7 +22,7 @@ from .combinators import Pair
 
 
 @dataclass(frozen=True)
-class Map[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
+class Map[Codomain: Manifold, Domain: Manifold](Manifold, ABC):
     """A parameterized function between manifolds, itself a ``Manifold`` whose points are the function's parameters.
 
     The contract is just enough to apply the function: a domain manifold, a codomain manifold, and ``__call__`` that takes parameters and a domain point and returns a codomain point. ``dim`` (inherited from ``Manifold``) is the number of parameters.
@@ -51,7 +51,7 @@ class Map[Domain: Manifold, Codomain: Manifold](Manifold, ABC):
 
 
 @dataclass(frozen=True)
-class LinearMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain], ABC):
+class LinearMap[Codomain: Manifold, Domain: Manifold](Map[Codomain, Domain], ABC):
     """A linear transformation between manifolds.
 
     Adds linear-specific operations to ``Map``: transpose and outer product. Concrete
@@ -64,7 +64,7 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain], ABC
 
     @property
     @abstractmethod
-    def trn_man(self) -> LinearMap[Codomain, Domain]:
+    def trn_man(self) -> LinearMap[Domain, Codomain]:
         """Manifold of transposed linear maps."""
 
     @abstractmethod
@@ -84,7 +84,7 @@ class LinearMap[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain], ABC
 
 
 @dataclass(frozen=True)
-class MatrixMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain]):
+class MatrixMap[Codomain: Manifold, Domain: Manifold](LinearMap[Codomain, Domain]):
     """A linear map backed by a ``MatrixRep``, acting on the full domain and codomain.
 
     The matrix has shape $(\\dim(codomain), \\dim(domain))$ and is stored flat according to
@@ -96,11 +96,11 @@ class MatrixMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain
     rep: MatrixRep
     """The matrix representation strategy for this linear map."""
 
-    _dom_man: Domain
-    """The domain manifold."""
-
     _cod_man: Codomain
     """The codomain manifold."""
+
+    _dom_man: Domain
+    """The domain manifold."""
 
     # Overrides
 
@@ -121,8 +121,8 @@ class MatrixMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain
 
     @property
     @override
-    def trn_man(self) -> MatrixMap[Codomain, Domain]:
-        return MatrixMap(self.rep, self.cod_man, self.dom_man)
+    def trn_man(self) -> MatrixMap[Domain, Codomain]:
+        return MatrixMap(self.rep, self.dom_man, self.cod_man)
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
@@ -163,17 +163,17 @@ class MatrixMap[Domain: Manifold, Codomain: Manifold](LinearMap[Domain, Codomain
 
     def embed_rep(
         self, f_coords: Array, target_rep: MatrixRep
-    ) -> tuple[MatrixMap[Domain, Codomain], Array]:
+    ) -> tuple[MatrixMap[Codomain, Domain], Array]:
         """Embed into a more general representation (e.g. Diagonal -> Symmetric)."""
-        target_man = MatrixMap(target_rep, self.dom_man, self.cod_man)
+        target_man = MatrixMap(target_rep, self.cod_man, self.dom_man)
         coords = self.rep.embed_params(self.matrix_shape, f_coords, target_rep)
         return target_man, coords
 
     def project_rep(
         self, f_coords: Array, target_rep: MatrixRep
-    ) -> tuple[MatrixMap[Domain, Codomain], Array]:
+    ) -> tuple[MatrixMap[Codomain, Domain], Array]:
         """Project to a more constrained representation (e.g. Symmetric -> Diagonal)."""
-        target_man = MatrixMap(target_rep, self.dom_man, self.cod_man)
+        target_man = MatrixMap(target_rep, self.cod_man, self.dom_man)
         coords = self.rep.project_params(self.matrix_shape, f_coords, target_rep)
         return target_man, coords
 
@@ -219,11 +219,11 @@ class SquareMap[M: Manifold](MatrixMap[M, M]):
 
 @dataclass(frozen=True)
 class AffineMap[
-    Domain: Manifold,
     Codomain: Manifold,
+    Domain: Manifold,
 ](
-    Pair[Codomain, LinearMap[Domain, Codomain]],
-    Map[Domain, Codomain],
+    Pair[Codomain, LinearMap[Codomain, Domain]],
+    Map[Codomain, Domain],
 ):
     """A linear map plus a bias: $A(x) = L(x) + b$.
 
@@ -236,7 +236,7 @@ class AffineMap[
 
     # Fields
 
-    map_man: LinearMap[Domain, Codomain]
+    map_man: LinearMap[Codomain, Domain]
     """The linear transformation for this affine map."""
 
     _dom_man: Domain
@@ -261,7 +261,7 @@ class AffineMap[
 
     @property
     @override
-    def snd_man(self) -> LinearMap[Domain, Codomain]:
+    def snd_man(self) -> LinearMap[Codomain, Domain]:
         return self.map_man
 
     @override
@@ -275,7 +275,7 @@ class AffineMap[
 
 
 @dataclass(frozen=True)
-class MultilayerPerceptron[Domain: Manifold, Codomain: Manifold](Map[Domain, Codomain]):
+class MultilayerPerceptron[Codomain: Manifold, Domain: Manifold](Map[Codomain, Domain]):
     """A feedforward MLP between manifolds.
 
     Outputs ``cod_man.dim`` raw values via configurable hidden layers and a fixed activation. For codomains with parameter constraints (e.g. positive-definite precision matrices), constraint-respecting outputs are the responsibility of a wrapping layer or a specialized subclass — this base class emits raw vectors.
@@ -285,11 +285,11 @@ class MultilayerPerceptron[Domain: Manifold, Codomain: Manifold](Map[Domain, Cod
 
     # Fields
 
-    _dom_man: Domain
-    """The domain manifold."""
-
     _cod_man: Codomain
     """The codomain manifold."""
+
+    _dom_man: Domain
+    """The domain manifold."""
 
     hidden_dims: tuple[int, ...]
     """Widths of hidden layers; empty for a linear MLP (single weight matrix)."""

@@ -36,8 +36,12 @@ def main() -> None:
 
     ax = axes[1]
     for r in results:
-        ax.plot(r["steps"], r["gen_var_traj"], color=COLORS.get(r["kind"], "k"),
-                label=r["kind"])
+        ax.plot(
+            r["steps"],
+            r["gen_var_traj"],
+            color=COLORS.get(r["kind"], "k"),
+            label=r["kind"],
+        )
     ax.set_xlabel("step")
     ax.set_ylabel(r"Var$_p[r]$ (generative conjugation residual)")
     ax.set_title("Conjugation residual variance")
@@ -55,8 +59,14 @@ def main() -> None:
     ax.set_ylabel("ELBO gap to ceiling (lower better)")
     ax.set_title("Final gap + reconstruction MSE")
     for b, m in zip(bars, mses):
-        ax.text(b.get_x() + b.get_width() / 2, b.get_height(),
-                f"MSE\n{m:.3f}", ha="center", va="bottom", fontsize=8)
+        ax.text(
+            b.get_x() + b.get_width() / 2,
+            b.get_height(),
+            f"MSE\n{m:.3f}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
 
     out = results_dir / "hierarchical_experiment.png"
     fig.savefig(out, dpi=130)

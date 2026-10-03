@@ -71,17 +71,17 @@ class Harmonium[
     # Methods
 
     @property
-    def int_man(self) -> CrossMap[Posterior, Observable]:
+    def int_man(self) -> CrossMap[Observable, Posterior]:
         """The interaction: the cross partition."""
         return self.crs_man
 
     @property
-    def lkl_fun_man(self) -> AffineMap[Posterior, Observable]:
+    def lkl_fun_man(self) -> AffineMap[Observable, Posterior]:
         """Manifold of likelihood distributions $p(x \\mid z)$."""
         return AffineMap(self.int_man, self.pst_man)
 
     @property
-    def pst_fun_man(self) -> AffineMap[Observable, Posterior]:
+    def pst_fun_man(self) -> AffineMap[Posterior, Observable]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
         return AffineMap(self.int_man.trn_man, self.obs_man)
 
@@ -248,7 +248,7 @@ class Conjugated[
 
     @property
     @abstractmethod
-    def pst_prr_emb(self) -> LinearEmbedding[Posterior, Prior]:
+    def pst_prr_emb(self) -> LinearEmbedding[Prior, Posterior]:
         """Embedding of the posterior latent submanifold into the prior latent manifold."""
 
     @abstractmethod
@@ -479,7 +479,7 @@ class HarmoniumEmbedding[
     Observable: Gibbs,
     Posterior: Gibbs,
     Component: Manifold,
-](LinearEmbedding[Component, Harmonium[Observable, Posterior]], ABC):
+](LinearEmbedding[Harmonium[Observable, Posterior], Component], ABC):
     """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
 
     Projection extracts the ``hrm_idx``-th block of :meth:`~goal.geometry.manifold.clique.RecursiveLinearCliques.split_level`; embedding sets that block and zeros the other two. Because it addresses the level split rather than individual cliques, it stays correct when a model declares a deeper graph and its block count grows.
@@ -538,7 +538,7 @@ class ObservableEmbedding[
 class InteractionEmbedding[
     Observable: Gibbs,
     Posterior: Gibbs,
-](HarmoniumEmbedding[Observable, Posterior, LinearMap[Posterior, Observable]]):
+](HarmoniumEmbedding[Observable, Posterior, LinearMap[Observable, Posterior]]):
     """Embeds the interaction manifold of a harmonium into the full harmonium space."""
 
     # Overrides
@@ -550,7 +550,7 @@ class InteractionEmbedding[
 
     @property
     @override
-    def sub_man(self) -> LinearMap[Posterior, Observable]:
+    def sub_man(self) -> LinearMap[Observable, Posterior]:
         return self.hrm_man.int_man
 
 

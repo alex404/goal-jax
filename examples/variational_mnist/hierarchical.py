@@ -116,7 +116,7 @@ from .model import ConcreteHarmonium
 
 @dataclass(frozen=True)
 class HierarchicalRecognition[MidLatent: Differentiable](
-    Pair[MidLatent, MultilayerPerceptron[MidLatent, FullNormal]]
+    Pair[MidLatent, MultilayerPerceptron[FullNormal, MidLatent]]
 ):
     """Storage for the two recognition tiers not held inside ``top_var``.
 
@@ -127,7 +127,7 @@ class HierarchicalRecognition[MidLatent: Differentiable](
     """
 
     _mid_man: MidLatent
-    _mlp: MultilayerPerceptron[MidLatent, FullNormal]
+    _mlp: MultilayerPerceptron[FullNormal, MidLatent]
 
     @property
     @override
@@ -136,7 +136,7 @@ class HierarchicalRecognition[MidLatent: Differentiable](
 
     @property
     @override
-    def snd_man(self) -> MultilayerPerceptron[MidLatent, FullNormal]:
+    def snd_man(self) -> MultilayerPerceptron[FullNormal, MidLatent]:
         return self._mlp
 
 
@@ -151,7 +151,7 @@ class VariationalHierarchical[
     Generative,
     Triple[
         BoltzmannPopulationCode[MidLatent],
-        AffineMap[MidLatent, Observable],
+        AffineMap[Observable, MidLatent],
         HierarchicalRecognition[MidLatent],
     ],
 ):
@@ -188,7 +188,7 @@ class VariationalHierarchical[
 
     @property
     @override
-    def snd_man(self) -> AffineMap[MidLatent, Observable]:
+    def snd_man(self) -> AffineMap[Observable, MidLatent]:
         return self.lower_hrm.lkl_fun_man
 
     @property
@@ -214,7 +214,7 @@ class VariationalHierarchical[
         return self.top_var.lat_man
 
     @property
-    def mlp_man(self) -> MultilayerPerceptron[MidLatent, FullNormal]:
+    def mlp_man(self) -> MultilayerPerceptron[FullNormal, MidLatent]:
         """Amortized inner-slope map manifold."""
         return self.recog_man.snd_man
 
@@ -308,7 +308,9 @@ class VariationalHierarchical[
         clamped = jnp.maximum(evals, floor)
         new_loc = evecs @ (clamped * mu_rot)
         prec_new = (evecs * clamped) @ evecs.T
-        return self.top_man.join_location_precision(new_loc, cov.rep.from_matrix(prec_new))
+        return self.top_man.join_location_precision(
+            new_loc, cov.rep.from_matrix(prec_new)
+        )
 
     def approximate_posterior_top(self, params: Array, x: Array) -> Array:
         """q(z | x) natural parameters eta_hat_{Z|X}(x) = (theta*_Z - rho0_Z) + rho^X_Z(x).
@@ -416,9 +418,7 @@ class VariationalHierarchical[
             params, x, z
         )
 
-    def learning_signal(
-        self, params: Array, x: Array, y: Array, z: Array
-    ) -> Array:
+    def learning_signal(self, params: Array, x: Array, y: Array, z: Array) -> Array:
         """f(x,y,z) - c(x) = r_Y(y) + r*_Z(z) - r_inner_Z(z; x)."""
         return self.residual_lower(params, y) + self.learning_signal_z(params, x, z)
 
@@ -466,7 +466,11 @@ class VariationalHierarchical[
         return z
 
     def elbo_at(
-        self, key: Array, params: Array, x: Array, n_samples: int,
+        self,
+        key: Array,
+        params: Array,
+        x: Array,
+        n_samples: int,
         reparam_z: bool = False,
     ) -> Array:
         """Standard-form ELBO L(x) = c(x) + E_q[r_Y + r*_Z - r_inner_Z].
@@ -507,7 +511,9 @@ class VariationalHierarchical[
         y_keys = jax.random.split(ky, n_samples)
 
         def sample_y(subkey: Array, z: Array) -> Array:
-            return self.mid_man.sample(subkey, self.posterior_mid_at(params, x, z), 1)[0]
+            return self.mid_man.sample(subkey, self.posterior_mid_at(params, x, z), 1)[
+                0
+            ]
 
         y_samples = jax.lax.stop_gradient(jax.vmap(sample_y)(y_keys, z_samples))
 
@@ -516,7 +522,9 @@ class VariationalHierarchical[
             y_samples, z_samples
         )
         log_qy = jax.vmap(
-            lambda y, z: self.mid_man.log_density(self.posterior_mid_at(params, x, z), y)
+            lambda y, z: self.mid_man.log_density(
+                self.posterior_mid_at(params, x, z), y
+            )
         )(y_samples, z_samples)
 
         direct = jnp.mean(signal)  # pathwise z-gradient rides through signal
@@ -526,7 +534,11 @@ class VariationalHierarchical[
         return c_x + direct + score - jax.lax.stop_gradient(score)
 
     def mean_elbo(
-        self, key: Array, params: Array, xs: Array, n_samples: int,
+        self,
+        key: Array,
+        params: Array,
+        xs: Array,
+        n_samples: int,
         reparam_z: bool = False,
     ) -> Array:
         """Mean ELBO over a batch."""
@@ -536,7 +548,9 @@ class VariationalHierarchical[
         )(keys, xs)
         return jnp.mean(elbos)
 
-    def marginal_elbo_at(self, key: Array, params: Array, x: Array, n_samples: int) -> Array:
+    def marginal_elbo_at(
+        self, key: Array, params: Array, x: Array, n_samples: int
+    ) -> Array:
         """Exact-N ELBO: L(x) = c(x) + E_{q(z|x)}[r*_Z - r_inner_Z], z pathwise.
 
         Requires an analytically conjugate lower edge: with ``r_Y == 0``
@@ -561,9 +575,9 @@ class VariationalHierarchical[
     ) -> Array:
         """Mean exact-N ELBO over a batch."""
         keys = jax.random.split(key, xs.shape[0])
-        elbos = jax.vmap(
-            lambda k, x: self.marginal_elbo_at(k, params, x, n_samples)
-        )(keys, xs)
+        elbos = jax.vmap(lambda k, x: self.marginal_elbo_at(k, params, x, n_samples))(
+            keys, xs
+        )
         return jnp.mean(elbos)
 
     def log_q(self, params: Array, x: Array, y: Array, z: Array) -> Array:
@@ -617,7 +631,9 @@ class VariationalHierarchical[
         Drives the *generative* model toward conjugation. See
         :meth:`prior_conjugation_loss_components` for the per-edge split.
         """
-        var_r_y, var_r_z = self.prior_conjugation_loss_components(key, params, n_samples)
+        var_r_y, var_r_z = self.prior_conjugation_loss_components(
+            key, params, n_samples
+        )
         return var_r_y + var_r_z
 
     def recognition_inner_loss_at(
@@ -657,7 +673,9 @@ class VariationalHierarchical[
     @override
     def log_base_measure(self, x: Array) -> Array:
         obs = x[..., : self.obs_man.data_dim]
-        mid = x[..., self.obs_man.data_dim : self.obs_man.data_dim + self.mid_man.data_dim]
+        mid = x[
+            ..., self.obs_man.data_dim : self.obs_man.data_dim + self.mid_man.data_dim
+        ]
         top = x[..., self.obs_man.data_dim + self.mid_man.data_dim :]
         return (
             self.obs_man.log_base_measure(obs)
@@ -706,7 +724,9 @@ class VariationalHierarchical[
     # --- Initialization ---------------------------------------------------
 
     @override
-    def initialize(self, key: Array, location: float = 0.0, shape: float = 0.1) -> Array:
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
         """Initialize with zero conjugation vectors and a small-weight MLP."""
         k_top, k_low, k_mlp = jax.random.split(key, 3)
         top = self.top_var.initialize(k_top, location, shape)
@@ -738,7 +758,7 @@ class VariationalHierarchical[
 
 
 @dataclass(frozen=True)
-class BoltzmannNodeEmbedding[B: Boltzmann](LinearEmbedding[Bernoullis, B]):
+class BoltzmannNodeEmbedding[B: Boltzmann](LinearEmbedding[B, Bernoullis]):
     """Expose only the first-order (node-activity) subspace of a Boltzmann.
 
     A Boltzmann's sufficient statistic packs node activities ``y_i`` on the
@@ -796,12 +816,12 @@ class ConvBoltzmannHarmonium(SymmetricConjugated[Normal[Diagonal], DiagonalBoltz
     learned conjugation vector on this edge.
     """
 
-    _int_man: EmbeddedLinearMap[DiagonalBoltzmann, Normal[Diagonal]]
+    _int_man: EmbeddedLinearMap[Normal[Diagonal], DiagonalBoltzmann]
     _lat_man: DiagonalBoltzmann
 
     @property
     @override
-    def int_man(self) -> LinearMap[DiagonalBoltzmann, Normal[Diagonal]]:
+    def int_man(self) -> LinearMap[Normal[Diagonal], DiagonalBoltzmann]:
         return self._int_man
 
     @property
@@ -821,7 +841,9 @@ class ConvBoltzmannHarmonium(SymmetricConjugated[Normal[Diagonal], DiagonalBoltz
 
         def col(i: Array) -> Array:
             s_n = jnp.zeros(n).at[i].set(1.0)
-            loc, _ = self.obs_man.split_location_precision(self.lkl_fun_man(lkl_params, s_n))
+            loc, _ = self.obs_man.split_location_precision(
+                self.lkl_fun_man(lkl_params, s_n)
+            )
             return loc - loc0
 
         w = jax.vmap(col)(jnp.arange(n)).T  # (obs_dim, n_nodes)
@@ -829,7 +851,9 @@ class ConvBoltzmannHarmonium(SymmetricConjugated[Normal[Diagonal], DiagonalBoltz
 
 
 @dataclass(frozen=True)
-class ConvChordalBoltzmannHarmonium(SymmetricConjugated[Normal[Diagonal], ChordalBoltzmann]):
+class ConvChordalBoltzmannHarmonium(
+    SymmetricConjugated[Normal[Diagonal], ChordalBoltzmann]
+):
     """Diagonal-Gaussian observable, *chordal*-Boltzmann latent, conv interaction.
 
     The overlapping-kernel counterpart of :class:`ConvBoltzmannHarmonium`: with
@@ -844,12 +868,12 @@ class ConvChordalBoltzmannHarmonium(SymmetricConjugated[Normal[Diagonal], Chorda
     This buys smooth, seam-free receptive fields while keeping ``r_Y == 0``.
     """
 
-    _int_man: EmbeddedLinearMap[ChordalBoltzmann, Normal[Diagonal]]
+    _int_man: EmbeddedLinearMap[Normal[Diagonal], ChordalBoltzmann]
     _lat_man: ChordalBoltzmann
 
     @property
     @override
-    def int_man(self) -> LinearMap[ChordalBoltzmann, Normal[Diagonal]]:
+    def int_man(self) -> LinearMap[Normal[Diagonal], ChordalBoltzmann]:
         return self._int_man
 
     @property
@@ -869,16 +893,16 @@ class ConvChordalBoltzmannHarmonium(SymmetricConjugated[Normal[Diagonal], Chorda
 
         def col(i: Array) -> Array:
             s_n = jnp.zeros(self.lat_man.dim).at[i].set(1.0)  # node slots come first
-            loc, _ = self.obs_man.split_location_precision(self.lkl_fun_man(lkl_params, s_n))
+            loc, _ = self.obs_man.split_location_precision(
+                self.lkl_fun_man(lkl_params, s_n)
+            )
             return loc - loc0
 
         w = jax.vmap(col)(jnp.arange(n)).T  # (obs_dim, n_nodes)
         wsw = w.T @ (sigma[:, None] * w)  # (n, n) = W^T Sigma W
         rho_diag = w.T @ mu + 0.5 * jnp.diagonal(wsw)
         edges = self.lat_man.junction_tree.chordal_edges_arr
-        rho_off = (
-            wsw[edges[:, 0], edges[:, 1]] if edges.shape[0] > 0 else jnp.zeros(0)
-        )
+        rho_off = wsw[edges[:, 0], edges[:, 1]] if edges.shape[0] > 0 else jnp.zeros(0)
         return self.lat_man.join_couplings(rho_diag, rho_off)
 
 
@@ -943,11 +967,15 @@ def build_boltzmann_gaussian_hierarchy(
         if obs_location_only
         else IdentityEmbedding(obs_man)
     )
-    lat_emb = IdentityEmbedding(mid_man) if couple_edges else BoltzmannNodeEmbedding(mid_man)
+    lat_emb = (
+        IdentityEmbedding(mid_man) if couple_edges else BoltzmannNodeEmbedding(mid_man)
+    )
     lower_int = EmbeddedMap(Rectangular(), lat_emb, obs_emb)
     lower_hrm = ConcreteHarmonium(lower_int)
 
-    mlp = MultilayerPerceptron(mid_man, full_normal(top_dim), mlp_hidden, mlp_activation)
+    mlp = MultilayerPerceptron(
+        full_normal(top_dim), mid_man, mlp_hidden, mlp_activation
+    )
     recog = HierarchicalRecognition(mid_man, mlp)
 
     return VariationalHierarchical(
@@ -1017,17 +1045,26 @@ induced_coupling_graph`), the support the conjugation parameter
     n_mid = prod(in_lattice) * in_channels
     bernoullis = Bernoullis(n_neurons=n_mid)
     conv = LatticeConvolution.create(
-        bernoullis, obs_man.loc_man, in_lattice, stride, kernel_shape,
-        in_channels, out_channels,
+        bernoullis,
+        obs_man.loc_man,
+        in_lattice,
+        stride,
+        kernel_shape,
+        in_channels,
+        out_channels,
     )
 
     mid_man: Boltzmann
     if prior_graph == "diagonal":
         mid_man = DiagonalBoltzmann(n_neurons=n_mid)
     elif prior_graph == "chordal":
-        mid_man = ChordalBoltzmann.from_edges(n_mid, conv.induced_edges(), max_treewidth)
+        mid_man = ChordalBoltzmann.from_edges(
+            n_mid, conv.induced_edges(), max_treewidth
+        )
     else:
-        raise ValueError(f"prior_graph must be 'chordal' or 'diagonal', got {prior_graph!r}")
+        raise ValueError(
+            f"prior_graph must be 'chordal' or 'diagonal', got {prior_graph!r}"
+        )
     top_var = BoltzmannPopulationCode(BoltzmannNormalHarmonium(mid_man, top_dim))
 
     lat_emb = BoltzmannNodeEmbedding(mid_man)
@@ -1042,7 +1079,9 @@ induced_coupling_graph`), the support the conjugation parameter
         assert isinstance(mid_man, ChordalBoltzmann)
         lower_hrm = ConvChordalBoltzmannHarmonium(lower_int, mid_man)
 
-    mlp = MultilayerPerceptron(mid_man, full_normal(top_dim), mlp_hidden, mlp_activation)
+    mlp = MultilayerPerceptron(
+        full_normal(top_dim), mid_man, mlp_hidden, mlp_activation
+    )
     recog = HierarchicalRecognition(mid_man, mlp)
 
     return top_var, lower_hrm, recog
@@ -1068,9 +1107,18 @@ def build_conv_boltzmann_gaussian_hierarchy(
     prior held inside ``top_var``.
     """
     top_var, lower_hrm, recog = conv_hierarchy_components(
-        obs_man, in_lattice, stride, kernel_shape, top_dim,
-        in_channels=in_channels, out_channels=out_channels,
-        prior_graph=prior_graph, max_treewidth=max_treewidth,
-        mlp_hidden=mlp_hidden, mlp_activation=mlp_activation,
+        obs_man,
+        in_lattice,
+        stride,
+        kernel_shape,
+        top_dim,
+        in_channels=in_channels,
+        out_channels=out_channels,
+        prior_graph=prior_graph,
+        max_treewidth=max_treewidth,
+        mlp_hidden=mlp_hidden,
+        mlp_activation=mlp_activation,
     )
-    return VariationalHierarchical(top_var=top_var, lower_hrm=lower_hrm, recog_man=recog)
+    return VariationalHierarchical(
+        top_var=top_var, lower_hrm=lower_hrm, recog_man=recog
+    )

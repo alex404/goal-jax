@@ -51,7 +51,8 @@ def main() -> None:
         print(f"=== middle = {kind} ===")
         try:
             k_tr, k_rec, k_gen, k_res = jax.random.split(
-                jax.random.fold_in(k_rest, hash(kind) % 1000), 4)
+                jax.random.fold_in(k_rest, hash(kind) % 1000), 4
+            )
             model = MH.build_model(kind, args.n_mid, args.top_dim)
             params = MH.train(model, train_data, test_data, args.steps, k_tr)
 
@@ -63,13 +64,21 @@ def main() -> None:
             recon_rows[kind] = np.array(recons)
             gen_rows[kind] = np.clip(np.array(gens), 0, 1)
             results.append({"kind": kind, "elbo": elbo, "mse": mse, "gvar": gvar})
-            print(f"  -> test ELBO {elbo:.2f}  recon MSE {mse:.4f}  Var[r] {gvar:.4f}\n")
+            print(
+                f"  -> test ELBO {elbo:.2f}  recon MSE {mse:.4f}  Var[r] {gvar:.4f}\n"
+            )
         except Exception as e:
             print(f"  !! {kind} failed: {type(e).__name__}: {e}\n")
             recon_rows[kind] = np.zeros((8, MH.N_OBS))
             gen_rows[kind] = np.zeros((8, MH.N_OBS))
-            results.append({"kind": kind, "elbo": float("nan"),
-                            "mse": float("nan"), "gvar": float("nan")})
+            results.append(
+                {
+                    "kind": kind,
+                    "elbo": float("nan"),
+                    "mse": float("nan"),
+                    "gvar": float("nan"),
+                }
+            )
 
     print("=" * 60)
     print(f"{'middle':10s} {'test ELBO':>10s} {'recon MSE':>10s} {'Var[r]':>9s}")
@@ -81,16 +90,24 @@ def main() -> None:
     rows = ["data"] + [f"recon:{m}" for m in MIDDLES] + [f"gen:{m}" for m in MIDDLES]
     fig, axes = plt.subplots(len(rows), 8, figsize=(11, 1.3 * len(rows)))
     for j in range(8):
-        axes[0, j].imshow(np.array(show[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1)
+        axes[0, j].imshow(
+            np.array(show[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1
+        )
         for i, m in enumerate(MIDDLES):
-            axes[1 + i, j].imshow(recon_rows[m][j].reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1)
-            axes[4 + i, j].imshow(gen_rows[m][j].reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1)
+            axes[1 + i, j].imshow(
+                recon_rows[m][j].reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1
+            )
+            axes[4 + i, j].imshow(
+                gen_rows[m][j].reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1
+            )
     for i, label in enumerate(rows):
         axes[i, 0].set_ylabel(label, rotation=0, ha="right", va="center", fontsize=9)
         for j in range(8):
             axes[i, j].set_xticks([])
             axes[i, j].set_yticks([])
-    fig.suptitle("Hierarchical variational conjugation on MNIST: middle-layer connectivity")
+    fig.suptitle(
+        "Hierarchical variational conjugation on MNIST: middle-layer connectivity"
+    )
     fig.tight_layout()
     results_dir = example_paths(__file__).results_dir
     results_dir.mkdir(parents=True, exist_ok=True)

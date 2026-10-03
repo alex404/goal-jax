@@ -60,7 +60,7 @@ def node_edge_support_mask(
     obs_dim = (n_nodes + n_edges) * block
     mask = np.zeros((obs_dim, n_nodes))
     for i in range(n_nodes):  # private node blocks
-        mask[i * block:(i + 1) * block, i] = 1.0
+        mask[i * block : (i + 1) * block, i] = 1.0
     for k, (a, b) in enumerate(edges):  # shared edge blocks
         rows = slice((n_nodes + k) * block, (n_nodes + k + 1) * block)
         mask[rows, a] = 1.0
@@ -89,19 +89,27 @@ def check_masked_loading(
 
     k_w, k_s = jax.random.split(key)
     w = mask * jax.random.normal(k_w, mask.shape)  # free loadings within the mask
-    sigma = jnp.exp(jax.random.normal(k_s, (obs_dim,)))  # arbitrary positive diagonal Sigma
+    sigma = jnp.exp(
+        jax.random.normal(k_s, (obs_dim,))
+    )  # arbitrary positive diagonal Sigma
     p = induced_conjugation_precision(w, sigma)
 
-    off = jnp.abs(p) * (1.0 - supp)               # entries that MUST be zero
-    on_offdiag = jnp.abs(p) * (supp - jnp.eye(n_nodes))  # edges: should be generically nonzero
+    off = jnp.abs(p) * (1.0 - supp)  # entries that MUST be zero
+    on_offdiag = jnp.abs(p) * (
+        supp - jnp.eye(n_nodes)
+    )  # edges: should be generically nonzero
     off_max = float(jnp.max(off))
     on_min = float(jnp.min(on_offdiag[on_offdiag > 0])) if edges else float("nan")
     recovered = (jnp.abs(p) > 1e-9).astype(float)
     matches = bool(jnp.all(recovered == supp))
 
-    print(f"  nodes={n_nodes} edges={len(edges)} obs_dim={obs_dim}  Theta_XY free params={int(mask.sum())}/{mask.size}")
+    print(
+        f"  nodes={n_nodes} edges={len(edges)} obs_dim={obs_dim}  Theta_XY free params={int(mask.sum())}/{mask.size}"
+    )
     print(f"    max |P^sigma| OFF support   : {off_max:.2e}   (must be ~0)")
-    print(f"    min |P^sigma| ON  edges      : {on_min:.2e}   (nonzero => not a trivial fit)")
+    print(
+        f"    min |P^sigma| ON  edges      : {on_min:.2e}   (nonzero => not a trivial fit)"
+    )
     print(f"    recovered support == G       : {matches}")
     assert off_max < 1e-10, "P^sigma leaked off the target graph"
     assert matches, "recovered support does not equal G"
@@ -111,12 +119,14 @@ def check_sigma_orthonormal_diagonal(obs_dim: int, n_nodes: int, key: Array) -> 
     """The ``S = diagonal`` instance: W = Sigma^{-1/2} Q D (Q Stiefel) => W^T Sigma W = D^2."""
     k_q, k_d, k_s = jax.random.split(key, 3)
     sigma = jnp.exp(jax.random.normal(k_s, (obs_dim,)))
-    q, _ = jnp.linalg.qr(jax.random.normal(k_q, (obs_dim, n_nodes)))  # orthonormal columns
+    q, _ = jnp.linalg.qr(
+        jax.random.normal(k_q, (obs_dim, n_nodes))
+    )  # orthonormal columns
     d = jax.random.normal(k_d, (n_nodes,))
-    w = (sigma ** -0.5)[:, None] * q * d[None, :]
+    w = (sigma**-0.5)[:, None] * q * d[None, :]
     p = induced_conjugation_precision(w, sigma)
     off_diag_max = float(jnp.max(jnp.abs(p - jnp.diag(jnp.diagonal(p)))))
-    diag_err = float(jnp.max(jnp.abs(jnp.diagonal(p) - d ** 2)))
+    diag_err = float(jnp.max(jnp.abs(jnp.diagonal(p) - d**2)))
     print(f"  diagonal case: obs_dim={obs_dim} n_nodes={n_nodes}")
     print(f"    max |off-diagonal P^sigma|   : {off_diag_max:.2e}   (must be ~0)")
     print(f"    ||diag(P^sigma) - D^2||_inf   : {diag_err:.2e}")
@@ -166,17 +176,25 @@ def check_conv_loading(h: int, w: int, ksize: int, key: Array) -> None:
     sigma = jnp.exp(jax.random.normal(k_s, (h * w,)))
     p = induced_conjugation_precision(conv, sigma)
 
-    radius = ksize - 1  # two radius-(ksize//2) footprints overlap within Chebyshev 2*(ksize//2)
+    radius = (
+        ksize - 1
+    )  # two radius-(ksize//2) footprints overlap within Chebyshev 2*(ksize//2)
     supp = chebyshev_graph(h, w, radius)
     off_max = float(jnp.max(jnp.abs(p) * (1.0 - supp)))
     realized = float(jnp.mean((jnp.abs(p) > 1e-9)[supp > 0]))
     max_neighbors = int(jnp.max(jnp.sum(jnp.abs(p) > 1e-9, axis=1)))
-    print(f"  conv {ksize}x{ksize} on {h}x{w} latent grid  (kernel params={ksize * ksize})")
+    print(
+        f"  conv {ksize}x{ksize} on {h}x{w} latent grid  (kernel params={ksize * ksize})"
+    )
     print(f"    P^sigma support radius       : Chebyshev <= {radius}")
     print(f"    max |P^sigma| beyond radius  : {off_max:.2e}   (must be ~0)")
     print(f"    fraction of dist<={radius} edges realized: {realized:.2f}")
-    print(f"    max couplings per latent      : {max_neighbors}  (=> thin-grid treewidth ~ 2*width)")
-    assert off_max < 1e-10, "conv-induced P^sigma leaked beyond its footprint-overlap radius"
+    print(
+        f"    max couplings per latent      : {max_neighbors}  (=> thin-grid treewidth ~ 2*width)"
+    )
+    assert off_max < 1e-10, (
+        "conv-induced P^sigma leaked beyond its footprint-overlap radius"
+    )
 
 
 def grid_edges(h: int, w: int) -> list[tuple[int, int]]:
@@ -200,17 +218,23 @@ def main() -> None:
     # tractability needs a chordal G -- here we just verify the support identity)
     check_masked_loading(9, grid_edges(3, 3), jax.random.fold_in(key, 2))
     # a denser random-ish graph
-    check_masked_loading(5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 2), (2, 4)], jax.random.fold_in(key, 3))
+    check_masked_loading(
+        5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 2), (2, 4)], jax.random.fold_in(key, 3)
+    )
 
     print("\nSigma-orthonormal factorization -> P^sigma diagonal:")
     check_sigma_orthonormal_diagonal(40, 8, jax.random.fold_in(key, 4))
 
     print("\nStride-1 conv loading -> P^sigma on the distance-(k-1) grid graph:")
-    check_conv_loading(16, 4, 3, jax.random.fold_in(key, 5))   # thin grid (efficient)
-    check_conv_loading(8, 8, 3, jax.random.fold_in(key, 6))    # square grid (sparse but high treewidth)
-    check_conv_loading(16, 4, 5, jax.random.fold_in(key, 7))   # 5x5 kernel -> wider band
+    check_conv_loading(16, 4, 3, jax.random.fold_in(key, 5))  # thin grid (efficient)
+    check_conv_loading(
+        8, 8, 3, jax.random.fold_in(key, 6)
+    )  # square grid (sparse but high treewidth)
+    check_conv_loading(16, 4, 5, jax.random.fold_in(key, 7))  # 5x5 kernel -> wider band
 
-    print("\nAll subparameterization checks passed: P^sigma lies on the target submanifold analytically.")
+    print(
+        "\nAll subparameterization checks passed: P^sigma lies on the target submanifold analytically."
+    )
 
 
 if __name__ == "__main__":

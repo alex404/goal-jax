@@ -179,14 +179,14 @@ class TestBoltzmannEmbedding:
 
     @pytest.mark.parametrize("n", [2, 4])
     def test_manifolds(self, n: int) -> None:
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
+        emb = BoltzmannEmbedding(FullBoltzmann(n), DiagonalBoltzmann(n))
         assert emb.sub_man.dim == n
         assert emb.amb_man.dim == n * (n + 1) // 2
 
     def test_embed_zero_coupling(self) -> None:
         """Embedding creates zero off-diagonal coupling."""
         n = 3
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
+        emb = BoltzmannEmbedding(FullBoltzmann(n), DiagonalBoltzmann(n))
         biases = jax.random.normal(jax.random.PRNGKey(42), (n,))
         boltz_params = emb.embed(biases)
         full_matrix = emb.amb_man.shp_man.to_matrix(boltz_params)
@@ -196,7 +196,7 @@ class TestBoltzmannEmbedding:
     def test_project_embed_round_trip(self) -> None:
         """project(embed(natural)) recovers original in mean coordinates."""
         n = 3
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
+        emb = BoltzmannEmbedding(FullBoltzmann(n), DiagonalBoltzmann(n))
         probs = jax.random.uniform(jax.random.PRNGKey(42), (n,), minval=0.1, maxval=0.9)
         natural_params = emb.sub_man.to_natural(probs)
         boltz_natural = emb.embed(natural_params)
@@ -207,7 +207,7 @@ class TestBoltzmannEmbedding:
     def test_translate(self) -> None:
         """Translate correctly adds delta to location/bias."""
         n = 3
-        emb = BoltzmannEmbedding(DiagonalBoltzmann(n), FullBoltzmann(n))
+        emb = BoltzmannEmbedding(FullBoltzmann(n), DiagonalBoltzmann(n))
         key1, key2 = jax.random.split(jax.random.PRNGKey(42))
         biases = jax.random.normal(key1, (n,))
         delta = jax.random.normal(key2, (n,))

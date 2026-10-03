@@ -45,8 +45,8 @@ from ..harmonium.mixture import AnalyticMixture, CompleteMixture
 
 
 @dataclass(frozen=True)
-class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
-    LinearEmbedding[CompleteMixture[Sub], CompleteMixture[Ambient]]
+class CompleteMixtureEmbedding[Ambient: Differentiable, Sub: Differentiable](
+    LinearEmbedding[CompleteMixture[Ambient], CompleteMixture[Sub]]
 ):
     """Embedding that lifts a component embedding to work on CompleteMixture structures.
 
@@ -61,7 +61,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
     n_categories: int
     """Number of mixture components."""
 
-    component_emb: LinearEmbedding[Sub, Ambient]
+    component_emb: LinearEmbedding[Ambient, Sub]
     """The base embedding to apply to each component."""
 
     @property
@@ -87,7 +87,8 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Embed each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (sub_obs_dim, n_categories-1)
-            int_matrix = self.sub_man.int_man.clq_map.to_matrix(int_params)
+            (xz,) = self.sub_man.level_split()[1]
+            int_matrix = self.sub_man.clq_map(xz).to_matrix(int_params)
             # Apply embedding to each column
             emb_int_matrix = jax.vmap(self.component_emb.embed, in_axes=1, out_axes=1)(
                 int_matrix
@@ -111,7 +112,8 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Project each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (amb_obs_dim, n_categories-1)
-            int_matrix = self.amb_man.int_man.clq_map.to_matrix(int_means)
+            (xz,) = self.amb_man.level_split()[1]
+            int_matrix = self.amb_man.clq_map(xz).to_matrix(int_means)
             # Apply projection to each column
             proj_int_matrix = jax.vmap(
                 self.component_emb.project, in_axes=1, out_axes=1
@@ -334,7 +336,7 @@ class CompleteMixtureOfHarmoniums[
         is the same linear operation in natural and mean coordinates.
         """
         x, int_coords, lat_coords = self.split_level(coords)
-        xy, xyk, xk = self.int_man.coord_blocks(int_coords)
+        xy, xyk, xk = self.crs_man.coord_blocks(int_coords)
         y, yk, k = self.dep_man.split_level(lat_coords)
         hrm = self.bas_hrm.join_level(x, xy, y)
         return self.mix_man.join_level(hrm, jnp.concatenate([xk, xyk, yk]), k)
@@ -401,7 +403,7 @@ class CompleteMixtureOfConjugated[
     @override
     def pst_prr_emb(
         self,
-    ) -> CompleteMixtureEmbedding[PstLatent, PrrLatent]:
+    ) -> CompleteMixtureEmbedding[PrrLatent, PstLatent]:
         """Embedding of posterior mixture into prior mixture."""
         return CompleteMixtureEmbedding(self.n_categories, self.bas_hrm.pst_prr_emb)
 
@@ -420,7 +422,7 @@ class CompleteMixtureOfConjugated[
         x_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
 
         # Section interaction matrix into blocks: xy, xyk, xk
-        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_params)
+        xy_params, xyk_params, xk_params = self.crs_man.coord_blocks(int_params)
 
         # Compute base conjugation parameters from component 0
         # Note: conjugation_parameters returns params in bas_hrm.prr_man space

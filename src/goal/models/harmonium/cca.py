@@ -191,8 +191,8 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PstRep, PositiveDefinite]:
-        return NormalCovarianceEmbedding(self.pst_man, full_normal(self.lat_dim))
+    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PositiveDefinite, PstRep]:
+        return NormalCovarianceEmbedding(full_normal(self.lat_dim), self.pst_man)
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
@@ -204,7 +204,7 @@ class CanonicalCorrelationAnalysis[
         """
         obs_bias, int_params = self.lkl_fun_man.split_coords(lkl_params)
         fst_bias, snd_bias = self.obs_man.split_coords(obs_bias)
-        fst_int, snd_int = self.int_man.coord_blocks(int_params)
+        fst_int, snd_int = self.crs_man.coord_blocks(int_params)
 
         fst_lgm, snd_lgm = self.fst_lgm, self.snd_lgm
         rho_fst = fst_lgm.conjugation_parameters(

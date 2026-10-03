@@ -53,7 +53,7 @@ class VariationalConjugated[
     Conjugation: Manifold,
 ](
     Generative,
-    Triple[Prior, AffineMap[Posterior, Observable], Conjugation],
+    Triple[Prior, AffineMap[Observable, Posterior], Conjugation],
     ABC,
 ):
     """Variational harmonium with parameter layout ``[prior_params, lkl_params, rho]``.
@@ -87,7 +87,7 @@ class VariationalConjugated[
 
     @property
     @abstractmethod
-    def pst_prr_emb(self) -> LinearEmbedding[Posterior, Prior]:
+    def pst_prr_emb(self) -> LinearEmbedding[Prior, Posterior]:
         """Embedding of the posterior manifold into the prior manifold."""
 
     @property
@@ -104,7 +104,7 @@ class VariationalConjugated[
 
     @property
     @override
-    def snd_man(self) -> AffineMap[Posterior, Observable]:
+    def snd_man(self) -> AffineMap[Observable, Posterior]:
         return self.gen_hrm.lkl_fun_man
 
     @property

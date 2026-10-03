@@ -95,9 +95,7 @@ def check_elbo_gradient() -> float:
     keys = jax.random.split(k_keys, n_keys)
 
     def mean_elbo(p: Array) -> Array:
-        return jnp.mean(
-            jax.vmap(lambda k: model.elbo_at(k, p, x, n_samples))(keys)
-        )
+        return jnp.mean(jax.vmap(lambda k: model.elbo_at(k, p, x, n_samples))(keys))
 
     g = jax.grad(mean_elbo)(params)  # E_key[ score-function grad ]
 
@@ -137,8 +135,13 @@ def check_lower_bound() -> None:
 def check_marginal_elbo() -> tuple[float, float]:
     """Exact-N estimator: value identity at shared z's + pathwise grad vs FD."""
     model = build_conv_boltzmann_gaussian_hierarchy(
-        Normal(36, Diagonal()), in_lattice=(3, 3), stride=(2, 2),
-        kernel_shape=(3, 2), top_dim=3, prior_graph="chordal", mlp_hidden=(16,),
+        Normal(36, Diagonal()),
+        in_lattice=(3, 3),
+        stride=(2, 2),
+        kernel_shape=(3, 2),
+        top_dim=3,
+        prior_graph="chordal",
+        mlp_hidden=(16,),
     )
     key = jax.random.PRNGKey(3)
     k_init, k_x, k_z, k_y = jax.random.split(key, 4)

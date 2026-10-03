@@ -33,10 +33,27 @@ Clique Maps
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.clique.EmbeddedCliqueMap
+.. autofunction:: goal.geometry.manifold.clique.bias_map
+
+
+Linear Cliques
+--------------
+
+.. autoclass:: goal.geometry.manifold.clique.LinearCliques
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.clique.CliqueEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autofunction:: goal.geometry.manifold.clique.part_emb
+
+
+Cross Maps
+----------
 
 .. autoclass:: goal.geometry.manifold.clique.CrossMap
    :members:
@@ -44,33 +61,15 @@ Clique Maps
    :show-inheritance:
 
 
-Clique Embeddings
+Recursive Layouts
 -----------------
 
-.. autoclass:: goal.geometry.manifold.clique.CliqueEmbedding
+.. autoclass:: goal.geometry.manifold.clique.RecursiveLinearCliques
    :members:
    :undoc-members:
    :show-inheritance:
 
 .. autoclass:: goal.geometry.manifold.clique.RootEmbedding
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
-Clique Layouts
---------------
-
-.. autofunction:: goal.geometry.manifold.clique.bias_map
-
-.. autofunction:: goal.geometry.manifold.clique.part_emb
-
-.. autoclass:: goal.geometry.manifold.clique.LinearCliques
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.clique.RecursiveLinearCliques
    :members:
    :undoc-members:
    :show-inheritance:

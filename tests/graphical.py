@@ -256,7 +256,7 @@ class TestRootEmbedding:
         pst = model.pst_upr_hrm
         assert not pst.same_graph(model)
         with pytest.raises(ValueError, match="differ only in the root partition"):
-            RootEmbedding(model.lwr_hrm.pst_prr_emb, pst, model)
+            RootEmbedding(model.lwr_hrm.pst_prr_emb, model, pst)
 
 
 def test_layout_is_jit_static() -> None:
@@ -286,7 +286,7 @@ class TestCliqueLocations:
     def test_an_embedding_of_an_absent_clique_is_rejected(self) -> None:
         man = CompleteMixture(Poissons(2), 3)
         with pytest.raises(ValueError, match="not in tuple"):
-            man.clq_emb((0, 5))
+            man.clq_emb((0, 5)).project(man.zeros())
 
 
 ### Layout Invariants ###
@@ -439,7 +439,7 @@ class _DerivedPartitions(RecursiveLinearCliques[Manifold, Manifold]):
 
 
 def _misrooted() -> _DerivedPartitions:
-    """A level whose cross clique reaches past the deep partition's own root.
+    """A level whose cross clique couples nodes past the deep partition's own root.
 
     The deep partition is a mixture rooted at $y$, but the crossing clique couples the
     observable to $k$. The glued graph therefore reroots at $k$, while the deep partition still
@@ -471,7 +471,7 @@ class TestDeclarationOrderRegressions:
         )
         assert model.level_cliques == _cca().level_cliques
         params = jnp.arange(float(model.dim))
-        blocks = model.int_man.coord_blocks(model.split_level(params)[1])
+        blocks = model.crs_man.coord_blocks(model.split_level(params)[1])
         found = model.clq_emb((0, 2)).project(params)
         assert jnp.array_equal(found, blocks[0])
 
@@ -525,7 +525,7 @@ class TestArityTwoMatchesMatrixMap:
 
     @staticmethod
     def _pair(cod_dim: int, dom_dim: int):
-        emb_map = MatrixMap(Rectangular(), Euclidean(dom_dim), Euclidean(cod_dim))
+        emb_map = MatrixMap(Rectangular(), Euclidean(cod_dim), Euclidean(dom_dim))
         return emb_map, _axes((cod_dim,), (dom_dim,))
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6), (6, 1)])

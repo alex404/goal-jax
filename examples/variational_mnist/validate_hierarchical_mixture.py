@@ -47,8 +47,13 @@ N_CLUSTERS = 4
 def build(kind: str) -> VariationalHierarchicalMixture:
     obs_man = Normal(OBS_DIM, Diagonal())
     return build_boltzmann_gaussian_mixture_hierarchy(
-        obs_man, N_MID, TOP_DIM, N_CLUSTERS,
-        mid_kind=kind, mlp_hidden=(32,), obs_location_only=True,
+        obs_man,
+        N_MID,
+        TOP_DIM,
+        N_CLUSTERS,
+        mid_kind=kind,
+        mlp_hidden=(32,),
+        obs_location_only=True,
     )
 
 
@@ -72,7 +77,9 @@ def brute_force_elbo(
     return cv, bf
 
 
-def iwae(model: VariationalHierarchicalMixture, params: Array, x: Array, key: Array, k: int) -> Array:
+def iwae(
+    model: VariationalHierarchicalMixture, params: Array, x: Array, key: Array, k: int
+) -> Array:
     ys, zs = model.sample_posterior(key, params, x, k)
     logp = jax.vmap(lambda y, z: model.log_density_joint(params, x, y, z))(ys, zs)
     logq = jax.vmap(lambda y, z: model.log_q(params, x, y, z))(ys, zs)
@@ -100,12 +107,16 @@ def main() -> None:
         elbo_val = float(cv)
         iwae_val = float(iwae(model, params, x, jax.random.fold_in(k_s, 1), 2000))
 
-        print(f"[{kind:8s}] "
-              f"|CV - brute force| = {gap:.2e}   "
-              f"resp sum={float(jnp.sum(r)):.6f} ({'ok' if r_ok else 'BAD'})   "
-              f"ELBO {elbo_val:8.3f} <= IWAE {iwae_val:8.3f} "
-              f"({'ok' if elbo_val <= iwae_val + 1e-3 else 'BAD'})")
-        assert gap < 1e-6, f"control-variate ELBO disagrees with brute force ({gap:.2e})"
+        print(
+            f"[{kind:8s}] "
+            f"|CV - brute force| = {gap:.2e}   "
+            f"resp sum={float(jnp.sum(r)):.6f} ({'ok' if r_ok else 'BAD'})   "
+            f"ELBO {elbo_val:8.3f} <= IWAE {iwae_val:8.3f} "
+            f"({'ok' if elbo_val <= iwae_val + 1e-3 else 'BAD'})"
+        )
+        assert gap < 1e-6, (
+            f"control-variate ELBO disagrees with brute force ({gap:.2e})"
+        )
         assert r_ok, "responsibilities not a probability vector"
 
     # 5. Conv/chordal lower edge: overlapping kernel (3 > stride 2 vertically), so
@@ -116,8 +127,14 @@ def main() -> None:
     conv_obs = Normal(obs_dim, Diagonal())
     kc_init, kc_x, kc_s = jax.random.split(jax.random.fold_in(key, 11), 3)
     conv_model = build_conv_boltzmann_gaussian_mixture_hierarchy(
-        conv_obs, conv_in, conv_stride, conv_kernel, TOP_DIM, N_CLUSTERS,
-        prior_graph="chordal", mlp_hidden=(32,),
+        conv_obs,
+        conv_in,
+        conv_stride,
+        conv_kernel,
+        TOP_DIM,
+        N_CLUSTERS,
+        prior_graph="chordal",
+        mlp_hidden=(32,),
     )
     conv_params = conv_model.initialize(kc_init, 0.0, 0.4)
     xc = 0.5 * jax.random.normal(kc_x, (obs_dim,))
@@ -131,10 +148,16 @@ def main() -> None:
     max_ry = float(jnp.max(jnp.abs(r_y)))
     r = conv_model.responsibilities(kc_s, conv_params, xc, 64)
     r_ok = bool(jnp.all(r >= 0) and jnp.abs(jnp.sum(r) - 1.0) < 1e-6)
-    print(f"[conv    ] |CV - brute force| = {gap:.2e}   max|r_Y| = {max_ry:.2e}   "
-          f"resp sum={float(jnp.sum(r)):.6f} ({'ok' if r_ok else 'BAD'})")
-    assert gap < 1e-6, f"conv control-variate ELBO disagrees with brute force ({gap:.2e})"
-    assert max_ry < 1e-10, f"conv lower edge not exactly conjugate under mixture top ({max_ry:.2e})"
+    print(
+        f"[conv    ] |CV - brute force| = {gap:.2e}   max|r_Y| = {max_ry:.2e}   "
+        f"resp sum={float(jnp.sum(r)):.6f} ({'ok' if r_ok else 'BAD'})"
+    )
+    assert gap < 1e-6, (
+        f"conv control-variate ELBO disagrees with brute force ({gap:.2e})"
+    )
+    assert max_ry < 1e-10, (
+        f"conv lower edge not exactly conjugate under mixture top ({max_ry:.2e})"
+    )
     assert r_ok, "conv responsibilities not a probability vector"
 
     # 5b. Exact-N marginal estimator under the mixture top: must equal the
@@ -146,7 +169,8 @@ def main() -> None:
 
     def with_y(subkey: Array, z: Array) -> Array:
         y = conv_model.mid_man.sample(
-            subkey, conv_model.posterior_mid_at(conv_params, xc, z), 1)[0]
+            subkey, conv_model.posterior_mid_at(conv_params, xc, z), 1
+        )[0]
         return conv_model.learning_signal(conv_params, xc, y, z)
 
     sampled = conv_model.conjugation_baseline(conv_params, xc) + jnp.mean(
@@ -154,26 +178,41 @@ def main() -> None:
     )
     m_err = float(jnp.abs(marginal - sampled))
     print(f"[conv    ] |marginal - sampled-y assembly at shared z| = {m_err:.2e}")
-    assert m_err < 1e-9, f"mixture marginal ELBO disagrees with sampled assembly ({m_err:.2e})"
+    assert m_err < 1e-9, (
+        f"mixture marginal ELBO disagrees with sampled assembly ({m_err:.2e})"
+    )
 
     # 2. K=1 degeneracy: a one-component mixture IS a single Gaussian, so the
     #    moment-matched reference equals it and the correction is zero up to the
     #    reference covariance jitter (1e-4) -- i.e. O(1e-3), not machine epsilon.
     obs_man = Normal(OBS_DIM, Diagonal())
     model1 = build_boltzmann_gaussian_mixture_hierarchy(
-        obs_man, N_MID, TOP_DIM, 1,
-        mid_kind="chain", mlp_hidden=(32,), obs_location_only=True,
+        obs_man,
+        N_MID,
+        TOP_DIM,
+        1,
+        mid_kind="chain",
+        mlp_hidden=(32,),
+        obs_location_only=True,
     )
     p1 = model1.initialize(jax.random.fold_in(key, 5), 0.0, 0.4)
     x1 = 0.5 * jax.random.normal(jax.random.fold_in(key, 6), (OBS_DIM,))
-    zs = model1.top_man.sample(jax.random.fold_in(key, 7), model1.approximate_posterior_top(p1, x1), 256)
+    zs = model1.top_man.sample(
+        jax.random.fold_in(key, 7), model1.approximate_posterior_top(p1, x1), 256
+    )
     mix1 = model1.split_mixture(p1)
     ref1 = model1.reference_prior(p1)
-    corr = jax.vmap(lambda z: model1.top_prior.log_observable_density(mix1, z)
-                    - model1.top_man.log_density(ref1, z))(zs)
+    corr = jax.vmap(
+        lambda z: (
+            model1.top_prior.log_observable_density(mix1, z)
+            - model1.top_man.log_density(ref1, z)
+        )
+    )(zs)
     max_corr = float(jnp.max(jnp.abs(corr)))
-    print(f"[K=1     ] max |log p_mix - log p_ref| = {max_corr:.2e} (jitter-limited) "
-          f"({'ok' if max_corr < 1e-2 else 'BAD'})")
+    print(
+        f"[K=1     ] max |log p_mix - log p_ref| = {max_corr:.2e} (jitter-limited) "
+        f"({'ok' if max_corr < 1e-2 else 'BAD'})"
+    )
     assert max_corr < 1e-2, "K=1 correction should be zero up to reference jitter"
     print("\nAll mixture-hierarchy checks passed.")
 

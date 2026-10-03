@@ -181,7 +181,8 @@ class TestBoltzmannPopulationCode:
     def test_dimensions(self, kind: str) -> None:
         model, _ = _make_boltzmann_pc(kind, 6, 2, jax.random.PRNGKey(0))
         # the interaction carries the FULL Gaussian sufficient statistic (z, zz^T)
-        assert model.gen_hrm.int_man.clq_map.matrix_shape == (
+        (xz,) = model.gen_hrm.level_split()[1]
+        assert model.gen_hrm.clq_map(xz).matrix_shape == (
             model.obs_man.dim,
             full_normal(2).dim,
         )

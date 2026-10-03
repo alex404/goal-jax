@@ -325,7 +325,9 @@ class VariationalHierarchicalMixture[
         return self.join_coords(top, lower_lkl, third)
 
     @override
-    def initialize(self, key: Array, location: float = 0.0, shape: float = 0.1) -> Array:
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
         k_top, k_low, k_mlp, k_mix = jax.random.split(key, 4)
         top = self.top_var.initialize(k_top, location, shape)
         low_hrm = self.lower_hrm.initialize(k_low, location, shape)
@@ -392,7 +394,9 @@ def build_boltzmann_gaussian_mixture_hierarchy(
     lower_int = EmbeddedMap(Rectangular(), IdentityEmbedding(mid_man), obs_emb)
     lower_hrm = ConcreteHarmonium(lower_int)
 
-    mlp = MultilayerPerceptron(mid_man, full_normal(top_dim), mlp_hidden, mlp_activation)
+    mlp = MultilayerPerceptron(
+        full_normal(top_dim), mid_man, mlp_hidden, mlp_activation
+    )
     recog = HierarchicalRecognition(mid_man, mlp)
 
     top_prior = AnalyticMixture(full_normal(top_dim), n_clusters)
@@ -431,10 +435,17 @@ def build_conv_boltzmann_gaussian_mixture_hierarchy(
     verbatim into the first two blocks and the recognition half of the third.
     """
     top_var, lower_hrm, recog = conv_hierarchy_components(
-        obs_man, in_lattice, stride, kernel_shape, top_dim,
-        in_channels=in_channels, out_channels=out_channels,
-        prior_graph=prior_graph, max_treewidth=max_treewidth,
-        mlp_hidden=mlp_hidden, mlp_activation=mlp_activation,
+        obs_man,
+        in_lattice,
+        stride,
+        kernel_shape,
+        top_dim,
+        in_channels=in_channels,
+        out_channels=out_channels,
+        prior_graph=prior_graph,
+        max_treewidth=max_treewidth,
+        mlp_hidden=mlp_hidden,
+        mlp_activation=mlp_activation,
     )
     top_prior = AnalyticMixture(full_normal(top_dim), n_clusters)
     return VariationalHierarchicalMixture(

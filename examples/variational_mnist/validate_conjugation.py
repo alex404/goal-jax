@@ -38,11 +38,15 @@ LADDER = [1, 5, 25, 100, 500, 2000, M_SAMPLES]
 COLORS = {"diagonal": "#888888", "chain": "#1f77b4", "chordal": "#d62728"}
 
 
-def train_params(model: VariationalHierarchical, train_data: Array, steps: int, key: Array) -> Array:
+def train_params(
+    model: VariationalHierarchical, train_data: Array, steps: int, key: Array
+) -> Array:
     """Short training reusing the experiment's loss, returning final params."""
     k_init, k_train = jax.random.split(key)
     params = model.initialize_from_sample(k_init, train_data, 0.0, 0.3)
-    schedule = optax.warmup_cosine_decay_schedule(0.0, H.LR, H.LR_WARMUP, steps, end_value=0.0)
+    schedule = optax.warmup_cosine_decay_schedule(
+        0.0, H.LR, H.LR_WARMUP, steps, end_value=0.0
+    )
     optimizer = optax.apply_if_finite(
         optax.chain(optax.clip_by_global_norm(H.GRAD_CLIP), optax.adam(schedule)), 100
     )
@@ -50,9 +54,12 @@ def train_params(model: VariationalHierarchical, train_data: Array, steps: int, 
 
     def loss_fn(p: Array, k: Array, batch: Array, beta: Array) -> Array:
         ke, kc, ki = jax.random.split(k, 3)
-        return (-model.mean_elbo(ke, p, batch, H.MC_SAMPLES)
-                + beta * H.LAMBDA_GEN * model.prior_conjugation_loss(kc, p, H.CONJ_SAMPLES)
-                + H.LAMBDA_INNER * model.mean_recognition_inner_loss(ki, p, batch, H.MC_SAMPLES))
+        return (
+            -model.mean_elbo(ke, p, batch, H.MC_SAMPLES)
+            + beta * H.LAMBDA_GEN * model.prior_conjugation_loss(kc, p, H.CONJ_SAMPLES)
+            + H.LAMBDA_INNER
+            * model.mean_recognition_inner_loss(ki, p, batch, H.MC_SAMPLES)
+        )
 
     @jax.jit
     def step(carry, g):
@@ -64,29 +71,41 @@ def train_params(model: VariationalHierarchical, train_data: Array, steps: int, 
         updates, opt_state = optimizer.update(grads, opt_state, p)
         return (optax.apply_updates(p, updates), opt_state, k), None
 
-    (params, _, _), _ = jax.lax.scan(step, (params, opt_state, k_train), jnp.arange(steps))
+    (params, _, _), _ = jax.lax.scan(
+        step, (params, opt_state, k_train), jnp.arange(steps)
+    )
     return params
 
 
-def log_weights_for_x(model: VariationalHierarchical, params: Array, x: Array,
-                      key: Array, m: int) -> tuple[Array, Array]:
+def log_weights_for_x(
+    model: VariationalHierarchical, params: Array, x: Array, key: Array, m: int
+) -> tuple[Array, Array]:
     """Return (log_w over m samples, z-samples) with log_w = log p(x,y,z) - log q(y,z|x)."""
     ys, zs = model.sample_posterior(key, params, x, m)
-    log_w = jax.vmap(lambda y, z: model.log_density_joint(params, x, y, z)
-                     - model.log_q(params, x, y, z))(ys, zs)
+    log_w = jax.vmap(
+        lambda y, z: (
+            model.log_density_joint(params, x, y, z) - model.log_q(params, x, y, z)
+        )
+    )(ys, zs)
     return log_w, zs
 
 
-def analyze(model: VariationalHierarchical, params: Array, xs: Array, key: Array) -> dict:
+def analyze(
+    model: VariationalHierarchical, params: Array, xs: Array, key: Array
+) -> dict:
     keys = jax.random.split(key, xs.shape[0])
-    log_w, zs = jax.vmap(lambda x, k: log_weights_for_x(model, params, x, k, M_SAMPLES))(xs, keys)
+    log_w, zs = jax.vmap(
+        lambda x, k: log_weights_for_x(model, params, x, k, M_SAMPLES)
+    )(xs, keys)
     # log_w: (N, M); zs: (N, M, z_dim)
 
     # ELBO = E_q[log w]; IWAE(K) via bootstrap subsamples of the M-pool.
     def iwae_at(k: int, kb: Array) -> Array:
         idx = jax.random.randint(kb, (xs.shape[0], 8, k), 0, M_SAMPLES)  # 8 bootstraps
         lw = jnp.take_along_axis(log_w[:, None, :], idx, axis=2)  # (N,8,k)
-        return jnp.mean(logsumexp(lw, axis=2) - jnp.log(k))  # mean over x and bootstraps
+        return jnp.mean(
+            logsumexp(lw, axis=2) - jnp.log(k)
+        )  # mean over x and bootstraps
 
     ladder = jnp.array([iwae_at(k, jax.random.fold_in(key, k)) for k in LADDER])
     elbo = float(jnp.mean(jnp.mean(log_w, axis=1)))
@@ -106,10 +125,15 @@ def analyze(model: VariationalHierarchical, params: Array, xs: Array, key: Array
     exkurt = jnp.mean(m4 / (var**2 + 1e-12) - 3.0)
 
     return {
-        "kind": model.__class__.__name__, "elbo": elbo, "logp": logp,
-        "gap": logp - elbo, "ess": float(ess), "exkurt": float(exkurt),
+        "kind": model.__class__.__name__,
+        "elbo": elbo,
+        "logp": logp,
+        "gap": logp - elbo,
+        "ess": float(ess),
+        "exkurt": float(exkurt),
         "ladder": [float(v) for v in ladder],
-        "ep_z": ep_z, "eq_z": eq_z,
+        "ep_z": ep_z,
+        "eq_z": eq_z,
     }
 
 
@@ -123,17 +147,23 @@ def main() -> None:
     results = []
     for kind in ["diagonal", "chain", "chordal"]:
         model = H.build_model(kind)
-        params = train_params(model, train_data, 2000, jax.random.fold_in(key, hash(kind) % 100))
+        params = train_params(
+            model, train_data, 2000, jax.random.fold_in(key, hash(kind) % 100)
+        )
         r = analyze(model, params, xs, jax.random.fold_in(k_pts, 1))
         r["kind"] = kind
         results.append(r)
-        print(f"{kind:8s}  ELBO {r['elbo']:7.2f}  logp~ {r['logp']:7.2f}  "
-              f"gap {r['gap']:5.2f}  ESS/K {r['ess']:.3f}  exkurt {r['exkurt']:+.2f}")
+        print(
+            f"{kind:8s}  ELBO {r['elbo']:7.2f}  logp~ {r['logp']:7.2f}  "
+            f"gap {r['gap']:5.2f}  ESS/K {r['ess']:.3f}  exkurt {r['exkurt']:+.2f}"
+        )
 
     # Figure: IWAE ladder, ESS bars, posterior-mean scatter (chordal).
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.4), constrained_layout=True)
     for r in results:
-        axes[0].plot(LADDER, r["ladder"], "-o", color=COLORS[r["kind"]], label=r["kind"], ms=4)
+        axes[0].plot(
+            LADDER, r["ladder"], "-o", color=COLORS[r["kind"]], label=r["kind"], ms=4
+        )
     axes[0].axhline(ceiling, color="green", ls=":", label="data ceiling")
     axes[0].set_xscale("log")
     axes[0].set_xlabel("K (importance samples)")
@@ -149,13 +179,17 @@ def main() -> None:
     axes[1].set_ylabel("ESS / K   (1 == q equals true posterior)")
     axes[1].set_title("Posterior fidelity of the conjugate recognition")
     for i, r in enumerate(results):
-        axes[1].text(i, r["ess"], f"{r['ess']:.2f}", ha="center", va="bottom", fontsize=9)
+        axes[1].text(
+            i, r["ess"], f"{r['ess']:.2f}", ha="center", va="bottom", fontsize=9
+        )
 
     rc = next(r for r in results if r["kind"] == "chordal")
     lo = float(min(rc["ep_z"].min(), rc["eq_z"].min()))
     hi = float(max(rc["ep_z"].max(), rc["eq_z"].max()))
     axes[2].plot([lo, hi], [lo, hi], "k--", lw=1, alpha=0.6)
-    axes[2].scatter(rc["eq_z"].ravel(), rc["ep_z"].ravel(), s=10, color=COLORS["chordal"], alpha=0.6)
+    axes[2].scatter(
+        rc["eq_z"].ravel(), rc["ep_z"].ravel(), s=10, color=COLORS["chordal"], alpha=0.6
+    )
     axes[2].set_xlabel(r"$E_q[z\mid x]$ (conjugate recognition)")
     axes[2].set_ylabel(r"$E_p[z\mid x]$ (gold standard, SNIS)")
     axes[2].set_title("Posterior-mean match (chordal)")

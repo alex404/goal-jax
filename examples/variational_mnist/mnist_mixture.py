@@ -69,30 +69,48 @@ CLUSTER_EVAL_N = 256  # test images for NMI/purity readout
 RESP_SAMPLES = 16  # z-samples per image for responsibilities
 
 
-def build_model(middle: str, n_mid: int, top_dim: int, n_clusters: int,
-                chordal_width: int = MH.CHORDAL_WIDTH,
-                conv_in: tuple[int, int] = MH.CONV_IN,
-                conv_stride: tuple[int, int] = MH.CONV_STRIDE,
-                conv_kernel: tuple[int, int] = MH.CONV_KERNEL,
-                conv_channels: int = 1,
-                conv_prior: str = "chordal",
-                mlp_hidden: tuple[int, ...] = (128,)) -> VariationalHierarchicalMixture:
+def build_model(
+    middle: str,
+    n_mid: int,
+    top_dim: int,
+    n_clusters: int,
+    chordal_width: int = MH.CHORDAL_WIDTH,
+    conv_in: tuple[int, int] = MH.CONV_IN,
+    conv_stride: tuple[int, int] = MH.CONV_STRIDE,
+    conv_kernel: tuple[int, int] = MH.CONV_KERNEL,
+    conv_channels: int = 1,
+    conv_prior: str = "chordal",
+    mlp_hidden: tuple[int, ...] = (128,),
+) -> VariationalHierarchicalMixture:
     obs_man = Normal(N_OBS, Diagonal())
     if middle == "conv":
         if conv_in[0] * conv_stride[0] != IMG or conv_in[1] * conv_stride[1] != IMG:
             raise ValueError(f"conv_in*stride must equal ({IMG},{IMG})")
         return build_conv_boltzmann_gaussian_mixture_hierarchy(
-            obs_man, conv_in, conv_stride, conv_kernel, top_dim, n_clusters,
-            in_channels=conv_channels, prior_graph=conv_prior,
-            max_treewidth=2 * max(conv_in) * conv_channels, mlp_hidden=mlp_hidden,
+            obs_man,
+            conv_in,
+            conv_stride,
+            conv_kernel,
+            top_dim,
+            n_clusters,
+            in_channels=conv_channels,
+            prior_graph=conv_prior,
+            max_treewidth=2 * max(conv_in) * conv_channels,
+            mlp_hidden=mlp_hidden,
         )
     common = dict(mlp_hidden=mlp_hidden, obs_location_only=True)
     if middle == "chordal":
         w = chordal_width
         h = n_mid // w
         return build_boltzmann_gaussian_mixture_hierarchy(
-            obs_man, h * w, top_dim, n_clusters, mid_kind="chordal",
-            mid_edges=MH.grid_edges(h, w), max_treewidth=w + 2, **common,
+            obs_man,
+            h * w,
+            top_dim,
+            n_clusters,
+            mid_kind="chordal",
+            mid_edges=MH.grid_edges(h, w),
+            max_treewidth=w + 2,
+            **common,
         )
     return build_boltzmann_gaussian_mixture_hierarchy(
         obs_man, n_mid, top_dim, n_clusters, mid_kind=middle, **common
@@ -151,7 +169,9 @@ def seed_mixture_kmeans(
         lab = ((z[:, None, :] - cent[None]) ** 2).sum(-1).argmin(1)
         for j in range(k):
             members = z[lab == j]
-            cent[j] = members.mean(0) if members.shape[0] else z[rng.integers(z.shape[0])]
+            cent[j] = (
+                members.mean(0) if members.shape[0] else z[rng.integers(z.shape[0])]
+            )
 
     top_man = mix_model.top_man
     comp_nats = []
@@ -166,9 +186,12 @@ def seed_mixture_kmeans(
         evals, evecs = np.linalg.eigh(sigma_j + E.LAT_JITTER_VAR * np.eye(dd))
         sigma_j = (evecs * np.maximum(evals, E.LAT_MIN_VAR)) @ evecs.T
         prec = np.linalg.inv(sigma_j)
-        comp_nats.append(top_man.join_location_precision(
-            jnp.asarray(prec @ mu_j), top_man.cov_man.rep.from_matrix(jnp.asarray(prec))
-        ))
+        comp_nats.append(
+            top_man.join_location_precision(
+                jnp.asarray(prec @ mu_j),
+                top_man.cov_man.rep.from_matrix(jnp.asarray(prec)),
+            )
+        )
 
     probs = np.maximum(np.asarray(counts, dtype=float) / sum(counts), E.MIN_PROB)
     probs = probs / probs.sum()
@@ -198,21 +221,36 @@ def warm_start_from_base(
 # --- Training (CW2 recipe + mixture stabilization) ---------------------------
 
 
-def train(model: VariationalHierarchicalMixture, train_data: Array, test_data: Array,
-          steps: int, key: Array, lambda_y: float = 0.0, lambda_z: float = 0.0,
-          lr: float = MH.LR, grad_clip: float = MH.GRAD_CLIP,
-          max_var: float = MH.OBS_MAX_VAR,
-          batch: int = MH.BATCH, mc_samples: int = MC_SAMPLES,
-          ent_reg: float = E.ENT_REG,
-          reparam_z: bool = False, norm_preserve: bool = False,
-          marginal_y: bool = False,
-          init_params: Array | None = None,
-          test_labels: np.ndarray | None = None) -> Array:
+def train(
+    model: VariationalHierarchicalMixture,
+    train_data: Array,
+    test_data: Array,
+    steps: int,
+    key: Array,
+    lambda_y: float = 0.0,
+    lambda_z: float = 0.0,
+    lr: float = MH.LR,
+    grad_clip: float = MH.GRAD_CLIP,
+    max_var: float = MH.OBS_MAX_VAR,
+    batch: int = MH.BATCH,
+    mc_samples: int = MC_SAMPLES,
+    ent_reg: float = E.ENT_REG,
+    reparam_z: bool = False,
+    norm_preserve: bool = False,
+    marginal_y: bool = False,
+    init_params: Array | None = None,
+    test_labels: np.ndarray | None = None,
+) -> Array:
     k_init, k_train, k_eval = jax.random.split(key, 3)
     if init_params is None:
-        params = model.initialize_from_sample(k_init, train_data, location=0.0, shape=0.3)
+        params = model.initialize_from_sample(
+            k_init, train_data, location=0.0, shape=0.3
+        )
         params = MH.init_observation_noise(
-            model, params, jnp.mean(train_data, axis=0), jnp.var(train_data, axis=0),
+            model,
+            params,
+            jnp.mean(train_data, axis=0),
+            jnp.var(train_data, axis=0),
             max_var=max_var,
         )
     else:
@@ -220,7 +258,9 @@ def train(model: VariationalHierarchicalMixture, train_data: Array, test_data: A
     params = MH.bound_observable_covariance(model, params, max_var=max_var)
     params = E.bound_mixture(model, params)
 
-    schedule = optax.warmup_cosine_decay_schedule(0.0, lr, LR_WARMUP, steps, end_value=0.0)
+    schedule = optax.warmup_cosine_decay_schedule(
+        0.0, lr, LR_WARMUP, steps, end_value=0.0
+    )
     optimizer = optax.apply_if_finite(
         optax.chain(
             optax.clip_by_global_norm(grad_clip),
@@ -266,9 +306,13 @@ def train(model: VariationalHierarchicalMixture, train_data: Array, test_data: A
                 g_conj = g_conj.at[zn_s:zn_e].set(blk - jnp.dot(blk, that) * that)
             grads = grads + gen_beta * g_conj
         updates, opt_state = optimizer.update(grads, opt_state, p)
-        p = MH.bound_observable_covariance(model, optax.apply_updates(p, updates), max_var=max_var)
+        p = MH.bound_observable_covariance(
+            model, optax.apply_updates(p, updates), max_var=max_var
+        )
         p = E.bound_mixture(model, p)  # keep the mixture PD and non-degenerate
-        p_safe = jnp.where(jnp.all(jnp.isfinite(p)), p, p_safe)  # last all-finite params
+        p_safe = jnp.where(
+            jnp.all(jnp.isfinite(p)), p, p_safe
+        )  # last all-finite params
         return (p, opt_state, k, p_safe), None
 
     def report(tag: str, params: Array, t0: float, live: str = "") -> None:
@@ -282,15 +326,21 @@ def train(model: VariationalHierarchicalMixture, train_data: Array, test_data: A
         _, theta_zn = model.top_var.gen_hrm.lkl_fun_man.split_coords(top_lkl)
         cl = ""
         if test_labels is not None:
-            pred = np.array(model.cluster_assignments(
-                k_ete, params, test_data[:CLUSTER_EVAL_N], RESP_SAMPLES))
+            pred = np.array(
+                model.cluster_assignments(
+                    k_ete, params, test_data[:CLUSTER_EVAL_N], RESP_SAMPLES
+                )
+            )
             nmi, purity = E.cluster_metrics(
-                pred, test_labels[:CLUSTER_EVAL_N], model.n_clusters)
+                pred, test_labels[:CLUSTER_EVAL_N], model.n_clusters
+            )
             cl = f"  NMI {nmi:.3f}  purity {purity:.3f}"
-        print(f"  {tag}  ELBO train {etr:8.2f}  test {ete:8.2f}  "
-              f"Var[rY] {float(vry):6.2f}  Var[rZ] {float(vrz):6.3f}  "
-              f"|Theta_ZN| {float(jnp.linalg.norm(theta_zn)):6.3f}  "
-              f"p(k)[{pk.min():.3f},{pk.max():.2f}]{cl}  ({time.time()-t0:.0f}s){live}")
+        print(
+            f"  {tag}  ELBO train {etr:8.2f}  test {ete:8.2f}  "
+            f"Var[rY] {float(vry):6.2f}  Var[rZ] {float(vrz):6.3f}  "
+            f"|Theta_ZN| {float(jnp.linalg.norm(theta_zn)):6.3f}  "
+            f"p(k)[{pk.min():.3f},{pk.max():.2f}]{cl}  ({time.time() - t0:.0f}s){live}"
+        )
 
     t0 = time.time()
     report("step     0", params, t0)  # transfer quality before any mixture training
@@ -300,8 +350,12 @@ def train(model: VariationalHierarchicalMixture, train_data: Array, test_data: A
         gs = jnp.arange(c * log_every, (c + 1) * log_every)
         carry, _ = jax.lax.scan(step, carry, gs)
         params = carry[3]  # evaluate the last-finite snapshot
-        live = "" if bool(jnp.all(jnp.isfinite(carry[0]))) else "  [live=NaN, using snapshot]"
-        report(f"step {(c+1)*log_every:5d}", params, t0, live)
+        live = (
+            ""
+            if bool(jnp.all(jnp.isfinite(carry[0])))
+            else "  [live=NaN, using snapshot]"
+        )
+        report(f"step {(c + 1) * log_every:5d}", params, t0, live)
     return carry[3]
 
 
@@ -341,8 +395,9 @@ def per_cluster_gen_means(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--middle", default="chordal",
-                    choices=["diagonal", "chain", "chordal", "conv"])
+    ap.add_argument(
+        "--middle", default="chordal", choices=["diagonal", "chain", "chordal", "conv"]
+    )
     ap.add_argument("--n-mid", type=int, default=64)
     ap.add_argument("--top-dim", type=int, default=16)
     ap.add_argument("--n-clusters", type=int, default=N_CLUSTERS)
@@ -357,72 +412,135 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=MH.BATCH)
     ap.add_argument("--mc", type=int, default=MC_SAMPLES)
     ap.add_argument("--n-train", type=int, default=MH.N_TRAIN)
-    ap.add_argument("--lambda-y", type=float, default=0.0,
-                    help="bottom-edge (Gaussian-Boltzmann) conjugation weight")
-    ap.add_argument("--lambda-z", type=float, default=0.0,
-                    help="top-edge (Boltzmann pop-code Y|Z) conjugation weight")
-    ap.add_argument("--ent-reg", type=float, default=E.ENT_REG,
-                    help="mixture-weight entropy regularizer (anti-collapse)")
+    ap.add_argument(
+        "--lambda-y",
+        type=float,
+        default=0.0,
+        help="bottom-edge (Gaussian-Boltzmann) conjugation weight",
+    )
+    ap.add_argument(
+        "--lambda-z",
+        type=float,
+        default=0.0,
+        help="top-edge (Boltzmann pop-code Y|Z) conjugation weight",
+    )
+    ap.add_argument(
+        "--ent-reg",
+        type=float,
+        default=E.ENT_REG,
+        help="mixture-weight entropy regularizer (anti-collapse)",
+    )
     ap.add_argument("--lr", type=float, default=MH.LR)
     ap.add_argument("--grad-clip", type=float, default=MH.GRAD_CLIP)
     ap.add_argument("--max-var", type=float, default=MH.OBS_MAX_VAR)
-    ap.add_argument("--marginal-y", action="store_true",
-                    help="exact-N ELBO (conv middles only): spikes integrate out of the "
-                    "residual (r_Y == 0), z is pathwise -- no score-function estimator")
-    ap.add_argument("--reparam-z", action="store_true",
-                    help="pathwise gradient for the Gaussian top latent")
-    ap.add_argument("--norm-preserve", action="store_true",
-                    help="shape-only conjugation gradient on Theta_ZN")
-    ap.add_argument("--resume", default="",
-                    help="single-Gaussian npz checkpoint to warm-start from "
-                    "(top/lower/recog transfer verbatim; mixture seeded by k-means "
-                    "on the aggregate-posterior z's)")
-    ap.add_argument("--seed-codes", type=int, default=4000,
-                    help="training images used for the k-means mixture seeding")
-    ap.add_argument("--outdir", default="", help="subfolder under results/ for this run")
+    ap.add_argument(
+        "--marginal-y",
+        action="store_true",
+        help="exact-N ELBO (conv middles only): spikes integrate out of the "
+        "residual (r_Y == 0), z is pathwise -- no score-function estimator",
+    )
+    ap.add_argument(
+        "--reparam-z",
+        action="store_true",
+        help="pathwise gradient for the Gaussian top latent",
+    )
+    ap.add_argument(
+        "--norm-preserve",
+        action="store_true",
+        help="shape-only conjugation gradient on Theta_ZN",
+    )
+    ap.add_argument(
+        "--resume",
+        default="",
+        help="single-Gaussian npz checkpoint to warm-start from "
+        "(top/lower/recog transfer verbatim; mixture seeded by k-means "
+        "on the aggregate-posterior z's)",
+    )
+    ap.add_argument(
+        "--seed-codes",
+        type=int,
+        default=4000,
+        help="training images used for the k-means mixture seeding",
+    )
+    ap.add_argument(
+        "--outdir", default="", help="subfolder under results/ for this run"
+    )
     ap.add_argument("--note", default="", help="one-line description for the INDEX")
     args = ap.parse_args()
 
     key = jax.random.PRNGKey(0)
     _, k_train, k_gen = jax.random.split(key, 3)
     train_data, test_data, _, test_labels = MH.load_mnist(
-        args.n_train, MH.N_TEST, with_labels=True)
+        args.n_train, MH.N_TEST, with_labels=True
+    )
     print(f"MNIST: train {train_data.shape}, test {test_data.shape}")
 
-    model = build_model(args.middle, args.n_mid, args.top_dim, args.n_clusters,
-                        args.chordal_width,
-                        conv_in=tuple(args.conv_in), conv_stride=tuple(args.conv_stride),
-                        conv_kernel=tuple(args.conv_kernel),
-                        conv_channels=args.conv_channels,
-                        conv_prior=args.conv_prior, mlp_hidden=tuple(args.mlp_hidden))
+    model = build_model(
+        args.middle,
+        args.n_mid,
+        args.top_dim,
+        args.n_clusters,
+        args.chordal_width,
+        conv_in=tuple(args.conv_in),
+        conv_stride=tuple(args.conv_stride),
+        conv_kernel=tuple(args.conv_kernel),
+        conv_channels=args.conv_channels,
+        conv_prior=args.conv_prior,
+        mlp_hidden=tuple(args.mlp_hidden),
+    )
     if args.middle == "conv":
         args.n_mid = model.mid_man.data_dim
-        print(f"conv decoder {tuple(args.conv_in)} -> ({IMG},{IMG}) (stride "
-              f"{tuple(args.conv_stride)}, kernel {tuple(args.conv_kernel)}); "
-              f"latent nodes={args.n_mid}, mid dim={model.mid_man.dim}")
-    print(f"Model: X(Normal-{N_OBS}) <- Y(Boltzmann-{args.n_mid}, {args.middle}) "
-          f"<- Z(Gaussian-{args.top_dim}) <- K(Categorical-{args.n_clusters})")
+        print(
+            f"conv decoder {tuple(args.conv_in)} -> ({IMG},{IMG}) (stride "
+            f"{tuple(args.conv_stride)}, kernel {tuple(args.conv_kernel)}); "
+            f"latent nodes={args.n_mid}, mid dim={model.mid_man.dim}"
+        )
+    print(
+        f"Model: X(Normal-{N_OBS}) <- Y(Boltzmann-{args.n_mid}, {args.middle}) "
+        f"<- Z(Gaussian-{args.top_dim}) <- K(Categorical-{args.n_clusters})"
+    )
 
     init_params = None
     if args.resume:
         base_model = MH.build_model(
-            args.middle, args.n_mid, args.top_dim, args.chordal_width,
-            conv_in=tuple(args.conv_in), conv_stride=tuple(args.conv_stride),
-            conv_kernel=tuple(args.conv_kernel), conv_channels=args.conv_channels,
-            conv_prior=args.conv_prior, mlp_hidden=tuple(args.mlp_hidden))
+            args.middle,
+            args.n_mid,
+            args.top_dim,
+            args.chordal_width,
+            conv_in=tuple(args.conv_in),
+            conv_stride=tuple(args.conv_stride),
+            conv_kernel=tuple(args.conv_kernel),
+            conv_channels=args.conv_channels,
+            conv_prior=args.conv_prior,
+            mlp_hidden=tuple(args.mlp_hidden),
+        )
         base_params = jnp.asarray(np.load(args.resume)["params"])
         print(f"warm start from {args.resume}")
         mixture_nat = seed_mixture_kmeans(
-            model, base_model, base_params, train_data, n_codes=args.seed_codes)
+            model, base_model, base_params, train_data, n_codes=args.seed_codes
+        )
         init_params = warm_start_from_base(model, base_model, base_params, mixture_nat)
 
-    params = train(model, train_data, test_data, args.steps, k_train,
-                   lambda_y=args.lambda_y, lambda_z=args.lambda_z,
-                   lr=args.lr, grad_clip=args.grad_clip, max_var=args.max_var,
-                   batch=args.batch, mc_samples=args.mc, ent_reg=args.ent_reg,
-                   reparam_z=args.reparam_z, norm_preserve=args.norm_preserve,
-                   marginal_y=args.marginal_y,
-                   init_params=init_params, test_labels=test_labels)
+    params = train(
+        model,
+        train_data,
+        test_data,
+        args.steps,
+        k_train,
+        lambda_y=args.lambda_y,
+        lambda_z=args.lambda_z,
+        lr=args.lr,
+        grad_clip=args.grad_clip,
+        max_var=args.max_var,
+        batch=args.batch,
+        mc_samples=args.mc,
+        ent_reg=args.ent_reg,
+        reparam_z=args.reparam_z,
+        norm_preserve=args.norm_preserve,
+        marginal_y=args.marginal_y,
+        init_params=init_params,
+        test_labels=test_labels,
+    )
 
     # Final metrics
     k_rec, k_cl = jax.random.split(k_gen)
@@ -430,11 +548,18 @@ def main() -> None:
     ete = float(ev(k_rec, params, test_data[:EVAL_N], 8))
     vry, vrz = model.prior_conjugation_loss_components(k_rec, params, EVAL_N)
     vry, vrz = float(vry), float(vrz)
-    pred = np.array(model.cluster_assignments(
-        k_cl, params, test_data[:CLUSTER_EVAL_N], RESP_SAMPLES))
-    nmi, purity = E.cluster_metrics(pred, test_labels[:CLUSTER_EVAL_N], model.n_clusters)
-    print(f"ELBO test {ete:.2f}  Var[rY] {vry:.2f}  Var[rZ] {vrz:.3f}  "
-          f"NMI {nmi:.3f}  purity {purity:.3f}")
+    pred = np.array(
+        model.cluster_assignments(
+            k_cl, params, test_data[:CLUSTER_EVAL_N], RESP_SAMPLES
+        )
+    )
+    nmi, purity = E.cluster_metrics(
+        pred, test_labels[:CLUSTER_EVAL_N], model.n_clusters
+    )
+    print(
+        f"ELBO test {ete:.2f}  Var[rY] {vry:.2f}  Var[rZ] {vrz:.3f}  "
+        f"NMI {nmi:.3f}  purity {purity:.3f}"
+    )
 
     n_each = 8
     gens = np.array(per_cluster_gen_means(model, params, k_gen, n_each))
@@ -445,20 +570,30 @@ def main() -> None:
     rows = model.n_clusters + 1
     fig, axes = plt.subplots(rows, n_each, figsize=(1.1 * n_each, 1.1 * rows))
     for j in range(n_each):
-        axes[0, j].imshow(np.array(test_data[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1)
+        axes[0, j].imshow(
+            np.array(test_data[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1
+        )
     axes[0, 0].set_ylabel("real", rotation=0, ha="right", va="center", fontsize=9)
     for kk in range(model.n_clusters):
         for j in range(n_each):
             ax = axes[kk + 1, j]
-            ax.imshow(np.clip(gens[kk, j].reshape(IMG, IMG), 0, 1), cmap="gray", vmin=0, vmax=1)
-        axes[kk + 1, 0].set_ylabel(f"k={kk}\np={pk[kk]:.2f}", rotation=0, ha="right",
-                                   va="center", fontsize=8)
+            ax.imshow(
+                np.clip(gens[kk, j].reshape(IMG, IMG), 0, 1),
+                cmap="gray",
+                vmin=0,
+                vmax=1,
+            )
+        axes[kk + 1, 0].set_ylabel(
+            f"k={kk}\np={pk[kk]:.2f}", rotation=0, ha="right", va="center", fontsize=8
+        )
     for r in range(rows):
         for j in range(n_each):
             axes[r, j].set_xticks([])
             axes[r, j].set_yticks([])
-    fig.suptitle(f"MNIST per-cluster ancestral samples (middle={args.middle}, "
-                 f"NMI {nmi:.2f}, purity {purity:.2f})")
+    fig.suptitle(
+        f"MNIST per-cluster ancestral samples (middle={args.middle}, "
+        f"NMI {nmi:.2f}, purity {purity:.2f})"
+    )
     fig.tight_layout()
 
     results_dir = example_paths(__file__).results_dir
@@ -467,14 +602,23 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
     wtag = f"_w{args.chordal_width}" if args.middle == "chordal" else ""
     if args.middle == "conv":
-        ci, cs, ck = tuple(args.conv_in), tuple(args.conv_stride), tuple(args.conv_kernel)
+        ci, cs, ck = (
+            tuple(args.conv_in),
+            tuple(args.conv_stride),
+            tuple(args.conv_kernel),
+        )
         wtag = f"_{ci[0]}x{ci[1]}s{cs[0]}k{ck[0]}x{ck[1]}_C{args.conv_channels}_{args.conv_prior}"
-    etag = (("_mg" if args.marginal_y else "")
-            + ("_rp" if args.reparam_z else "") + ("_np" if args.norm_preserve else ""))
+    etag = (
+        ("_mg" if args.marginal_y else "")
+        + ("_rp" if args.reparam_z else "")
+        + ("_np" if args.norm_preserve else "")
+    )
     if args.resume:
         etag += "_wsKM"
-    tag = (f"{args.middle}{wtag}_n{args.n_mid}_td{args.top_dim}_K{args.n_clusters}"
-           f"_ly{args.lambda_y:g}_lz{args.lambda_z:g}_lr{args.lr:g}{etag}_st{args.steps}")
+    tag = (
+        f"{args.middle}{wtag}_n{args.n_mid}_td{args.top_dim}_K{args.n_clusters}"
+        f"_ly{args.lambda_y:g}_lz{args.lambda_z:g}_lr{args.lr:g}{etag}_st{args.steps}"
+    )
     out = results_dir / f"mnist_mixture_{tag}.png"
     fig.savefig(out, dpi=130)
     np.savez(out.with_suffix(".npz"), params=np.asarray(params))
@@ -487,16 +631,20 @@ def _append_index(results_dir, fname, args, ete, vry, vrz, nmi, purity) -> None:
     from datetime import datetime
 
     index = results_dir / "INDEX.md"
-    header = ("| when | middle | n_mid | K | lam_y | lam_z | lr "
-              "| ELBO test | Var[rY] | Var[rZ] | NMI | purity | figure | note |\n"
-              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+    header = (
+        "| when | middle | n_mid | K | lam_y | lam_z | lr "
+        "| ELBO test | Var[rY] | Var[rZ] | NMI | purity | figure | note |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    )
     if not index.exists():
         index.write_text("# MNIST mixture-top runs\n\n" + header)
     when = datetime.now().strftime("%m-%d %H:%M")
-    row = (f"| {when} | {args.middle} | {args.n_mid} | {args.n_clusters} "
-           f"| {args.lambda_y:g} | {args.lambda_z:g} | {args.lr:g} "
-           f"| {ete:.1f} | {vry:.1f} | {vrz:.3f} | {nmi:.3f} | {purity:.3f} "
-           f"| {fname} | {args.note} |\n")
+    row = (
+        f"| {when} | {args.middle} | {args.n_mid} | {args.n_clusters} "
+        f"| {args.lambda_y:g} | {args.lambda_z:g} | {args.lr:g} "
+        f"| {ete:.1f} | {vry:.1f} | {vrz:.3f} | {nmi:.3f} | {purity:.3f} "
+        f"| {fname} | {args.note} |\n"
+    )
     with index.open("a") as f:
         f.write(row)
 

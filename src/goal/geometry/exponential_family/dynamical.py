@@ -92,7 +92,7 @@ class LatentProcess[
     O: Differentiable,
     L: Differentiable,
 ](
-    Triple[L, AffineMap[L, O], Map[L, L]],
+    Triple[L, AffineMap[O, L], Map[L, L]],
     ABC,
 ):
     """A state-space model: prior over $z_0$, conjugated emission, and predict transition.
@@ -131,7 +131,7 @@ class LatentProcess[
 
     @property
     @override
-    def snd_man(self) -> AffineMap[L, O]:
+    def snd_man(self) -> AffineMap[O, L]:
         """The emission *likelihood* manifold (``ems_hrm.lkl_fun_man``), sized to the bias + interaction parameters only."""
         return self.ems_hrm.lkl_fun_man
 
@@ -382,7 +382,7 @@ class VariationalLatentProcess[
     L: Differentiable,
     C: ExponentialFamily,
 ](
-    Quadruple[L, AffineMap[L, O], C, Map[L, L]],
+    Quadruple[L, AffineMap[O, L], C, Map[L, L]],
     ABC,
 ):
     """State-space model with a ``VariationalConjugated`` emission and a (deterministic) belief-space transition.
@@ -418,7 +418,7 @@ class VariationalLatentProcess[
 
     @property
     @override
-    def snd_man(self) -> AffineMap[L, O]:
+    def snd_man(self) -> AffineMap[O, L]:
         """The emission likelihood manifold (``ems_hrm.gen_hrm.lkl_fun_man``)."""
         return self.ems_hrm.gen_hrm.lkl_fun_man
 

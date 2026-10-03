@@ -45,7 +45,9 @@ def make(
     )
 
 
-def reference_apply(conv: LatticeConvolution[Euclidean, Euclidean], kernel: Array, v: Array) -> Array:
+def reference_apply(
+    conv: LatticeConvolution[Euclidean, Euclidean], kernel: Array, v: Array
+) -> Array:
     """Independent transposed-conv (scatter): each input cell writes its kernel into
     the output patch at ``q*stride`` centered by ``kernel//2``, summed over channels."""
     in_lat, stride, kshape = conv.in_lattice, conv.stride, conv.kernel_shape
@@ -67,7 +69,12 @@ def reference_apply(conv: LatticeConvolution[Euclidean, Euclidean], kernel: Arra
 
 def footprint_overlap_graph(conv: LatticeConvolution[Euclidean, Euclidean]) -> Array:
     """Independent (per input cell) footprint-overlap graph tensored over input channels."""
-    in_lat, stride, kshape, out_lat = conv.in_lattice, conv.stride, conv.kernel_shape, conv.out_lattice
+    in_lat, stride, kshape, out_lat = (
+        conv.in_lattice,
+        conv.stride,
+        conv.kernel_shape,
+        conv.out_lattice,
+    )
     center = np.array(kshape) // 2
     cells = list(np.ndindex(*in_lat))
     foot: list[set[int]] = []
@@ -91,11 +98,11 @@ def main() -> None:
     key = jax.random.PRNGKey(0)
     # (in_lattice, stride, kernel, cin, cout)
     cases = [
-        ((10,), (1,), (3,), 1, 1),        # same-lattice single-channel (regression)
+        ((10,), (1,), (3,), 1, 1),  # same-lattice single-channel (regression)
         ((16, 4), (1, 1), (3, 3), 1, 1),  # thin-strip stride-1
-        ((7, 7), (4, 4), (6, 6), 1, 1),   # coarse -> fine upsampling (MNIST-shaped, 1ch)
-        ((7, 7), (4, 4), (6, 6), 3, 1),   # multi-channel latent -> grayscale
-        ((5, 5), (2, 2), (4, 4), 2, 2),   # multi in + multi out, strided
+        ((7, 7), (4, 4), (6, 6), 1, 1),  # coarse -> fine upsampling (MNIST-shaped, 1ch)
+        ((7, 7), (4, 4), (6, 6), 3, 1),  # multi-channel latent -> grayscale
+        ((5, 5), (2, 2), (4, 4), 2, 2),  # multi in + multi out, strided
     ]
 
     for in_lat, stride, kshape, cin, cout in cases:
@@ -110,7 +117,9 @@ def main() -> None:
         sigma = jnp.exp(jax.random.normal(k_s, (out_n,)))
         wmat = conv.to_dense(kernel)
 
-        app_err = float(jnp.max(jnp.abs(conv(kernel, v) - reference_apply(conv, kernel, v))))
+        app_err = float(
+            jnp.max(jnp.abs(conv(kernel, v) - reference_apply(conv, kernel, v)))
+        )
         trn_err = float(jnp.max(jnp.abs(conv.transpose_apply(kernel, w) - wmat.T @ w)))
         op = conv.outer_product(w, v)
         op_ad = jax.grad(lambda kk: jnp.dot(w, conv(kk, v)))(kernel)
@@ -125,12 +134,16 @@ def main() -> None:
         max_deg = int(jnp.max(jnp.sum(supp, axis=1)))
 
         print(f"in_lat={in_lat} stride={stride} kernel={kshape} Cin={cin} Cout={cout}")
-        print(f"  dims: {in_n} -> {out_n} (out_lattice={conv.out_lattice}), kernel params={conv.dim}")
+        print(
+            f"  dims: {in_n} -> {out_n} (out_lattice={conv.out_lattice}), kernel params={conv.dim}"
+        )
         print(f"  apply vs reference       : {app_err:.2e}")
         print(f"  transpose vs W^T          : {trn_err:.2e}")
         print(f"  outer_product vs autodiff : {op_err:.2e}")
         print(f"  P^sigma off induced graph : {off_max:.2e}   (must be ~0)")
-        print(f"  induced == realized supp  : {graph_tight}   induced == ref overlap: {graph_matches_ref}")
+        print(
+            f"  induced == realized supp  : {graph_tight}   induced == ref overlap: {graph_matches_ref}"
+        )
         print(f"  max couplings / input unit: {max_deg}")
         assert app_err < 1e-10 and trn_err < 1e-10 and op_err < 1e-10
         assert off_max < 1e-10 and graph_tight and graph_matches_ref
@@ -139,7 +152,10 @@ def main() -> None:
     conv = make((7, 7), (4, 4), (6, 6))
     deg = int(jnp.max(jnp.sum(conv.induced_coupling_graph(), axis=1)))
     msg = f" (nn on 7x7 => treewidth ~7, junction-tree tractable)."
-    print(f"\nMNIST decoder 7x7 -> 28x28 (k=6,s=4): induced latent graph max degree {deg}" + msg)
+    print(
+        f"\nMNIST decoder 7x7 -> 28x28 (k=6,s=4): induced latent graph max degree {deg}"
+        + msg
+    )
 
     print("\nAll LatticeConvolution checks passed.")
 

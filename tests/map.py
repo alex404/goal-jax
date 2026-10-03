@@ -46,7 +46,7 @@ class TestLinearMapRegression:
         """Rectangular MatrixMap applies as a plain matrix-vector product."""
         dom = _DimManifold(3)
         cod = _DimManifold(2)
-        m = MatrixMap(Rectangular(), dom, cod)
+        m = MatrixMap(Rectangular(), cod, dom)
         assert m.dim == 6  # 2x3 dense matrix
         # Row-major params for matrix [[0, 1, 2], [3, 4, 5]]
         params = jnp.arange(6, dtype=jnp.float64)
@@ -81,8 +81,8 @@ class TestMultilayerPerceptron:
     def test_dim(self, dom_dim: int, cod_dim: int, hidden: tuple[int, ...]) -> None:
         """``dim`` matches sum of per-layer (in*out + out)."""
         m = MultilayerPerceptron(
-            _DimManifold(dom_dim),
             _DimManifold(cod_dim),
+            _DimManifold(dom_dim),
             hidden_dims=hidden,
             activation=jax.nn.relu,
         )
@@ -103,8 +103,8 @@ class TestMultilayerPerceptron:
     ) -> None:
         """``__call__`` produces a codomain-shaped output."""
         m = MultilayerPerceptron(
-            _DimManifold(dom_dim),
             _DimManifold(cod_dim),
+            _DimManifold(dom_dim),
             hidden_dims=hidden,
             activation=jax.nn.relu,
         )
@@ -114,7 +114,7 @@ class TestMultilayerPerceptron:
 
     def test_glorot_initialize_param_count(self) -> None:
         m = MultilayerPerceptron(
-            _DimManifold(3), _DimManifold(2), hidden_dims=(4,), activation=jax.nn.relu
+            _DimManifold(2), _DimManifold(3), hidden_dims=(4,), activation=jax.nn.relu
         )
         params = m.glorot_initialize(jax.random.PRNGKey(0))
         assert params.shape == (m.dim,)
@@ -122,7 +122,7 @@ class TestMultilayerPerceptron:
     def test_no_hidden_matches_matmul(self) -> None:
         """With no hidden layers and zero biases, MultilayerPerceptron reduces to ``W @ x``."""
         m = MultilayerPerceptron(
-            _DimManifold(3), _DimManifold(2), hidden_dims=(), activation=jax.nn.relu
+            _DimManifold(2), _DimManifold(3), hidden_dims=(), activation=jax.nn.relu
         )
         w = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         b = jnp.zeros(2)

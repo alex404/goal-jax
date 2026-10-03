@@ -12,6 +12,7 @@ Usage:
   JAX_PLATFORMS=cpu PYTHONPATH=. uv run python -m examples.variational_mnist.analyze_znx \
     IN_H IN_W ST_H ST_W K_H K_W CHANNELS TOP_DIM NPZ_PATH
 """
+
 import sys
 from pathlib import Path
 
@@ -38,8 +39,16 @@ def main() -> None:
     tag = Path(npz).stem
     OUT.mkdir(parents=True, exist_ok=True)
 
-    model = M.build_model("conv", 0, td, conv_in=(ih, iw), conv_stride=(sh, sw),
-                          conv_kernel=(kh, kw), conv_channels=ch, conv_prior=prior)
+    model = M.build_model(
+        "conv",
+        0,
+        td,
+        conv_in=(ih, iw),
+        conv_stride=(sh, sw),
+        conv_kernel=(kh, kw),
+        conv_channels=ch,
+        conv_prior=prior,
+    )
     params = jnp.asarray(np.load(npz)["params"])
 
     _, theta_xy = model.split_lower(params)
@@ -47,15 +56,17 @@ def main() -> None:
     _, theta_zn = model.top_var.gen_hrm.lkl_fun_man.split_coords(top_lkl)
     _, lower_lkl, _ = model.split_coords(params)
     theta_z, _, _ = model.split_top(params)
-    print(f"||Theta_XY|| = {float(jnp.linalg.norm(theta_xy)):.3f}   "
-          f"||Theta_ZN|| = {float(jnp.linalg.norm(theta_zn)):.3f}")
+    print(
+        f"||Theta_XY|| = {float(jnp.linalg.norm(theta_xy)):.3f}   "
+        f"||Theta_ZN|| = {float(jnp.linalg.norm(theta_zn)):.3f}"
+    )
 
     def decode_mean_from_z(z: jax.Array) -> jax.Array:
         s_z = model.top_man.sufficient_statistic(z)
         n_nat = model.top_var.gen_hrm.lkl_fun_man(top_lkl, s_z)
         n_mean = model.mid_man.to_mean(n_nat)  # E[N | z] = spike probabilities
         x_nat = model.lower_hrm.lkl_fun_man(lower_lkl, n_mean)
-        return model.obs_man.to_mean(x_nat)[:IMG * IMG]
+        return model.obs_man.to_mean(x_nat)[: IMG * IMG]
 
     # generation diversity: per-pixel std over decoded means for 64 prior draws
     zs = model.top_man.sample(jax.random.PRNGKey(1), theta_z, 64)
@@ -79,8 +90,12 @@ def main() -> None:
     fig, ax = plt.subplots(ndim, 9, figsize=(1.1 * 9, 1.1 * ndim))
     for r in range(ndim):
         for c in range(9):
-            ax[r][c].imshow(np.clip(sweeps[r][c].reshape(IMG, IMG), 0, 1),
-                            cmap="gray", vmin=0, vmax=1)
+            ax[r][c].imshow(
+                np.clip(sweeps[r][c].reshape(IMG, IMG), 0, 1),
+                cmap="gray",
+                vmin=0,
+                vmax=1,
+            )
             ax[r][c].axis("off")
     fig.suptitle(f"{tag}: Z traversals  (div={diversity:.3f} sens={sens:.3f})")
     fig.tight_layout()

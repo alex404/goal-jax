@@ -377,7 +377,7 @@ def train_model(  # noqa: C901
 
     # For full model, also break symmetry in the xyk and xk interaction blocks
     if hasattr(model.gen_hrm, "xyk_man"):
-        block_int = model.gen_hrm.int_man
+        block_int = model.gen_hrm.crs_man
         xy_params, xyk_params, xk_params = block_int.coord_blocks(int_params)
         obs_dim = model.obs_man.dim
         lat_dim = model.bas_lat_man.dim

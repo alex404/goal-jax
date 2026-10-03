@@ -112,8 +112,13 @@ def build_model(kind: str) -> VariationalHierarchicalMixture:
     common = dict(mlp_hidden=(64,), obs_location_only=True)
     if kind == "chordal":
         return build_boltzmann_gaussian_mixture_hierarchy(
-            obs_man, N_MID, TOP_DIM, N_MODES, mid_kind="chordal",
-            mid_edges=grid_edges(GRID_SIDE), **common,
+            obs_man,
+            N_MID,
+            TOP_DIM,
+            N_MODES,
+            mid_kind="chordal",
+            mid_edges=grid_edges(GRID_SIDE),
+            **common,
         )
     return build_boltzmann_gaussian_mixture_hierarchy(
         obs_man, N_MID, TOP_DIM, N_MODES, mid_kind=kind, **common
@@ -148,7 +153,9 @@ def bound_mixture(model: VariationalHierarchicalMixture, params: Array) -> Array
     return model.join_coords(top, lower_lkl, new_third)
 
 
-def mixture_entropy_penalty(model: VariationalHierarchicalMixture, params: Array) -> Array:
+def mixture_entropy_penalty(
+    model: VariationalHierarchicalMixture, params: Array
+) -> Array:
     """``-H(pi)`` of the mixture weights via ``dual_potential`` (no ``log 0`` on dying components).
 
     Added to the loss with weight ``ENT_REG``; minimizing it maximizes the mixing
@@ -158,7 +165,9 @@ def mixture_entropy_penalty(model: VariationalHierarchicalMixture, params: Array
     return model.top_prior.lat_man.dual_potential(cat_nat)
 
 
-def cluster_metrics(pred: np.ndarray, true: np.ndarray, n_clusters: int) -> tuple[float, float]:
+def cluster_metrics(
+    pred: np.ndarray, true: np.ndarray, n_clusters: int
+) -> tuple[float, float]:
     """(NMI, purity) between predicted clusters and true labels."""
     classes = np.unique(true)
     cont = np.zeros((n_clusters, classes.size))
@@ -171,7 +180,9 @@ def cluster_metrics(pred: np.ndarray, true: np.ndarray, n_clusters: int) -> tupl
     p_c = cont.sum(0) / n
     p_kc = cont / n
     with np.errstate(divide="ignore", invalid="ignore"):
-        mi = np.nansum(p_kc * np.log(p_kc / (p_k[:, None] * p_c[None, :] + 1e-12) + 1e-12))
+        mi = np.nansum(
+            p_kc * np.log(p_kc / (p_k[:, None] * p_c[None, :] + 1e-12) + 1e-12)
+        )
         h_k = -np.nansum(p_k * np.log(p_k + 1e-12))
         h_c = -np.nansum(p_c * np.log(p_c + 1e-12))
     # If the assignment collapses to one cluster, H(clusters)=0 and NMI is 0
@@ -182,21 +193,30 @@ def cluster_metrics(pred: np.ndarray, true: np.ndarray, n_clusters: int) -> tupl
 
 
 def evaluate_clusters(
-    model: VariationalHierarchicalMixture, params: Array, xs: Array, ys: Array, key: Array
+    model: VariationalHierarchicalMixture,
+    params: Array,
+    xs: Array,
+    ys: Array,
+    key: Array,
 ) -> tuple[float, float]:
     pred = np.array(model.cluster_assignments(key, params, xs, RESP_SAMPLES))
     return cluster_metrics(pred, np.array(ys), model.n_clusters)
 
 
-def fit(kind: str, train_x: Array, test_x: Array, test_y: Array, key: Array) -> dict[str, Any]:
+def fit(
+    kind: str, train_x: Array, test_x: Array, test_y: Array, key: Array
+) -> dict[str, Any]:
     model = build_model(kind)
     k_init, k_train, k_eval = jax.random.split(key, 3)
     params = model.initialize_from_sample(k_init, train_x, location=0.0, shape=0.3)
     params = bound_mixture(model, params)
 
     schedule = optax.warmup_cosine_decay_schedule(
-        init_value=0.0, peak_value=LR, warmup_steps=LR_WARMUP,
-        decay_steps=STEPS, end_value=0.0,
+        init_value=0.0,
+        peak_value=LR,
+        warmup_steps=LR_WARMUP,
+        decay_steps=STEPS,
+        end_value=0.0,
     )
     optimizer = optax.apply_if_finite(
         optax.chain(optax.clip_by_global_norm(GRAD_CLIP), optax.adam(schedule)),
@@ -210,7 +230,9 @@ def fit(kind: str, train_x: Array, test_x: Array, test_y: Array, key: Array) -> 
         gen = model.prior_conjugation_loss(kc, p, CONJ_SAMPLES)
         inner = model.mean_recognition_inner_loss(ki, p, batch, MC_SAMPLES)
         ent = mixture_entropy_penalty(model, p)
-        return -elbo + gen_beta * LAMBDA_GEN * gen + LAMBDA_INNER * inner + ENT_REG * ent
+        return (
+            -elbo + gen_beta * LAMBDA_GEN * gen + LAMBDA_INNER * inner + ENT_REG * ent
+        )
 
     def step(carry: tuple[Any, Any, Array], g: Array) -> tuple[Any, None]:
         p, opt_state, k = carry
@@ -236,8 +258,10 @@ def fit(kind: str, train_x: Array, test_x: Array, test_y: Array, key: Array) -> 
         elbo_log.append(elbo)
         nmi_log.append(nmi)
         purity_log.append(purity)
-        print(f"  {kind:8s} step {steps_log[-1]:5d}  ELBO {elbo:8.3f}  "
-              f"NMI {nmi:.3f}  purity {purity:.3f}")
+        print(
+            f"  {kind:8s} step {steps_log[-1]:5d}  ELBO {elbo:8.3f}  "
+            f"NMI {nmi:.3f}  purity {purity:.3f}"
+        )
 
     # Persist final params so downstream scripts (generative sampling) use the
     # exact trained model rather than re-deriving it.
@@ -268,8 +292,10 @@ def main() -> None:
     k_data, k_diag, k_chain, k_chord = jax.random.split(key, 4)
     train_x, _, test_x, test_y = make_data(k_data)
     print(f"Data: {N_MODES}-mode MoG in R^{OBS_DIM} (labels known)")
-    print(f"Model: X(Normal-{OBS_DIM}) <- Y(Boltzmann-{N_MID}) <- Z(Gaussian-{TOP_DIM}) "
-          f"<- K(Categorical-{N_MODES})\n")
+    print(
+        f"Model: X(Normal-{OBS_DIM}) <- Y(Boltzmann-{N_MID}) <- Z(Gaussian-{TOP_DIM}) "
+        f"<- K(Categorical-{N_MODES})\n"
+    )
 
     results = []
     for kind, k in [("diagonal", k_diag), ("chain", k_chain), ("chordal", k_chord)]:
@@ -281,7 +307,9 @@ def main() -> None:
     print(f"{'middle':10s} {'ELBO test':>11s} {'NMI':>8s} {'purity':>8s}")
     print("-" * 60)
     for r in results:
-        print(f"{r['kind']:10s} {r['elbo_test']:11.3f} {r['nmi']:8.3f} {r['purity']:8.3f}")
+        print(
+            f"{r['kind']:10s} {r['elbo_test']:11.3f} {r['nmi']:8.3f} {r['purity']:8.3f}"
+        )
     print("=" * 60)
 
     results_dir = example_paths(__file__).results_dir

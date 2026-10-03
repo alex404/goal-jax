@@ -317,7 +317,7 @@ class TestNormalCovarianceEmbedding:
         dim = 3
         sub = Normal(dim, Diagonal())
         amb = Normal(dim, PositiveDefinite())
-        emb = NormalCovarianceEmbedding(sub, amb)
+        emb = NormalCovarianceEmbedding(amb, sub)
 
         diag_cov = jnp.array([1.5, 2.0, 0.8])
         means = sub.join_mean_covariance(jnp.array([1.0, -0.5, 0.3]), diag_cov)
@@ -333,7 +333,7 @@ class TestNormalCovarianceEmbedding:
         dim = 3
         sub = Normal(dim, Diagonal())
         amb = Normal(dim, PositiveDefinite())
-        emb = NormalCovarianceEmbedding(sub, amb)
+        emb = NormalCovarianceEmbedding(amb, sub)
 
         diag_cov = jnp.array([1.5, 2.0, 0.8])
         means = sub.join_mean_covariance(jnp.array([1.0, -0.5, 0.3]), diag_cov)

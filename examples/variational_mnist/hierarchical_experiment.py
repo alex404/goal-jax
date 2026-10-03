@@ -116,8 +116,12 @@ def build_model(kind: str) -> VariationalHierarchical:
     common = dict(mlp_hidden=(64,), obs_location_only=True)
     if kind == "chordal":
         return build_boltzmann_gaussian_hierarchy(
-            obs_man, N_MID, TOP_DIM, mid_kind="chordal",
-            mid_edges=grid_edges(GRID_SIDE), **common,
+            obs_man,
+            N_MID,
+            TOP_DIM,
+            mid_kind="chordal",
+            mid_edges=grid_edges(GRID_SIDE),
+            **common,
         )
     return build_boltzmann_gaussian_hierarchy(
         obs_man, N_MID, TOP_DIM, mid_kind=kind, **common
@@ -148,8 +152,11 @@ def fit(kind: str, train: Array, test: Array, key: Array) -> dict[str, Any]:
     params = model.initialize_from_sample(k_init, train, location=0.0, shape=0.3)
 
     schedule = optax.warmup_cosine_decay_schedule(
-        init_value=0.0, peak_value=LR, warmup_steps=LR_WARMUP,
-        decay_steps=STEPS, end_value=0.0,
+        init_value=0.0,
+        peak_value=LR,
+        warmup_steps=LR_WARMUP,
+        decay_steps=STEPS,
+        end_value=0.0,
     )
     # clip_by_global_norm + apply_if_finite: bound each step and skip any batch
     # whose gradient is non-finite, so a single blown-up Normal likelihood can
@@ -193,8 +200,10 @@ def fit(kind: str, train: Array, test: Array, key: Array) -> dict[str, Any]:
         etr_log.append(etr)
         ete_log.append(ete)
         gvar_log.append(gvar)
-        print(f"  {kind:8s} step {steps_log[-1]:5d}  ELBO train {etr:8.3f}  "
-              f"test {ete:8.3f}  Var[r_gen] {gvar:.4f}")
+        print(
+            f"  {kind:8s} step {steps_log[-1]:5d}  ELBO train {etr:8.3f}  "
+            f"test {ete:8.3f}  Var[r_gen] {gvar:.4f}"
+        )
 
     # Final diagnostics
     kg, kin, krec = jax.random.split(k_rec, 3)
@@ -219,8 +228,12 @@ def main() -> None:
     key = jax.random.PRNGKey(0)
     k_data, k_diag, k_chain, k_chord = jax.random.split(key, 4)
     train, test, ceiling = make_data(k_data)
-    print(f"Data: {N_MODES}-mode MoG in R^{OBS_DIM}; ceiling (max mean log p) = {ceiling:.3f}")
-    print(f"Hierarchy: X(Normal-{OBS_DIM}) <- Y(Boltzmann-{N_MID}) <- Z(Gaussian-{TOP_DIM})\n")
+    print(
+        f"Data: {N_MODES}-mode MoG in R^{OBS_DIM}; ceiling (max mean log p) = {ceiling:.3f}"
+    )
+    print(
+        f"Hierarchy: X(Normal-{OBS_DIM}) <- Y(Boltzmann-{N_MID}) <- Z(Gaussian-{TOP_DIM})\n"
+    )
 
     results = []
     for kind, k in [("diagonal", k_diag), ("chain", k_chain), ("chordal", k_chord)]:
@@ -229,12 +242,16 @@ def main() -> None:
         print()
 
     print("=" * 78)
-    print(f"{'middle':10s} {'ELBO test':>11s} {'gap-to-ceil':>12s} "
-          f"{'Var[r_gen]':>11s} {'Var[r_inner]':>13s} {'recon MSE':>11s}")
+    print(
+        f"{'middle':10s} {'ELBO test':>11s} {'gap-to-ceil':>12s} "
+        f"{'Var[r_gen]':>11s} {'Var[r_inner]':>13s} {'recon MSE':>11s}"
+    )
     print("-" * 78)
     for r in results:
-        print(f"{r['kind']:10s} {r['elbo_test']:11.3f} {ceiling - r['elbo_test']:12.3f} "
-              f"{r['gen_var']:11.4f} {r['inner_var']:13.4f} {r['recon_mse']:11.4f}")
+        print(
+            f"{r['kind']:10s} {r['elbo_test']:11.3f} {ceiling - r['elbo_test']:12.3f} "
+            f"{r['gen_var']:11.4f} {r['inner_var']:13.4f} {r['recon_mse']:11.4f}"
+        )
     print("=" * 78)
 
     results_dir = example_paths(__file__).results_dir

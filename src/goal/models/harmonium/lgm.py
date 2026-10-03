@@ -39,7 +39,7 @@ from ..base.gaussian.normal import (
 
 @dataclass(frozen=True)
 class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
-    LinearEmbedding[Euclidean, G],
+    LinearEmbedding[G, Euclidean],
 ):
     """Embedding of the Euclidean location component into a GeneralizedGaussian distribution.
 
@@ -90,18 +90,18 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
 
 
 @dataclass(frozen=True)
-class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefinite](
-    LinearEmbedding[Normal[SubRep], Normal[AmbRep]]
+class NormalCovarianceEmbedding[AmbRep: PositiveDefinite, SubRep: PositiveDefinite](
+    LinearEmbedding[Normal[AmbRep], Normal[SubRep]]
 ):
     """Embedding of a normal distribution with a simpler covariance structure into a more complex one."""
 
     # Fields
 
-    _sub_man: Normal[SubRep]
-    """The sub-manifold with the simpler covariance structure."""
-
     _amb_man: Normal[AmbRep]
     """The super-manifold with the more complex covariance structure."""
+
+    _sub_man: Normal[SubRep]
+    """The sub-manifold with the simpler covariance structure."""
 
     def __post_init__(self):
         if not isinstance(self.sub_man.cov_man.rep, type(self.amb_man.cov_man.rep)):
@@ -141,7 +141,7 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefini
 
 
 @dataclass(frozen=True)
-class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, FullBoltzmann]):
+class BoltzmannEmbedding(LinearEmbedding[FullBoltzmann, DiagonalBoltzmann]):
     """Embedding of DiagonalBoltzmann (mean-field) into full Boltzmann.
 
     This embedding connects the mean-field approximation (independent binary units)
@@ -154,11 +154,11 @@ class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, FullBoltzmann]):
     (as bias terms) with zero off-diagonal coupling.
     """
 
-    _sub_man: DiagonalBoltzmann
-    """The mean-field Boltzmann (diagonal/independent units)."""
-
     _amb_man: FullBoltzmann
     """The full Boltzmann machine with coupling."""
+
+    _sub_man: DiagonalBoltzmann
+    """The mean-field Boltzmann (diagonal/independent units)."""
 
     @property
     @override
@@ -292,7 +292,8 @@ class LGM[
 
         # Conjugation parameters
 
-        im = self.int_man.clq_map
+        (xz,) = self.level_split()[1]
+        im = self.clq_map(xz)
         int_mat_trn = im.transpose(int_mat)
         rho_mean = im.trn_man.rep.matvec(im.trn_man.matrix_shape, int_mat_trn, obs_mean)
 
@@ -334,10 +335,10 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
     @property
     @override
-    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PstRep, PositiveDefinite]:
+    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PositiveDefinite, PstRep]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         prior_gau = full_normal(self.lat_dim)
-        return NormalCovarianceEmbedding(self.pst_man, prior_gau)
+        return NormalCovarianceEmbedding(prior_gau, self.pst_man)
 
     # Methods
 
@@ -382,14 +383,16 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
 
         # W \Sigma_z = E[x \otimes z] - E[x] \otimes E[z]
-        int_mat = self.int_man.clq_map.to_matrix(int_means)  # (obs_dim, lat_dim)
+        (xz,) = self.level_split()[1]
+        im = self.clq_map(xz)
+        int_mat = im.to_matrix(int_means)  # (obs_dim, lat_dim)
         cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # W \Sigma_z
 
         # WL = W \Sigma_z @ L^{-T},  L = chol(\Sigma_z)
         chol = jnp.linalg.cholesky(self.prr_man.cov_man.to_matrix(lat_cov))
         wl_mat = jax.scipy.linalg.solve_triangular(chol, cross_cov.T, lower=True).T
 
-        new_int_means = self.int_man.clq_map.from_matrix(wl_mat)
+        new_int_means = im.from_matrix(wl_mat)
         new_lat_means = self.prr_man.standard_normal()
         return self.join_level(obs_means, new_int_means, new_lat_means)
 
@@ -412,7 +415,8 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         nor_loc = jnp.concatenate([obs_loc, lat_loc])
         obs_prs_array = new_man.obs_man.cov_man.to_matrix(obs_prs)
         lat_prs_array = new_man.prr_man.cov_man.to_matrix(lat_prs)
-        int_array = -self.int_man.clq_map.to_matrix(int_params)
+        (xz,) = self.level_split()[1]
+        int_array = -self.clq_map(xz).to_matrix(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
@@ -490,7 +494,7 @@ class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
     @override
     def pst_prr_emb(self) -> BoltzmannEmbedding:
         """Embedding from mean-field DiagonalBoltzmann to full Boltzmann."""
-        return BoltzmannEmbedding(self.pst_man, FullBoltzmann(self.lat_dim))
+        return BoltzmannEmbedding(FullBoltzmann(self.lat_dim), self.pst_man)
 
 
 @dataclass(frozen=True)
@@ -521,7 +525,7 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
     ) -> NormalCovarianceEmbedding[PositiveDefinite, PositiveDefinite]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         prior_gau = full_normal(self.lat_dim)
-        return NormalCovarianceEmbedding(self.pst_man, prior_gau)
+        return NormalCovarianceEmbedding(prior_gau, self.pst_man)
 
     @override
     def expectation_maximization(self, params: Array, xs: Array) -> Array:
@@ -547,7 +551,8 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
         obs_prs = om.split_location_precision(obs_params)[1]
         dns_prs = om.cov_man.to_matrix(obs_prs)
-        int_mat = self.int_man.clq_map.from_matrix(dns_prs @ loadings)
+        (xz,) = self.level_split()[1]
+        int_mat = self.clq_map(xz).from_matrix(dns_prs @ loadings)
         return self.lkl_fun_man.join_coords(obs_params, int_mat)
 
     def initialize_from_loadings(
@@ -570,7 +575,8 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         # Get relevant manifolds
         ocm = self.obs_man.cov_man
         lcm = self.lat_man.cov_man
-        im = self.int_man.clq_map
+        (xz,) = self.level_split()[1]
+        im = self.clq_map(xz)
 
         # Deconstruct parameters
         obs_means, int_means, lat_means = self.split_level(means)

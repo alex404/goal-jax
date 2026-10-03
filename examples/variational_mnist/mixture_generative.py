@@ -31,7 +31,9 @@ from .hierarchical_mixture import VariationalHierarchicalMixture  # noqa: E402
 N_GEN = 2000
 
 
-def train_params(kind: str, train_x: Array, key: Array) -> tuple[VariationalHierarchicalMixture, Array]:
+def train_params(
+    kind: str, train_x: Array, key: Array
+) -> tuple[VariationalHierarchicalMixture, Array]:
     """Train a mixture-top model, returning (model, params).
 
     Splits ``key`` and runs the loop exactly as ``E.fit`` does, so passing the
@@ -44,8 +46,11 @@ def train_params(kind: str, train_x: Array, key: Array) -> tuple[VariationalHier
     params = E.bound_mixture(model, params)
 
     schedule = optax.warmup_cosine_decay_schedule(
-        init_value=0.0, peak_value=E.LR, warmup_steps=E.LR_WARMUP,
-        decay_steps=E.STEPS, end_value=0.0,
+        init_value=0.0,
+        peak_value=E.LR,
+        warmup_steps=E.LR_WARMUP,
+        decay_steps=E.STEPS,
+        end_value=0.0,
     )
     optimizer = optax.apply_if_finite(
         optax.chain(optax.clip_by_global_norm(E.GRAD_CLIP), optax.adam(schedule)), 100
@@ -58,7 +63,12 @@ def train_params(kind: str, train_x: Array, key: Array) -> tuple[VariationalHier
         gen = model.prior_conjugation_loss(kc, p, E.CONJ_SAMPLES)
         inner = model.mean_recognition_inner_loss(ki, p, batch, E.MC_SAMPLES)
         ent = E.mixture_entropy_penalty(model, p)
-        return -elbo + gen_beta * E.LAMBDA_GEN * gen + E.LAMBDA_INNER * inner + E.ENT_REG * ent
+        return (
+            -elbo
+            + gen_beta * E.LAMBDA_GEN * gen
+            + E.LAMBDA_INNER * inner
+            + E.ENT_REG * ent
+        )
 
     def step(
         carry: tuple[Array, Any, Array, Array], g: Array
@@ -82,7 +92,9 @@ def train_params(kind: str, train_x: Array, key: Array) -> tuple[VariationalHier
     return model, p_safe
 
 
-def _z_to_x(model: VariationalHierarchicalMixture, params: Array, z: Array, key: Array) -> Array:
+def _z_to_x(
+    model: VariationalHierarchicalMixture, params: Array, z: Array, key: Array
+) -> Array:
     """Sample x through the lower stack for each z: y ~ p(y|z), x ~ p(x|y)."""
     ky, kx = jax.random.split(key)
     n = z.shape[0]
@@ -104,7 +116,9 @@ def _z_to_x(model: VariationalHierarchicalMixture, params: Array, z: Array, key:
     return jax.vmap(x_of_y)(jax.random.split(kx, n), ys)
 
 
-def generate(model: VariationalHierarchicalMixture, params: Array, key: Array, n: int) -> tuple[Array, Array]:
+def generate(
+    model: VariationalHierarchicalMixture, params: Array, key: Array, n: int
+) -> tuple[Array, Array]:
     """Ancestral generative samples using the prior p(k): returns (x (n, obs_dim), k (n,))."""
     kz, kx = jax.random.split(key)
     zk = model.top_prior.sample(kz, model.split_mixture(params), n)  # [z | k]
@@ -122,7 +136,9 @@ def generate_per_component(
     whether the generative weights p(k) collapsed.
     """
     mix = model.split_mixture(params)
-    comp_nat, _ = model.top_prior.split_natural_mixture(mix)  # per-component Normal nats
+    comp_nat, _ = model.top_prior.split_natural_mixture(
+        mix
+    )  # per-component Normal nats
     xs_all, k_all = [], []
     for m in range(model.n_clusters):
         km = jax.random.fold_in(key, m)
@@ -142,8 +158,12 @@ def prior_weights(model: VariationalHierarchicalMixture, params: Array) -> Array
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--kind", default="diagonal", choices=["diagonal", "chain", "chordal"])
-    ap.add_argument("--retrain", action="store_true", help="retrain even if cached params exist")
+    ap.add_argument(
+        "--kind", default="diagonal", choices=["diagonal", "chain", "chordal"]
+    )
+    ap.add_argument(
+        "--retrain", action="store_true", help="retrain even if cached params exist"
+    )
     args = ap.parse_args()
 
     # Reproduce E.main's exact seeding so cached params match the reported NMI.
@@ -168,7 +188,9 @@ def main() -> None:
 
     # Diagnostics: generative prior weights p(k) vs. posterior cluster usage.
     pk = np.array(prior_weights(model, params))
-    resp_assign = np.array(model.cluster_assignments(k_pc, params, test_x[:512], E.RESP_SAMPLES))
+    resp_assign = np.array(
+        model.cluster_assignments(k_pc, params, test_x[:512], E.RESP_SAMPLES)
+    )
     resp_hist = np.bincount(resp_assign, minlength=model.n_clusters) / resp_assign.size
     np.set_printoptions(precision=3, suppress=True)
     print(f"prior weights p(k)           : {pk}")
@@ -178,7 +200,9 @@ def main() -> None:
     gen_x, gen_k = np.array(gen_x), np.array(gen_k)
     print(f"ancestral gen components used: {sorted(set(gen_k.tolist()))}")
 
-    pc_x, pc_k = generate_per_component(model, params, jax.random.fold_in(k_gen, 1), 350)
+    pc_x, pc_k = generate_per_component(
+        model, params, jax.random.fold_in(k_gen, 1), 350
+    )
     pc_x, pc_k = np.array(pc_x), np.array(pc_k)
 
     # PCA plane fitted on the DATA, applied to all.
@@ -191,7 +215,9 @@ def main() -> None:
     labels = np.array(test_y)
     cmap = plt.get_cmap("tab10")
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5.2), constrained_layout=True, sharex=True, sharey=True)
+    fig, axes = plt.subplots(
+        1, 3, figsize=(16, 5.2), constrained_layout=True, sharex=True, sharey=True
+    )
     axes[0].set_title(f"True data — {E.N_MODES} modes (by label)")
     for m in range(E.N_MODES):
         pts = data2[labels == m]

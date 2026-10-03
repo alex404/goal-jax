@@ -92,7 +92,12 @@ def load_mnist(n_train: int, n_test: int, with_labels: bool = False):
     test = jnp.array(data[60000 : 60000 + n_test])
     if with_labels:
         labels = mnist.target.astype(int)
-        return train, test, np.asarray(labels[:n_train]), np.asarray(labels[60000 : 60000 + n_test])
+        return (
+            train,
+            test,
+            np.asarray(labels[:n_train]),
+            np.asarray(labels[60000 : 60000 + n_test]),
+        )
     return train, test
 
 
@@ -141,9 +146,12 @@ def fix_observation_noise(
 
 
 def init_observation_noise(
-    model: VariationalHierarchical, params: Array,
-    data_mean: Array, data_var: Array,
-    min_var: float = OBS_MIN_VAR, max_var: float = OBS_MAX_VAR,
+    model: VariationalHierarchical,
+    params: Array,
+    data_mean: Array,
+    data_var: Array,
+    min_var: float = OBS_MIN_VAR,
+    max_var: float = OBS_MAX_VAR,
 ) -> Array:
     """Initialize the observable as a diagonal Gaussian decoder with FA-style
     per-pixel specific variances.
@@ -165,8 +173,10 @@ def init_observation_noise(
 
 
 def bound_observable_covariance(
-    model: VariationalHierarchical, params: Array,
-    min_var: float = OBS_MIN_VAR, max_var: float = OBS_MAX_VAR,
+    model: VariationalHierarchical,
+    params: Array,
+    min_var: float = OBS_MIN_VAR,
+    max_var: float = OBS_MAX_VAR,
 ) -> Array:
     """Project the observable's diagonal noise variance into ``[min_var, max_var]``.
 
@@ -189,8 +199,10 @@ def bound_observable_covariance(
 
 
 def bound_top_prior(
-    model: VariationalHierarchical, params: Array,
-    min_eig: float = 1e-2, max_eig: float = 1e2,
+    model: VariationalHierarchical,
+    params: Array,
+    min_eig: float = 1e-2,
+    max_eig: float = 1e2,
 ) -> Array:
     """Project the top prior's precision eigenvalues into ``[min_eig, max_eig]``.
 
@@ -225,15 +237,18 @@ def _posterior_codes(
     Chunked: ``to_mean`` is a junction-tree pass, and vmapping thousands of them
     at high treewidth materializes tens of GiB of clique tensors.
     """
-    f = jax.jit(jax.vmap(
-        lambda x: model.mid_man.to_mean(model.posterior_mid_bias(params, x))
-    ))
-    return jnp.concatenate([f(xs[i:i + chunk]) for i in range(0, xs.shape[0], chunk)])
+    f = jax.jit(
+        jax.vmap(lambda x: model.mid_man.to_mean(model.posterior_mid_bias(params, x)))
+    )
+    return jnp.concatenate([f(xs[i : i + chunk]) for i in range(0, xs.shape[0], chunk)])
 
 
 def seed_top_interaction_pca(
-    model: VariationalHierarchical, params: Array, xs: Array,
-    target_std: float = 1.5, n_codes: int = 2000,
+    model: VariationalHierarchical,
+    params: Array,
+    xs: Array,
+    target_std: float = 1.5,
+    n_codes: int = 2000,
 ) -> Array:
     """Seed Theta_ZN's location block from PCA of the posterior spike codes.
 
@@ -274,14 +289,21 @@ def seed_top_interaction_pca(
     theta_zn = im.rep.from_matrix(mat)
     top_lkl = model.top_var.gen_hrm.lkl_fun_man.join_coords(theta_y, theta_zn)
     top = model.top_var.join_coords(theta_z, top_lkl, rho0)
-    print(f"  [seed-top-pca] location block set from top-{d} PCA of spike codes "
-          f"(median node logit-std {target_std:g})")
+    print(
+        f"  [seed-top-pca] location block set from top-{d} PCA of spike codes "
+        f"(median node logit-std {target_std:g})"
+    )
     return model.join_coords(top, lower_lkl, recog)
 
 
 def seed_recognition_regression(
-    model: VariationalHierarchical, params: Array, xs: Array, key: Array,
-    steps: int = 800, prec: float = 1.0, n_codes: int = 2000,
+    model: VariationalHierarchical,
+    params: Array,
+    xs: Array,
+    key: Array,
+    steps: int = 800,
+    prec: float = 1.0,
+    n_codes: int = 2000,
 ) -> Array:
     """Pretrain the recognition MLP so q(z | x) tracks the PCA scores of the codes.
 
@@ -327,15 +349,21 @@ def seed_recognition_regression(
         upd, st = opt.update(g, st)
         return (optax.apply_updates(ph, upd), st), val
 
-    (phi, _), ls = jax.lax.scan(step, (phi, opt.init(phi)), jax.random.split(key, steps))
-    print(f"  [seed-recog] MLP regression loss {float(ls[0]):.4f} -> {float(ls[-1]):.4f}")
+    (phi, _), ls = jax.lax.scan(
+        step, (phi, opt.init(phi)), jax.random.split(key, steps)
+    )
+    print(
+        f"  [seed-recog] MLP regression loss {float(ls[0]):.4f} -> {float(ls[-1]):.4f}"
+    )
     recog = model.recog_man.join_coords(rho_y, phi)
     return model.join_coords(top, lower_lkl, recog)
 
 
 def lift_conv_checkpoint(
-    base_model: VariationalHierarchical, model: VariationalHierarchical,
-    base_params: Array, key: Array,
+    base_model: VariationalHierarchical,
+    model: VariationalHierarchical,
+    base_params: Array,
+    key: Array,
 ) -> Array:
     """Lift a trained conv checkpoint into a larger-kernel geometry.
 
@@ -363,7 +391,9 @@ def lift_conv_checkpoint(
 
     conv_b = base_model.lower_hrm.int_man.inner
     conv_t = model.lower_hrm.int_man.inner
-    assert isinstance(conv_b, LatticeConvolution) and isinstance(conv_t, LatticeConvolution)
+    assert isinstance(conv_b, LatticeConvolution) and isinstance(
+        conv_t, LatticeConvolution
+    )
     assert conv_b.in_channels == conv_t.in_channels == 1
     assert conv_b.out_channels == conv_t.out_channels == 1
     kb, kt = conv_b.kernel_shape, conv_t.kernel_shape
@@ -374,14 +404,16 @@ def lift_conv_checkpoint(
     # Kernel: place base taps at the center-aligned offset, zeros elsewhere.
     off = tuple((t // 2) - (b // 2) for t, b in zip(kt, kb))
     kmat = jnp.zeros(kt)
-    kmat = kmat.at[
-        off[0]:off[0] + kb[0], off[1]:off[1] + kb[1]
-    ].set(theta_xy_b.reshape(kb))
+    kmat = kmat.at[off[0] : off[0] + kb[0], off[1] : off[1] + kb[1]].set(
+        theta_xy_b.reshape(kb)
+    )
     lower_lkl = model.lower_hrm.lkl_fun_man.join_coords(theta_x, kmat.ravel())
 
     # Top edge: node-level structure transfers verbatim; edges map by identity.
     theta_z, top_lkl_b, rho0 = base_model.top_var.split_coords(top_b)
-    theta_y_b, theta_zn_b = base_model.top_var.gen_hrm.lkl_fun_man.split_coords(top_lkl_b)
+    theta_y_b, theta_zn_b = base_model.top_var.gen_hrm.lkl_fun_man.split_coords(
+        top_lkl_b
+    )
     n = model.mid_man.data_dim
     diag_b, off_b = base_model.mid_man.split_couplings(theta_y_b)
     eb = base_model.mid_man.junction_tree.chordal_edges_arr
@@ -412,9 +444,11 @@ def lift_conv_checkpoint(
     rho_y = jnp.zeros(model.mid_man.dim)
     phi = model.mlp_man.glorot_initialize(key)
     recog = model.recog_man.join_coords(rho_y, phi)
-    print(f"  [lift] kernel {kb} -> {kt} at offset {off}; "
-          f"{matched}/{eb.shape[0]} base edges mapped, "
-          f"{et.shape[0] - matched} new edges start at 0")
+    print(
+        f"  [lift] kernel {kb} -> {kt} at offset {off}; "
+        f"{matched}/{eb.shape[0]} base edges mapped, "
+        f"{et.shape[0] - matched} new edges start at 0"
+    )
     return model.join_coords(top, lower_lkl, recog)
 
 
@@ -428,15 +462,19 @@ CONV_STRIDE = (4, 4)
 CONV_KERNEL = (6, 6)
 
 
-def build_model(middle: str, n_mid: int, top_dim: int,
-                chordal_width: int = CHORDAL_WIDTH,
-                couple_edges: bool = False,
-                conv_in: tuple[int, int] = CONV_IN,
-                conv_stride: tuple[int, int] = CONV_STRIDE,
-                conv_kernel: tuple[int, int] = CONV_KERNEL,
-                conv_channels: int = 1,
-                conv_prior: str = "chordal",
-                mlp_hidden: tuple[int, ...] = (128,)) -> VariationalHierarchical:
+def build_model(
+    middle: str,
+    n_mid: int,
+    top_dim: int,
+    chordal_width: int = CHORDAL_WIDTH,
+    couple_edges: bool = False,
+    conv_in: tuple[int, int] = CONV_IN,
+    conv_stride: tuple[int, int] = CONV_STRIDE,
+    conv_kernel: tuple[int, int] = CONV_KERNEL,
+    conv_channels: int = 1,
+    conv_prior: str = "chordal",
+    mlp_hidden: tuple[int, ...] = (128,),
+) -> VariationalHierarchical:
     obs_man = Normal(N_OBS, Diagonal())
     if middle == "conv":
         # in_lattice * stride must tile the 28x28 image.
@@ -445,24 +483,37 @@ def build_model(middle: str, n_mid: int, top_dim: int,
         # chordal prior: exact conjugation but treewidth ~x channels (caps C~2-3).
         # diagonal prior: free channels, soft conjugation (see factory docstring).
         return build_conv_boltzmann_gaussian_hierarchy(
-            obs_man, conv_in, conv_stride, conv_kernel, top_dim,
-            in_channels=conv_channels, prior_graph=conv_prior,
-            max_treewidth=2 * max(conv_in) * conv_channels, mlp_hidden=mlp_hidden,
+            obs_man,
+            conv_in,
+            conv_stride,
+            conv_kernel,
+            top_dim,
+            in_channels=conv_channels,
+            prior_graph=conv_prior,
+            max_treewidth=2 * max(conv_in) * conv_channels,
+            mlp_hidden=mlp_hidden,
         )
     common = dict(mlp_hidden=(128,), obs_location_only=True, couple_edges=couple_edges)
     if middle == "chordal":
         w = chordal_width
         h = n_mid // w
         return build_boltzmann_gaussian_hierarchy(
-            obs_man, h * w, top_dim, mid_kind="chordal",
-            mid_edges=grid_edges(h, w), max_treewidth=w + 2, **common,
+            obs_man,
+            h * w,
+            top_dim,
+            mid_kind="chordal",
+            mid_edges=grid_edges(h, w),
+            max_treewidth=w + 2,
+            **common,
         )
     return build_boltzmann_gaussian_hierarchy(
         obs_man, n_mid, top_dim, mid_kind=middle, **common
     )
 
 
-def reconstruct(model: VariationalHierarchical, params: Array, xs: Array, key: Array) -> Array:
+def reconstruct(
+    model: VariationalHierarchical, params: Array, xs: Array, key: Array
+) -> Array:
     """Posterior-mean reconstruction E_q[y] -> observable mean, in [0,1] pixels."""
     keys = jax.random.split(key, xs.shape[0])
     _, lower_lkl, _ = model.split_coords(params)
@@ -477,7 +528,9 @@ def reconstruct(model: VariationalHierarchical, params: Array, xs: Array, key: A
     return jax.vmap(one)(xs, keys)
 
 
-def generative_means(model: VariationalHierarchical, params: Array, key: Array, n: int) -> Array:
+def generative_means(
+    model: VariationalHierarchical, params: Array, key: Array, n: int
+) -> Array:
     """Generative samples shown as likelihood means: z~p(z), y~p(y|z), E[x|y]."""
     _, lower_lkl, _ = model.split_coords(params)
     theta_z, top_lkl, _ = model.split_top(params)
@@ -495,26 +548,44 @@ def generative_means(model: VariationalHierarchical, params: Array, key: Array, 
     return jax.vmap(one)(jax.random.split(ky, n), zs)
 
 
-def train(model: VariationalHierarchical, train_data: Array, test_data: Array,
-          steps: int, key: Array, lambda_y: float = 0.0, lambda_z: float = 0.0,
-          lr: float = LR, grad_clip: float = GRAD_CLIP,
-          max_var: float = OBS_MAX_VAR,
-          batch: int = BATCH, mc_samples: int = MC_SAMPLES,
-          reparam_z: bool = False, norm_preserve: bool = False,
-          marginal_y: bool = False, eval_n: int = EVAL_N,
-          init_params: Array | None = None) -> Array:
+def train(
+    model: VariationalHierarchical,
+    train_data: Array,
+    test_data: Array,
+    steps: int,
+    key: Array,
+    lambda_y: float = 0.0,
+    lambda_z: float = 0.0,
+    lr: float = LR,
+    grad_clip: float = GRAD_CLIP,
+    max_var: float = OBS_MAX_VAR,
+    batch: int = BATCH,
+    mc_samples: int = MC_SAMPLES,
+    reparam_z: bool = False,
+    norm_preserve: bool = False,
+    marginal_y: bool = False,
+    eval_n: int = EVAL_N,
+    init_params: Array | None = None,
+) -> Array:
     k_init, k_train, k_eval = jax.random.split(key, 3)
     if init_params is None:
-        params = model.initialize_from_sample(k_init, train_data, location=0.0, shape=0.3)
+        params = model.initialize_from_sample(
+            k_init, train_data, location=0.0, shape=0.3
+        )
         params = init_observation_noise(
-            model, params, jnp.mean(train_data, axis=0), jnp.var(train_data, axis=0),
+            model,
+            params,
+            jnp.mean(train_data, axis=0),
+            jnp.var(train_data, axis=0),
             max_var=max_var,
         )
     else:
         params = init_params  # warm start (e.g. layerwise seeding)
     params = bound_observable_covariance(model, params, max_var=max_var)
 
-    schedule = optax.warmup_cosine_decay_schedule(0.0, lr, LR_WARMUP, steps, end_value=0.0)
+    schedule = optax.warmup_cosine_decay_schedule(
+        0.0, lr, LR_WARMUP, steps, end_value=0.0
+    )
     optimizer = optax.apply_if_finite(
         optax.chain(
             optax.clip_by_global_norm(grad_clip),
@@ -561,9 +632,13 @@ def train(model: VariationalHierarchical, train_data: Array, test_data: Array,
                 g_conj = g_conj.at[zn_s:zn_e].set(blk - jnp.dot(blk, that) * that)
             grads = grads + gen_beta * g_conj
         updates, opt_state = optimizer.update(grads, opt_state, p)
-        p = bound_observable_covariance(model, optax.apply_updates(p, updates), max_var=max_var)
+        p = bound_observable_covariance(
+            model, optax.apply_updates(p, updates), max_var=max_var
+        )
         p = bound_top_prior(model, p)  # keep theta*_Z in the PD cone (finite != valid)
-        p_safe = jnp.where(jnp.all(jnp.isfinite(p)), p, p_safe)  # last all-finite params
+        p_safe = jnp.where(
+            jnp.all(jnp.isfinite(p)), p, p_safe
+        )  # last all-finite params
         return (p, opt_state, k, p_safe), None
 
     log_every = max(1, steps // 20)
@@ -589,78 +664,179 @@ def train(model: VariationalHierarchical, train_data: Array, test_data: Array,
         _, theta_zn = model.top_var.gen_hrm.lkl_fun_man.split_coords(top_lkl)
         txn = float(jnp.linalg.norm(txy))
         tzn = float(jnp.linalg.norm(theta_zn))
-        live = "" if bool(jnp.all(jnp.isfinite(carry[0]))) else "  [live=NaN, using snapshot]"
-        print(f"  step {(c+1)*log_every:5d}  ELBO train {etr:8.2f}  test {ete:8.2f}  "
-              f"Var[rY] {float(vry):6.2f}  Var[rZ] {float(vrz):6.3f}  "
-              f"|Theta_XY| {txn:6.2f}  |Theta_ZN| {tzn:6.3f}  "
-              f"Psi[{float(var.min()):.3f},{float(var.max()):.3f}]  ({time.time()-t0:.0f}s){live}")
+        live = (
+            ""
+            if bool(jnp.all(jnp.isfinite(carry[0])))
+            else "  [live=NaN, using snapshot]"
+        )
+        print(
+            f"  step {(c + 1) * log_every:5d}  ELBO train {etr:8.2f}  test {ete:8.2f}  "
+            f"Var[rY] {float(vry):6.2f}  Var[rZ] {float(vrz):6.3f}  "
+            f"|Theta_XY| {txn:6.2f}  |Theta_ZN| {tzn:6.3f}  "
+            f"Psi[{float(var.min()):.3f},{float(var.max()):.3f}]  ({time.time() - t0:.0f}s){live}"
+        )
     return carry[3]
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--middle", default="chain", choices=["diagonal", "chain", "chordal", "conv"])
+    ap.add_argument(
+        "--middle", default="chain", choices=["diagonal", "chain", "chordal", "conv"]
+    )
     ap.add_argument("--n-mid", type=int, default=N_MID)
     ap.add_argument("--top-dim", type=int, default=TOP_DIM)
-    ap.add_argument("--chordal-width", type=int, default=CHORDAL_WIDTH,
-                    help="grid width for the chordal middle (treewidth ~= width; denser absorbs more)")
-    ap.add_argument("--conv-in", type=int, nargs=2, default=list(CONV_IN),
-                    help="(conv middle) coarse latent lattice HxW; conv_in*stride must tile 28x28")
-    ap.add_argument("--conv-stride", type=int, nargs=2, default=list(CONV_STRIDE),
-                    help="(conv middle) upsampling stride per axis")
-    ap.add_argument("--conv-kernel", type=int, nargs=2, default=list(CONV_KERNEL),
-                    help="(conv middle) transposed-conv kernel extent per axis")
-    ap.add_argument("--conv-channels", type=int, default=1,
-                    help="(conv middle) latent channels per cell = number of shared kernels "
-                    "(decoder capacity); scales treewidth by this factor")
-    ap.add_argument("--conv-prior", default="chordal", choices=["chordal", "diagonal"],
-                    help="(conv middle) 'chordal' = exact conjugation (treewidth ~x channels); "
-                    "'diagonal' = free channels + soft conjugation")
-    ap.add_argument("--mlp-hidden", type=int, nargs="+", default=[128],
-                    help="hidden widths of the amortized recognition MLP")
+    ap.add_argument(
+        "--chordal-width",
+        type=int,
+        default=CHORDAL_WIDTH,
+        help="grid width for the chordal middle (treewidth ~= width; denser absorbs more)",
+    )
+    ap.add_argument(
+        "--conv-in",
+        type=int,
+        nargs=2,
+        default=list(CONV_IN),
+        help="(conv middle) coarse latent lattice HxW; conv_in*stride must tile 28x28",
+    )
+    ap.add_argument(
+        "--conv-stride",
+        type=int,
+        nargs=2,
+        default=list(CONV_STRIDE),
+        help="(conv middle) upsampling stride per axis",
+    )
+    ap.add_argument(
+        "--conv-kernel",
+        type=int,
+        nargs=2,
+        default=list(CONV_KERNEL),
+        help="(conv middle) transposed-conv kernel extent per axis",
+    )
+    ap.add_argument(
+        "--conv-channels",
+        type=int,
+        default=1,
+        help="(conv middle) latent channels per cell = number of shared kernels "
+        "(decoder capacity); scales treewidth by this factor",
+    )
+    ap.add_argument(
+        "--conv-prior",
+        default="chordal",
+        choices=["chordal", "diagonal"],
+        help="(conv middle) 'chordal' = exact conjugation (treewidth ~x channels); "
+        "'diagonal' = free channels + soft conjugation",
+    )
+    ap.add_argument(
+        "--mlp-hidden",
+        type=int,
+        nargs="+",
+        default=[128],
+        help="hidden widths of the amortized recognition MLP",
+    )
     ap.add_argument("--steps", type=int, default=1500)
-    ap.add_argument("--batch", type=int, default=BATCH,
-                    help="minibatch size (shrink for high-treewidth middles to bound memory)")
-    ap.add_argument("--mc", type=int, default=MC_SAMPLES, help="ELBO Monte Carlo samples")
+    ap.add_argument(
+        "--batch",
+        type=int,
+        default=BATCH,
+        help="minibatch size (shrink for high-treewidth middles to bound memory)",
+    )
+    ap.add_argument(
+        "--mc", type=int, default=MC_SAMPLES, help="ELBO Monte Carlo samples"
+    )
     ap.add_argument("--n-train", type=int, default=N_TRAIN)
-    ap.add_argument("--lambda-gen", type=float, default=LAMBDA_GEN,
-                    help="shorthand: sets both --lambda-y and --lambda-z unless overridden")
-    ap.add_argument("--lambda-y", type=float, default=None,
-                    help="bottom-edge (Gaussian-Boltzmann) conjugation weight")
-    ap.add_argument("--lambda-z", type=float, default=None,
-                    help="top-edge (Boltzmann pop-code Y|Z) conjugation weight")
+    ap.add_argument(
+        "--lambda-gen",
+        type=float,
+        default=LAMBDA_GEN,
+        help="shorthand: sets both --lambda-y and --lambda-z unless overridden",
+    )
+    ap.add_argument(
+        "--lambda-y",
+        type=float,
+        default=None,
+        help="bottom-edge (Gaussian-Boltzmann) conjugation weight",
+    )
+    ap.add_argument(
+        "--lambda-z",
+        type=float,
+        default=None,
+        help="top-edge (Boltzmann pop-code Y|Z) conjugation weight",
+    )
     ap.add_argument("--lr", type=float, default=LR)
     ap.add_argument("--grad-clip", type=float, default=GRAD_CLIP)
-    ap.add_argument("--max-var", type=float, default=OBS_MAX_VAR,
-                    help="observable variance cap (smaller = tamer quadratic psi_X)")
-    ap.add_argument("--marginal-y", action="store_true",
-                    help="exact-N ELBO (conv middles only): spikes integrate out of the "
-                    "residual (r_Y == 0), z is pathwise -- no score-function estimator")
-    ap.add_argument("--eval-n", type=int, default=EVAL_N,
-                    help="diagnostic eval batch (shrink for high-treewidth middles: "
-                    "eval vmaps eval_n x 8 junction-tree passes)")
-    ap.add_argument("--reparam-z", action="store_true",
-                    help="pathwise (reparameterized) gradient for the Gaussian top latent")
-    ap.add_argument("--norm-preserve", action="store_true",
-                    help="project the conjugation gradient off Theta_ZN's radial direction "
-                    "(shape-only; forbids the trivial Theta_ZN -> 0 exit)")
-    ap.add_argument("--resume", default="",
-                    help="npz checkpoint to warm-start from (model config must match)")
-    ap.add_argument("--lift-from", default="",
-                    help="npz checkpoint of a SMALLER-kernel conv model to lift into this "
-                    "geometry (decoder transfers exactly; combine with --seed-recog)")
-    ap.add_argument("--lift-kernel", type=int, nargs=2, default=None,
-                    help="kernel extent of the --lift-from checkpoint's model")
-    ap.add_argument("--seed-top-pca", action="store_true",
-                    help="with --resume: re-seed Theta_ZN location block from PCA of spike codes")
-    ap.add_argument("--seed-std", type=float, default=1.5,
-                    help="median per-node logit std of the PCA seeding (lower for many nodes)")
-    ap.add_argument("--seed-recog", action="store_true",
-                    help="with --resume: pretrain the recognition MLP to track the PCA scores")
-    ap.add_argument("--outdir", default="", help="subfolder under results/ for this run")
+    ap.add_argument(
+        "--max-var",
+        type=float,
+        default=OBS_MAX_VAR,
+        help="observable variance cap (smaller = tamer quadratic psi_X)",
+    )
+    ap.add_argument(
+        "--marginal-y",
+        action="store_true",
+        help="exact-N ELBO (conv middles only): spikes integrate out of the "
+        "residual (r_Y == 0), z is pathwise -- no score-function estimator",
+    )
+    ap.add_argument(
+        "--eval-n",
+        type=int,
+        default=EVAL_N,
+        help="diagnostic eval batch (shrink for high-treewidth middles: "
+        "eval vmaps eval_n x 8 junction-tree passes)",
+    )
+    ap.add_argument(
+        "--reparam-z",
+        action="store_true",
+        help="pathwise (reparameterized) gradient for the Gaussian top latent",
+    )
+    ap.add_argument(
+        "--norm-preserve",
+        action="store_true",
+        help="project the conjugation gradient off Theta_ZN's radial direction "
+        "(shape-only; forbids the trivial Theta_ZN -> 0 exit)",
+    )
+    ap.add_argument(
+        "--resume",
+        default="",
+        help="npz checkpoint to warm-start from (model config must match)",
+    )
+    ap.add_argument(
+        "--lift-from",
+        default="",
+        help="npz checkpoint of a SMALLER-kernel conv model to lift into this "
+        "geometry (decoder transfers exactly; combine with --seed-recog)",
+    )
+    ap.add_argument(
+        "--lift-kernel",
+        type=int,
+        nargs=2,
+        default=None,
+        help="kernel extent of the --lift-from checkpoint's model",
+    )
+    ap.add_argument(
+        "--seed-top-pca",
+        action="store_true",
+        help="with --resume: re-seed Theta_ZN location block from PCA of spike codes",
+    )
+    ap.add_argument(
+        "--seed-std",
+        type=float,
+        default=1.5,
+        help="median per-node logit std of the PCA seeding (lower for many nodes)",
+    )
+    ap.add_argument(
+        "--seed-recog",
+        action="store_true",
+        help="with --resume: pretrain the recognition MLP to track the PCA scores",
+    )
+    ap.add_argument(
+        "--outdir", default="", help="subfolder under results/ for this run"
+    )
     ap.add_argument("--note", default="", help="one-line description for the INDEX")
-    ap.add_argument("--couple-edges", action="store_true",
-                    help="couple X to the full Boltzmann stat (nodes+edges); default is node-only")
+    ap.add_argument(
+        "--couple-edges",
+        action="store_true",
+        help="couple X to the full Boltzmann stat (nodes+edges); default is node-only",
+    )
     args = ap.parse_args()
     lambda_y = args.lambda_gen if args.lambda_y is None else args.lambda_y
     lambda_z = args.lambda_gen if args.lambda_z is None else args.lambda_z
@@ -669,76 +845,127 @@ def main() -> None:
     _, k_train, k_rec, k_gen = jax.random.split(key, 4)
     train_data, test_data = load_mnist(args.n_train, N_TEST)
     print(f"MNIST: train {train_data.shape}, test {test_data.shape}")
-    print(f"Model: X(Normal-{N_OBS}) <- Y(Boltzmann-{args.n_mid}, {args.middle}) "
-          f"<- Z(Gaussian-{args.top_dim})")
+    print(
+        f"Model: X(Normal-{N_OBS}) <- Y(Boltzmann-{args.n_mid}, {args.middle}) "
+        f"<- Z(Gaussian-{args.top_dim})"
+    )
 
-    print(f"conjugation: lambda_y={lambda_y} lambda_z={lambda_z}  "
-          f"lr={args.lr} grad_clip={args.grad_clip} max_var={args.max_var}")
-    model = build_model(args.middle, args.n_mid, args.top_dim, args.chordal_width,
-                        couple_edges=args.couple_edges,
-                        conv_in=tuple(args.conv_in), conv_stride=tuple(args.conv_stride),
-                        conv_kernel=tuple(args.conv_kernel), conv_channels=args.conv_channels,
-                        conv_prior=args.conv_prior, mlp_hidden=tuple(args.mlp_hidden))
+    print(
+        f"conjugation: lambda_y={lambda_y} lambda_z={lambda_z}  "
+        f"lr={args.lr} grad_clip={args.grad_clip} max_var={args.max_var}"
+    )
+    model = build_model(
+        args.middle,
+        args.n_mid,
+        args.top_dim,
+        args.chordal_width,
+        couple_edges=args.couple_edges,
+        conv_in=tuple(args.conv_in),
+        conv_stride=tuple(args.conv_stride),
+        conv_kernel=tuple(args.conv_kernel),
+        conv_channels=args.conv_channels,
+        conv_prior=args.conv_prior,
+        mlp_hidden=tuple(args.mlp_hidden),
+    )
     if args.middle == "conv":
         args.n_mid = model.mid_man.data_dim  # determined by the conv lattice
-        print(f"conv decoder {tuple(args.conv_in)} -> ({IMG},{IMG}) (stride "
-              f"{tuple(args.conv_stride)}, kernel {tuple(args.conv_kernel)}); "
-              f"latent nodes={args.n_mid}, mid dim={model.mid_man.dim}")
+        print(
+            f"conv decoder {tuple(args.conv_in)} -> ({IMG},{IMG}) (stride "
+            f"{tuple(args.conv_stride)}, kernel {tuple(args.conv_kernel)}); "
+            f"latent nodes={args.n_mid}, mid dim={model.mid_man.dim}"
+        )
     init_params = None
     if args.lift_from:
         assert args.lift_kernel is not None, "--lift-from requires --lift-kernel"
         base_model = build_model(
-            "conv", args.n_mid, args.top_dim, conv_in=tuple(args.conv_in),
-            conv_stride=tuple(args.conv_stride), conv_kernel=tuple(args.lift_kernel),
-            conv_channels=args.conv_channels, conv_prior=args.conv_prior,
-            mlp_hidden=tuple(args.mlp_hidden))
+            "conv",
+            args.n_mid,
+            args.top_dim,
+            conv_in=tuple(args.conv_in),
+            conv_stride=tuple(args.conv_stride),
+            conv_kernel=tuple(args.lift_kernel),
+            conv_channels=args.conv_channels,
+            conv_prior=args.conv_prior,
+            mlp_hidden=tuple(args.mlp_hidden),
+        )
         base_params = jnp.asarray(np.load(args.lift_from)["params"])
         print(f"lift from {args.lift_from}")
         init_params = lift_conv_checkpoint(
-            base_model, model, base_params, jax.random.PRNGKey(7))
+            base_model, model, base_params, jax.random.PRNGKey(7)
+        )
     elif args.resume:
         init_params = jnp.asarray(np.load(args.resume)["params"])
         print(f"warm start from {args.resume}")
     if init_params is not None:
         if args.seed_top_pca:
             init_params = seed_top_interaction_pca(
-                model, init_params, train_data, target_std=args.seed_std)
+                model, init_params, train_data, target_std=args.seed_std
+            )
         if args.seed_recog:
             init_params = seed_recognition_regression(
-                model, init_params, train_data, jax.random.PRNGKey(42))
-    params = train(model, train_data, test_data, args.steps, k_train, lambda_y, lambda_z,
-                   lr=args.lr, grad_clip=args.grad_clip, max_var=args.max_var,
-                   batch=args.batch, mc_samples=args.mc,
-                   reparam_z=args.reparam_z, norm_preserve=args.norm_preserve,
-                   marginal_y=args.marginal_y, eval_n=args.eval_n,
-                   init_params=init_params)
+                model, init_params, train_data, jax.random.PRNGKey(42)
+            )
+    params = train(
+        model,
+        train_data,
+        test_data,
+        args.steps,
+        k_train,
+        lambda_y,
+        lambda_z,
+        lr=args.lr,
+        grad_clip=args.grad_clip,
+        max_var=args.max_var,
+        batch=args.batch,
+        mc_samples=args.mc,
+        reparam_z=args.reparam_z,
+        norm_preserve=args.norm_preserve,
+        marginal_y=args.marginal_y,
+        eval_n=args.eval_n,
+        init_params=init_params,
+    )
 
     # Final metrics
     recons = reconstruct(model, params, test_data[:8], k_rec)
     mse = float(jnp.mean((test_data[:8] - recons) ** 2))
     gens = generative_means(model, params, k_gen, 8)
     if args.marginal_y:
-        ete = float(model.mean_marginal_elbo(k_rec, params, test_data[:args.eval_n], 8))
+        ete = float(
+            model.mean_marginal_elbo(k_rec, params, test_data[: args.eval_n], 8)
+        )
     else:
-        ete = float(model.mean_elbo(k_rec, params, test_data[:args.eval_n], 8))
+        ete = float(model.mean_elbo(k_rec, params, test_data[: args.eval_n], 8))
     vry, vrz = model.prior_conjugation_loss_components(k_gen, params, args.eval_n)
     vry, vrz = float(vry), float(vrz)
-    print(f"reconstruction MSE (8 test digits): {mse:.4f}  ELBO test {ete:.2f}  "
-          f"Var[rY] {vry:.2f}  Var[rZ] {vrz:.3f}")
+    print(
+        f"reconstruction MSE (8 test digits): {mse:.4f}  ELBO test {ete:.2f}  "
+        f"Var[rY] {vry:.2f}  Var[rZ] {vrz:.3f}"
+    )
 
     # Figure: originals / reconstructions / generative samples
     fig, axes = plt.subplots(3, 8, figsize=(12, 4.8))
     for j in range(8):
-        axes[0, j].imshow(np.array(test_data[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1)
-        axes[1, j].imshow(np.array(recons[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1)
-        axes[2, j].imshow(np.clip(np.array(gens[j]).reshape(IMG, IMG), 0, 1), cmap="gray", vmin=0, vmax=1)
+        axes[0, j].imshow(
+            np.array(test_data[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1
+        )
+        axes[1, j].imshow(
+            np.array(recons[j]).reshape(IMG, IMG), cmap="gray", vmin=0, vmax=1
+        )
+        axes[2, j].imshow(
+            np.clip(np.array(gens[j]).reshape(IMG, IMG), 0, 1),
+            cmap="gray",
+            vmin=0,
+            vmax=1,
+        )
         for i in range(3):
             axes[i, j].axis("off")
     axes[0, 0].set_title("data", loc="left")
     axes[1, 0].set_title("reconstruction", loc="left")
     axes[2, 0].set_title("generative samples", loc="left")
-    fig.suptitle(f"MNIST {args.middle} n_mid={args.n_mid}  lam_y={lambda_y} lam_z={lambda_z}  "
-                 f"MSE {mse:.3f}  Var[rY]={vry:.1f} Var[rZ]={vrz:.2f}")
+    fig.suptitle(
+        f"MNIST {args.middle} n_mid={args.n_mid}  lam_y={lambda_y} lam_z={lambda_z}  "
+        f"MSE {mse:.3f}  Var[rY]={vry:.1f} Var[rZ]={vrz:.2f}"
+    )
     fig.tight_layout()
 
     results_dir = example_paths(__file__).results_dir
@@ -747,26 +974,49 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
     wtag = f"_w{args.chordal_width}" if args.middle == "chordal" else ""
     if args.middle == "conv":
-        ci, cs, ck = tuple(args.conv_in), tuple(args.conv_stride), tuple(args.conv_kernel)
-        wtag = (f"_{ci[0]}x{ci[1]}s{cs[0]}k{ck[0]}_C{args.conv_channels}_{args.conv_prior}")
-    ctag = "" if args.middle == "conv" else ("_edges" if args.couple_edges else "_nodes")
+        ci, cs, ck = (
+            tuple(args.conv_in),
+            tuple(args.conv_stride),
+            tuple(args.conv_kernel),
+        )
+        wtag = (
+            f"_{ci[0]}x{ci[1]}s{cs[0]}k{ck[0]}_C{args.conv_channels}_{args.conv_prior}"
+        )
+    ctag = (
+        "" if args.middle == "conv" else ("_edges" if args.couple_edges else "_nodes")
+    )
     mtag = "x".join(str(h) for h in args.mlp_hidden)
-    etag = (("_mg" if args.marginal_y else "")
-            + ("_rp" if args.reparam_z else "") + ("_np" if args.norm_preserve else ""))
+    etag = (
+        ("_mg" if args.marginal_y else "")
+        + ("_rp" if args.reparam_z else "")
+        + ("_np" if args.norm_preserve else "")
+    )
     if args.resume:
-        etag += "_ws" + ("P" if args.seed_top_pca else "") + ("R" if args.seed_recog else "")
+        etag += (
+            "_ws"
+            + ("P" if args.seed_top_pca else "")
+            + ("R" if args.seed_recog else "")
+        )
     if args.lift_from:
         etag += "_lift" + ("R" if args.seed_recog else "")
-    tag = (f"{args.middle}{wtag}{ctag}_n{args.n_mid}_td{args.top_dim}_ly{lambda_y:g}_lz{lambda_z:g}"
-           f"_lr{args.lr:g}_gc{args.grad_clip:g}_mv{args.max_var:g}_mlp{mtag}{etag}_st{args.steps}")
+    tag = (
+        f"{args.middle}{wtag}{ctag}_n{args.n_mid}_td{args.top_dim}_ly{lambda_y:g}_lz{lambda_z:g}"
+        f"_lr{args.lr:g}_gc{args.grad_clip:g}_mv{args.max_var:g}_mlp{mtag}{etag}_st{args.steps}"
+    )
     out = results_dir / f"mnist_hierarchical_{tag}.png"
     fig.savefig(out, dpi=130)
-    np.savez(out.with_suffix(".npz"), params=np.asarray(params))  # for post-hoc analysis
-    _append_index(results_dir, tag, out.name, args, lambda_y, lambda_z, mse, ete, vry, vrz)
+    np.savez(
+        out.with_suffix(".npz"), params=np.asarray(params)
+    )  # for post-hoc analysis
+    _append_index(
+        results_dir, tag, out.name, args, lambda_y, lambda_z, mse, ete, vry, vrz
+    )
     print(f"saved {out}")
 
 
-def _append_index(results_dir, tag, fname, args, lambda_y, lambda_z, mse, ete, vry, vrz) -> None:
+def _append_index(
+    results_dir, tag, fname, args, lambda_y, lambda_z, mse, ete, vry, vrz
+) -> None:
     """Append a row to INDEX.md in ``results_dir`` describing this run.
 
     Keeps a human-readable manifest so runs are identifiable by config + metrics
@@ -775,15 +1025,19 @@ def _append_index(results_dir, tag, fname, args, lambda_y, lambda_z, mse, ete, v
     from datetime import datetime
 
     index = results_dir / "INDEX.md"
-    header = ("| when | middle | n_mid | lam_y | lam_z | lr | clip | max_var "
-              "| ELBO test | MSE | Var[rY] | Var[rZ] | figure | note |\n"
-              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+    header = (
+        "| when | middle | n_mid | lam_y | lam_z | lr | clip | max_var "
+        "| ELBO test | MSE | Var[rY] | Var[rZ] | figure | note |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    )
     if not index.exists():
         index.write_text("# MNIST hierarchical runs\n\n" + header)
     when = datetime.now().strftime("%m-%d %H:%M")
-    row = (f"| {when} | {args.middle} | {args.n_mid} | {lambda_y:g} | {lambda_z:g} "
-           f"| {args.lr:g} | {args.grad_clip:g} | {args.max_var:g} "
-           f"| {ete:.1f} | {mse:.4f} | {vry:.1f} | {vrz:.3f} | {fname} | {args.note} |\n")
+    row = (
+        f"| {when} | {args.middle} | {args.n_mid} | {lambda_y:g} | {lambda_z:g} "
+        f"| {args.lr:g} | {args.grad_clip:g} | {args.max_var:g} "
+        f"| {ete:.1f} | {mse:.4f} | {vry:.1f} | {vrz:.3f} | {fname} | {args.note} |\n"
+    )
     with index.open("a") as f:
         f.write(row)
 

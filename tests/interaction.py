@@ -20,6 +20,7 @@ import pytest
 from jax import Array
 
 from goal.geometry import (
+    CliqueMap,
     CrossMap,
     Diagonal,
     LinearMap,
@@ -47,31 +48,42 @@ def _as_map(int_man: LinearMap[Any, Any]) -> CrossMap[Any, Any]:
 def _block(int_man: LinearMap[Any, Any], index: int) -> CrossMap[Any, Any]:
     """One term of a multi-form interaction, as an interaction of the same shape."""
     m = _as_map(int_man)
-    return CrossMap(m.cod_man, m.dom_man, (m.terms[index],))
+    return CrossMap(m.cod_man, m.dom_man, m.cod_group, m.dom_group, (m.terms[index],))
+
+
+def _clq_map(int_man: LinearMap[Any, Any]) -> CliqueMap:
+    """The clique map of a single-term interaction."""
+    ((_, clq_map),) = _as_map(int_man).terms
+    return clq_map
 
 
 def _cod_node(m: CrossMap[Any, Any], w: Array) -> Array:
     """A codomain point taken down to the node the single form's output couples."""
-    return m.terms[0].cod_clq_emb.project(w)
+    return m.clq_embs(m.terms[0][0])[0].project(w)
 
 
 def _dom_node(m: CrossMap[Any, Any], v: Array) -> Array:
     """A domain point taken down to the node group the single form contracts."""
-    return m.terms[0].dom_clq_emb.project(v)
+    return m.clq_embs(m.terms[0][0])[1].project(v)
 
 
 def _cod_amb(m: CrossMap[Any, Any], w_node: Array) -> Array:
     """The single form's output, placed back where the caller holds it."""
-    return m.terms[0].cod_clq_emb.embed(w_node)
+    return m.clq_embs(m.terms[0][0])[0].embed(w_node)
 
 
 def _dom_amb(m: CrossMap[Any, Any], v_node: Array) -> Array:
     """The single form's contracted-side node coordinates, placed back."""
-    return m.terms[0].dom_clq_emb.embed(v_node)
+    return m.clq_embs(m.terms[0][0])[1].embed(v_node)
+
+
+def _case(m: CrossMap[Any, Any]) -> tuple[CrossMap[Any, Any], Manifold, Manifold]:
+    """A cross map with its codomain and domain."""
+    return m, m.cod_man, m.dom_man
 
 
 def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]:
-    """Every distinct interaction shape in the library, with its two node manifolds."""
+    """Every distinct cross-map shape in the library, with its codomain and domain."""
     fa = factor_analysis(obs_dim=5, lat_dim=2)
     mix = poisson_mixture(n_neurons=4, n_components=3)
     hmog = analytic_hmog(obs_dim=4, obs_rep=Diagonal(), lat_dim=2, n_components=3)
@@ -83,20 +95,20 @@ def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]
     )
 
     cases: dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]] = {
-        "factor_analysis": (fa.int_man, fa.obs_man, fa.pst_man),
-        "mixture": (mix.int_man, mix.obs_man, mix.pst_man),
-        "hmog": (hmog.int_man, hmog.obs_man, hmog.pst_man),
-        "cca_fst": (_block(cca.int_man, 0), cca.obs_man, cca.pst_man),
-        "cca_snd": (_block(cca.int_man, 1), cca.obs_man, cca.pst_man),
+        "factor_analysis": _case(fa.crs_man),
+        "mixture": _case(mix.crs_man),
+        "hmog": _case(hmog.crs_man),
+        "cca_fst": _case(_block(cca.crs_man, 0)),
+        "cca_snd": _case(_block(cca.crs_man, 1)),
     }
     for name, index in (("mfa_xy", 0), ("mfa_xyk", 1), ("mfa_xk", 2)):
-        cases[name] = (_block(mfa.int_man, index), mfa.obs_man, mfa.pst_man)
+        cases[name] = _case(_block(mfa.crs_man, index))
     return cases
 
 
 CASES = _interactions()
 NAMES = sorted(CASES)
-NODE_NAMES = [name for name in NAMES if len(_as_map(CASES[name][0]).clq_map.embs) == 2]
+NODE_NAMES = [name for name in NAMES if len(_clq_map(CASES[name][0]).embs) == 2]
 """Cases contracting a single node.
 
 There the clique reading and the interaction reading coincide up to the clique embeddings:
@@ -126,14 +138,14 @@ class TestEquivalenceWithMap:
     @pytest.mark.parametrize("case", NAMES)
     def test_dim_matches(self, case: str) -> None:
         int_man = CASES[case][0]
-        assert _as_map(int_man).clq_map.dim == int_man.dim
+        assert _clq_map(int_man).dim == int_man.dim
 
     @pytest.mark.parametrize("case", NODE_NAMES)
     def test_outer_product_matches(self, case: str) -> None:
         m = _as_map(CASES[case][0])
         w, v = _stats(case, 0)
         assert jnp.allclose(
-            m.clq_map.outer_product(_cod_node(m, w), _dom_node(m, v)),
+            _clq_map(m).outer_product(_cod_node(m, w), _dom_node(m, v)),
             m.outer_product(w, v),
         )
 
@@ -143,7 +155,7 @@ class TestEquivalenceWithMap:
         m = _as_map(CASES[case][0])
         _, v = _stats(case, 1)
         params = jax.random.normal(jax.random.PRNGKey(7), (m.dim,))
-        node_out = m.clq_map(params, _dom_node(m, v))
+        node_out = _clq_map(m)(params, _dom_node(m, v))
         assert jnp.allclose(_cod_amb(m, node_out), m(params, v))
 
     @pytest.mark.parametrize("case", NODE_NAMES)
@@ -152,8 +164,8 @@ class TestEquivalenceWithMap:
         m = _as_map(CASES[case][0])
         w, _ = _stats(case, 2)
         params = jax.random.normal(jax.random.PRNGKey(8), (m.dim,))
-        trn = m.clq_map.trn_man
-        node_out = trn(m.clq_map.transpose(params), _cod_node(m, w))
+        trn = _clq_map(m).trn_man
+        node_out = trn(_clq_map(m).transpose(params), _cod_node(m, w))
         assert jnp.allclose(_dom_amb(m, node_out), m.transpose_apply(params, w))
 
 
@@ -163,7 +175,7 @@ class TestSufficientStatistic:
     def test_matches_the_harmonium_interaction(self) -> None:
         """What ``Harmonium.sufficient_statistic`` computes for the cross partition."""
         fa = factor_analysis(obs_dim=5, lat_dim=2)
-        clique = _as_map(fa.int_man).clq_map
+        clique = _clq_map(fa.crs_man)
         key_x, key_z = jax.random.split(jax.random.PRNGKey(3))
         x = jax.random.normal(key_x, (fa.obs_man.data_dim,))
         z = jax.random.normal(key_z, (fa.pst_man.data_dim,))
@@ -179,7 +191,7 @@ class TestJointDomainCliques:
     """A clique whose domain clique embedding locates a node inside a *layout*.
 
     MFA's $\\theta_{XY}$ and $\\theta_{XK}$ both couple $x$ to one node of the mixture
-    above, reached through a ``CliqueEmbedding``. The clique reading works in that node's
+    above, whose block a ``CliqueEmbedding`` locates. The clique reading works in that node's
     own coordinates; the interaction reading lands in the mixture's. They agree exactly at
     the node, which is what makes the two readings one object.
     """
@@ -194,16 +206,17 @@ class TestJointDomainCliques:
     def test_nodes_and_arity_agree(self, index: int, nodes: tuple[int, ...]) -> None:
         mfa = self._mfa()
         assert mfa.level_split()[1][index] == nodes
-        assert len(mfa.int_man.terms[index].clq_map.embs) == 2
+        assert len(mfa.crs_man.terms[index][1].embs) == 2
 
     @pytest.mark.parametrize("index", [0, 2])
     def test_posterior_direction_matches_at_the_node(self, index: int) -> None:
         mfa = self._mfa()
-        m = _block(mfa.int_man, index)
+        m = _block(mfa.crs_man, index)
         w = jax.random.normal(jax.random.PRNGKey(21), (mfa.obs_man.dim,))
         params = jax.random.normal(jax.random.PRNGKey(22), (m.dim,))
         live = _dom_node(m, m.transpose_apply(params, w))
-        rebuilt = m.clq_map.trn_man(m.clq_map.transpose(params), _cod_node(m, w))
+        clq_map = _clq_map(m)
+        rebuilt = clq_map.trn_man(clq_map.transpose(params), _cod_node(m, w))
         assert jnp.allclose(rebuilt, live)
 
 
@@ -255,7 +268,7 @@ class TestJointBlocksAreNotProductsOfMarginals:
 class TestArityThreeReproducesMFA:
     """The three-way interaction $\\theta_{XYK}$, as a genuine arity-3 clique.
 
-    The clique contracts the joint $(y,k)$ statistic of the mixture above, reached through
+    The clique contracts the joint $(y,k)$ statistic of the mixture above, located by
     a ``CliqueEmbedding`` --- "select a sub-statistic on the $y$ axis, identity on the $k$
     axis". These tests check that the clique reading of it, over three nodes, agrees with
     the interaction reading on every operation, *including in mean coordinates at the
@@ -271,9 +284,9 @@ class TestArityThreeReproducesMFA:
         mfa = MixtureOfFactorAnalyzers(
             n_categories=3, bas_hrm=factor_analysis(obs_dim=4, lat_dim=2)
         )
-        xyk = _block(mfa.int_man, 1)
+        xyk = _block(mfa.crs_man, 1)
         # x location, y location, k in full: the three nodes' embeddings.
-        return mfa, xyk, xyk.clq_map
+        return mfa, xyk, _clq_map(xyk)
 
     def test_dimension_matches_the_live_map(self) -> None:
         _, xyk, clique = self._setup()
@@ -316,7 +329,7 @@ class TestArityThreeReproducesMFA:
         x = jax.random.normal(jax.random.PRNGKey(4), (mfa.obs_man.data_dim,))
         s_x = mfa.obs_man.sufficient_statistic(x)
         _, int_params, _ = mfa.split_level(params)
-        xyk_params = mfa.int_man.coord_blocks(int_params)[1]
+        xyk_params = mfa.crs_man.coord_blocks(int_params)[1]
 
         live = _dom_node(xyk, xyk.transpose_apply(xyk_params, s_x))
         rebuilt = clique.trn_man(clique.transpose(xyk_params), s_x)
@@ -333,7 +346,7 @@ class TestArityThreeReproducesMFA:
         mix = mfa.pst_man
         params = mfa.initialize(jax.random.PRNGKey(5), shape=0.5)
         _, int_params, _ = mfa.split_level(params)
-        xyk_params = mfa.int_man.coord_blocks(int_params)[1]
+        xyk_params = mfa.crs_man.coord_blocks(int_params)[1]
 
         y = jax.random.normal(jax.random.PRNGKey(6), (mix.obs_man.data_dim,))
         z = jnp.concatenate([y, jnp.array([1.0])])

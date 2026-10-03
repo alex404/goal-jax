@@ -6,7 +6,7 @@ posterior computation, interaction cliques, mixture representation round-trips,
 asymmetric pst/prr handling, and to_natural/to_mean inversion.
 """
 
-from typing import Any
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -150,7 +150,7 @@ class TestCompleteMixtureOfSymmetric:
     ) -> None:
         model, params = model_and_params
         _, int_params, _ = model.split_coords(params)
-        xy, xyk, xk = model.int_man.coord_blocks(int_params)
+        xy, xyk, xk = model.crs_man.coord_blocks(int_params)
         assert xy.shape[0] + xyk.shape[0] + xk.shape[0] == model.int_man.dim
 
 
@@ -291,7 +291,7 @@ class TestMFAGraph:
     def test_the_mixture_view_is_a_two_node_graph(self) -> None:
         """``mix_man`` holds the base harmonium as one node, not as its own two.
 
-        Its interaction reaches the base harmonium's whole parameter vector --- 21 numbers
+        Its interaction reads the base harmonium's whole parameter vector --- 21 numbers
         that are not a tensor product of node statistics --- so it cannot factor across
         $x$ and $y$. Expanding them would give the graph three nodes, a cross clique whose
         clique named the wrong latent, and ``(0, 1)`` listed twice.
@@ -321,7 +321,7 @@ class TestMFAGraph:
     def test_layout_follows_the_clique_order(self) -> None:
         """obs, then the interaction's three blocks, then the mixture's three."""
         mfa = self._mfa(obs_dim=4, lat_dim=2, n_categories=3)
-        xy, xyk, xk = mfa.int_man.clq_dims
+        xy, xyk, xk = mfa.crs_man.clq_dims
         expected = (mfa.obs_man.dim, xy, xyk, xk, *mfa.pst_man.clq_dims)
         assert mfa.clq_dims == expected
 
@@ -337,8 +337,8 @@ class TestMFAGraph:
 class TestDerivedInteractionEmbeddings:
     """MFA's three interaction blocks are derived from embeddings plus the nodes they name.
 
-    All three are one construction differing in two independent ways: where the clique they
-    reach is located (a ``CliqueEmbedding`` on the mixture above) and how much of each one's
+    All three are one construction differing in two independent ways: where the block of
+    their deep part is located (a ``CliqueEmbedding`` on the mixture above) and how much of each one's
     statistic the axis embeddings select. These tests pin both halves.
 
     Labels are global, so the mixture's nodes are MFA's: $y = 1$, $k = 2$.
@@ -353,15 +353,17 @@ class TestDerivedInteractionEmbeddings:
 
     @classmethod
     def _blocks(cls, **kwargs) -> tuple[CrossMap[Any, Any], ...]:
-        m = cls._mfa(**kwargs).int_man
-        return tuple(CrossMap(m.cod_man, m.dom_man, (term,)) for term in m.terms)
+        m = cls._mfa(**kwargs).crs_man
+        return tuple(
+            CrossMap(m.cod_man, m.dom_man, m.cod_group, m.dom_group, (term,))
+            for term in m.terms
+        )
 
     @classmethod
     def _dom_clq_embs(cls, **kwargs) -> tuple[CliqueEmbedding, ...]:
-        embs = tuple(block.terms[0].dom_clq_emb for block in cls._blocks(**kwargs))
-        for emb in embs:
-            assert isinstance(emb, CliqueEmbedding)
-        return embs  # pyright: ignore[reportReturnType]
+        embs = [block.clq_embs(block.terms[0][0])[1] for block in cls._blocks(**kwargs)]
+        assert all(isinstance(emb, CliqueEmbedding) for emb in embs)
+        return tuple(cast(CliqueEmbedding, emb) for emb in embs)
 
     def test_each_block_addresses_its_own_mixture_clique(self) -> None:
         xy, xyk, xk = self._dom_clq_embs()
@@ -385,7 +387,7 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         xyk = self._blocks()[1]
-        dom_clq_emb = xyk.terms[0].dom_clq_emb
+        dom_clq_emb = xyk.clq_embs(xyk.terms[0][0])[1]
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_level(coords)

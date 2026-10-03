@@ -145,12 +145,12 @@ class _HMoGBase[
 
     @property
     @override
-    def pst_prr_emb(self) -> LinearEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
+    def pst_prr_emb(self) -> LinearEmbedding[PrrUpperHarmonium, PstUpperHarmonium]:
         """The posterior and prior mixtures differ only at node $y$, i.e. in their root partition."""
         return RootEmbedding(
             self.lwr_hrm.pst_prr_emb,
-            self.pst_upr_hrm,
             self.prr_upr_hrm,
+            self.pst_upr_hrm,
         )
 
     @override
@@ -196,12 +196,14 @@ class _HMoGBase[
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
         obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        lwr_int_mat = self.lwr_hrm.int_man.clq_map.to_matrix(lwr_int_means)
+        (xy,) = self.lwr_hrm.level_split()[1]
+        lwr_int_map = self.lwr_hrm.clq_map(xy)
+        lwr_int_mat = lwr_int_map.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T
-        new_lwr_int_means = self.lwr_hrm.int_man.clq_map.from_matrix(new_lwr_int_mat)
+        new_lwr_int_means = lwr_int_map.from_matrix(new_lwr_int_mat)
 
         return self.join_level(obs_means, new_lwr_int_means, new_lat_means)
 
@@ -374,7 +376,7 @@ def differentiable_hmog[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
     pst_y_man = Normal(lat_dim, pst_rep)
     prr_y_man = full_normal(lat_dim)
     lwr_hrm = NormalLGM(obs_dim, obs_rep, lat_dim, pst_rep)
-    mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
+    mix_sub = NormalCovarianceEmbedding(prr_y_man, pst_y_man)
     pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
 
     prr_upr_hrm = Mixture(n_components, mix_sub)

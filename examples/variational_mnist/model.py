@@ -204,7 +204,7 @@ class VariationalFullMixture[Observable: Differentiable, BaseLatent: Differentia
         del x
         _, lkl_params, rho_y = self.split_coords(params)
         x_params, int_params = self.gen_hrm.lkl_fun_man.split_coords(lkl_params)
-        xy_params, xyk_params, xk_params = self.gen_hrm.int_man.coord_blocks(int_params)
+        xy_params, xyk_params, xk_params = self.gen_hrm.crs_man.coord_blocks(int_params)
         del xy_params, xyk_params  # unused under the rho_yi = rho_y approximation
 
         if self.n_categories == 1:

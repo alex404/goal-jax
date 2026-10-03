@@ -60,7 +60,7 @@ from goal.geometry.manifold.map import LinearMap
 
 def _row_major_strides(shape: tuple[int, ...]) -> np.ndarray:
     dims = np.array(shape)
-    return np.array([int(prod(dims[i + 1:])) for i in range(len(dims))])
+    return np.array([int(prod(dims[i + 1 :])) for i in range(len(dims))])
 
 
 def _strided_spatial_basis(
@@ -79,9 +79,14 @@ def _strided_spatial_basis(
     out_dims = in_dims * np.array(stride)
     center = np.array(kernel_shape) // 2
     in_n, out_n = int(prod(in_lattice)), int(np.prod(out_dims))
-    in_strides, out_strides = _row_major_strides(in_lattice), _row_major_strides(tuple(out_dims))
+    in_strides, out_strides = (
+        _row_major_strides(in_lattice),
+        _row_major_strides(tuple(out_dims)),
+    )
     axes = [np.arange(d) for d in in_lattice]
-    in_grid = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(in_n, len(in_dims))
+    in_grid = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(
+        in_n, len(in_dims)
+    )
     flat_q = in_grid @ in_strides
     taps = []
     for ki in np.ndindex(*kernel_shape):
@@ -95,8 +100,8 @@ def _strided_spatial_basis(
 
 
 @dataclass(frozen=True)
-class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
-    LinearMap[Domain, Codomain]
+class LatticeConvolution[Codomain: Manifold, Domain: Manifold](
+    LinearMap[Codomain, Domain]
 ):
     """A strided, multi-channel transposed convolution as a linear map.
 
@@ -131,9 +136,16 @@ class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
         kernel_shape: tuple[int, ...],
         in_channels: int = 1,
         out_channels: int = 1,
-    ) -> LatticeConvolution[Domain, Codomain]:
-        conv = cls(dom_man, cod_man, in_lattice, stride, kernel_shape,
-                   in_channels, out_channels)
+    ) -> LatticeConvolution[Codomain, Domain]:
+        conv = cls(
+            dom_man,
+            cod_man,
+            in_lattice,
+            stride,
+            kernel_shape,
+            in_channels,
+            out_channels,
+        )
         in_n = prod(in_lattice) * in_channels
         out_n = prod(tuple(np.array(in_lattice) * np.array(stride))) * out_channels
         if dom_man.dim != in_n or cod_man.dim != out_n:
@@ -168,12 +180,17 @@ class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
 
     @property
     @override
-    def trn_man(self) -> LatticeConvolution[Codomain, Domain]:
+    def trn_man(self) -> LatticeConvolution[Domain, Codomain]:
         # Same geometry/params; only the manifolds swap and the adjoint flag flips.
         # transpose(f) returns f unchanged and to_dense yields W^T when transposed.
         return LatticeConvolution(
-            self._cod_man, self._dom_man, self.in_lattice, self.stride,
-            self.kernel_shape, self.in_channels, self.out_channels,
+            self._cod_man,
+            self._dom_man,
+            self.in_lattice,
+            self.stride,
+            self.kernel_shape,
+            self.in_channels,
+            self.out_channels,
             transposed=not self.transposed,
         )
 
@@ -196,9 +213,9 @@ class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
     def map_domain_embedding[NewDomain: Manifold](
         self,
         f: Callable[
-            [LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]
+            [LinearEmbedding[Domain, Manifold]], LinearEmbedding[NewDomain, Manifold]
         ],
-    ) -> LinearMap[NewDomain, Codomain]:
+    ) -> LinearMap[Codomain, NewDomain]:
         raise NotImplementedError(
             "Embedding composition is the harmonium-wiring seam; deferred (see module docstring)."
         )
@@ -207,9 +224,10 @@ class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
     def map_codomain_embedding[NewCodomain: Manifold](
         self,
         f: Callable[
-            [LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]
+            [LinearEmbedding[Codomain, Manifold]],
+            LinearEmbedding[NewCodomain, Manifold],
         ],
-    ) -> LinearMap[Domain, NewCodomain]:
+    ) -> LinearMap[NewCodomain, Domain]:
         raise NotImplementedError(
             "Embedding composition is the harmonium-wiring seam; deferred (see module docstring)."
         )
@@ -223,9 +241,13 @@ class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
     def _forward_dense(self, f_coords: Array) -> Array:
         """The (out_dim x in_dim) upsampling matrix ``W`` before any transpose."""
         s = jnp.asarray(self._spatial_basis())  # (taps, out_spatial, in_spatial)
-        kernel = f_coords.reshape(prod(self.kernel_shape), self.in_channels, self.out_channels)
+        kernel = f_coords.reshape(
+            prod(self.kernel_shape), self.in_channels, self.out_channels
+        )
         # W[(p,co),(q,ci)] = sum_k S[k,p,q] kernel[k,ci,co]
-        w4 = jnp.einsum("kpq,kIO->pOqI", s, kernel)  # (out_spatial, Cout, in_spatial, Cin)
+        w4 = jnp.einsum(
+            "kpq,kIO->pOqI", s, kernel
+        )  # (out_spatial, Cout, in_spatial, Cin)
         out_dim = s.shape[1] * self.out_channels
         in_dim = s.shape[2] * self.in_channels
         return w4.reshape(out_dim, in_dim)
@@ -245,7 +267,9 @@ class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
         """
         s = self._spatial_basis()
         footprint = (s.sum(0) > 0).astype(float)  # (out_spatial, in_spatial)
-        spatial = (footprint.T @ footprint > 0).astype(float)  # (in_spatial, in_spatial)
+        spatial = (footprint.T @ footprint > 0).astype(
+            float
+        )  # (in_spatial, in_spatial)
         block = np.ones((self.in_channels, self.in_channels))
         return jnp.asarray(np.kron(spatial, block))
 
@@ -256,12 +280,17 @@ class LatticeConvolution[Domain: Manifold, Codomain: Manifold](
         representable on its couplings (feed to ``ChordalBoltzmann.from_edges``).
         """
         g = np.asarray(self.induced_coupling_graph())
-        return [(i, j) for i in range(g.shape[0]) for j in range(i + 1, g.shape[0]) if g[i, j] > 0]
+        return [
+            (i, j)
+            for i in range(g.shape[0])
+            for j in range(i + 1, g.shape[0])
+            if g[i, j] > 0
+        ]
 
 
 @dataclass(frozen=True)
-class EmbeddedLinearMap[Domain: Manifold, Codomain: Manifold](
-    LinearMap[Domain, Codomain]
+class EmbeddedLinearMap[Codomain: Manifold, Domain: Manifold](
+    LinearMap[Codomain, Domain]
 ):
     """A linear map backed by an arbitrary inner ``LinearMap`` plus embeddings.
 
@@ -276,8 +305,8 @@ class EmbeddedLinearMap[Domain: Manifold, Codomain: Manifold](
     # Fields
 
     inner: LinearMap[Manifold, Manifold]
-    dom_emb: LinearEmbedding[Manifold, Domain]
-    cod_emb: LinearEmbedding[Manifold, Codomain]
+    dom_emb: LinearEmbedding[Domain, Manifold]
+    cod_emb: LinearEmbedding[Codomain, Manifold]
 
     # Overrides
 
@@ -298,7 +327,7 @@ class EmbeddedLinearMap[Domain: Manifold, Codomain: Manifold](
 
     @property
     @override
-    def trn_man(self) -> EmbeddedLinearMap[Codomain, Domain]:
+    def trn_man(self) -> EmbeddedLinearMap[Domain, Codomain]:
         return EmbeddedLinearMap(self.inner.trn_man, self.cod_emb, self.dom_emb)
 
     @override
@@ -321,16 +350,17 @@ class EmbeddedLinearMap[Domain: Manifold, Codomain: Manifold](
     def map_domain_embedding[NewDomain: Manifold](
         self,
         f: Callable[
-            [LinearEmbedding[Manifold, Domain]], LinearEmbedding[Manifold, NewDomain]
+            [LinearEmbedding[Domain, Manifold]], LinearEmbedding[NewDomain, Manifold]
         ],
-    ) -> EmbeddedLinearMap[NewDomain, Codomain]:
+    ) -> EmbeddedLinearMap[Codomain, NewDomain]:
         return EmbeddedLinearMap(self.inner, f(self.dom_emb), self.cod_emb)
 
     @override
     def map_codomain_embedding[NewCodomain: Manifold](
         self,
         f: Callable[
-            [LinearEmbedding[Manifold, Codomain]], LinearEmbedding[Manifold, NewCodomain]
+            [LinearEmbedding[Codomain, Manifold]],
+            LinearEmbedding[NewCodomain, Manifold],
         ],
-    ) -> EmbeddedLinearMap[Domain, NewCodomain]:
+    ) -> EmbeddedLinearMap[NewCodomain, Domain]:
         return EmbeddedLinearMap(self.inner, self.dom_emb, f(self.cod_emb))

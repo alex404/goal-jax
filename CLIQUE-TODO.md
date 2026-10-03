@@ -20,22 +20,31 @@ following one pattern.
 
 State (see `CLAUDE.md`, Architecture): graph stored on the concrete model, global labels,
 `RecursiveLinearCliques[Root, Deep]` is a `LinearCliques` and the
-`Triple[Root, CrossMap[Deep, Root], Deep]` with `crs_man` derived, `CrossMap` moved in
-from `interaction.py`, crossing axes built on the subspaces of the cliques they reach. Each
+`Triple[Root, CrossMap[Root, Deep], Deep]` with `crs_man` derived, `CrossMap` moved in
+from `interaction.py`, crossing axes built on the subspaces used by their root and deep parts. Each
 of the root and deep partitions is a single node or a `LinearCliques` (CCA's `NormalPair`
-is a flat one); `clq_map` and `crs_embs` (via `part_emb`) treat both sides alike.
+is a flat one); `clq_map` and `part_emb` treat both sides alike.
 `RootCliqueEmbedding`, `rot_nod_mans`, `nod_man` and `dep_man_rlc` were removed 2026-10-01.
 
 Open:
 - Walk the module method by method, starting at `LinearCliques`, `part_emb` and `clq_map`.
 - `CliqueEmbedding.sub_man` returns the clique's map itself. Should it be the node space instead?
-- `CrossMap` (2026-10-01): `terms: tuple[EmbeddedCliqueMap, ...]`, each a `clq_map` with
-  `cod_clq_emb`/`dom_clq_emb`, replaced the parallel `cliques`/`paths` tuples;
-  `CrossMap.clique` is now `clq_map`. Still keeps its own `clq_dims`/`coord_blocks`;
-  becoming a `LinearCliques` would need stored node tuples.
-- Partitions are recognized by `isinstance(partition, LinearCliques)`. A root or deep
-  manifold that is a `LinearCliques` for an unrelated reason (e.g. a harmonium as the
-  observable of another harmonium) would be read as holding this graph's cliques.
+- `CrossMap` (2026-10-01): `terms` pairs each clique's node labels with its `CliqueMap`;
+  `clq_embs(clique)` derives the clique embeddings into its sides via `part_emb`, which
+  splits the clique by each side's clique group (`cod_group`/`dom_group`). `EmbeddedCliqueMap` and
+  `RecursiveLinearCliques.crs_embs` are gone (embeddings are stored at the level of their
+  ambient, see `CLAUDE.md`). Still keeps its own `clq_dims`/`coord_blocks`. Its single-term
+  `clq_map` property is gone (2026-10-02), so becoming a `LinearCliques` with
+  `clq_map(clique)` no longer collides with anything.
+- Partitions are read from their clique groups, not their types (2026-10-01): one clique
+  means the partition is that clique (bias, identity), several mean it must be a
+  `LinearCliques` (a cast, no guard: a wrong partition fails on `clq_map`/`clq_emb`).
+- `CrossMap` maps between the whole root and deep partitions, with their clique groups as
+  fields (2026-10-02): the groups describe its own codomain and domain, so locating a term
+  there stays within its scope. The span design (`CliqueSpan`, `SpanEmbedding`,
+  `ConjugatedMap`, `crs_spans`, `span_embs`) was tried and dropped: about 150 lines, and a
+  single-node partition could not carry its span's labels. `int_man` is `crs_man` again.
+  A `LinearCliques` partition's `cliques` and the group come from the same graph.
 
 ## 2. `geometry/exponential_family/harmonium.py` (580)
 
@@ -44,10 +53,10 @@ Mostly mechanical: ~10 `split_coords`/`join_coords` -> `split_level`/`join_level
 `exponential_family/graphical.py` (~100 of 193 changed lines). ~10 minutes.
 
 - Base is `RecursiveLinearCliques[Observable, Posterior]`; `obs_man`/`pst_man` are the
-  contract, `rot_man`/`dep_man` forward to them, and `int_man` returns `crs_man`.
+  contract, `rot_man`/`dep_man` forward to them, and `int_man` is `crs_man`.
 - `Conjugated.extract_likelihood_input` was removed (6e2b96d): `sample` passes the whole
   prior sample to `likelihood_at`. Inferred, not verified: correct because `pst_man` is now
-  the whole deep partition and the interaction reaches $y$ through `clq_emb` of it, so
+  the whole deep partition and the interaction reads $y$'s block of it through `clq_emb`, so
   `pst_man.sufficient_statistic` of a joint $yk$ sample is the right input.
   `tests/hmog.py::test_sampling` checks shape and finiteness only; add a moment check.
 - The interaction is still consumed as a `LinearMap` through `lkl_fun_man` / `pst_fun_man`
@@ -61,7 +70,7 @@ Mostly mechanical: ~10 `split_coords`/`join_coords` -> `split_level`/`join_level
 
 Also `harmonium/mixture.py` (mechanical, ~10 minutes: `EmbeddedMap` `int_man` replaced by
 `crs_rep`/`crs_emb_constructors`, `impose` added, `int_man.to_matrix` ->
-`int_man.clique.to_matrix`, most changed lines are ruff wrapping). The other two need
+`crs_man.clq_map.to_matrix`, most changed lines are ruff wrapping). The other two need
 about an hour together:
 
 - MFA (`graphical/mixture.py`): `RowEmbedding`, `xy_man`/`xyk_man`/`xk_man` and the
@@ -99,13 +108,22 @@ about an hour together:
 Decided 2026-09-30 to avoid generalizing before a model needs it.
 
 - **Partial (embedded) biases.** A bias covers its whole node (`bias_map`). Crossing axes are
-  already built on the subspaces of the cliques they reach, so enabling this changes only the
+  already built on the subspaces used by their root and deep parts, so enabling this changes only the
   bias line of `clq_map`; harmoniums would still treat `rot_man` as the observable family.
 - **Validation of the stored graph.** Nothing checks that every node has a singleton, that a
   partition's `cliques` equal its parent's group (`level_split()[0]` or `[2]`), or that a flat
-  container's `cliques` are normalized (a repeated clique silently gets two blocks). With a
-  single-node partition, an unknown label gets that partition's bias; a crossing clique whose
-  part is not a clique of its partition fails only in `clq_emb`.
+  container's `cliques` are normalized (a repeated clique silently gets two blocks). A node
+  that appears only in crossing cliques is missing from its side's group, so it is dropped
+  from that side's part, silently if the rest is a clique there (raised in `clq_emb` before
+  2026-10-01). A crossing clique whose part is not a clique of its partition fails only in
+  `clq_emb`.
+- **One role for a map read through embeddings** (decided 2026-10-03). $v \mapsto
+  \iota(A(\pi(v)))$, a linear map between subspaces read in the manifolds containing them,
+  is implemented twice: `CliqueMap` (its representation between the axes' subspaces, through
+  `cod_emb`/`dom_emb`) and each term of `CrossMap` (the clique map, through the
+  `part_emb` blocks). An abstract role with contract `cod_emb`/`map_man`/`dom_emb` would
+  state it once, but saves about 10 lines for an extra class. Reconsider if a third
+  occurrence appears; the role would belong in `map.py`.
 
 ## Later (out of scope)
 
