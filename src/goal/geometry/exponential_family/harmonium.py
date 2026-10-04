@@ -260,7 +260,7 @@ class Conjugated[
     def conjugation_offset(self, lkl_params: Array) -> Array:
         """Compute the conjugation offset $\\chi$ from the given likelihood natural parameters.
 
-        Evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. Override in models whose latent sufficient statistic has no zero --- :class:`~goal.models.base.von_mises.VonMises` and :class:`~goal.models.base.dirichlet.Dirichlet` --- where $\\chi$ must be solved for alongside $\\rho$.
+        Evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. A model whose latent sufficient statistic has no zero (e.g. a von Mises latent, with $\\mathbf s_Z(z) = (\\cos z, \\sin z)$) must override this and solve for $\\chi$ alongside $\\rho$.
         """
         obs_params, _ = self.lkl_fun_man.split_coords(lkl_params)
         return self.obs_man.log_partition_function(obs_params)
