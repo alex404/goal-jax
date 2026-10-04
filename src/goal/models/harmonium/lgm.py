@@ -14,7 +14,9 @@ from jax import Array
 from ...geometry import (
     AnalyticConjugated,
     Diagonal,
+    Differentiable,
     DifferentiableConjugated,
+    Harmonium,
     Identity,
     IdentityEmbedding,
     LinearEmbedding,
@@ -25,7 +27,7 @@ from ...geometry import (
     Scale,
     SymmetricConjugated,
 )
-from ..base.gaussian.boltzmann import DiagonalBoltzmann, FullBoltzmann
+from ..base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann, FullBoltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
@@ -487,6 +489,66 @@ class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
     def pst_prr_emb(self) -> BoltzmannEmbedding:
         """Embedding from mean-field DiagonalBoltzmann to full Boltzmann."""
         return BoltzmannEmbedding(FullBoltzmann(self.lat_dim), self.pst_man)
+
+
+@dataclass(frozen=True)
+class NormalBoltzmannHarmonium[ObsRep: PositiveDefinite, Shape: Differentiable](
+    Harmonium[Normal[ObsRep], Boltzmann[Shape]],
+):
+    """Harmonium with a Normal observable and a Boltzmann latent, coupled through their locations.
+
+    The interaction couples the observable mean to the latent's node activities, as in
+    :class:`BoltzmannLGM`, but the latent may have any coupling graph (chordal, chain,
+    diagonal). It is not conjugated: the conjugation parameters of the observable carry
+    pairwise terms $\\frac{1}{2} W^\\top \\Sigma W$ on every pair of nodes, which only a full
+    Boltzmann can hold. It is the lower edge of variational models whose middle layer is a
+    restricted Boltzmann machine.
+    """
+
+    # Fields
+
+    obs_dim: int
+    """Dimension of the observable."""
+
+    obs_rep: ObsRep
+    """Covariance structure of the observable."""
+
+    boltzmann: Boltzmann[Shape]
+    """The Boltzmann latent (chordal, chain, diagonal, ...)."""
+
+    # Overrides
+
+    @property
+    @override
+    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
+        """The observable and the latent, coupled."""
+        return (((0,), (0,)),)
+
+    @override
+    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
+        return Rectangular()
+
+    @override
+    def crs_emb_constructors(
+        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
+    ) -> tuple[
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
+    ]:
+        """The observable location and the latent node activities."""
+        return (GeneralizedGaussianLocationEmbedding,), (
+            GeneralizedGaussianLocationEmbedding,
+        )
+
+    @property
+    @override
+    def obs_man(self) -> Normal[ObsRep]:
+        return Normal(self.obs_dim, self.obs_rep)
+
+    @property
+    @override
+    def pst_man(self) -> Boltzmann[Shape]:
+        return self.boltzmann
 
 
 @dataclass(frozen=True)

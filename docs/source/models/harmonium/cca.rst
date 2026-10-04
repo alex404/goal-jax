@@ -13,14 +13,6 @@ Class Hierarchy
 
 \
 
-Observable Pair
----------------
-
-.. autoclass:: goal.models.harmonium.cca.NormalPair
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Two-View Model
 --------------
 

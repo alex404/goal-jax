@@ -32,7 +32,6 @@ for common configurations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -41,13 +40,12 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
-    AnalyticConjugated,
+    AnalyticGraphical,
     DifferentiableConjugated,
+    DifferentiableGraphical,
+    Harmonium,
     LatentHarmoniumEmbedding,
     LinearEmbedding,
-    Manifold,
-    MatrixRep,
-    ObservableEmbedding,
     PositiveDefinite,
     SymmetricConjugated,
 )
@@ -68,18 +66,15 @@ class _HMoGBase[
     PstUpperHarmonium: CompleteMixture[Any],
     PrrUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
 ](
-    DifferentiableConjugated[Any, PstUpperHarmonium, PrrUpperHarmonium],
+    DifferentiableGraphical[PstUpperHarmonium, PrrUpperHarmonium],
     ABC,
 ):
     """Abstract base for Hierarchical Mixture of Gaussians models.
 
-    Composes a lower harmonium ($x \\to y$) with an upper mixture ($y \\to k$) over the
-    three-node chain. The lower harmonium supplies the root and cross partitions, the upper
-    mixture is the deep partition, and the upper mixture's own root partition is node $y$ --- which
-    is why the two compose without any coordinate translation.
-
-    The ``pst_upr_hrm`` is bounded by ``CompleteMixture``, giving access to
-    ``split_mean_mixture``, ``join_mean_mixture``, and ``cmp_man``.
+    A lower harmonium ($x \\to y$) attached to the observable node $y$ of an upper mixture
+    ($y \\to k$), over the three-node chain. The ``pst_upr_hrm`` is bounded by
+    ``CompleteMixture``, giving access to ``split_mean_mixture``, ``join_mean_mixture``, and
+    ``cmp_man``.
     """
 
     # Contract
@@ -103,28 +98,9 @@ class _HMoGBase[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        """The lower harmonium's: its latent is the upper mixture's observable, node $0$ of each."""
-        return self.lwr_hrm.crs_cliques
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return self.lwr_hrm.crs_rep(crossing)
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        return self.lwr_hrm.crs_emb_constructors(crossing)
-
-    @property
-    @override
-    def obs_man(self) -> Any:
-        """The lower harmonium's observable."""
-        return self.lwr_hrm.obs_man
+    def attachments(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+        """The lower harmonium, on the upper mixture's observable node $y$."""
+        return ((self.lwr_hrm, (0,)),)
 
     @property
     @override
@@ -140,13 +116,6 @@ class _HMoGBase[
             self.lwr_hrm.pst_prr_emb,
             self.prr_upr_hrm,
             self.pst_upr_hrm,
-        )
-
-    @override
-    def conjugation_parameters(self, lkl_params: Array) -> Array:
-        """Place the lower harmonium's conjugation parameters into node $y$'s slot of the upper mixture."""
-        return ObservableEmbedding(self.prr_upr_hrm).embed(
-            self.lwr_hrm.conjugation_parameters(lkl_params)
         )
 
     # Methods
@@ -291,7 +260,7 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
 @dataclass(frozen=True)
 class AnalyticHMoG[ObsRep: PositiveDefinite](
     SymmetricHMoG[ObsRep, AnalyticMixture[FullNormal]],
-    AnalyticConjugated[Any, AnalyticMixture[FullNormal]],
+    AnalyticGraphical[AnalyticMixture[FullNormal]],
 ):
     """Analytic Hierarchical Mixture of Gaussians.
 
@@ -315,18 +284,6 @@ class AnalyticHMoG[ObsRep: PositiveDefinite](
     @override
     def upr_hrm(self) -> AnalyticMixture[FullNormal]:
         return self._upr_hrm
-
-    @override
-    def to_natural_likelihood(self, means: Array) -> Array:
-        """Project the mean parameters down onto the lower harmonium and convert there.
-
-        The deep partition is the upper mixture; its own root partition is node $y$, which is the
-        lower harmonium's latent side. So the projection is one nested root read.
-        """
-        obs_means, lwr_int_means, lat_means = self.split_coords(means)
-        lwr_lat_means = ObservableEmbedding(self.upr_hrm).project(lat_means)
-        lwr_means = self.lwr_hrm.join_coords(obs_means, lwr_int_means, lwr_lat_means)
-        return self.lwr_hrm.to_natural_likelihood(lwr_means)
 
     @override
     def expectation_maximization(self, params: Array, xs: Array) -> Array:

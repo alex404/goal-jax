@@ -10,9 +10,10 @@ Gaussian model is a chain $x - z$, this is a fork
      x   y
 
 with $x$ and $y$ conditionally independent given $z$. That independence is what makes the
-model tractable, and it is carried by the observable manifold rather than asserted: the
-observable is a :class:`~goal.geometry.exponential_family.combinators.ExponentialFamilyPair`,
-whose log-partition function is already the sum of its components'.
+model tractable, and it is carried by the structure rather than asserted: the model is a
+:class:`~goal.geometry.exponential_family.graphical.DifferentiableGraphical` with two
+linear Gaussian models attached to the one latent node, and its observable is their
+observables side by side, whose log-partition function is the sum of its components'.
 
 Mathematically, the conjugation equation's left-hand side therefore factorizes,
 
@@ -22,70 +23,22 @@ Mathematically, the conjugation equation's left-hand side therefore factorizes,
       + \\psi_Y(\\theta_Y + \\Theta_{YZ} \\cdot \\mathbf s_Z(z)),
 
 and since each branch is a linear Gaussian model with its own conjugation, the joint
-conjugation parameters are just their sum, $\\rho = \\rho_X + \\rho_Y$. The offset needs no
-special handling for the same reason: the default $\\chi = \\psi_{XY}(\\theta_{XY})$ already
-sums across the pair.
+conjugation parameters are their sum, $\\rho = \\rho_X + \\rho_Y$, and likewise the
+offsets. Both sums are what the graphical harmonium computes for any attachments.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
-from jax import Array
-
 from ...geometry import (
-    AnalyticPair,
-    DifferentiableConjugated,
-    LinearEmbedding,
-    Manifold,
-    MatrixRep,
+    DifferentiableGraphical,
+    Harmonium,
     PositiveDefinite,
-    Rectangular,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
-from .lgm import (
-    GeneralizedGaussianLocationEmbedding,
-    NormalCovarianceEmbedding,
-    NormalLGM,
-)
-
-
-@dataclass(frozen=True)
-class NormalPair[FstRep: PositiveDefinite, SndRep: PositiveDefinite](
-    AnalyticPair[Normal[FstRep], Normal[SndRep]]
-):
-    """Two normals over disjoint data slices, side by side: nodes $0$ and $1$.
-
-    Each branch of :class:`CanonicalCorrelationAnalysis`' fork couples to one of them.
-    """
-
-    # Fields
-
-    fst_dim: int
-    """Data dimension of the first normal."""
-
-    fst_rep: FstRep
-    """Covariance structure of the first normal."""
-
-    snd_dim: int
-    """Data dimension of the second normal."""
-
-    snd_rep: SndRep
-    """Covariance structure of the second normal."""
-
-    # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> Normal[FstRep]:
-        return Normal(self.fst_dim, self.fst_rep)
-
-    @property
-    @override
-    def snd_man(self) -> Normal[SndRep]:
-        return Normal(self.snd_dim, self.snd_rep)
+from .lgm import NormalCovarianceEmbedding, NormalLGM
 
 
 @dataclass(frozen=True)
@@ -94,7 +47,7 @@ class CanonicalCorrelationAnalysis[
     SndRep: PositiveDefinite,
     PstRep: PositiveDefinite,
 ](
-    DifferentiableConjugated[NormalPair[FstRep, SndRep], Normal[PstRep], FullNormal],
+    DifferentiableGraphical[Normal[PstRep], FullNormal],
 ):
     """Two observable normals coupled through one shared Gaussian latent.
 
@@ -129,30 +82,9 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        """The fork $x - z - y$: each observable of the pair with the shared latent."""
-        return (((0,), (0,)), ((1,), (0,)))
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        """Each branch couples the two locations."""
-        return (GeneralizedGaussianLocationEmbedding,), (
-            GeneralizedGaussianLocationEmbedding,
-        )
-
-    @property
-    @override
-    def obs_man(self) -> NormalPair[FstRep, SndRep]:
-        return NormalPair(self.fst_dim, self.fst_rep, self.snd_dim, self.snd_rep)
+    def attachments(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+        """The fork $x - z - y$: each branch on the shared latent."""
+        return ((self.fst_lgm, (0,)), (self.snd_lgm, (0,)))
 
     @property
     @override
@@ -163,27 +95,6 @@ class CanonicalCorrelationAnalysis[
     @override
     def pst_prr_emb(self) -> NormalCovarianceEmbedding[PositiveDefinite, PstRep]:
         return NormalCovarianceEmbedding(full_normal(self.lat_dim), self.pst_man)
-
-    @override
-    def conjugation_parameters(self, lkl_params: Array) -> Array:
-        """Sum the two branches' conjugation parameters.
-
-        Each branch is a linear Gaussian model in its own right, so this delegates rather
-        than deriving anything new. Summing is valid because the observable pair's
-        log-partition function already splits across the branches.
-        """
-        obs_bias, int_params = self.lkl_fun_man.split_coords(lkl_params)
-        fst_bias, snd_bias = self.obs_man.split_coords(obs_bias)
-        fst_int, snd_int = self.crs_man.coord_blocks(int_params)
-
-        fst_lgm, snd_lgm = self.fst_lgm, self.snd_lgm
-        rho_fst = fst_lgm.conjugation_parameters(
-            fst_lgm.lkl_fun_man.join_coords(fst_bias, fst_int)
-        )
-        rho_snd = snd_lgm.conjugation_parameters(
-            snd_lgm.lkl_fun_man.join_coords(snd_bias, snd_int)
-        )
-        return rho_fst + rho_snd
 
     # Methods
 

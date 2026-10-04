@@ -30,6 +30,14 @@ from .exponential_family.combinators import (
 from .exponential_family.dynamical import (
     VariationalLatentProcess,
 )
+from .exponential_family.graphical import (
+    AnalyticGraphical,
+    DifferentiableGraphical,
+    GraphicalHarmonium,
+    LatentHarmoniumEmbedding,
+    ObservablePair,
+    VariationalGraphical,
+)
 from .exponential_family.harmonium import (
     AnalyticConjugated,
     Conjugated,
@@ -37,7 +45,6 @@ from .exponential_family.harmonium import (
     Harmonium,
     HarmoniumEmbedding,
     InteractionEmbedding,
-    LatentHarmoniumEmbedding,
     ObservableEmbedding,
     PosteriorEmbedding,
     SymmetricConjugated,
@@ -92,6 +99,7 @@ __all__ = [
     "AffineMap",
     "Analytic",
     "AnalyticConjugated",
+    "AnalyticGraphical",
     "AnalyticPair",
     "AnalyticProduct",
     "CliqueEmbedding",
@@ -103,6 +111,7 @@ __all__ = [
     "Diagonal",
     "Differentiable",
     "DifferentiableConjugated",
+    "DifferentiableGraphical",
     "DifferentiablePair",
     "DifferentiableProduct",
     "Embedding",
@@ -113,6 +122,7 @@ __all__ = [
     "GenerativePair",
     "GenerativeProduct",
     "Gibbs",
+    "GraphicalHarmonium",
     "Harmonium",
     "HarmoniumEmbedding",
     "Identity",
@@ -131,6 +141,7 @@ __all__ = [
     "MultilayerPerceptron",
     "Null",
     "ObservableEmbedding",
+    "ObservablePair",
     "Pair",
     "PositiveDefinite",
     "PosteriorEmbedding",
@@ -151,6 +162,7 @@ __all__ = [
     "TupleEmbedding",
     "VariationalConjugated",
     "VariationalDifferentiable",
+    "VariationalGraphical",
     "VariationalLatentProcess",
     "VariationalSymmetric",
     "bias_map",

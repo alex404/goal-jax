@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -555,56 +555,3 @@ class PosteriorEmbedding[
     @override
     def sub_man(self) -> Posterior:
         return self.hrm_man.pst_man
-
-
-@dataclass(frozen=True)
-class LatentHarmoniumEmbedding[
-    PriorHarmonium: Harmonium[Any, Any],
-    PostHarmonium: Harmonium[Any, Any],
-](LinearEmbedding[PriorHarmonium, PostHarmonium]):
-    """Embeds one harmonium into another by embedding only the observable component.
-
-    Used in hierarchical models where the posterior uses a restricted observable representation (e.g., diagonal covariance) while the prior uses a fuller one. Interaction and latent components pass through unchanged.
-
-    Mathematically, for harmonium points $(o, i, l)$: embedding maps $(o, i, l) \\mapsto (\\phi(o), i, l)$ and projection maps $(o, i, l) \\mapsto (\\pi(o), i, l)$, with $\\phi, \\pi$ those of :attr:`obs_emb`.
-    """
-
-    # Fields
-
-    obs_emb: LinearEmbedding[Any, Any]
-    """Embedding of the restricted observable manifold into the full observable manifold."""
-
-    _amb_man: PriorHarmonium
-    _sub_man: PostHarmonium
-
-    def __post_init__(self) -> None:
-        sub, amb = self.sub_man, self.amb_man
-        if sub.cliques != amb.cliques or (sub.int_man.dim, sub.pst_man.dim) != (
-            amb.int_man.dim,
-            amb.pst_man.dim,
-        ):
-            raise ValueError("the two harmoniums may differ only in their observable")
-
-    # Overrides
-
-    @property
-    @override
-    def sub_man(self) -> PostHarmonium:
-        return self._sub_man
-
-    @property
-    @override
-    def amb_man(self) -> PriorHarmonium:
-        return self._amb_man
-
-    @override
-    def project(self, coords: Array) -> Array:
-        obs_params, int_params, lat_params = self.amb_man.split_coords(coords)
-        prj_obs_params = self.obs_emb.project(obs_params)
-        return self.sub_man.join_coords(prj_obs_params, int_params, lat_params)
-
-    @override
-    def embed(self, coords: Array) -> Array:
-        obs_params, int_params, lat_params = self.sub_man.split_coords(coords)
-        emb_obs_params = self.obs_emb.embed(obs_params)
-        return self.amb_man.join_coords(emb_obs_params, int_params, lat_params)

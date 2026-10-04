@@ -51,7 +51,7 @@ from .graphical.mixture import (
 from .graphical.variational import (
     VariationalHierarchicalMixture,
 )
-from .harmonium.cca import CanonicalCorrelationAnalysis, NormalPair
+from .harmonium.cca import CanonicalCorrelationAnalysis
 from .harmonium.lgm import (
     LGM,
     BoltzmannEmbedding,
@@ -59,6 +59,7 @@ from .harmonium.lgm import (
     DifferentiableBoltzmannLGM,
     FactorAnalysis,
     NormalAnalyticLGM,
+    NormalBoltzmannHarmonium,
     NormalCovarianceEmbedding,
     NormalLGM,
     PrincipalComponentAnalysis,
@@ -125,9 +126,9 @@ __all__ = [
     "MixtureOfFactorAnalyzers",
     "Normal",
     "NormalAnalyticLGM",
+    "NormalBoltzmannHarmonium",
     "NormalCovarianceEmbedding",
     "NormalLGM",
-    "NormalPair",
     "Poisson",
     "PoissonMixture",
     "PoissonVonMisesHarmonium",

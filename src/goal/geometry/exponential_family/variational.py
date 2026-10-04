@@ -345,11 +345,7 @@ class VariationalDifferentiable[
 
         $$\\nabla \\mathcal{L}(x) = \\mathbb{E}_q[\\nabla \\log p(x, Z)] + \\mathbb{E}_q[(r - b) \\nabla \\log q],$$
 
-        where the score term accounts for the dependence of the sampling distribution $q$ on the parameters and the sample-mean baseline $b$ reduces finite-sample variance. The surrogate ``c_x + direct + score - sg(score)`` equals $c(x)$ plus the plain MC average of $r$ in value, with three ``stop_gradient`` sites:
-
-        1. **samples** --- the sampler may be non-differentiable (e.g. VonMises rejection); samples are evaluation points, not gradient carriers;
-        2. **$r$ inside the score term** --- its direct gradient is already counted in ``direct``;
-        3. **the final ``- sg(score)``** --- cancels the score term's value contribution, so the value stays a clean MC estimate while the gradient survives.
+        where the score term accounts for the dependence of the sampling distribution $q$ on the parameters and the leave-one-out baseline $b$ reduces finite-sample variance without biasing the gradient (:func:`score_surrogate`). The samples are stop-gradiented: the sampler may be non-differentiable (e.g. VonMises rejection), so they are evaluation points, not gradient carriers.
         """
         q_params = self.approximate_posterior_at(params, x)
         z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
@@ -362,11 +358,7 @@ class VariationalDifferentiable[
             z_samples
         )
 
-        direct = jnp.mean(r_vals)
-        r_sg = jax.lax.stop_gradient(r_vals)
-        b = jnp.mean(r_sg)
-        score = jnp.mean((r_sg - b) * log_q_vals)
-        return c_x + direct + score - jax.lax.stop_gradient(score)
+        return c_x + score_surrogate(r_vals, log_q_vals)
 
     def mean_elbo(
         self,
@@ -400,7 +392,7 @@ class VariationalDifferentiable[
 
         Mathematically, $\\mathrm{Var}_q[r(Z)] = \\mathrm{Var}_q[\\log (q(Z \\mid x) / p(Z \\mid x))]$, so $\\mathcal{R}_q(x)$ is exactly the amortization gap at $x$: it vanishes iff the recognition model matches the true posterior. It focuses the penalty on the latents inference actually visits, and can reuse the samples drawn for the ELBO.
 
-        Unlike :meth:`VariationalConjugated.prior_conjugation_loss`, the sampling distribution shares parameters with $r$, so the gradient requires both a direct piece through $r$ and a score-function correction through $q$ --- see :func:`_variance_with_score_correction`.
+        Unlike :meth:`VariationalConjugated.prior_conjugation_loss`, the sampling distribution shares parameters with $r$, so the gradient requires both a direct piece through $r$ and a score-function correction through $q$ --- see :func:`variance_with_score_correction`.
         """
         q_params = self.approximate_posterior_at(params, x)
         z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
@@ -408,7 +400,7 @@ class VariationalDifferentiable[
         log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(
             z_samples
         )
-        return _variance_with_score_correction(r_vals, log_q_vals)
+        return variance_with_score_correction(r_vals, log_q_vals)
 
     def mean_recognition_conjugation_loss(
         self, key: Array, params: Array, xs: Array, n_samples: int
@@ -450,23 +442,28 @@ class VariationalSymmetric[
         return IdentityEmbedding(self.lat_man)
 
 
-def _variance_with_score_correction(r_vals: Array, log_q_vals: Array) -> Array:
-    """Estimate $\\mathrm{Var}_q[r]$ as a loss whose autodiff gradient carries both pieces of $\\nabla \\mathrm{Var}_q[r] = 2\\,\\mathbb{E}_q[(r - \\bar r) \\nabla r] + \\mathbb{E}_q[(r - \\bar r)^2 \\nabla \\log q]$.
+def score_surrogate(signal: Array, log_q: Array) -> Array:
+    """Monte Carlo mean of ``signal`` whose gradient adds the score-function correction.
 
-    Same ``direct + score - sg(score)`` surrogate as :meth:`VariationalDifferentiable.elbo_at`, with $g = (r - \\bar r)^2$ as the integrand:
-
-    - ``direct = mean((r - mean(r))**2)`` --- biased-variance MC value; autodiff carries the first term.
-    - ``score = mean((g_sg - b) * log_q)`` with sample-mean baseline $b$ --- autodiff carries the second.
-    - ``- sg(score)`` cancels the score's value contribution, leaving the value equal to ``direct``.
+    The value is the mean of ``signal``; the gradient adds $\\frac{1}{K} \\sum_k (f_k - b_k) \\nabla \\log q(z_k)$ with the leave-one-out baseline $b_k = \\frac{1}{K-1} \\sum_{j \\neq k} f_j$, which is independent of $z_k$ and so leaves the gradient unbiased (the plain sample mean would shrink the correction by $(K-1)/K$). A single sample gets no baseline. ``signal`` enters the correction without its gradient, which the plain mean already carries.
     """
-    r_sg = jax.lax.stop_gradient(r_vals)
-    bar_r_sg = jnp.mean(r_sg)
-    g_vals = (r_vals - jnp.mean(r_vals)) ** 2
-    g_sg = (r_sg - bar_r_sg) ** 2
-    b = jnp.mean(g_sg)
-    direct = jnp.mean(g_vals)
-    score = jnp.mean((g_sg - b) * log_q_vals)
-    return direct + score - jax.lax.stop_gradient(score)
+    sig_sg = jax.lax.stop_gradient(signal)
+    n = signal.shape[0]
+    centered = sig_sg if n == 1 else n / (n - 1) * (sig_sg - jnp.mean(sig_sg))
+    score = jnp.mean(centered * log_q)
+    return jnp.mean(signal) + score - jax.lax.stop_gradient(score)
+
+
+def variance_with_score_correction(r_vals: Array, log_q_vals: Array) -> Array:
+    """Estimate $\\mathrm{Var}_q[r]$ as a loss whose autodiff gradient is unbiased for $\\nabla \\mathrm{Var}_q[r]$, including the dependence of $q$ on the parameters.
+
+    Mathematically, $\\mathrm{Var}_q[r] = \\frac{1}{2} \\mathbb E_{q \\otimes q}[(r(Z) - r(Z'))^2]$, so with $K \\geq 2$ samples the pairwise mean of $\\frac{1}{2}(r_i - r_j)^2$ over $i \\neq j$ is unbiased, and so is its gradient: a direct piece through $r$, and a score piece $\\frac{1}{2}(r_i - r_j)^2 (\\nabla \\log q(z_i) + \\nabla \\log q(z_j))$. The value is the unbiased sample variance.
+    """
+    n = r_vals.shape[0]
+    pairs = 0.5 * (r_vals[:, None] - r_vals[None, :]) ** 2
+    pairs_sg = jax.lax.stop_gradient(pairs)
+    score = jnp.sum(pairs_sg * (log_q_vals[:, None] + log_q_vals[None, :]))
+    return (jnp.sum(pairs) + score - jax.lax.stop_gradient(score)) / (n * (n - 1))
 
 
 # --- Free functions: diagnostics, fitting helpers, downstream uses ---

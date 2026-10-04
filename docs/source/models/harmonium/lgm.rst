@@ -47,6 +47,11 @@ Boltzmann LGM
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.models.harmonium.lgm.NormalBoltzmannHarmonium
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Embeddings
 ----------
 

@@ -67,8 +67,3 @@ Block Embeddings
    :members:
    :undoc-members:
    :show-inheritance:
-
-.. autoclass:: goal.geometry.exponential_family.harmonium.LatentHarmoniumEmbedding
-   :members:
-   :undoc-members:
-   :show-inheritance:

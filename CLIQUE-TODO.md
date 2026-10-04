@@ -152,9 +152,29 @@ cascades upward.
 - `CrossMap` keeps its own `clq_dims`/`coord_blocks`. It could become a `LinearCliques`, but its
   terms are pairs of cliques on two sides, not cliques of one graph.
 
+### `exponential_family/graphical.py`
+
+Built 2026-10-03: `GraphicalHarmonium` (a deep model plus attachments, crossings derived),
+`DifferentiableGraphical` (conjugation = each attachment's, placed on its clique of the prior
+and summed; offsets summed), `AnalyticGraphical` (single attachment). Openings:
+
+- Two attachments give an `ObservablePair` (differentiable only; CCA uses it, replacing
+  `NormalPair`). More than two attachments need a nested or n-ary product.
+- An attachment's prior is placed clique by clique through the attachment's clique map, so a
+  prior with more nodes than its posterior (a fill-in across attachments) is not expressible.
+- `pst_prr_emb` stays declared by the model; deriving it from the attachments is open.
+- Depth: a deep model that is itself graphical composes, but nothing tests depth three yet.
+- MFA stays a hand-written primitive.
+- `VariationalGraphical` (2026-10-04) handles depth three only: one attachment on node $0$ of
+  an upper harmonium. Deeper chains need the per-edge recursion; the lower harmonium's
+  posterior and prior must equal the upper harmonium's observable.
+- Concrete composites (`_Chain` in the tests)
+  are small field-holding subclasses; a generic concrete composite in core is open.
+
 ### `exponential_family/harmonium.py`
 
-- `LatentHarmoniumEmbedding` (briefly `RootEmbedding`, restricted to harmoniums again) moved here from `manifold/clique.py` (2026-10-03): its only role is
+- `LatentHarmoniumEmbedding` (briefly `RootEmbedding`, restricted to harmoniums again) moved from
+  `manifold/clique.py` to `harmonium.py`, then to `graphical.py` (2026-10-03): its only role is
   `pst_prr_emb` for HMoG. Generalize it into a cliquewise posterior-to-prior embedding (one
   embedding per clique block the fill-in reaches; `TensorProductEmbedding` on crossing blocks),
   which would also replace MFA's `CompleteMixtureEmbedding`, and later derive it from the fill-in.
@@ -167,21 +187,23 @@ cascades upward.
   (`AffineMap`s). Contracting cliques directly is the agreed next structural step; large blast
   radius.
 - `InteractionEmbedding` / `PosteriorEmbedding` have no callers in `models/` or `examples/`
-  (only exports and `tests/graphical.py`). Delete?
+  (only exports and `tests/linear_clique.py`). Delete?
 - `initialize_from_sample` passes the unsliced sample to `obs_man` (predates the branch).
 
 ### Models
 
 - MFA (`graphical/mixture.py`): check the `jnp.split` offsets in `from_mixture_coords`. They are
   now covered by the clique-block test in `tests/graphical_mixture.py`.
-- HMoG (`graphical/hmog.py`): `_HMoGBase` delegates its crossings to `lwr_hrm`. This holds
-  because the lower harmonium's latent and the upper mixture's observable are each node $0$ of
-  their partitions. A lower harmonium with a two-node posterior would break this.
+- CCA (`harmonium/cca.py`) is a `DifferentiableGraphical` with two attachments on latent node
+  $0$ (2026-10-03); its hand-written conjugation sum is gone.
+- HMoG (`graphical/hmog.py`) is a `DifferentiableGraphical` with one attachment, the lower
+  harmonium on the mixture's node $0$ (2026-10-03); crossings, conjugation and
+  `to_natural_likelihood` come from `exponential_family/graphical.py`.
 - CCA is probabilistic CCA and exposes no canonical directions; rename or document.
 
 ### Tests
 
-- `interaction.py` tests a class in `manifold/clique.py`; merge into `graphical.py` or keep?
+- `interaction.py` tests a class in `manifold/clique.py`; merge into `linear_clique.py` or keep?
 - CCA test is gradient-step smoke coverage; compare against an independent joint covariance.
 - Root cliques of several nodes are possible but untested.
 
