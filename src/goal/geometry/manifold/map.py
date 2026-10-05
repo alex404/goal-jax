@@ -185,7 +185,7 @@ class SquareMap[M: Manifold](MatrixMap[M, M]):
     Domain and codomain are the same manifold, so this is a self-interaction *inside* one
     node rather than a coupling between two --- which is why square maps are never wrapped
     as cliques. ``Covariance`` and ``CouplingMatrix`` are both of this shape: a node's
-    second moment, and the one place structured matrix representations live.
+    second moment, and where structured matrix representations live so far.
     """
 
     # Fields

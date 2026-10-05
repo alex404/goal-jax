@@ -236,7 +236,7 @@ class TestDecomposition:
             lhs = model.log_density_joint(params, X3, y, z) - model.log_q(
                 params, X3, y, z
             )
-            rhs = c_x + model.learning_signal(params, X3, y, z)
+            rhs = c_x + model.conjugation_residual(params, X3, y, z)
             assert jnp.allclose(lhs, rhs, atol=1e-10)
 
 
@@ -267,7 +267,7 @@ class TestGradientUnbiased:
     @staticmethod
     def _quadrature_elbo(model: VariationalGraphical, params: Array, x: Array) -> Array:
         top = model.top_man
-        q_top = model.approximate_posterior_top(params, x)
+        q_top = model.recognition_top(params, x)
         mean, cov = top.split_mean_covariance(top.to_mean(q_top))
         sd = jnp.sqrt(top.cov_man.to_matrix(cov)[0, 0])
         nodes, weights = np.polynomial.hermite.hermgauss(60)
@@ -321,7 +321,7 @@ class TestGradientUnbiased:
         assert rel < 0.03
 
 
-class TestInnerConjugationLoss:
+class TestInnerResidualVariance:
     """$\\mathrm{Var}_{q(z \\mid x)}[r^X_Z]$ and its gradient, including the dependence of $q$ on the parameters, against quadrature over a one-dimensional $z$."""
 
     @staticmethod
@@ -329,7 +329,7 @@ class TestInnerConjugationLoss:
         model: VariationalGraphical, params: Array, x: Array
     ) -> Array:
         top = model.top_man
-        q_top = model.approximate_posterior_top(params, x)
+        q_top = model.recognition_top(params, x)
         mean, cov = top.split_mean_covariance(top.to_mean(q_top))
         sd = jnp.sqrt(top.cov_man.to_matrix(cov)[0, 0])
         nodes, weights = np.polynomial.hermite.hermgauss(60)
@@ -346,7 +346,7 @@ class TestInnerConjugationLoss:
         g_true = jax.grad(lambda p: self._quadrature_variance(model, p, x))(params)
 
         def loss(p: Array, k: Array) -> Array:
-            return model.inner_conjugation_loss_at(k, p, x, 4)
+            return model.inner_residual_variance_at(k, p, x, 4)
 
         keys = jax.random.split(jax.random.PRNGKey(40), 40000)
         vals, grads = jax.jit(jax.vmap(jax.value_and_grad(loss), in_axes=(None, 0)))(
@@ -357,7 +357,7 @@ class TestInnerConjugationLoss:
         assert rel < 0.05
 
 
-class TestPriorConjugationLosses:
+class TestPriorResidualVariances:
     """$\\mathrm{Var}_p[r_Y]$ and $\\mathrm{Var}_p[r^*_Z]$ and their gradients, including the dependence of the ancestral distribution on the parameters, against enumeration of $y$ and quadrature over a one-dimensional $z$."""
 
     @staticmethod
@@ -365,7 +365,7 @@ class TestPriorConjugationLosses:
         model: VariationalGraphical, params: Array
     ) -> tuple[Array, Array]:
         top = model.top_man
-        prr, upr_lkl, *_ = model.split_coords(params)
+        _, upr_lkl, prr, *_ = model.split_coords(params)
         mean, cov = top.split_mean_covariance(top.to_mean(prr))
         sd = jnp.sqrt(top.cov_man.to_matrix(cov)[0, 0])
         nodes, weights = np.polynomial.hermite.hermgauss(60)
@@ -400,7 +400,7 @@ class TestPriorConjugationLosses:
         )(params)
 
         def losses(p: Array, k: Array) -> Array:
-            return jnp.stack(model.prior_conjugation_losses(k, p, 4))
+            return jnp.stack(model.prior_residual_variances(k, p, 4))
 
         keys = jax.random.split(jax.random.PRNGKey(50), 40000)
         vals = jax.jit(jax.vmap(losses, in_axes=(None, 0)))(params, keys)

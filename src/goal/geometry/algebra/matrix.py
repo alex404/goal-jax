@@ -28,7 +28,7 @@ Each level exploits additional structure for cheaper storage and operations:
 TODO: A ``Convolutional`` rep could fit naturally here. It would store a kernel and
 implement ``matvec`` via convolution on a flat array (i.e. a compactly-stored Toeplitz
 matrix), with ``shape = (output_len, input_len)`` preserving the existing contract.
-Multi-channel and 2D structure would be handled in ``linear.py`` via a composite map
+Multi-channel and 2D structure would be handled in ``manifold/map.py`` via a composite map
 (one block per channel pair) or embeddings that reshape between flat and spatial layouts.
 """
 

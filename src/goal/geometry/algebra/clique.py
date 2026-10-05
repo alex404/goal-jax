@@ -25,7 +25,12 @@ class Cliques(ABC):
     @property
     @abstractmethod
     def cliques(self) -> tuple[tuple[int, ...], ...]:
-        """$C$, each clique an ascending label tuple, each once, in the order they are stored."""
+        """$C$, each clique an ascending label tuple, each once, in the order they are stored.
+
+        The labels are exactly $0, \\ldots, n - 1$: offsetting a part by its node count, as
+        composites do, relies on it. Single-node families and composites satisfy this by
+        construction; a class that declares its cliques directly must keep it.
+        """
 
     # Methods
 
@@ -64,3 +69,13 @@ class Cliques(ABC):
         for i, near in self.graph.items():
             pairs.extend((i, j) for j in near if i < j)
         return tuple(sorted(pairs))
+
+
+def shift_clique(clique: tuple[int, ...], offset: int) -> tuple[int, ...]:
+    """The clique's labels in a graph that numbers ``offset`` nodes before it.
+
+    A composite stores its parts one after another and numbers their nodes in the same
+    order, so a part's labels are its own raised by the node count of the parts stored
+    before it.
+    """
+    return tuple(i + offset for i in clique)

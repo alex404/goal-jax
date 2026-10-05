@@ -177,7 +177,7 @@ def create_ground_truth_model(
 
 def extract_tuning_params(model: VonMisesPopulationCode, params: Array) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
-    _, lkl_params, _ = model.split_coords(params)
+    lkl_params, _, _ = model.split_coords(params)
     obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(model.n_neurons, 2 * model.n_latent)
 
@@ -210,10 +210,10 @@ def compute_gt_conjugation(
     var_model = VonMisesPopulationCode(_gen_hrm=gt_model)
     zero_rho = jnp.zeros(var_model.cnj_man.dim)
 
-    # Reformat GT harmonium params [obs, int, prior] into variational [prior, lkl, rho]
+    # Reformat GT harmonium params [obs, int, prior] into variational [lkl, prior, rho]
     gt_obs, gt_int, gt_prior = gt_model.split_coords(gt_params)
     gt_lkl = gt_model.lkl_fun_man.join_coords(gt_obs, gt_int)
-    var_params = var_model.join_coords(gt_prior, gt_lkl, zero_rho)
+    var_params = var_model.join_coords(gt_lkl, gt_prior, zero_rho)
 
     # Compute optimal rho via regression
     key, reg_key = jax.random.split(key)
@@ -226,7 +226,7 @@ def compute_gt_conjugation(
     var_psi, _, _ = conjugation_metrics(var_model, m0_key, var_params, n_samples)
 
     # Var[CR] with optimal rho
-    optimal_params = var_model.join_coords(gt_prior, gt_lkl, rho_star)
+    optimal_params = var_model.join_coords(gt_lkl, gt_prior, rho_star)
     key, m1_key = jax.random.split(key)
     var_cr, _, _ = conjugation_metrics(var_model, m1_key, optimal_params, n_samples)
 
@@ -273,7 +273,7 @@ def train_model(  # noqa: C901
 
     params = init_params
     prior_dim = model.prr_man.dim
-    init_prior_p, init_lkl_p, _ = model.split_coords(params)
+    init_lkl_p, init_prior_p, _ = model.split_coords(params)
     gen_params = jnp.concatenate([init_prior_p, init_lkl_p])
     zero_rho = jnp.zeros(model.cnj_man.dim)
 
@@ -322,13 +322,13 @@ def train_model(  # noqa: C901
         lkl_p = gen_params[prior_dim:]
 
         # Compute analytical rho via library regression
-        dummy_params = model.join_coords(prior_p, lkl_p, zero_rho)
+        dummy_params = model.join_coords(lkl_p, prior_p, zero_rho)
         rho_star, _, _, _ = regress_conjugation_parameters(
             model, rho_key, dummy_params, n_analytical_samples
         )
 
         # Let implicit gradient flow through lstsq for proper rho coupling
-        params_with_rho = model.join_coords(prior_p, lkl_p, rho_star)
+        params_with_rho = model.join_coords(lkl_p, prior_p, rho_star)
         elbo = model.mean_elbo(elbo_key, params_with_rho, batch, n_mc_samples)
 
         # Conjugation penalty: explicitly discourage nonlinear \psi_X
@@ -417,8 +417,8 @@ def train_model(  # noqa: C901
             )
             current_gen_params, current_opt_state, train_key = carry
             current_params = model.join_coords(
-                current_gen_params[:prior_dim],
                 current_gen_params[prior_dim:],
+                current_gen_params[:prior_dim],
                 rho_stars_chunk[-1],
             )
             all_elbos.append(elbos_chunk)
@@ -473,8 +473,8 @@ def train_model(  # noqa: C901
             )
             current_gen_params, current_opt_state, train_key = carry
             current_params = model.join_coords(
-                current_gen_params[:prior_dim],
                 current_gen_params[prior_dim:],
+                current_gen_params[:prior_dim],
                 rho_stars_chunk[-1],
             )
             all_elbos.append(elbos_chunk)
@@ -509,11 +509,11 @@ def train_model(  # noqa: C901
         zero_rho = jnp.zeros(model.cnj_man.dim)
         cur_prior_p = current_gen_params[:prior_dim]
         cur_lkl_p = current_gen_params[prior_dim:]
-        eval_params = model.join_coords(cur_prior_p, cur_lkl_p, zero_rho)
+        eval_params = model.join_coords(cur_lkl_p, cur_prior_p, zero_rho)
         rho_final, _, _, _ = regress_conjugation_parameters(
             model, rho_eval_key, eval_params, n_conj_samples * 2
         )
-        current_params = model.join_coords(cur_prior_p, cur_lkl_p, rho_final)
+        current_params = model.join_coords(cur_lkl_p, cur_prior_p, rho_final)
 
     key, eval_key = jax.random.split(key)
 
@@ -531,7 +531,7 @@ def train_model(  # noqa: C901
     print(f"  Reconstruction error: {final_recon_error:.4f}")
 
     # Extract learned parameters
-    _, lkl_p, _ = model.split_coords(current_params)
+    lkl_p, _, _ = model.split_coords(current_params)
     learned_baselines, learned_int_params = model.gen_hrm.lkl_fun_man.split_coords(
         lkl_p
     )

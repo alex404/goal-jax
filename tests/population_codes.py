@@ -68,7 +68,7 @@ class TestVonMisesPopulationCode:
     def test_tuning_curve_peaks_at_preferred(self, n: int) -> None:
         """Each neuron's firing rate is higher at its preferred direction."""
         model, params = _make_population_code(n, jax.random.PRNGKey(42))
-        _, lkl_params, _ = model.split_coords(params)
+        lkl_params, _, _ = model.split_coords(params)
         _, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
         int_matrix = int_params.reshape(n, 2)
         preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])
@@ -94,7 +94,7 @@ class TestVonMisesPopulationCode:
             8, jax.random.PRNGKey(42), n_regression_samples=10000
         )
         x = jax.random.poisson(jax.random.PRNGKey(0), 5.0 * jnp.ones(8))
-        q_params = model.approximate_posterior_at(params, x)
+        q_params = model.recognition_at(params, x)
         assert q_params.shape == (2,)
         _, kappa = model.pst_man.rep_man.split_mean_concentration(q_params)
         assert kappa >= 0
@@ -105,10 +105,10 @@ class TestVonMisesPopulationCode:
         )
         vm = model.pst_man.rep_man
         _, kappa_low = vm.split_mean_concentration(
-            model.approximate_posterior_at(params, jnp.ones(8))
+            model.recognition_at(params, jnp.ones(8))
         )
         _, kappa_high = vm.split_mean_concentration(
-            model.approximate_posterior_at(params, 10 * jnp.ones(8))
+            model.recognition_at(params, 10 * jnp.ones(8))
         )
         assert kappa_high > kappa_low
 
@@ -170,8 +170,8 @@ def _make_boltzmann_pc(
     rho, _, _, _ = regress_conjugation_parameters(
         model, jax.random.fold_in(key, 1), params, n_reg
     )
-    prior_p, lkl_p, _ = model.split_coords(params)
-    return model, model.join_coords(prior_p, lkl_p, rho)
+    lkl_p, prior_p, _ = model.split_coords(params)
+    return model, model.join_coords(lkl_p, prior_p, rho)
 
 
 class TestBoltzmannPopulationCode:
@@ -195,7 +195,7 @@ class TestBoltzmannPopulationCode:
         model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(1))
         z = 0.5 * jax.random.normal(jax.random.PRNGKey(2), (2,))
         r_model = model.conjugation_residual(params, z)
-        _, lkl, _ = model.split_coords(params)
+        lkl, _, _ = model.split_coords(params)
         s_z = model.lat_man.sufficient_statistic(z)
         psi_z = model.obs_man.log_partition_function(
             model.gen_hrm.lkl_fun_man(lkl, s_z)
@@ -217,8 +217,8 @@ class TestBoltzmannPopulationCode:
     def test_posterior_precision_is_data_dependent(self) -> None:
         """The second-order interaction gives the posterior an x-dependent precision."""
         model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(5))
-        q0 = model.approximate_posterior_at(params, jnp.zeros(6))
-        q1 = model.approximate_posterior_at(params, jnp.ones(6))
+        q0 = model.recognition_at(params, jnp.zeros(6))
+        q1 = model.recognition_at(params, jnp.ones(6))
         _, prec0 = model.lat_man.split_location_precision(q0)
         _, prec1 = model.lat_man.split_location_precision(q1)
         assert jnp.all(jnp.isfinite(q0))

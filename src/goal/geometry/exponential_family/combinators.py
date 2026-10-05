@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..algebra.clique import shift_clique
 from ..manifold.clique import CliqueMap
 from ..manifold.combinators import Pair, Replicated
 from .base import (
@@ -72,7 +73,7 @@ class ExponentialFamilyPair[A: ExponentialFamily, B: ExponentialFamily](
     def cliques(self) -> tuple[tuple[int, ...], ...]:
         """The first component's cliques, then the second's, offset by the first's node count."""
         n_fst = self.fst_man.n_nodes
-        snd = tuple(tuple(i + n_fst for i in clique) for clique in self.snd_man.cliques)
+        snd = tuple(shift_clique(clique, n_fst) for clique in self.snd_man.cliques)
         return self.fst_man.cliques + snd
 
     @property

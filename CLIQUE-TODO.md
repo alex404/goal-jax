@@ -26,7 +26,7 @@ history.
 - Deleted: `part_emb`, `cod_group`/`dom_group`, the bias branch, `split_clique`, `Mixture.impose`,
   `upr_graph`, `mix_nodes`/`mix_graph`, and every `_raw_cliques`/`_root_nodes` field.
 - `clq_map(clique)`, `clq_emb(clique)` and `crs_map(crossing)` are replaced by the tuples
-  `clq_maps`, `clq_embs` and `crs_maps`, and the `Crossing`/`EmbeddingConstructor` aliases are
+  `clq_maps` and `crs_maps` (a clique's block is `CliqueEmbedding(clique, man)`), and the `Crossing`/`EmbeddingConstructor` aliases are
   removed.
 - `RecursiveCliques` is deleted. Its levels are distances from the root set, which agree with
   the partition nesting for chains but not in general: MFA's distance levels are x | {y, k},

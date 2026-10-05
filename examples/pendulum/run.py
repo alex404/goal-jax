@@ -142,12 +142,12 @@ class PendulumPopulationCode(
         return self.lat_man
 
     @override
-    def approximate_posterior_at(self, params: Array, x: Array) -> Array:
+    def recognition_at(self, params: Array, x: Array) -> Array:
         """Approximate posterior with a soft clamp on the recognition Normal's precision.
 
         The recognition $q(z\\mid x)$ has natural parameters $\\theta_Z + s_X(x)\\cdot\\Theta_{XZ} - \\rho$. The Normal portion's precision slot $\\theta_2$ must stay strictly negative for downstream :meth:`log_partition_function` / :meth:`to_mean` to be finite. The likelihood interaction column for $v^2$ is initialized at $-1/(2\\sigma_v^2) < 0$ which keeps $s_X\\cdot\\Theta$ non-positive when $s_X \\geq 0$, but free training can flip it positive on individual neurons. Mirror the transition's soft clamp here so a momentary overshoot doesn't NaN the whole loss.
         """
-        q_params = super().approximate_posterior_at(params, x)
+        q_params = super().recognition_at(params, x)
         vm_part, n_part = self.pst_man.split_coords(q_params)
         n_clamped = jnp.array(
             [
@@ -188,12 +188,12 @@ class PendulumPopulationCode(
         prior_nat = jnp.concatenate([prior_vm, prior_normal])
 
         zero_rho = jnp.zeros(self.cnj_man.dim)
-        init_params = self.join_coords(prior_nat, lkl_params, zero_rho)
+        init_params = self.join_coords(lkl_params, prior_nat, zero_rho)
 
         rho, _, _, _ = regress_conjugation_parameters(
             self, key, init_params, n_regression_samples
         )
-        return self.join_coords(prior_nat, lkl_params, rho)
+        return self.join_coords(lkl_params, prior_nat, rho)
 
 
 @dataclass(frozen=True)
@@ -438,7 +438,7 @@ def train_mode(
 
         prior_params, ems_lkl, rho, _ = model.split_coords(p)
         ems_hrm = model.ems_hrm
-        ems_full = ems_hrm.join_coords(prior_params, ems_lkl, rho)
+        ems_full = ems_hrm.join_coords(ems_lkl, prior_params, rho)
         z_sg = jax.lax.stop_gradient(
             ems_hrm.pst_man.sample(conj_key, prior_params, n_conj_samples)
         )
@@ -505,7 +505,7 @@ def train_mode(
 
         train_key, metrics_key = jax.random.split(train_key)
         prior_params, ems_lkl, rho_stored, _ = model.split_coords(params)
-        ems_full = model.ems_hrm.join_coords(prior_params, ems_lkl, rho_stored)
+        ems_full = model.ems_hrm.join_coords(ems_lkl, prior_params, rho_stored)
         var_f, _, r_sq = conjugation_metrics(
             model.ems_hrm, metrics_key, ems_full, n_samples=n_conj_samples
         )
@@ -659,7 +659,7 @@ def main(**overrides: Any) -> None:
         velocity_variances=sigmas,
         log_gains=log_gains,
     )
-    prior_part, ems_lkl, rho = model.ems_hrm.split_coords(ems_full)
+    ems_lkl, prior_part, rho = model.ems_hrm.split_coords(ems_full)
     trns_params = model.trn_map.glorot_initialize(keys[7])
 
     init_params = model.join_coords(prior_part, ems_lkl, rho, trns_params)

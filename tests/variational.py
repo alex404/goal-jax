@@ -70,9 +70,9 @@ def _setup() -> tuple[VonMisesPopulationCode, Array]:
     """Model with generic (non-conjugate, nonzero-rho) parameters."""
     model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(N_NEURONS, 1))
     k_init, k_rho = jax.random.split(jax.random.PRNGKey(0))
-    prior_p, lkl_p, _ = model.split_coords(model.initialize(k_init, shape=0.5))
+    lkl_p, prior_p, _ = model.split_coords(model.initialize(k_init, shape=0.5))
     rho = 0.3 * jax.random.normal(k_rho, (model.cnj_man.dim,))
-    return model, model.join_coords(prior_p, lkl_p, rho)
+    return model, model.join_coords(lkl_p, prior_p, rho)
 
 
 # --- Quadrature ground truths (exact values and exact autodiff gradients) ---
@@ -81,7 +81,7 @@ def _setup() -> tuple[VonMisesPopulationCode, Array]:
 def _recognition_weights(
     model: VonMisesPopulationCode, params: Array
 ) -> tuple[Array, Array]:
-    q_params = model.approximate_posterior_at(params, X_OBS)
+    q_params = model.recognition_at(params, X_OBS)
     log_q = jax.vmap(lambda z: model.pst_man.log_density(q_params, z))(Z_GRID)
     return jnp.exp(log_q), log_q
 
@@ -115,14 +115,10 @@ def _exact_var_q_r(model: VonMisesPopulationCode, params: Array) -> Array:
     return DZ * jnp.sum(w * (r - mean_r) ** 2)
 
 
-def _exact_var_p_r(
-    model: VonMisesPopulationCode, params: Array, freeze_measure: bool
-) -> Array:
+def _exact_var_p_r(model: VonMisesPopulationCode, params: Array) -> Array:
     prior_p = model.prior_params(params)
     log_p = jax.vmap(lambda z: model.prr_man.log_density(prior_p, z))(Z_GRID)
     w = jnp.exp(log_p)
-    if freeze_measure:
-        w = jax.lax.stop_gradient(w)
     r = jax.vmap(lambda z: model.conjugation_residual(params, z))(Z_GRID)
     mean_r = DZ * jnp.sum(w * r)
     return DZ * jnp.sum(w * (r - mean_r) ** 2)
@@ -187,7 +183,7 @@ class TestStandardFormElbo:
         key = jax.random.PRNGKey(7)
         surrogate = model.elbo_at(key, params, X_OBS, N_MC)
 
-        q_params = model.approximate_posterior_at(params, X_OBS)
+        q_params = model.recognition_at(params, X_OBS)
         z_samples = model.pst_man.sample(key, q_params, N_MC)
         r_vals = jax.vmap(lambda z: model.conjugation_residual(params, z, X_OBS))(
             z_samples
@@ -204,7 +200,7 @@ class TestElboDivergence:
         assert jnp.allclose(closed_form, quadrature, rtol=1e-8, atol=1e-10)
 
 
-class TestRecognitionConjugationLoss:
+class TestRecognitionResidualVariance:
     """Var_q[r] with score correction: the sampling measure shares parameters
     with r, so the exact gradient has both a direct and a score term."""
 
@@ -213,7 +209,7 @@ class TestRecognitionConjugationLoss:
         exact_val = _exact_var_q_r(model, params)
         exact_grad = jax.grad(lambda p: _exact_var_q_r(model, p))(params)
         mc_val, val_se, mc_grad, grad_se = _mc_value_and_grad(
-            lambda k, p: model.recognition_conjugation_loss_at(k, p, X_OBS, N_MC),
+            lambda k, p: model.recognition_residual_variance_at(k, p, X_OBS, N_MC),
             params,
         )
         # Dropping the score correction here would bias the prior/rho blocks
@@ -221,44 +217,17 @@ class TestRecognitionConjugationLoss:
         _assert_matches(exact_val, exact_grad, mc_val, val_se, mc_grad, grad_se)
 
 
-class TestPriorConjugationLoss:
-    """Var_p[r] with the deliberate direct-only gradient policy."""
+class TestPriorResidualVariance:
+    """Var_p[r] and its full gradient, incl. the score term through theta_Z."""
 
-    def test_value_and_gradient_match_frozen_measure_quadrature(self):
+    def test_value_and_gradient_match_quadrature(self):
         model, params = _setup()
-        exact_val = _exact_var_p_r(model, params, freeze_measure=False)
-        exact_grad = jax.grad(lambda p: _exact_var_p_r(model, p, freeze_measure=True))(
-            params
-        )
+        exact_val = _exact_var_p_r(model, params)
+        exact_grad = jax.grad(lambda p: _exact_var_p_r(model, p))(params)
         mc_val, val_se, mc_grad, grad_se = _mc_value_and_grad(
-            lambda k, p: model.prior_conjugation_loss(k, p, N_MC), params
+            lambda k, p: model.prior_residual_variance(k, p, N_MC), params
         )
         _assert_matches(exact_val, exact_grad, mc_val, val_se, mc_grad, grad_se)
-
-    def test_prior_block_gradient_is_exactly_zero(self):
-        """r does not depend on theta_Z and the samples are sg'd, so the
-        regularizer must exert exactly zero gradient on the prior."""
-        model, params = _setup()
-        grad = jax.grad(
-            lambda p: model.prior_conjugation_loss(jax.random.PRNGKey(3), p, N_MC)
-        )(params)
-        prior_dim = model.prr_man.dim
-        assert jnp.all(grad[:prior_dim] == 0.0)
-
-    def test_dropped_score_term_lives_only_in_prior_block(self):
-        """Quadrature consistency check on the design: the score term omitted
-        by the direct-only policy affects theta_Z alone, and non-trivially."""
-        model, params = _setup()
-        g_full = jax.grad(lambda p: _exact_var_p_r(model, p, freeze_measure=False))(
-            params
-        )
-        g_frozen = jax.grad(lambda p: _exact_var_p_r(model, p, freeze_measure=True))(
-            params
-        )
-        diff = g_full - g_frozen
-        prior_dim = model.prr_man.dim
-        assert jnp.linalg.norm(diff[:prior_dim]) > 1e-3
-        assert jnp.allclose(diff[prior_dim:], 0.0, atol=1e-12)
 
 
 # --- models/graphical/variational.py: VariationalHierarchicalMixture ---
@@ -324,9 +293,9 @@ class TestVariationalHierarchicalMixture:
         interaction and categorical slots are exactly zero."""
         model = _make_hierarchical_model()
         params = model.initialize(jax.random.PRNGKey(0))
-        prior_p, lkl_p, _ = model.split_coords(params)
+        lkl_p, prior_p, _ = model.split_coords(params)
         rho = jnp.arange(1.0, model.cnj_man.dim + 1)
-        params = model.join_coords(prior_p, lkl_p, rho)
+        params = model.join_coords(lkl_p, prior_p, rho)
 
         rho_full = model.conjugation_parameters(params)
         assert rho_full.shape == (model.prr_man.dim,)
@@ -342,30 +311,30 @@ class TestVariationalHierarchicalMixture:
         model = _make_hierarchical_model()
         key_init, key_z = jax.random.split(jax.random.PRNGKey(1))
         params = model.initialize(key_init)
-        prior_p, lkl_p, _ = model.split_coords(params)
+        lkl_p, prior_p, _ = model.split_coords(params)
         obs_p, int_p = model.gen_hrm.lkl_fun_man.split_coords(lkl_p)
         lkl_zero = model.gen_hrm.lkl_fun_man.join_coords(obs_p, jnp.zeros_like(int_p))
-        params = model.join_coords(prior_p, lkl_zero, jnp.zeros(model.cnj_man.dim))
+        params = model.join_coords(lkl_zero, prior_p, jnp.zeros(model.cnj_man.dim))
 
         z_samples = model.prr_man.sample(key_z, prior_p, 20)
         r_vals = jax.vmap(lambda z: model.conjugation_residual(params, z))(z_samples)
         assert jnp.all(r_vals == 0.0)
 
-    def test_regression_reduces_prior_conjugation_loss(self):
+    def test_regression_reduces_prior_residual_variance(self):
         """regress_conjugation_parameters minimizes the sampled Var_p[r], so
         the fitted rho must beat rho = 0 on the prior conjugation loss."""
         model = _make_hierarchical_model()
         key_init, key_reg, key_loss = jax.random.split(jax.random.PRNGKey(2), 3)
         params = model.initialize(key_init)
-        prior_p, lkl_p, _ = model.split_coords(params)
+        lkl_p, prior_p, _ = model.split_coords(params)
 
         rho_fit, r_squared, _, _ = regress_conjugation_parameters(
             model, key_reg, params, n_samples=1000
         )
-        params_fit = model.join_coords(prior_p, lkl_p, rho_fit)
+        params_fit = model.join_coords(lkl_p, prior_p, rho_fit)
 
-        loss_zero = model.prior_conjugation_loss(key_loss, params, 1000)
-        loss_fit = model.prior_conjugation_loss(key_loss, params_fit, 1000)
+        loss_zero = model.prior_residual_variance(key_loss, params, 1000)
+        loss_fit = model.prior_residual_variance(key_loss, params_fit, 1000)
         assert loss_fit < loss_zero
         # Small-init couplings make psi_X near-affine in s_Y, so the affine
         # correction should explain nearly all the residual variance.

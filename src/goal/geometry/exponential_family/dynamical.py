@@ -459,8 +459,8 @@ class VariationalLatentProcess[
             belief, total_elbo = carry
             obs, step_key = step_input
             predicted = trn_map(trns_params, belief)
-            ems_full = ems_hrm.join_coords(predicted, ems_lkl, rho)
-            posterior = ems_hrm.approximate_posterior_at(ems_full, obs)
+            ems_full = ems_hrm.join_coords(ems_lkl, predicted, rho)
+            posterior = ems_hrm.recognition_at(ems_full, obs)
             elbo_t = ems_hrm.elbo_at(step_key, ems_full, obs, n_mc_samples)
             return (posterior, total_elbo + elbo_t), posterior
 

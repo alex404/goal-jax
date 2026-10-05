@@ -44,7 +44,7 @@ def compute_tuning_curves(
 ) -> tuple[jax.Array, jax.Array]:
     """Compute tuning curves over a grid of stimuli."""
     grid = jnp.linspace(0, 2 * jnp.pi, n_grid_points, endpoint=False)
-    _, lkl_params, _ = model.split_coords(params)
+    lkl_params, _, _ = model.split_coords(params)
 
     def rates_at(z: jax.Array) -> jax.Array:
         mz = model.pst_man.sufficient_statistic(z)
@@ -59,7 +59,7 @@ def compute_regression_diagnostics(
     model: VonMisesPopulationCode, params: jax.Array
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Compute regression fit diagnostics for visualization."""
-    _, lkl_params, _ = model.split_coords(params)
+    lkl_params, _, _ = model.split_coords(params)
     obs_params, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     vm = model.pst_man.rep_man  # underlying VonMises
@@ -93,7 +93,7 @@ def run_inference(
 
     # Compute approximate posterior for each observation
     def posterior_stats(x: jax.Array) -> tuple[jax.Array, jax.Array]:
-        q_params = model.approximate_posterior_at(params, x)
+        q_params = model.recognition_at(params, x)
         # VonMisesProduct(1) has 2 natural params; extract mean/concentration from underlying VonMises
         mu, kappa = vm.split_mean_concentration(q_params)
         return mu, kappa
@@ -119,7 +119,7 @@ def main():
     model, params = create_population_code(init_key)
 
     # Extract preferred directions from interaction weights
-    _, lkl_params, _ = model.split_coords(params)
+    lkl_params, _, _ = model.split_coords(params)
     _, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])

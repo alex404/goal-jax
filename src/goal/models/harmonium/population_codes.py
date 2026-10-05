@@ -153,12 +153,12 @@ class VonMisesPopulationCode(
 
         # Fit rho via regression
         zero_rho = jnp.zeros(self.cnj_man.dim)
-        init_params = self.join_coords(prior_nat, lkl_params, zero_rho)
+        init_params = self.join_coords(lkl_params, prior_nat, zero_rho)
         rho, _, _, _ = regress_conjugation_parameters(
             self, key, init_params, n_regression_samples
         )
 
-        return self.join_coords(prior_nat, lkl_params, rho)
+        return self.join_coords(lkl_params, prior_nat, rho)
 
 
 # --- Boltzmann Population Code (Gaussian latent) ---
@@ -234,7 +234,7 @@ class BoltzmannPopulationCode[Shape: Differentiable](
     :meth:`~goal.geometry.exponential_family.variational.VariationalConjugated.conjugation_parameters`
     returns the stored $\\rho$ unchanged. Trained via the variational ELBO with the
     conjugation residual regularized; inherits ``mean_elbo``,
-    ``conjugation_residual``, ``prior_conjugation_loss``, and joint ``sample``.
+    ``conjugation_residual``, ``prior_residual_variance``, and joint ``sample``.
     """
 
     _gen_hrm: BoltzmannNormalHarmonium[Shape]

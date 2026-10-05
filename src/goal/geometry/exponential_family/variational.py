@@ -4,7 +4,7 @@ A harmonium is exactly conjugated when the conjugation equation
 
 $$\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\chi$$
 
-holds for some conjugation parameters $\\rho_Z$ and constant $\\chi$. Evaluating at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, the form assumed throughout; :class:`~goal.models.base.von_mises.VonMises` is the one latent family here whose $\\mathbf s_Z$ has no zero. The posterior then stays in the prior family with natural parameters affine in $\\mathbf s_X(x)$ (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). When no exact $\\rho_Z$ exists or it cannot be computed, this module keeps the conjugate functional form and learns the correction instead: the recognition model is
+holds for some conjugation parameters $\\rho_Z$ and constant $\\chi$. The posterior then stays in the prior family with natural parameters affine in $\\mathbf s_X(x)$ (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). When no exact $\\rho_Z$ exists or it cannot be computed, this module keeps the conjugate functional form and learns the correction instead: the recognition model is
 
 $$q(z \\mid x) = p(z; \\hat\\theta_{Z \\mid X}(x)), \\qquad \\hat\\theta_{Z \\mid X}(x) = \\theta_Z - \\rho_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ},$$
 
@@ -14,14 +14,14 @@ The central object of the module is the **conjugation residual**
 
 $$r(z) = \\rho_Z \\cdot \\mathbf s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X),$$
 
-the pointwise difference between the two sides of the conjugation equation, written with the $\\chi = \\psi_X(\\theta_X)$ convention: $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$, and vanishes when that convention is exact. Every consumer below uses $r$ only through its variance, so the constant never matters. Substituting the exponential-family forms into the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ cancels every term that couples $x$ and $z$, splitting it as
+the pointwise difference between the two sides of the conjugation equation, with $\\psi_X(\\theta_X)$ in place of $\\chi$: $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$. Where $\\mathbf s_Z$ has a zero $z_0$, evaluating the conjugation equation there gives $\\chi = \\psi_X(\\theta_X)$, so the constant is zero; where it has none (a von Mises latent), the constant is not zero, but nothing depends on it: it is subtracted again in $c(x)$ below, so it cancels in the ELBO, and the regularizers use only $\\mathrm{Var}[r]$. Substituting the exponential-family forms into the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ cancels every term that couples $x$ and $z$, splitting it as
 
 $$f(x, z) = c(x) + r(z), \\qquad \\mathcal{L}(x) = c(x) + \\mathbb{E}_{q(z \\mid x)}[r(Z)],$$
 
 where $c(x)$ collects the $z$-independent terms --- the **standard form** of the ELBO. Every entry point of the module consumes the residual in one of three ways:
 
 - **ELBO** --- :meth:`VariationalDifferentiable.elbo_at` evaluates $c(x)$ analytically and estimates $\\mathbb{E}_q[r]$ by Monte Carlo with a score-function gradient correction.
-- **Regularizers** --- $\\mathrm{Var}_q[r]$ equals the amortization gap, so penalizing the variance of the residual under the prior (:meth:`VariationalConjugated.prior_conjugation_loss`) or the recognition model (:meth:`VariationalDifferentiable.recognition_conjugation_loss_at`) pushes the model toward exact conjugation.
+- **Regularizers** --- $\\mathrm{Var}_q[r] = \\mathrm{Var}_q[\\log(q / p(z \\mid x))]$ vanishes iff the recognition model equals the posterior, so it measures the inference gap; penalizing the variance of the residual under the prior (:meth:`VariationalDifferentiable.prior_residual_variance`) or the recognition model (:meth:`VariationalDifferentiable.recognition_residual_variance_at`) pushes the model toward exact conjugation.
 - **Fitting and diagnostics** --- :func:`regress_conjugation_parameters` minimizes the sampled $\\mathrm{Var}_p[r]$ over $\\rho_Z$ in closed form by least squares, and :func:`conjugation_metrics` reports it as an $R^2$.
 
 The classes ladder by latent capability, mirroring the analytic ``Conjugated`` hierarchy: :class:`VariationalConjugated` requires only :class:`Generative` latents, :class:`VariationalDifferentiable` adds everything closed-form log-partitions unlock, and :class:`VariationalSymmetric` specializes to a shared Posterior/Prior manifold.
@@ -53,10 +53,12 @@ class VariationalConjugated[
     Conjugation: Manifold,
 ](
     Generative,
-    Triple[Prior, AffineMap[Observable, Posterior], Conjugation],
+    Triple[AffineMap[Observable, Posterior], Prior, Conjugation],
     ABC,
 ):
-    """Variational harmonium with parameter layout ``[prior_params, lkl_params, rho]``.
+    """Variational harmonium with parameter layout ``[lkl_params, prior_params, rho]``.
+
+    The likelihood comes first and the prior after it, the same root-first order as a harmonium's ``[obs | int | lat]``: ``lkl_params`` is $(\\theta_X, \\Theta_{XZ})$ and ``prior_params`` is $\\theta_Z$, so the first two blocks line up with a harmonium's, with the prior in place of the latent bias.
 
     Mathematically, the generative model is a directed harmonium
 
@@ -75,7 +77,7 @@ class VariationalConjugated[
     - ``Prior`` --- family of $p(z)$; may be a superset of ``Posterior``, connected via :attr:`pst_prr_emb`.
     - ``Conjugation`` --- storage manifold for the correction. By default a flat Prior-shaped $\\rho_Z$; :meth:`conjugation_parameters` maps the stored coordinates to Prior shape and is the extension point for structural completions and input-dependent corrections $\\rho_Z(x)$.
 
-    The base class requires only sampling on ``Posterior`` and ``Prior``: it provides the model structure, the conjugation residual, joint sampling, and the prior conjugation regularizer. The ELBO and the recognition-side regularizer evaluate latent log-densities, so they live on :class:`VariationalDifferentiable`.
+    The base class requires only sampling on ``Posterior`` and ``Prior``: it provides the model structure, the conjugation residual and joint sampling. The joint density, the ELBO and both residual variances evaluate latent log-densities, so they live on :class:`VariationalDifferentiable`.
     """
 
     # Contract
@@ -99,13 +101,13 @@ class VariationalConjugated[
 
     @property
     @override
-    def fst_man(self) -> Prior:
-        return self.prr_man
+    def fst_man(self) -> AffineMap[Observable, Posterior]:
+        return self.gen_hrm.lkl_fun_man
 
     @property
     @override
-    def snd_man(self) -> AffineMap[Observable, Posterior]:
-        return self.gen_hrm.lkl_fun_man
+    def snd_man(self) -> Prior:
+        return self.prr_man
 
     @property
     @override
@@ -133,12 +135,12 @@ class VariationalConjugated[
 
     def prior_params(self, params: Array) -> Array:
         """Extract the prior natural parameters $\\theta_Z$."""
-        prior, _, _ = self.split_coords(params)
+        _, prior, _ = self.split_coords(params)
         return prior
 
     def likelihood_function(self, params: Array) -> Array:
         """Extract the affine likelihood parameters $(\\theta_X, \\Theta_{XZ})$."""
-        _, lkl, _ = self.split_coords(params)
+        lkl, _, _ = self.split_coords(params)
         return lkl
 
     # Approximate conjugation
@@ -154,16 +156,16 @@ class VariationalConjugated[
 
     def likelihood_at(self, params: Array, z: Array) -> Array:
         """Natural parameters of the likelihood $p(x \\mid z)$ at the given latent state."""
-        _, lkl, _ = self.split_coords(params)
+        lkl, _, _ = self.split_coords(params)
         mz = self.pst_man.sufficient_statistic(z)
         return self.gen_hrm.lkl_fun_man(lkl, mz)
 
-    def approximate_posterior_at(self, params: Array, x: Array) -> Array:
+    def recognition_at(self, params: Array, x: Array) -> Array:
         """Natural parameters of the recognition model $q(z \\mid x)$ at the given observation.
 
         Computes $\\hat\\theta_{Z \\mid X}(x) = \\theta_Z - \\rho_Z(x) + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$ in Prior space and projects into ``Posterior`` via :attr:`pst_prr_emb`; in the symmetric case the projection is the identity and $\\rho_Z$ is input-independent.
         """
-        prior, lkl, _ = self.split_coords(params)
+        lkl, prior, _ = self.split_coords(params)
         rho_full = self.conjugation_parameters(params, x)
         lat_eff = self.pst_prr_emb.project(prior - rho_full)
         obs_params, int_params = self.gen_hrm.lkl_fun_man.split_coords(lkl)
@@ -175,9 +177,9 @@ class VariationalConjugated[
     def conjugation_offset(self, params: Array) -> Array:
         """Compute the conjugation offset $\\chi$ at the given natural parameters.
 
-        Mirrors :meth:`~goal.geometry.exponential_family.harmonium.Conjugated.conjugation_offset`: evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. It is the constant at which :meth:`conjugation_residual` and :meth:`conjugation_baseline` are split, and it cancels between them, so the ELBO is unaffected by the choice.
+        Returns $\\psi_X(\\theta_X)$, the constant that :meth:`conjugation_residual` adds and :meth:`conjugation_baseline` subtracts. Unlike :meth:`~goal.geometry.exponential_family.harmonium.Conjugated.conjugation_offset`, which enters the log-partition function, it only fixes where the ELBO integrand is split into $c(x) + r(z)$: it cancels in the ELBO, and the regularizers use only $\\mathrm{Var}[r]$, so no latent family needs to override it. It is the exact $\\chi$ whenever $\\mathbf s_Z$ has a zero, which makes $r$ vanish at exact conjugation.
         """
-        _, lkl, _ = self.split_coords(params)
+        lkl, _, _ = self.split_coords(params)
         obs_params, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
         return self.obs_man.log_partition_function(obs_params)
 
@@ -186,11 +188,11 @@ class VariationalConjugated[
     ) -> Array:
         """Evaluate the conjugation residual $r(z) = \\rho_Z \\cdot \\mathbf s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X)$ at the given natural parameters.
 
-        Mathematically, $r$ is the difference between the two sides of the conjugation equation $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\psi_X(\\theta_X)$, so $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$, and vanishes when $\\chi = \\psi_X(\\theta_X)$. It is the per-sample summand of the standard-form ELBO and the integrand of both conjugation regularizers (see module docstring).
+        Mathematically, $r$ is the difference between the two sides of the conjugation equation $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\psi_X(\\theta_X)$, so $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$, and vanishes there when $\\mathbf s_Z$ has a zero (see :meth:`conjugation_offset`). It is the per-sample summand of the standard-form ELBO and the integrand of both conjugation regularizers (see module docstring).
 
         ``x`` is forwarded to :meth:`conjugation_parameters` for input-dependent corrections and ignored otherwise. In the asymmetric case both $\\rho_Z$ and $\\mathbf s_Z(z)$ are taken in Prior space, via :meth:`conjugation_parameters` and :attr:`pst_prr_emb` respectively.
         """
-        _, lkl, _ = self.split_coords(params)
+        lkl, _, _ = self.split_coords(params)
         rho_full = self.conjugation_parameters(params, x)
         s_z = self.pst_man.sufficient_statistic(z)
         s_z_in_prior = self.pst_prr_emb.embed(s_z)
@@ -198,22 +200,6 @@ class VariationalConjugated[
         lkl_params_at_z = self.gen_hrm.lkl_fun_man(lkl, s_z)
         psi_at_z = self.obs_man.log_partition_function(lkl_params_at_z)
         return rho_term - psi_at_z + self.conjugation_offset(params)
-
-    # Conjugation regularizers
-
-    def prior_conjugation_loss(
-        self, key: Array, params: Array, n_samples: int
-    ) -> Array:
-        """Prior conjugation regularizer $\\mathcal{R}_p = \\mathrm{Var}_{p(z)}[r(Z)]$, estimated over prior samples.
-
-        $x$-independent, matching the intuition that conjugation is a property of the likelihood and prior alone --- though the penalty may therefore act on regions of latent space that inference never visits.
-
-        Gradient note: autodiff flows only through $r$ at fixed samples; no score-function correction is applied. The dropped score term $\\mathbb{E}_{p}[(r - \\bar r)^2 \\nabla \\log p]$ would contribute only to the $\\theta_Z$ gradient (the sampling distribution depends on nothing else, and $r$ itself does not depend on $\\theta_Z$), so omitting it means $\\mathcal{R}_p$ penalizes non-conjugation without pulling the prior around.
-        """
-        prior_p = self.prior_params(params)
-        z_samples = jax.lax.stop_gradient(self.prr_man.sample(key, prior_p, n_samples))
-        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z))(z_samples)
-        return jnp.var(r_vals)
 
     # Generative / ExponentialFamily contract on the joint $(x, z)$
 
@@ -252,16 +238,6 @@ class VariationalConjugated[
 
         return jnp.concatenate([x_samples, z_samples], axis=-1)
 
-    def log_density(self, params: Array, xz: Array) -> Array:
-        """Compute joint log density $\\log p(x, z) = \\log p(z) + \\log p(x|z)$ for a joint data point."""
-        x = xz[..., : self.obs_man.data_dim]
-        z = xz[..., self.obs_man.data_dim :]
-        prior = self.prior_params(params)
-        log_pz = self.prr_man.log_density(prior, z)  # pyright: ignore[reportAttributeAccessIssue]
-        lkl_params = self.likelihood_at(params, z)
-        log_px_given_z = self.obs_man.log_density(lkl_params, x)
-        return log_pz + log_px_given_z
-
     # Initialization
 
     @override
@@ -279,7 +255,7 @@ class VariationalConjugated[
         obs_params, int_params, lat_params = self.gen_hrm.split_coords(hrm_params)
         lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
         prior_params = self.pst_prr_emb.embed(lat_params)
-        return self.join_coords(prior_params, lkl_params, rho)
+        return self.join_coords(lkl_params, prior_params, rho)
 
     @override
     def initialize_from_sample(
@@ -291,7 +267,7 @@ class VariationalConjugated[
         obs_params, int_params, lat_params = self.gen_hrm.split_coords(hrm_params)
         lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
         prior_params = self.pst_prr_emb.embed(lat_params)
-        return self.join_coords(prior_params, lkl_params, rho)
+        return self.join_coords(lkl_params, prior_params, rho)
 
 
 class VariationalDifferentiable[
@@ -305,23 +281,35 @@ class VariationalDifferentiable[
 ):
     """Variational conjugation where ``Posterior`` and ``Prior`` have closed-form log-partition functions, enabling the standard-form ELBO.
 
-    Mathematically, the ELBO integrand splits as $f(x, z) = c(x) + r(z)$ (see module docstring); with $\\psi_Z$ available, the $x$-dependent piece $c(x)$ is computed analytically (:meth:`conjugation_baseline`) and only the residual is left to Monte Carlo (:meth:`elbo_at`). The same machinery yields the closed-form KL between recognition model and prior (:meth:`elbo_divergence`) and the recognition-side conjugation regularizer (:meth:`recognition_conjugation_loss_at`).
+    Mathematically, the ELBO integrand splits as $f(x, z) = c(x) + r(z)$ (see module docstring); with $\\psi_Z$ available, the $x$-dependent piece $c(x)$ is computed analytically (:meth:`conjugation_baseline`) and only the residual is left to Monte Carlo (:meth:`elbo_at`). The same machinery yields the closed-form KL between recognition model and prior (:meth:`elbo_divergence`) and the recognition-side conjugation regularizer (:meth:`recognition_residual_variance_at`).
 
     Mirrors :class:`DifferentiableConjugated` on the analytic side.
     """
+
+    # Joint density
+
+    def log_density(self, params: Array, xz: Array) -> Array:
+        """Compute joint log density $\\log p(x, z) = \\log p(z) + \\log p(x|z)$ for a joint data point."""
+        x = xz[..., : self.obs_man.data_dim]
+        z = xz[..., self.obs_man.data_dim :]
+        prior = self.prior_params(params)
+        log_pz = self.prr_man.log_density(prior, z)
+        lkl_params = self.likelihood_at(params, z)
+        log_px_given_z = self.obs_man.log_density(lkl_params, x)
+        return log_pz + log_px_given_z
 
     # ELBO
 
     def conjugation_baseline(self, params: Array, x: Array) -> Array:
         """The $z$-independent ELBO term $c(x) = \\mathbf s_X(x) \\cdot \\theta_X + \\psi_Z(\\hat\\theta_{Z \\mid X}(x)) - \\psi_Z(\\theta_Z) - \\psi_X(\\theta_X) + \\log h_X(x)$ at the given natural parameters.
 
-        Mathematically, $c(x)$ is what remains of the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ after the $z$-dependent terms are collected into the residual: substituting the exponential-family forms cancels the shared $\\mathbf s_Z \\cdot \\theta_Z$ and $\\mathbf s_X \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z$ terms, The $\\mp \\psi_X(\\theta_X)$ terms here and in :meth:`VariationalConjugated.conjugation_residual` are a matched pair, so the $\\chi$ convention cancels in $c(x) + r(z)$ and the ELBO does not depend on it.
+        Mathematically, $c(x)$ is what remains of the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ after the $z$-dependent terms are collected into the residual: substituting the exponential-family forms cancels the shared $\\mathbf s_Z \\cdot \\theta_Z$ and $\\mathbf s_X \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z$ terms. The $\\mp \\psi_X(\\theta_X)$ terms here and in :meth:`VariationalConjugated.conjugation_residual` are a matched pair, so the $\\chi$ convention cancels in $c(x) + r(z)$ and the ELBO does not depend on it.
 
         $c(x)$ is also the formula of :meth:`DifferentiableConjugated.log_observable_density` with the learned $\\rho_Z$ in place of the analytic conjugation parameters --- the log-marginal the model would have if conjugation were exact. The ELBO $\\mathcal{L}(x) = c(x) + \\mathbb{E}_q[r]$ accordingly collapses to $\\log p(x)$ when the model is exactly conjugated; in general $\\log p(x) = c(x) + \\mathbb{E}_q[r] + \\mathrm{KL}(q \\Vert p(z \\mid x))$.
         """
-        prior_p, lkl, _ = self.split_coords(params)
+        lkl, prior_p, _ = self.split_coords(params)
         obs_p, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
-        q_params = self.approximate_posterior_at(params, x)
+        q_params = self.recognition_at(params, x)
         q_in_prior = self.pst_prr_emb.embed(q_params)
         s_x = self.obs_man.sufficient_statistic(x)
         return (
@@ -345,9 +333,9 @@ class VariationalDifferentiable[
 
         $$\\nabla \\mathcal{L}(x) = \\mathbb{E}_q[\\nabla \\log p(x, Z)] + \\mathbb{E}_q[(r - b) \\nabla \\log q],$$
 
-        where the score term accounts for the dependence of the sampling distribution $q$ on the parameters and the leave-one-out baseline $b$ reduces finite-sample variance without biasing the gradient (:func:`score_surrogate`). The samples are stop-gradiented: the sampler may be non-differentiable (e.g. VonMises rejection), so they are evaluation points, not gradient carriers.
+        where the score term accounts for the dependence of the sampling distribution $q$ on the parameters and the leave-one-out baseline $b$ reduces finite-sample variance without biasing the gradient (:func:`score_mean_estimate`). The samples are stop-gradiented: the sampler may be non-differentiable (e.g. VonMises rejection), so they are evaluation points, not gradient carriers.
         """
-        q_params = self.approximate_posterior_at(params, x)
+        q_params = self.recognition_at(params, x)
         z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
 
         c_x = self.conjugation_baseline(params, x)
@@ -358,7 +346,7 @@ class VariationalDifferentiable[
             z_samples
         )
 
-        return c_x + score_surrogate(r_vals, log_q_vals)
+        return c_x + score_mean_estimate(r_vals, log_q_vals)
 
     def mean_elbo(
         self,
@@ -378,38 +366,53 @@ class VariationalDifferentiable[
 
         Not used by :meth:`elbo_at` --- the standard form bundles the KL into $c(x)$ and $\\mathbb{E}_q[r]$. Exposed for $\\beta$-VAE-style warmup (callers add $(1 - \\beta) \\cdot \\mathrm{KL}$ to the ELBO) and as a diagnostic in its own right.
         """
-        q_params = self.approximate_posterior_at(params, x)
+        q_params = self.recognition_at(params, x)
         p_params = self.prior_params(params)
         q_in_prior = self.pst_prr_emb.embed(q_params)
         return self.prr_man.relative_entropy(q_in_prior, p_params)
 
     # Conjugation regularizers
 
-    def recognition_conjugation_loss_at(
+    def prior_residual_variance(
+        self, key: Array, params: Array, n_samples: int
+    ) -> Array:
+        """Prior conjugation regularizer $\\mathcal{R}_p = \\mathrm{Var}_{p(z)}[r(Z)]$, estimated over prior samples.
+
+        $x$-independent, matching the intuition that conjugation is a property of the likelihood and prior alone --- though the penalty may therefore act on regions of latent space that inference never visits.
+
+        The sampling distribution $p(z)$ depends on $\\theta_Z$, so the gradient has a score-function piece in $\\theta_Z$ besides the direct piece through $r$; both are estimated without bias by :func:`score_variance_estimate`, which needs ``n_samples >= 2``.
+        """
+        prior_p = self.prior_params(params)
+        z_samples = jax.lax.stop_gradient(self.prr_man.sample(key, prior_p, n_samples))
+        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z))(z_samples)
+        log_p_vals = jax.vmap(lambda z: self.prr_man.log_density(prior_p, z))(z_samples)
+        return score_variance_estimate(r_vals, log_p_vals)
+
+    def recognition_residual_variance_at(
         self, key: Array, params: Array, x: Array, n_samples: int
     ) -> Array:
         """Recognition conjugation regularizer $\\mathcal{R}_q(x) = \\mathrm{Var}_{q(z \\mid x)}[r(Z)]$, estimated over recognition samples.
 
-        Mathematically, $\\mathrm{Var}_q[r(Z)] = \\mathrm{Var}_q[\\log (q(Z \\mid x) / p(Z \\mid x))]$, so $\\mathcal{R}_q(x)$ is exactly the amortization gap at $x$: it vanishes iff the recognition model matches the true posterior. It focuses the penalty on the latents inference actually visits, and can reuse the samples drawn for the ELBO.
+        Mathematically, $\\mathrm{Var}_q[r(Z)] = \\mathrm{Var}_q[\\log (q(Z \\mid x) / p(Z \\mid x))]$, so $\\mathcal{R}_q(x)$ measures the inference gap at $x$: it vanishes iff the recognition model matches the true posterior. It focuses the penalty on the latents inference actually visits, and can reuse the samples drawn for the ELBO.
 
-        Unlike :meth:`VariationalConjugated.prior_conjugation_loss`, the sampling distribution shares parameters with $r$, so the gradient requires both a direct piece through $r$ and a score-function correction through $q$ --- see :func:`variance_with_score_correction`.
+        As for :meth:`prior_residual_variance`, the gradient has a direct piece through $r$ and a score-function piece through the sampling distribution, here $q$ --- see :func:`score_variance_estimate`.
         """
-        q_params = self.approximate_posterior_at(params, x)
+        q_params = self.recognition_at(params, x)
         z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
         r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z, x))(z_samples)
         log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(
             z_samples
         )
-        return variance_with_score_correction(r_vals, log_q_vals)
+        return score_variance_estimate(r_vals, log_q_vals)
 
-    def mean_recognition_conjugation_loss(
+    def mean_recognition_residual_variance(
         self, key: Array, params: Array, xs: Array, n_samples: int
     ) -> Array:
-        """Mean of :meth:`recognition_conjugation_loss_at` over a batch."""
+        """Mean of :meth:`recognition_residual_variance_at` over a batch."""
         batch_size = xs.shape[0]
         keys = jax.random.split(key, batch_size)
         losses = jax.vmap(
-            lambda k, x: self.recognition_conjugation_loss_at(k, params, x, n_samples)
+            lambda k, x: self.recognition_residual_variance_at(k, params, x, n_samples)
         )(keys, xs)
         return jnp.mean(losses)
 
@@ -442,27 +445,30 @@ class VariationalSymmetric[
         return IdentityEmbedding(self.lat_man)
 
 
-def score_surrogate(signal: Array, log_q: Array) -> Array:
-    """Monte Carlo mean of ``signal`` whose gradient adds the score-function correction.
+def score_mean_estimate(vals: Array, log_density_vals: Array) -> Array:
+    """Score-function estimate of $\\mathbb E_q[f]$ from $f(z_k)$ and $\\log q(z_k)$ at samples $z_k \\sim q$.
 
-    The value is the mean of ``signal``; the gradient adds $\\frac{1}{K} \\sum_k (f_k - b_k) \\nabla \\log q(z_k)$ with the leave-one-out baseline $b_k = \\frac{1}{K-1} \\sum_{j \\neq k} f_j$, which is independent of $z_k$ and so leaves the gradient unbiased (the plain sample mean would shrink the correction by $(K-1)/K$). A single sample gets no baseline. ``signal`` enters the correction without its gradient, which the plain mean already carries.
+    The value is the sample mean of $f$, and its autodiff gradient is an unbiased estimate of $\\nabla \\mathbb E_q[f]$, including the dependence of the sampling distribution $q$ on the parameters: the mean carries $\\mathbb E_q[\\nabla f]$, and a score-function term adds $\\frac{1}{K} \\sum_k (f_k - b_k) \\nabla \\log q(z_k)$ with the leave-one-out baseline $b_k = \\frac{1}{K-1} \\sum_{j \\neq k} f_j$. That baseline is independent of $z_k$, so it leaves the gradient unbiased; the plain sample mean would shrink the score term by $(K-1)/K$. A single sample gets no baseline. The samples themselves must carry no gradient.
     """
-    sig_sg = jax.lax.stop_gradient(signal)
-    n = signal.shape[0]
-    centered = sig_sg if n == 1 else n / (n - 1) * (sig_sg - jnp.mean(sig_sg))
-    score = jnp.mean(centered * log_q)
-    return jnp.mean(signal) + score - jax.lax.stop_gradient(score)
+    vals_sg = jax.lax.stop_gradient(vals)
+    n = vals.shape[0]
+    centered = vals_sg if n == 1 else n / (n - 1) * (vals_sg - jnp.mean(vals_sg))
+    score = jnp.mean(centered * log_density_vals)
+    return jnp.mean(vals) + score - jax.lax.stop_gradient(score)
 
 
-def variance_with_score_correction(r_vals: Array, log_q_vals: Array) -> Array:
-    """Estimate $\\mathrm{Var}_q[r]$ as a loss whose autodiff gradient is unbiased for $\\nabla \\mathrm{Var}_q[r]$, including the dependence of $q$ on the parameters.
+def score_variance_estimate(vals: Array, log_density_vals: Array) -> Array:
+    """Score-function estimate of $\\mathrm{Var}_q[f]$ from $f(z_k)$ and $\\log q(z_k)$ at $K \\geq 2$ samples $z_k \\sim q$.
 
-    Mathematically, $\\mathrm{Var}_q[r] = \\frac{1}{2} \\mathbb E_{q \\otimes q}[(r(Z) - r(Z'))^2]$, so with $K \\geq 2$ samples the pairwise mean of $\\frac{1}{2}(r_i - r_j)^2$ over $i \\neq j$ is unbiased, and so is its gradient: a direct piece through $r$, and a score piece $\\frac{1}{2}(r_i - r_j)^2 (\\nabla \\log q(z_i) + \\nabla \\log q(z_j))$. The value is the unbiased sample variance.
+    The value is the unbiased sample variance, and its autodiff gradient is an unbiased estimate of $\\nabla \\mathrm{Var}_q[f]$, including the dependence of the sampling distribution $q$ on the parameters. The samples themselves must carry no gradient.
+
+    Mathematically, $\\mathrm{Var}_q[f] = \\frac{1}{2} \\mathbb E_{q \\otimes q}[(f(Z) - f(Z'))^2]$, so the mean of $\\frac{1}{2}(f_i - f_j)^2$ over the pairs $i \\neq j$ is unbiased, and so is its gradient: a direct piece through $f$, and a score piece $\\frac{1}{2}(f_i - f_j)^2 (\\nabla \\log q(z_i) + \\nabla \\log q(z_j))$ from the score of $q \\otimes q$.
     """
-    n = r_vals.shape[0]
-    pairs = 0.5 * (r_vals[:, None] - r_vals[None, :]) ** 2
+    n = vals.shape[0]
+    pairs = 0.5 * (vals[:, None] - vals[None, :]) ** 2
     pairs_sg = jax.lax.stop_gradient(pairs)
-    score = jnp.sum(pairs_sg * (log_q_vals[:, None] + log_q_vals[None, :]))
+    lq = log_density_vals
+    score = jnp.sum(pairs_sg * (lq[:, None] + lq[None, :]))
     return (jnp.sum(pairs) + score - jax.lax.stop_gradient(score)) / (n * (n - 1))
 
 
@@ -490,10 +496,10 @@ def regress_conjugation_parameters[
 
     A fitting/initialization heuristic rather than part of the variational objective, hence a free function.
     """
-    prior_params, lkl, _ = model.split_coords(params)
+    lkl, prior_params, _ = model.split_coords(params)
     cnj_dim = model.cnj_man.dim
     zero_rho = jnp.zeros(cnj_dim)
-    params_zero_rho = model.join_coords(prior_params, lkl, zero_rho)
+    params_zero_rho = model.join_coords(lkl, prior_params, zero_rho)
 
     # The sampler may be non-differentiable (e.g. VonMises uses rejection
     # sampling via while_loop). The samples are just evaluation points for the
@@ -508,7 +514,7 @@ def regress_conjugation_parameters[
         s_z_in_prior = model.pst_prr_emb.embed(s_z)
 
         def rho_dot_s(r: Array) -> Array:
-            trial_params = model.join_coords(prior_params, lkl, r)
+            trial_params = model.join_coords(lkl, prior_params, r)
             return jnp.dot(model.conjugation_parameters(trial_params), s_z_in_prior)
 
         # Linear coefficient: gradient wrt stored rho at zero.
@@ -532,31 +538,31 @@ def regress_conjugation_parameters[
     residuals = adj_psi - design @ coeffs
     ss_res = jnp.sum(residuals**2)
     ss_tot = jnp.sum((adj_psi - jnp.mean(adj_psi)) ** 2)
-    r_squared = 1.0 - ss_res / jnp.maximum(ss_tot, 1e-8)
+    r_squared = 1.0 - ss_res / ss_tot
 
     return rho, r_squared, chi, jnp.var(residuals)
 
 
 def conjugation_metrics[
     Observable: Differentiable,
-    Posterior: Generative,
-    Prior: Generative,
+    Posterior: Differentiable,
+    Prior: Differentiable,
     Conjugation: Manifold,
 ](
-    model: VariationalConjugated[Observable, Posterior, Prior, Conjugation],
+    model: VariationalDifferentiable[Observable, Posterior, Prior, Conjugation],
     key: Array,
     params: Array,
     n_samples: int = 100,
 ) -> tuple[Array, Array, Array]:
     """Compute conjugation quality metrics ``(var_f, std_f, r_squared)`` under the prior.
 
-    $R^2 = 1 - \\mathrm{Var}_p[r] / \\mathrm{Var}_p[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(Z))]$ measures how much of the variation of the log-partition the affine correction explains: 1 = exact conjugation, 0 = no better than a constant, < 0 = worse. Both variances are shift-invariant, so the $\\psi_X(\\theta_X)$ convention in :meth:`conjugation_residual` does not affect the metric. Returns ``NaN`` for $R^2$ when $\\mathrm{Var}_p[\\psi_X]$ is degenerate.
+    $R^2 = 1 - \\mathrm{Var}_p[r] / \\mathrm{Var}_p[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(Z))]$ measures how much of the variation of the log-partition the affine correction explains: 1 = exact conjugation, 0 = no better than a constant, < 0 = worse. Both variances are shift-invariant, so the $\\psi_X(\\theta_X)$ convention in :meth:`conjugation_residual` does not affect the metric.
     """
     var_key, psi_key = jax.random.split(key)
-    var_f = model.prior_conjugation_loss(var_key, params, n_samples)
+    var_f = model.prior_residual_variance(var_key, params, n_samples)
     std_f = jnp.sqrt(var_f)
 
-    prior_params, lkl, _ = model.split_coords(params)
+    lkl, prior_params, _ = model.split_coords(params)
     z_samples = model.prr_man.sample(psi_key, prior_params, n_samples)
 
     def psi_at(z: Array) -> Array:
@@ -565,17 +571,8 @@ def conjugation_metrics[
         return model.obs_man.log_partition_function(lkl_params)
 
     psi_vals = jax.vmap(psi_at)(z_samples)
-    var_psi = jnp.var(psi_vals)
-
-    variance_threshold = 1e-6
-    raw_r2 = 1.0 - var_f / jnp.maximum(var_psi, variance_threshold)
-    r_squared = jnp.where(
-        var_psi > variance_threshold,
-        jnp.clip(raw_r2, -10.0, 1.0),
-        jnp.nan,
-    )
-
-    return var_f, std_f, r_squared
+    var_psi = jnp.var(psi_vals, ddof=1)
+    return var_f, std_f, 1.0 - var_f / var_psi
 
 
 def reconstruct[
@@ -592,9 +589,9 @@ def reconstruct[
 
     Requires ``Posterior: Differentiable`` for the closed-form ``to_mean`` --- defined on :class:`VariationalDifferentiable` only.
     """
-    q_params = model.approximate_posterior_at(params, x)
+    q_params = model.recognition_at(params, x)
     z_mean_stats = model.pst_man.to_mean(q_params)
-    _, lkl, _ = model.split_coords(params)
+    lkl, _, _ = model.split_coords(params)
     lkl_natural = model.gen_hrm.lkl_fun_man(lkl, z_mean_stats)
     return model.obs_man.to_mean(lkl_natural)
 

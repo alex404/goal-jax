@@ -455,9 +455,10 @@ class TestPairComposition:
         assert sum(pair.clq_dims) == pair.dim
         params = jnp.arange(float(pair.dim))
         fst, snd = pair.split_coords(params)
-        for clique, emb in zip(cca.cliques, cca.clq_embs, strict=True):
+        for clique in cca.cliques:
             assert jnp.array_equal(
-                CliqueEmbedding(clique, pair).project(params), emb.project(fst)
+                CliqueEmbedding(clique, pair).project(params),
+                CliqueEmbedding(clique, cca).project(fst),
             )
         assert jnp.array_equal(CliqueEmbedding((n,), pair).project(params), snd)
 

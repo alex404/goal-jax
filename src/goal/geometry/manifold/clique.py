@@ -21,7 +21,7 @@ from typing import Any, override
 import jax.numpy as jnp
 from jax import Array
 
-from ..algebra.clique import Cliques
+from ..algebra.clique import Cliques, shift_clique
 from ..algebra.matrix import MatrixRep, Rectangular
 from .base import Manifold
 from .combinators import Triple
@@ -214,11 +214,6 @@ class LinearCliques(Cliques, Manifold, ABC):
         """Parameter dimension of each clique, in storage order."""
         return tuple(clq_map.dim for clq_map in self.clq_maps)
 
-    @property
-    def clq_embs(self) -> tuple[CliqueEmbedding, ...]:
-        """The block of each clique in this manifold's coordinates, in storage order."""
-        return tuple(CliqueEmbedding(clique, self) for clique in self.cliques)
-
     def coord_blocks(self, coords: Array) -> tuple[Array, ...]:
         """Split coordinates into one block per clique, in storage order."""
         return split_by_dims(coords, self.clq_dims)
@@ -395,11 +390,15 @@ class RecursiveLinearCliques[Root: LinearCliques, Deep: LinearCliques](
     of the root partition and a clique of the deep partition, each in its own partition's
     numbering, so the partitions are used as they are and nothing is relabelled.
 
-    The composed graph numbers the root partition's nodes first, as the root numbers them,
-    then the deep partition's, offset by the root's node count. Its cliques are the root
-    partition's, then each crossing clique, then the deep partition's, and its clique maps are
-    concatenated in the same way, so the cliques, their maps and the ``Triple``'s blocks share
-    one order.
+    The root partition is the one nearest the data and the deep partition lies beyond it, the
+    way a tree's roots are in the ground (in a harmonium, the observable and the latent side).
+    Storage and numbering both run from the root outward: the root partition's nodes first, as
+    the root numbers them, then the deep partition's, shifted past the root's node count. Its
+    cliques are the root partition's, then each crossing clique, then the deep partition's,
+    and its clique maps are concatenated in the same way, so the cliques, their maps and the
+    ``Triple``'s blocks share one order. Depth is therefore added at the root: an existing
+    model becomes the deep partition of a new one whose root is the new layer, and its labels
+    in the new model are its own, shifted by the new root's node count.
 
     A crossing clique's output axes are its root nodes. Its axes are built on the subspaces
     its parts use: each part must be a clique of its partition, which is what keeps the
@@ -468,11 +467,9 @@ class RecursiveLinearCliques[Root: LinearCliques, Deep: LinearCliques](
         """The root partition's cliques, the crossing cliques, then the deep partition's."""
         n_rot = self.rot_man.n_nodes
         crossing = tuple(
-            near + tuple(i + n_rot for i in far) for near, far in self.crs_cliques
+            near + shift_clique(far, n_rot) for near, far in self.crs_cliques
         )
-        deep = tuple(
-            tuple(i + n_rot for i in clique) for clique in self.dep_man.cliques
-        )
+        deep = tuple(shift_clique(clique, n_rot) for clique in self.dep_man.cliques)
         return self.rot_man.cliques + crossing + deep
 
     @property

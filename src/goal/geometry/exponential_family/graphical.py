@@ -36,6 +36,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..algebra.clique import shift_clique
 from ..algebra.matrix import MatrixRep
 from ..manifold.base import Manifold
 from ..manifold.clique import CliqueEmbedding, LinearCliques
@@ -51,7 +52,7 @@ from .harmonium import (
     DifferentiableConjugated,
     Harmonium,
 )
-from .variational import score_surrogate, variance_with_score_correction
+from .variational import score_mean_estimate, score_variance_estimate
 
 ### Graphical Harmoniums ###
 
@@ -157,7 +158,7 @@ class GraphicalHarmonium[Deep: Gibbs](Harmonium[Any, Deep], ABC):
         for hrm, clique in self.attachments:
             for near, far in hrm.crs_cliques:
                 placed = (
-                    tuple(i + n_rot for i in near),
+                    shift_clique(near, n_rot),
                     tuple(clique[j] for j in far),
                 )
                 sources[placed] = (hrm, (near, far))
@@ -271,7 +272,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
     The generative structure is that of :attr:`gen_hrm`: a graphical harmonium with one attachment, the lower harmonium over $(x, y)$, on the observable node of a deep harmonium over $(y, z)$, the upper harmonium. Each of the two edges is conjugated exactly when its harmonium is :class:`~goal.geometry.exponential_family.harmonium.Conjugated`; otherwise its conjugation parameters are learned. Exact and learned edges mix freely.
 
-    Parameters are stored in directed coordinates ``[top prior | upper lkl | lower lkl | rho_Y | rho_Z | inner map]``: the prior $\\theta^*_Z$ over $z$, the likelihoods $(\\theta_Y, \\Theta_{YZ})$ and $(\\theta_X, \\Theta_{XY})$, and the learned conjugation parameters of the edges that are not exact. The slots of exact edges are empty: a learned lower edge stores $\\rho_Y$; a learned upper edge stores the input-independent $\\rho^0_Z$ and the weights of :attr:`inr_map`, which amortizes the upper edge's conjugation parameters at the posterior bias of $y$.
+    Parameters are stored in directed coordinates ``[lower lkl | upper lkl | top prior | rho_Y | rho_Z | inner map]``, root first like a harmonium: the likelihoods $(\\theta_X, \\Theta_{XY})$ and $(\\theta_Y, \\Theta_{YZ})$, the prior $\\theta^*_Z$ over $z$, and the learned conjugation parameters of the edges that are not exact. The slots of exact edges are empty: a learned lower edge stores $\\rho_Y$; a learned upper edge stores the input-independent $\\rho^0_Z$ and the weights of :attr:`inr_map`, which amortizes the upper edge's conjugation parameters at the posterior bias of $y$.
 
     Mathematically, the recognition model factors as $q(y, z \\mid x) = q(y \\mid z, x) q(z \\mid x)$ with
 
@@ -313,11 +314,11 @@ class VariationalGraphical(Generative, Tuple, ABC):
     def split_coords(
         self, coords: Array
     ) -> tuple[Array, Array, Array, Array, Array, Array]:
-        """``(top prior, upper lkl, lower lkl, rho_Y, rho_Z, inner map)``."""
-        prr, upr, lwr, rho_y, rho_z, inr = split_by_dims(
+        """``(lower lkl, upper lkl, top prior, rho_Y, rho_Z, inner map)``."""
+        lwr, upr, prr, rho_y, rho_z, inr = split_by_dims(
             coords, tuple(man.dim for man in self.cmp_mans)
         )
-        return prr, upr, lwr, rho_y, rho_z, inr
+        return lwr, upr, prr, rho_y, rho_z, inr
 
     @override
     def join_coords(self, *components: Array) -> Array:
@@ -342,7 +343,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Ancestral samples $z \\sim p(z)$, $y \\sim p(y \\mid z)$, $x \\sim p(x \\mid y)$, as rows $[x, y, z]$."""
         key_z, key_y, key_x = jax.random.split(key, 3)
-        prr, upr_lkl, lwr_lkl, _, _, _ = self.split_coords(params)
+        lwr_lkl, upr_lkl, prr, _, _, _ = self.split_coords(params)
         zs = self.top_man.sample(key_z, prr, n)
 
         def sample_y(subkey: Array, z: Array) -> Array:
@@ -429,9 +430,9 @@ class VariationalGraphical(Generative, Tuple, ABC):
         """The manifold of each parameter slot; the slots of exact edges are :class:`~goal.geometry.manifold.combinators.Null`."""
         inr_map = self.inr_map
         return (
-            self.top_man,
-            self.upr_hrm.lkl_fun_man,
             self.lwr_hrm.lkl_fun_man,
+            self.upr_hrm.lkl_fun_man,
+            self.top_man,
             Null() if self.lower_exact else self.mid_man,
             Null() if self.upper_exact else self.top_man,
             inr_map if not self.upper_exact and inr_map is not None else Null(),
@@ -441,7 +442,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
     def lower_conjugation(self, params: Array) -> Array:
         """The lower edge's conjugation parameters $\\rho_Y$: computed when the edge is exact, stored otherwise."""
-        _, _, lwr_lkl, rho_y, _, _ = self.split_coords(params)
+        lwr_lkl, _, _, rho_y, _, _ = self.split_coords(params)
         lwr = self.lwr_hrm
         if isinstance(lwr, Conjugated):
             return lwr.conjugation_parameters(lwr_lkl)
@@ -468,7 +469,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
     def posterior_mid_bias(self, params: Array, x: Array) -> Array:
         """Natural parameters $\\hat\\theta_{Y \\mid X}(x) = \\theta_Y - \\rho_Y + \\mathbf s_X(x) \\cdot \\Theta_{XY}$ of $q(y \\mid x)$ before the coupling to $z$."""
-        _, upr_lkl, lwr_lkl, _, _, _ = self.split_coords(params)
+        lwr_lkl, upr_lkl, _, _, _, _ = self.split_coords(params)
         theta_y, _ = self.upr_hrm.lkl_fun_man.split_coords(upr_lkl)
         theta_x, theta_xy = self.lwr_hrm.lkl_fun_man.split_coords(lwr_lkl)
         lwr_params = self.lwr_hrm.join_coords(
@@ -476,9 +477,9 @@ class VariationalGraphical(Generative, Tuple, ABC):
         )
         return self.lwr_hrm.posterior_at(lwr_params, x)
 
-    def approximate_posterior_top(self, params: Array, x: Array) -> Array:
+    def recognition_top(self, params: Array, x: Array) -> Array:
         """Natural parameters $\\hat\\theta_{Z \\mid X}(x) = \\theta^*_Z - \\rho^0_Z + \\rho^X_Z(x)$ of $q(z \\mid x)$."""
-        prr, *_ = self.split_coords(params)
+        _, _, prr, *_ = self.split_coords(params)
         return prr - self.upper_conjugation(params) + self.inner_conjugation(params, x)
 
     def posterior_mid_at(self, params: Array, x: Array, z: Array) -> Array:
@@ -493,18 +494,18 @@ class VariationalGraphical(Generative, Tuple, ABC):
     ) -> tuple[Array, Array]:
         """Chain samples $z \\sim q(z \\mid x)$, then $y \\sim q(y \\mid z, x)$; returns ``(ys, zs)``."""
         key_z, key_y = jax.random.split(key)
-        zs = self.top_man.sample(key_z, self.approximate_posterior_top(params, x), n)
+        zs = self.top_man.sample(key_z, self.recognition_top(params, x), n)
         return self._sample_mid(key_y, params, x, zs), zs
 
     def log_q(self, params: Array, x: Array, y: Array, z: Array) -> Array:
         """$\\log q(y, z \\mid x) = \\log q(z \\mid x) + \\log q(y \\mid z, x)$."""
-        log_qz = self.top_man.log_density(self.approximate_posterior_top(params, x), z)
+        log_qz = self.top_man.log_density(self.recognition_top(params, x), z)
         log_qy = self.mid_man.log_density(self.posterior_mid_at(params, x, z), y)
         return log_qz + log_qy
 
     def log_density_joint(self, params: Array, x: Array, y: Array, z: Array) -> Array:
         """$\\log p(x, y, z) = \\log p(z) + \\log p(y \\mid z) + \\log p(x \\mid y)$."""
-        prr, upr_lkl, lwr_lkl, _, _, _ = self.split_coords(params)
+        lwr_lkl, upr_lkl, prr, _, _, _ = self.split_coords(params)
         y_params = self.upr_hrm.lkl_fun_man(
             upr_lkl, self.upr_hrm.pst_man.sufficient_statistic(z)
         )
@@ -521,7 +522,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
     def lower_residual(self, params: Array, y: Array) -> Array:
         """$r_Y(y) = \\rho_Y \\cdot \\mathbf s_Y(y) - \\psi_X(\\theta_X + \\Theta_{XY} \\cdot \\mathbf s_Y(y)) + \\psi_X(\\theta_X)$."""
-        _, _, lwr_lkl, _, _, _ = self.split_coords(params)
+        lwr_lkl, _, _, _, _, _ = self.split_coords(params)
         theta_x, _ = self.lwr_hrm.lkl_fun_man.split_coords(lwr_lkl)
         s_y = self.lwr_hrm.pst_man.sufficient_statistic(y)
         x_params = self.lwr_hrm.lkl_fun_man(lwr_lkl, s_y)
@@ -541,7 +542,9 @@ class VariationalGraphical(Generative, Tuple, ABC):
         upr_lkl = self._upper_lkl_at(params, self.posterior_mid_bias(params, x))
         return self._upper_residual_at(upr_lkl, self.inner_conjugation(params, x), z)
 
-    def learning_signal(self, params: Array, x: Array, y: Array, z: Array) -> Array:
+    def conjugation_residual(
+        self, params: Array, x: Array, y: Array, z: Array
+    ) -> Array:
         """$r_Y(y) + r^*_Z(z) - r^X_Z(z; x)$, the part of the ELBO integrand that depends on the latents."""
         return (
             self.lower_residual(params, y)
@@ -556,7 +559,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
         Mathematically, $c(x) = \\mathbf s_X(x) \\cdot \\theta_X - \\psi_X(\\theta_X) - \\psi_Y(\\theta_Y) - \\psi_Z(\\theta^*_Z) + \\psi_Y(\\hat\\theta_{Y \\mid X}(x)) + \\psi_Z(\\hat\\theta_{Z \\mid X}(x)) + \\log \\mu_X(x)$, the log-marginal the model would have if both edges were exact.
         """
-        prr, upr_lkl, lwr_lkl, _, _, _ = self.split_coords(params)
+        lwr_lkl, upr_lkl, prr, _, _, _ = self.split_coords(params)
         theta_y, _ = self.upr_hrm.lkl_fun_man.split_coords(upr_lkl)
         theta_x, _ = self.lwr_hrm.lkl_fun_man.split_coords(lwr_lkl)
         s_x = self.obs_man.sufficient_statistic(x)
@@ -566,9 +569,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
             - self.mid_man.log_partition_function(theta_y)
             - self.top_man.log_partition_function(prr)
             + self.mid_man.log_partition_function(self.posterior_mid_bias(params, x))
-            + self.top_man.log_partition_function(
-                self.approximate_posterior_top(params, x)
-            )
+            + self.top_man.log_partition_function(self.recognition_top(params, x))
             + self.obs_man.log_base_measure(x)
         )
 
@@ -580,13 +581,15 @@ class VariationalGraphical(Generative, Tuple, ABC):
         The value is the same either way; ``pathwise_z`` selects the gradient estimator for $z$. With ``pathwise_z`` the gradient flows through the samples of $z$, which requires a differentiable sampler (a normal), and the score-function correction covers $y$ alone; otherwise both layers use the score function.
         """
         key_z, key_y = jax.random.split(key)
-        q_top = self.approximate_posterior_top(params, x)
+        q_top = self.recognition_top(params, x)
         zs = self.top_man.sample(key_z, q_top, n_samples)
         if not pathwise_z:
             zs = jax.lax.stop_gradient(zs)
         ys = jax.lax.stop_gradient(self._sample_mid(key_y, params, x, zs))
 
-        signal = jax.vmap(lambda y, z: self.learning_signal(params, x, y, z))(ys, zs)
+        r_vals = jax.vmap(lambda y, z: self.conjugation_residual(params, x, y, z))(
+            ys, zs
+        )
         if pathwise_z:
             log_q = jax.vmap(
                 lambda y, z: self.mid_man.log_density(
@@ -595,7 +598,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
             )(ys, zs)
         else:
             log_q = jax.vmap(lambda y, z: self.log_q(params, x, y, z))(ys, zs)
-        return self.conjugation_baseline(params, x) + score_surrogate(signal, log_q)
+        return self.conjugation_baseline(params, x) + score_mean_estimate(r_vals, log_q)
 
     def marginal_elbo_at(
         self, key: Array, params: Array, x: Array, n_samples: int, pathwise_z: bool
@@ -604,18 +607,18 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
         With $r_Y = 0$ the integrand does not depend on $y$, so $y$ integrates out exactly. ``pathwise_z`` is as in :meth:`elbo_at`.
         """
-        q_top = self.approximate_posterior_top(params, x)
+        q_top = self.recognition_top(params, x)
         zs = self.top_man.sample(key, q_top, n_samples)
         if not pathwise_z:
             zs = jax.lax.stop_gradient(zs)
-        signal = jax.vmap(
+        r_vals = jax.vmap(
             lambda z: self.upper_residual(params, z) - self.inner_residual(params, x, z)
         )(zs)
         if pathwise_z:
-            log_q = jnp.zeros_like(signal)
+            log_q = jnp.zeros_like(r_vals)
         else:
             log_q = jax.vmap(lambda z: self.top_man.log_density(q_top, z))(zs)
-        return self.conjugation_baseline(params, x) + score_surrogate(signal, log_q)
+        return self.conjugation_baseline(params, x) + score_mean_estimate(r_vals, log_q)
 
     def mean_elbo(
         self, key: Array, params: Array, xs: Array, n_samples: int, pathwise_z: bool
@@ -641,14 +644,14 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
     # Conjugation regularizers
 
-    def prior_conjugation_losses(
+    def prior_residual_variances(
         self, key: Array, params: Array, n_samples: int
     ) -> tuple[Array, Array]:
         """$(\\mathrm{Var}_p[r_Y], \\mathrm{Var}_p[r^*_Z])$ over ancestral samples, one penalty per edge.
 
-        The sampling distributions share parameters with the residuals --- $p(z)$ with $r^*_Z$, and $p(y) = \\int p(y \\mid z) p(z) dz$ with $r_Y$ --- so each gradient carries a score-function piece for its distribution (:func:`~goal.geometry.exponential_family.variational.variance_with_score_correction`), through $\\log p(z)$ for $r^*_Z$ and through $\\log p(z) + \\log p(y \\mid z)$ for $r_Y$. An exact lower edge has $r_Y = 0$, so only $z$ is sampled. Needs ``n_samples >= 2``.
+        The sampling distributions share parameters with the residuals --- $p(z)$ with $r^*_Z$, and $p(y) = \\int p(y \\mid z) p(z) dz$ with $r_Y$ --- so each gradient carries a score-function piece for its distribution (:func:`~goal.geometry.exponential_family.variational.score_variance_estimate`), through $\\log p(z)$ for $r^*_Z$ and through $\\log p(z) + \\log p(y \\mid z)$ for $r_Y$. An exact lower edge has $r_Y = 0$, so only $z$ is sampled. Needs ``n_samples >= 2``.
         """
-        prr, upr_lkl, *_ = self.split_coords(params)
+        _, upr_lkl, prr, *_ = self.split_coords(params)
         if self.lower_exact:
             zs = jax.lax.stop_gradient(self.top_man.sample(key, prr, n_samples))
             ys = None
@@ -659,7 +662,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
             zs = samples[:, obs_dim + mid_dim :]
         log_p_z = jax.vmap(lambda z: self.top_man.log_density(prr, z))(zs)
         r_z = jax.vmap(lambda z: self.upper_residual(params, z))(zs)
-        var_z = variance_with_score_correction(r_z, log_p_z)
+        var_z = score_variance_estimate(r_z, log_p_z)
         if ys is None:
             return jnp.zeros(()), var_z
 
@@ -671,29 +674,29 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
         log_p_yz = log_p_z + jax.vmap(log_p_y_given_z)(ys, zs)
         r_y = jax.vmap(lambda y: self.lower_residual(params, y))(ys)
-        return variance_with_score_correction(r_y, log_p_yz), var_z
+        return score_variance_estimate(r_y, log_p_yz), var_z
 
-    def inner_conjugation_loss_at(
+    def inner_residual_variance_at(
         self, key: Array, params: Array, x: Array, n_samples: int
     ) -> Array:
         """$\\mathrm{Var}_{q(z \\mid x)}[r^X_Z]$, the penalty that trains the amortized inner conjugation parameters.
 
-        The sampling distribution $q(z \\mid x)$ shares parameters with $r^X_Z$, so the gradient carries a score-function piece for it (:func:`~goal.geometry.exponential_family.variational.variance_with_score_correction`), as in the bivariate recognition penalty. Needs ``n_samples >= 2``.
+        The sampling distribution $q(z \\mid x)$ shares parameters with $r^X_Z$, so the gradient carries a score-function piece for it (:func:`~goal.geometry.exponential_family.variational.score_variance_estimate`), as in the bivariate recognition penalty. Needs ``n_samples >= 2``.
         """
-        q_top = self.approximate_posterior_top(params, x)
+        q_top = self.recognition_top(params, x)
         zs = jax.lax.stop_gradient(self.top_man.sample(key, q_top, n_samples))
         r_inner = jax.vmap(lambda z: self.inner_residual(params, x, z))(zs)
         log_q = jax.vmap(lambda z: self.top_man.log_density(q_top, z))(zs)
-        return variance_with_score_correction(r_inner, log_q)
+        return score_variance_estimate(r_inner, log_q)
 
-    def mean_inner_conjugation_loss(
+    def mean_inner_residual_variance(
         self, key: Array, params: Array, xs: Array, n_samples: int
     ) -> Array:
-        """Mean of :meth:`inner_conjugation_loss_at` over a batch."""
+        """Mean of :meth:`inner_residual_variance_at` over a batch."""
         keys = jax.random.split(key, xs.shape[0])
         return jnp.mean(
             jax.vmap(
-                lambda k, x: self.inner_conjugation_loss_at(k, params, x, n_samples)
+                lambda k, x: self.inner_residual_variance_at(k, params, x, n_samples)
             )(keys, xs)
         )
 
@@ -704,7 +707,7 @@ class VariationalGraphical(Generative, Tuple, ABC):
 
         The $y$-bias becomes $\\theta_Y - \\rho_Y$ and the $z$-bias $\\theta^*_Z - \\rho^0_Z$. When both edges are exact the harmonium's joint equals the directed one.
         """
-        prr, upr_lkl, lwr_lkl, _, _, _ = self.split_coords(params)
+        lwr_lkl, upr_lkl, prr, _, _, _ = self.split_coords(params)
         theta_y, theta_yz = self.upr_hrm.lkl_fun_man.split_coords(upr_lkl)
         theta_x, theta_xy = self.lwr_hrm.lkl_fun_man.split_coords(lwr_lkl)
         theta_z = prr - self.upper_conjugation(params)
@@ -766,9 +769,9 @@ class VariationalGraphical(Generative, Tuple, ABC):
             n_last = last_out * last_in + last_out
             inr = inr_man.glorot_initialize(key_inr).at[-n_last:].set(0.0)
         return self.join_coords(
-            prr,
-            self.upr_hrm.lkl_fun_man.join_coords(theta_y, theta_yz),
             self.lwr_hrm.lkl_fun_man.join_coords(theta_x, theta_xy),
+            self.upr_hrm.lkl_fun_man.join_coords(theta_y, theta_yz),
+            prr,
             jnp.zeros(rho_y_man.dim),
             jnp.zeros(rho_z_man.dim),
             inr,

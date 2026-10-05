@@ -320,7 +320,7 @@ class TestVariationalLatentProcess:
         model = _MinimalVarLP(n_neurons=8, n_latent=1)
         params = _init_var_lp(model, jax.random.PRNGKey(0))
         prior_params, ems_lkl, rho, _ = model.split_coords(params)
-        ems_full = model.ems_hrm.join_coords(prior_params, ems_lkl, rho)
+        ems_full = model.ems_hrm.join_coords(ems_lkl, prior_params, rho)
         assert ems_full.shape == (model.ems_hrm.dim,)
 
         key = jax.random.PRNGKey(1)

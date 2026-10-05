@@ -216,7 +216,7 @@ def fit_family(
     def loss_fn(params: Array, key: Array, batch: Array, conj_beta: Array) -> Array:
         e_key, c_key = jax.random.split(key)
         elbo = model.mean_elbo(e_key, params, batch, MC_SAMPLES)
-        conj = model.prior_conjugation_loss(c_key, params, CONJ_SAMPLES)
+        conj = model.prior_residual_variance(c_key, params, CONJ_SAMPLES)
         return -elbo + conj_beta * LAMBDA * conj
 
     def step(
