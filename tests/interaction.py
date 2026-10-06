@@ -4,12 +4,13 @@
 layouts and the bare clique-map algebra; this file is the clique map paired with its clique
 embeddings.)
 
-A ``CliqueMap`` is a linear map between its node groups, and a ``CrossMap`` is a sum
-of clique maps, each conjugated by a pair of clique embeddings. Each case takes a live model's interaction and checks that the
-clique operations reproduce the interaction operations once the clique embeddings are applied: the
-outer product that builds a sufficient statistic, the application that builds a likelihood,
-and the transposed application that builds a posterior. If those hold for every interaction
-shape in the library, the arity-2 case is settled and only arity 3 is new.
+A ``CliqueMap`` is a linear map between subspaces of two blocks, and a ``CrossMap`` is a sum
+of clique maps, each conjugated by the clique embeddings of the blocks it touches. Each case
+takes a live model's interaction and checks that the clique operations reproduce the
+interaction operations once the clique embeddings are applied: the outer product that builds
+a sufficient statistic, the application that builds a likelihood, and the transposed
+application that builds a posterior. MFA's three-node crossing, which reads a sub-block of
+the mixture's $(y, k)$ block, is checked further in mean coordinates.
 """
 
 from typing import Any
@@ -49,19 +50,21 @@ def _as_map(int_man: LinearMap[Any, Any]) -> CrossMap[Any, Any]:
 def _block(int_man: LinearMap[Any, Any], index: int) -> CrossMap[Any, Any]:
     """One term of a multi-form interaction, as an interaction of the same shape."""
     m = _as_map(int_man)
-    return CrossMap(m.cod_man, m.dom_man, (m.terms[index],))
+    return CrossMap(m.cod_man, m.dom_man, (m.trms[index],))
 
 
 def _clq_map(int_man: LinearMap[Any, Any]) -> CliqueMap:
     """The clique map of a single-term interaction."""
-    ((_, _, clq_map),) = _as_map(int_man).terms
-    return clq_map
+    (trm,) = _as_map(int_man).trms
+    return trm.clq_map
 
 
 def _term_embs(m: CrossMap[Any, Any]) -> tuple[Any, Any]:
     """The blocks of the first term's codomain and domain cliques."""
-    cod, dom, _ = m.terms[0]
-    return CliqueEmbedding(cod, m.cod_man), CliqueEmbedding(dom, m.dom_man)
+    trm = m.trms[0]
+    return CliqueEmbedding(trm.cod_clq, m.cod_man), CliqueEmbedding(
+        trm.dom_clq, m.dom_man
+    )
 
 
 def _cod_node(m: CrossMap[Any, Any], w: Array) -> Array:
@@ -115,18 +118,6 @@ def _interactions() -> dict[str, tuple[LinearMap[Any, Any], Manifold, Manifold]]
 
 CASES = _interactions()
 NAMES = sorted(CASES)
-NODE_NAMES = [name for name in NAMES if len(_clq_map(CASES[name][0]).embs) == 2]
-"""Cases contracting a single node.
-
-There the clique reading and the interaction reading coincide up to the clique embeddings:
-contracting one axis leaves one axis, and a single node can be placed back through its own
-clique embedding. At arity 3 the contracted side is a *group*, no single axis can be placed
-through a joint clique embedding, and the two readings meet at the node group's joint coordinates --- which is what
-``TestArityThreeReproducesMFA`` checks instead.
-
-The criterion is arity, not what the clique embedding happens to be: one that is a
-``CliqueEmbedding`` on one node is no different from one that is a slot embedding.
-"""
 
 
 def _stats(case: str, seed: int) -> tuple[Array, Array]:
@@ -140,14 +131,14 @@ def _stats(case: str, seed: int) -> tuple[Array, Array]:
 
 
 class TestEquivalenceWithMap:
-    """Every live interaction over a single-node domain reads the same both ways."""
+    """Every live interaction reads the same both ways."""
 
     @pytest.mark.parametrize("case", NAMES)
     def test_dim_matches(self, case: str) -> None:
         int_man = CASES[case][0]
         assert _clq_map(int_man).dim == int_man.dim
 
-    @pytest.mark.parametrize("case", NODE_NAMES)
+    @pytest.mark.parametrize("case", NAMES)
     def test_outer_product_matches(self, case: str) -> None:
         m = _as_map(CASES[case][0])
         w, v = _stats(case, 0)
@@ -156,7 +147,7 @@ class TestEquivalenceWithMap:
             m.outer_product(w, v),
         )
 
-    @pytest.mark.parametrize("case", NODE_NAMES)
+    @pytest.mark.parametrize("case", NAMES)
     def test_application_matches(self, case: str) -> None:
         """The forward reading is the likelihood direction: contract the latent, land on x."""
         m = _as_map(CASES[case][0])
@@ -165,7 +156,7 @@ class TestEquivalenceWithMap:
         node_out = _clq_map(m)(params, _dom_node(m, v))
         assert jnp.allclose(_cod_amb(m, node_out), m(params, v))
 
-    @pytest.mark.parametrize("case", NODE_NAMES)
+    @pytest.mark.parametrize("case", NAMES)
     def test_transposed_application_matches(self, case: str) -> None:
         """The transposed reading is the posterior direction: contract x, land on the latent."""
         m = _as_map(CASES[case][0])
@@ -195,12 +186,12 @@ class TestSufficientStatistic:
 
 
 class TestJointDomainCliques:
-    """A clique whose domain clique embedding locates a node inside a *layout*.
+    """A crossing whose deep block is one node inside a *layout*.
 
     MFA's $\\theta_{XY}$ and $\\theta_{XK}$ both couple $x$ to one node of the mixture
-    above, whose block a ``CliqueEmbedding`` locates. The clique reading works in that node's
-    own coordinates; the interaction reading lands in the mixture's. They agree exactly at
-    the node, which is what makes the two readings one object.
+    above, whose block a ``CliqueEmbedding`` locates. The clique reading works in that block's
+    coordinates; the interaction reading lands in the mixture's. They agree exactly at the
+    block.
     """
 
     @staticmethod
@@ -213,16 +204,15 @@ class TestJointDomainCliques:
         ("index", "crossing", "nodes"),
         [(0, ((0,), (0,)), (0, 1)), (2, ((0,), (1,)), (0, 2))],
     )
-    def test_nodes_and_arity_agree(
+    def test_nodes_agree(
         self,
         index: int,
         crossing: tuple[tuple[int, ...], tuple[int, ...]],
         nodes: tuple[int, ...],
     ) -> None:
         mfa = self._mfa()
-        assert mfa.crs_cliques[index] == crossing
+        assert mfa.crs_clqs[index] == crossing
         assert mfa.cliques[1 + index] == nodes
-        assert len(mfa.crs_man.terms[index][2].embs) == 2
 
     @pytest.mark.parametrize("index", [0, 2])
     def test_posterior_direction_matches_at_the_node(self, index: int) -> None:
@@ -281,18 +271,16 @@ class TestJointBlocksAreNotProductsOfMarginals:
         assert gap > 0.1, "expected an order-one gap, not a rounding difference"
 
 
-class TestArityThreeReproducesMFA:
-    """The three-way interaction $\\theta_{XYK}$, as a genuine arity-3 clique.
+class TestThreeNodeCrossingReproducesMFA:
+    """The three-way interaction $\\theta_{XYK}$, as a map from a sub-block of the $(y, k)$ block.
 
-    The clique contracts the joint $(y,k)$ statistic of the mixture above, located by
-    a ``CliqueEmbedding`` --- "select a sub-statistic on the $y$ axis, identity on the $k$
-    axis". These tests check that the clique reading of it, over three nodes, agrees with
-    the interaction reading on every operation, *including in mean coordinates at the
-    E-step*, which is the case that decides whether higher arity is usable at all.
+    The crossing reads the joint $(y,k)$ block of the mixture above through a
+    ``SubMapEmbedding``: the location of $y$, and all of $k$. These tests check that the
+    clique reading agrees with the interaction reading on every operation, *including in
+    mean coordinates at the E-step*, where the joint statistic is not a product of marginals.
 
-    The clique's latent nodes $(y, k)$ are themselves a clique of the level above, so
-    their joint expectation exists as a statistic to select from. That is the structural
-    condition higher arity needs.
+    The latent nodes $(y, k)$ are themselves a clique of the level above, so their joint
+    expectation exists as a block to select from.
     """
 
     @staticmethod
@@ -301,13 +289,12 @@ class TestArityThreeReproducesMFA:
             n_categories=3, bas_hrm=factor_analysis(obs_dim=4, lat_dim=2)
         )
         xyk = _block(mfa.crs_man, 1)
-        # x location, y location, k in full: the three nodes' embeddings.
         return mfa, xyk, _clq_map(xyk)
 
     def test_dimension_matches_the_live_map(self) -> None:
         _, xyk, clique = self._setup()
         assert clique.dim == xyk.dim
-        assert tuple(emb.sub_man.dim for emb in clique.embs) == (4, 2, 2)
+        assert clique.matrix_shape == (4, 4)
 
     def test_mean_parameters_match_at_the_e_step(self) -> None:
         """The decisive one: mean coordinates, both latent nodes dependent."""

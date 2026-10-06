@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import ABC
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -13,6 +12,8 @@ from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
+    CliqueMap,
+    CrossTerm,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
@@ -20,7 +21,6 @@ from ...geometry import (
     Identity,
     IdentityEmbedding,
     LinearEmbedding,
-    Manifold,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
@@ -251,25 +251,14 @@ class LGM[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        """The observable and the latent, coupled."""
-        return (((0,), (0,)),)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        """The two locations."""
-        return (GeneralizedGaussianLocationEmbedding,), (
-            GeneralizedGaussianLocationEmbedding,
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """The observable and the latent, coupled through their locations."""
+        int_map = CliqueMap(
+            Rectangular(),
+            GeneralizedGaussianLocationEmbedding(self.obs_man),
+            GeneralizedGaussianLocationEmbedding(self.pst_man),
         )
+        return (CrossTerm((0,), (0,), int_map),)
 
     @override
     def conjugation_parameters(
@@ -520,25 +509,14 @@ class NormalBoltzmannHarmonium[ObsRep: PositiveDefinite, Shape: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        """The observable and the latent, coupled."""
-        return (((0,), (0,)),)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        """The observable location and the latent node activities."""
-        return (GeneralizedGaussianLocationEmbedding,), (
-            GeneralizedGaussianLocationEmbedding,
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """The observable location and the latent node activities, coupled."""
+        int_map = CliqueMap(
+            Rectangular(),
+            GeneralizedGaussianLocationEmbedding(self.obs_man),
+            GeneralizedGaussianLocationEmbedding(self.pst_man),
         )
+        return (CrossTerm((0,), (0,), int_map),)
 
     @property
     @override

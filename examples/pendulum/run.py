@@ -17,7 +17,6 @@ Usage::
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -27,11 +26,10 @@ import optax
 from jax import Array
 
 from goal.geometry import (
+    CliqueMap,
+    CrossTerm,
     DifferentiablePair,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
-    MatrixRep,
     MultilayerPerceptron,
     PositiveDefinite,
     Rectangular,
@@ -100,22 +98,20 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
         """The neurons with each node of the latent pair: the angle and the velocity."""
-        return tuple(((0,), clique) for clique in self.pst_man.cliques)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        return (IdentityEmbedding,), (IdentityEmbedding,)
+        return tuple(
+            CrossTerm(
+                (0,),
+                clq,
+                CliqueMap(
+                    Rectangular(),
+                    IdentityEmbedding(self.obs_man),
+                    IdentityEmbedding(self.pst_man.clq_man(clq)),
+                ),
+            )
+            for clq in self.pst_man.cliques
+        )
 
 
 @dataclass(frozen=True)

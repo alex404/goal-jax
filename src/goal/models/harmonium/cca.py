@@ -24,7 +24,7 @@ Mathematically, the conjugation equation's left-hand side therefore factorizes,
 
 and since each branch is a linear Gaussian model with its own conjugation, the joint
 conjugation parameters are their sum, $\\rho = \\rho_X + \\rho_Y$, and likewise the
-offsets. Both sums are what the graphical harmonium computes for any attachments.
+offsets. The graphical harmonium computes both sums for any number of attached harmoniums.
 """
 
 from __future__ import annotations
@@ -82,8 +82,8 @@ class CanonicalCorrelationAnalysis[
 
     @property
     @override
-    def attachments(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
-        """The fork $x - z - y$: each branch on the shared latent."""
+    def obs_hrms_clqs(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+        """The fork $x - z - y$: one linear Gaussian model per branch, both on the shared latent."""
         return ((self.fst_lgm, (0,)), (self.snd_lgm, (0,)))
 
     @property

@@ -1,12 +1,11 @@
 """Graphs given by their cliques.
 
 A ``Cliques`` is a graph given by its **cliques**, each a tuple of node labels, in a fixed
-order. The list need not hold every clique of the graph: it is whichever cliques the
-subclass carries, so singletons, or the smaller cliques inside a larger one, may be absent.
-The nodes $V$ are every label some clique names, and two nodes are adjacent exactly when
-some clique contains both.
+order. The list need not contain every clique of the graph; for example, cliques contained
+in a larger one may be absent. The nodes $V$ are the labels that appear in some clique, and
+two nodes are adjacent exactly when some clique contains both.
 
-Integer labels throughout. Nothing here knows what occupies a node, and there is no JAX.
+Labels are integers. The module does not depend on JAX or on what a node represents.
 """
 
 from __future__ import annotations
@@ -25,18 +24,18 @@ class Cliques(ABC):
     @property
     @abstractmethod
     def cliques(self) -> tuple[tuple[int, ...], ...]:
-        """$C$, each clique an ascending label tuple, each once, in the order they are stored.
+        """$C$: each clique an ascending tuple of labels, listed once, in storage order.
 
-        The labels are exactly $0, \\ldots, n - 1$: offsetting a part by its node count, as
-        composites do, relies on it. Single-node families and composites satisfy this by
-        construction; a class that declares its cliques directly must keep it.
+        The labels must be exactly $0, \\ldots, n - 1$, since composites offset the labels of
+        a part by the node count of the parts before it. A class that declares its cliques
+        directly must ensure this.
         """
 
     # Methods
 
     @property
     def nodes(self) -> tuple[int, ...]:
-        """$V$: every label some clique names."""
+        """$V$: the labels that appear in some clique."""
         return tuple(sorted(set(chain.from_iterable(self.cliques))))
 
     @property
@@ -46,11 +45,10 @@ class Cliques(ABC):
 
     @property
     def graph(self) -> dict[int, tuple[int, ...]]:
-        """The graph the cliques present, as adjacency lists.
+        """The graph as adjacency lists: each node mapped to the sorted tuple of its neighbours.
 
-        A dict with one key per node of :attr:`nodes`, mapping it to the sorted tuple of its
-        neighbours; a node that shares no clique with another maps to ``()``. Two nodes are
-        adjacent exactly when some clique contains both.
+        Two nodes are adjacent exactly when some clique contains both. A node with no
+        neighbours maps to ``()``.
         """
         neighbours: dict[int, set[int]] = {i: set() for i in self.nodes}
         for clique in self.cliques:
@@ -60,11 +58,7 @@ class Cliques(ABC):
 
     @property
     def edges(self) -> tuple[tuple[int, int], ...]:
-        """$E$, the same adjacency as :attr:`graph` written as pairs.
-
-        Each edge appears once, as $(i, j)$ with $i < j$, and the pairs are sorted. Both
-        are only a fixed way of writing the set $E$ down.
-        """
+        """$E$: the edges of :attr:`graph`, each once as $(i, j)$ with $i < j$, in sorted order."""
         pairs: list[tuple[int, int]] = []
         for i, near in self.graph.items():
             pairs.extend((i, j) for j in near if i < j)
@@ -74,8 +68,7 @@ class Cliques(ABC):
 def shift_clique(clique: tuple[int, ...], offset: int) -> tuple[int, ...]:
     """The clique's labels in a graph that numbers ``offset`` nodes before it.
 
-    A composite stores its parts one after another and numbers their nodes in the same
-    order, so a part's labels are its own raised by the node count of the parts stored
-    before it.
+    A composite numbers the nodes of its parts in storage order, so the labels of a part
+    are offset by the node count of the parts before it.
     """
     return tuple(i + offset for i in clique)

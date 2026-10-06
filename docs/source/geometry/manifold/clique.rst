@@ -18,22 +18,15 @@ Class Hierarchy
 Clique Maps
 -----------
 
-.. autoclass:: goal.geometry.manifold.clique.TensorProduct
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.clique.TensorProductEmbedding
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. autoclass:: goal.geometry.manifold.clique.CliqueMap
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autofunction:: goal.geometry.manifold.clique.bias_map
+.. autoclass:: goal.geometry.manifold.clique.SubMapEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 
 Linear Cliques
@@ -49,9 +42,19 @@ Linear Cliques
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.manifold.clique.SubCliquesEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 
 Cross Maps
 ----------
+
+.. autoclass:: goal.geometry.manifold.clique.CrossTerm
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 .. autoclass:: goal.geometry.manifold.clique.CrossMap
    :members:
@@ -63,6 +66,11 @@ Recursive Layouts
 -----------------
 
 .. autoclass:: goal.geometry.manifold.clique.RecursiveLinearCliques
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.manifold.clique.RootEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

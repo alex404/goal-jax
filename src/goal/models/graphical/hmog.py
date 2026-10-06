@@ -44,9 +44,9 @@ from ...geometry import (
     DifferentiableConjugated,
     DifferentiableGraphical,
     Harmonium,
-    LatentHarmoniumEmbedding,
     LinearEmbedding,
     PositiveDefinite,
+    RootEmbedding,
     SymmetricConjugated,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
@@ -98,7 +98,7 @@ class _HMoGBase[
 
     @property
     @override
-    def attachments(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+    def obs_hrms_clqs(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
         """The lower harmonium, on the upper mixture's observable node $y$."""
         return ((self.lwr_hrm, (0,)),)
 
@@ -112,7 +112,7 @@ class _HMoGBase[
     @override
     def pst_prr_emb(self) -> LinearEmbedding[PrrUpperHarmonium, PstUpperHarmonium]:
         """The posterior and prior mixtures differ only at node $y$, i.e. in their root partition."""
-        return LatentHarmoniumEmbedding(
+        return RootEmbedding(
             self.lwr_hrm.pst_prr_emb,
             self.prr_upr_hrm,
             self.pst_upr_hrm,

@@ -182,10 +182,9 @@ class MatrixMap[Codomain: Manifold, Domain: Manifold](LinearMap[Codomain, Domain
 class SquareMap[M: Manifold](MatrixMap[M, M]):
     """Square ``MatrixMap`` (domain = codomain), exposing inverse, log-determinant, and positive-definiteness checks.
 
-    Domain and codomain are the same manifold, so this is a self-interaction *inside* one
-    node rather than a coupling between two --- which is why square maps are never wrapped
-    as cliques. ``Covariance`` and ``CouplingMatrix`` are both of this shape: a node's
-    second moment, and where structured matrix representations live so far.
+    Domain and codomain are the same manifold, so a square map acts within one node rather
+    than coupling two, and is not used as a clique map. ``Covariance`` and
+    ``CouplingMatrix`` are square maps.
     """
 
     # Fields

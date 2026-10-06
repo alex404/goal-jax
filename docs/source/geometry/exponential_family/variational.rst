@@ -17,6 +17,11 @@ Class Hierarchy
 Variational Conjugated
 ----------------------
 
+.. autoclass:: goal.geometry.exponential_family.variational.VariationalPrior
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.geometry.exponential_family.variational.VariationalConjugated
    :members:
    :undoc-members:

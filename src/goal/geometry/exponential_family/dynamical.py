@@ -2,7 +2,7 @@
 
 This module contains:
 
-- ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM in later phases.
+- ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
 - ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is a ``VariationalSymmetric`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
@@ -46,7 +46,7 @@ class AnalyticTransition[L: Analytic](Map[L, L]):
 
     The transition's parameters are the kernel's *likelihood* natural parameters (``kernel.lkl_fun_man.dim`` = ``obs_man.dim + int_man.dim``), not the full harmonium. The kernel's own latent-prior block is structurally redundant for a transition --- the conjugate predict step always supplies the prior from the incoming belief --- so it is omitted from storage. ``__call__`` rebuilds a joint harmonium on the fly via ``join_conjugated`` to apply the transpose-and-marginalize update.
 
-    Composition (kernel as a field) rather than multiple inheritance keeps the class hierarchy clean for both the symmetric-Gaussian case (kernel is a ``NormalAnalyticLGM``) and the categorical case (kernel is a custom ``AnalyticConjugated[Categorical, Categorical]``). Subclasses may narrow the ``kernel`` field type.
+    The kernel is a field rather than a base class, so that a ``NormalAnalyticLGM`` and a custom ``AnalyticConjugated[Categorical, Categorical]`` can both serve as kernels. Subclasses may narrow the ``kernel`` field type.
 
     Because the kernel encodes the joint distribution over $(z_{t-1}, z_t)$ when paired with a belief, smoothing and exact EM are available without any additional storage; the M-step uses ``kernel.to_natural_likelihood`` so the result lands in this likelihood-only parameter space.
     """

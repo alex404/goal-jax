@@ -1,20 +1,16 @@
-"""Tests for ``CliqueMap`` and the clique-indexed layouts in geometry/manifold/clique.py.
+"""Tests for ``CliqueMap``, ``SubMapEmbedding`` and the clique-indexed layouts in geometry/manifold/clique.py.
 
-A clique manifold stores coordinates as three partitions, ``[root | cross | deep]``. The tests pin that layout against what ``analytic_hmog`` already
-produces, so any disagreement is a real difference and not
-a change of convention.
+A clique manifold stores coordinates as three partitions, ``[root | cross | deep]``. The
+tests pin that layout against what ``analytic_hmog`` already produces, so any disagreement
+is a real difference and not a change of convention. Every shipped model's crossings are
+checked to lie in the blocks they touch.
 
-The last four classes test a clique's *form algebra* rather than its scope. The
-decisive ones are at arity 2: they pin the contraction against the ``MatrixMap``
-machinery every interaction in the library already runs on, so the arity-$n$
-generalization is verified against working code rather than against a fresh derivation.
-The arity-3 tests then check the two properties that make higher arity usable --- that
-contraction order does not matter, and that partial contraction composes.
+The last classes test the clique map against the ``MatrixMap`` machinery, and the
+sub-block embedding of a map-valued block.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -26,31 +22,36 @@ from jax import Array
 from goal.geometry import (
     CliqueEmbedding,
     CliqueMap,
+    CrossTerm,
     Diagonal,
     ExponentialFamily,
     ExponentialFamilyPair,
     IdentityEmbedding,
     InteractionEmbedding,
-    LinearEmbedding,
-    Manifold,
     MatrixMap,
-    MatrixRep,
     ObservableEmbedding,
     PositiveDefinite,
     PosteriorEmbedding,
     Rectangular,
     RecursiveLinearCliques,
+    SubMapEmbedding,
 )
 from goal.models import (
+    BoltzmannLGM,
+    BoltzmannNormalHarmonium,
     CanonicalCorrelationAnalysis,
     CompleteMixture,
+    DiagonalBoltzmann,
     Euclidean,
     MixtureOfFactorAnalyzers,
     Normal,
     Poissons,
+    PoissonVonMisesHarmonium,
     analytic_hmog,
     factor_analysis,
+    poisson_mixture,
 )
+from goal.models.harmonium.lgm import GeneralizedGaussianLocationEmbedding
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -69,21 +70,8 @@ class _Partitions(RecursiveLinearCliques[ExponentialFamily, ExponentialFamily]):
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        return self._source.crs_cliques
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return self._source.crs_rep(crossing)
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        return self._source.crs_emb_constructors(crossing)
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        return self._source.crs_trms
 
     @property
     @override
@@ -140,7 +128,7 @@ class TestHarmoniumSpans:
 
     def test_hmog_declares_the_three_node_chain(self) -> None:
         model, _ = _hmog_partitions()
-        assert model.crs_cliques == (((0,), (0,)),)
+        assert model.crs_clqs == (((0,), (0,)),)
         assert model.cliques == ((0,), (0, 1), (1,), (1, 2), (2,))
 
     def test_spans_are_obs_int_pst(self) -> None:
@@ -153,24 +141,17 @@ class TestHarmoniumSpans:
         assert model.rot_man == model.obs_man
         assert model.crs_man == model.int_man
         assert model.dep_man == model.pst_man
-        assert tuple((cod, dom) for cod, dom, _ in model.int_man.terms) == (
+        assert tuple((trm.cod_clq, trm.dom_clq) for trm in model.int_man.trms) == (
             ((0,), (0,)),
         )
         assert CliqueEmbedding((0, 1), model).sub_man.dim == model.int_man.dim
 
-    def test_the_reading_is_derived_from_the_graph(self) -> None:
-        """A crossing's parts fix its order, arity and reading.
-
-        A model states which clique of each partition a coupling touches and what it uses
-        at each node. The output group is the root part, the contracted group the deep
-        part, and the arity is how many nodes the two hold.
-        """
+    def test_a_crossing_maps_between_the_blocks_it_touches(self) -> None:
+        """The block of a crossing reads the deep block and writes the root block."""
         model, _ = _hmog_partitions()
-        form = CliqueEmbedding((0, 1), model).sub_man
-        assert len(form.cod_embs) == 1, "the output group is the root node"
-        assert len(form.dom_embs) == 1
-        assert form.cod_man.mans == (model.obs_man,)
-        assert form.dom_man.mans == (model.lwr_hrm.pst_man,)
+        clq_map = CliqueEmbedding((0, 1), model).sub_man
+        assert clq_map.cod_man == model.obs_man
+        assert clq_map.dom_man == model.lwr_hrm.pst_man
 
     @pytest.mark.parametrize(
         ("emb_cls", "idx"),
@@ -306,16 +287,51 @@ class TestLayoutInvariants:
         assert (root.size, cross.size, deep.size) == partitions
         assert jnp.array_equal(man.join_coords(root, cross, deep), coords)
 
-    def test_the_arity_three_clique_has_three_axes(self) -> None:
-        """MFA's $(x,y,k)$ clique is a three-way interaction, so it has three axes.
+    def test_the_three_node_crossing_reads_a_sub_block(self) -> None:
+        """MFA's $(x, y, k)$ block maps from a sub-block of the mixture's $(y, k)$ block.
 
-        The domain sub-statistic is the joint $(y,k)$ form, which contributes one axis per
-        node rather than one for the pair --- which is what makes the axis count the arity.
+        The sub-block keeps the location of $y$ and all of $k$: two by two, read against
+        the four locations of $x$.
         """
         mfa = _mfa()
-        form = CliqueEmbedding((0, 1, 2), mfa).sub_man
-        assert len(form.embs) == 3
-        assert tuple(emb.sub_man.dim for emb in form.embs) == (4, 2, 2)
+        clq_map = CliqueEmbedding((0, 1, 2), mfa).sub_man
+        assert clq_map.dom_man == mfa.pst_man.clq_man((0, 1))
+        assert isinstance(clq_map.dom_emb, SubMapEmbedding)
+        assert clq_map.matrix_shape == (4, 4)
+
+
+### Crossings and blocks ###
+
+
+def crossing_models() -> list[tuple[str, RecursiveLinearCliques[Any, Any]]]:
+    """Every shipped model shape with crossings, including MFA's mixture view."""
+    return [
+        *shipped_models(),
+        ("mixture", poisson_mixture(n_neurons=4, n_components=3)),
+        ("mfa_mixture_view", _mfa().mix_man),
+        ("boltzmann_lgm", BoltzmannLGM(3, PositiveDefinite(), 2)),
+        ("boltzmann_normal", BoltzmannNormalHarmonium(DiagonalBoltzmann(3), 2)),
+        ("poisson_von_mises", PoissonVonMisesHarmonium(5, 1)),
+    ]
+
+
+class TestCrossingsLieInTheirBlocks:
+    """A crossing maps from a subspace of the deep block it touches to one of the root block."""
+
+    @pytest.mark.parametrize("name", [n for n, _ in crossing_models()])
+    def test_each_crossing_reads_and_writes_its_blocks(self, name: str) -> None:
+        man = dict(crossing_models())[name]
+        for trm in man.crs_trms:
+            assert trm.clq_map.cod_man == man.rot_man.clq_man(trm.cod_clq), trm
+            assert trm.clq_map.dom_man == man.dep_man.clq_man(trm.dom_clq), trm
+
+    @pytest.mark.parametrize("name", [n for n, _ in crossing_models()])
+    def test_a_single_node_block_is_the_node_space(self, name: str) -> None:
+        man = dict(crossing_models())[name]
+        assert len(man.nod_mans) == man.n_nodes
+        for clique, clq_man in zip(man.cliques, man.clq_mans):
+            if len(clique) == 1:
+                assert clq_man == man.nod_mans[clique[0]]
 
 
 ### Ordering Regressions ###
@@ -329,8 +345,8 @@ class _ReversedCCA(
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        return (((1,), (0,)), ((0,), (0,)))
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        return tuple(reversed(super().crs_trms))
 
 
 @dataclass(frozen=True)
@@ -342,26 +358,24 @@ class _DerivedPartitions(RecursiveLinearCliques[ExponentialFamily, ExponentialFa
 
     _rot_man: ExponentialFamily
     _dep_man: ExponentialFamily
-    _crs_cliques: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]
+    _crs_clqs: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        return self._crs_cliques
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        near, far = crossing
-        return (IdentityEmbedding,) * len(near), (IdentityEmbedding,) * len(far)
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """Each crossing over the whole of both blocks it touches."""
+        return tuple(
+            CrossTerm(
+                near,
+                far,
+                CliqueMap(
+                    Rectangular(),
+                    IdentityEmbedding(self._rot_man.clq_man(near)),
+                    IdentityEmbedding(self._dep_man.clq_man(far)),
+                ),
+            )
+            for near, far in self._crs_clqs
+        )
 
     @property
     @override
@@ -441,17 +455,15 @@ class TestPairComposition:
     def test_single_node_components_make_two_nodes(self) -> None:
         pair = _Pair(Normal(2, PositiveDefinite()), Normal(3, Diagonal()))
         assert pair.cliques == ((0,), (1,))
-        assert pair.clq_maps == (
-            pair.fst_man.clq_maps[0],
-            pair.snd_man.clq_maps[0],
-        )
+        assert pair.clq_mans == (pair.fst_man, pair.snd_man)
+        assert pair.nod_mans == (pair.fst_man, pair.snd_man)
 
     def test_a_multi_clique_component_keeps_its_cliques(self) -> None:
         cca = _cca()
         pair = _Pair(cca, Normal(2, PositiveDefinite()))
         n = cca.n_nodes
         assert pair.cliques == (*cca.cliques, (n,))
-        assert pair.clq_maps == (*cca.clq_maps, *pair.snd_man.clq_maps)
+        assert pair.clq_mans == (*cca.clq_mans, pair.snd_man)
         assert sum(pair.clq_dims) == pair.dim
         params = jnp.arange(float(pair.dim))
         fst, snd = pair.split_coords(params)
@@ -463,175 +475,113 @@ class TestPairComposition:
         assert jnp.array_equal(CliqueEmbedding((n,), pair).project(params), snd)
 
 
-### Form algebra ###
+### Clique maps ###
 
 
 def _key(seed: int) -> Array:
     return jax.random.PRNGKey(seed)
 
 
-def _product(*parts: Array) -> Array:
-    """The flat outer product of one vector per contracted axis.
-
-    What a ``CliqueMap`` reads as its input joint when every contracted axis is given
-    separately --- exact for observed axes, and *not* what a dependent joint looks like,
-    which is the distinction ``tests/interaction.py`` turns on.
-    """
-    out = jnp.ones(1)
-    for part in parts:
-        out = jnp.tensordot(out, part, axes=0)
-    return out.reshape(-1)
-
-
-def _axes(cod_dims: tuple[int, ...], dom_dims: tuple[int, ...]) -> CliqueMap:
-    """A form with the given output and input axis sizes, over ``Euclidean`` nodes."""
+def _clq_map(cod_dim: int, dom_dim: int) -> CliqueMap:
+    """A clique map over the whole of two ``Euclidean`` blocks."""
     return CliqueMap(
         Rectangular(),
-        tuple(IdentityEmbedding(Euclidean(d)) for d in cod_dims),
-        tuple(IdentityEmbedding(Euclidean(d)) for d in dom_dims),
+        IdentityEmbedding(Euclidean(cod_dim)),
+        IdentityEmbedding(Euclidean(dom_dim)),
     )
 
 
-class TestArityTwoMatchesMatrixMap:
-    """At arity 2 a clique's form must reproduce the existing matrix machinery."""
+class TestCliqueMapMatchesMatrixMap:
+    """A clique map over whole blocks reproduces the matrix machinery."""
 
     @staticmethod
     def _pair(cod_dim: int, dom_dim: int):
         emb_map = MatrixMap(Rectangular(), Euclidean(cod_dim), Euclidean(dom_dim))
-        return emb_map, _axes((cod_dim,), (dom_dim,))
+        return emb_map, _clq_map(cod_dim, dom_dim)
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6), (6, 1)])
     def test_dim_matches(self, cod_dim: int, dom_dim: int) -> None:
-        emb_map, form = self._pair(cod_dim, dom_dim)
-        assert form.dim == emb_map.dim
+        emb_map, clq_map = self._pair(cod_dim, dom_dim)
+        assert clq_map.dim == emb_map.dim
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6)])
     def test_outer_product_matches(self, cod_dim: int, dom_dim: int) -> None:
-        emb_map, form = self._pair(cod_dim, dom_dim)
+        emb_map, clq_map = self._pair(cod_dim, dom_dim)
         w = jax.random.normal(_key(0), (cod_dim,))
         v = jax.random.normal(_key(1), (dom_dim,))
-        assert jnp.array_equal(form.outer_product(w, v), emb_map.outer_product(w, v))
+        assert jnp.array_equal(clq_map.outer_product(w, v), emb_map.outer_product(w, v))
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (6, 1)])
     def test_application_matches(self, cod_dim: int, dom_dim: int) -> None:
-        """Applying the map is matrix-vector multiplication."""
-        emb_map, form = self._pair(cod_dim, dom_dim)
-        params = jax.random.normal(_key(2), (form.dim,))
+        emb_map, clq_map = self._pair(cod_dim, dom_dim)
+        params = jax.random.normal(_key(2), (clq_map.dim,))
         v = jax.random.normal(_key(3), (dom_dim,))
-        assert jnp.allclose(form(params, v), emb_map(params, v))
+        assert jnp.allclose(clq_map(params, v), emb_map(params, v))
 
     @pytest.mark.parametrize(("cod_dim", "dom_dim"), [(3, 4), (5, 5), (1, 6)])
     def test_transpose_matches(self, cod_dim: int, dom_dim: int) -> None:
-        """The transposed reading is the two embedding groups swapped."""
-        emb_map, form = self._pair(cod_dim, dom_dim)
-        params = jax.random.normal(_key(4), (form.dim,))
+        """The transpose swaps the two embeddings."""
+        emb_map, clq_map = self._pair(cod_dim, dom_dim)
+        params = jax.random.normal(_key(4), (clq_map.dim,))
         w = jax.random.normal(_key(5), (cod_dim,))
-        trn = form.trn_man
-        assert trn.cod_embs == form.dom_embs
-        assert trn.matrix_shape == form.matrix_shape[::-1]
+        trn = clq_map.trn_man
+        assert trn.cod_emb == clq_map.dom_emb
+        assert trn.matrix_shape == clq_map.matrix_shape[::-1]
         assert jnp.allclose(
-            trn(form.transpose(params), w),
-            emb_map.transpose_apply(params, w),
-        )
-        assert jnp.allclose(
-            form.transpose_apply(params, w),
-            emb_map.transpose_apply(params, w),
+            trn(clq_map.transpose(params), w), emb_map.transpose_apply(params, w)
         )
 
     def test_storage_order_is_row_major_over_codomain_then_domain(self) -> None:
-        """The layout every ``int_man`` in the library already stores in."""
-        emb_map, form = self._pair(2, 3)
+        emb_map, clq_map = self._pair(2, 3)
         params = jnp.arange(6.0)
-        assert jnp.array_equal(form.to_matrix(params), emb_map.to_matrix(params))
-
-
-class TestHigherArity:
-    """Properties that make arity 3 usable, which arity 2 cannot distinguish."""
-
-    form: CliqueMap = _axes((2,), (3, 4))
-
-    def test_dim_is_the_product(self) -> None:
-        assert self.form.dim == 24
-        assert len(self.form.embs) == 3
-
-    def test_every_reading_of_one_tensor_contracts_correctly(self) -> None:
-        """Contracting a rank-one tensor against its own axes rescales the kept one.
-
-        A reading is a clique with the kept axis as its output group, and its tensor is in
-        its own (out, in) axis order, so each reading takes the base tensor permuted
-        accordingly.
-        """
-        u = jax.random.normal(_key(6), (2,))
-        v = jax.random.normal(_key(7), (3,))
-        w = jax.random.normal(_key(8), (4,))
-        tensor = u[:, None, None] * v[None, :, None] * w[None, None, :]
-        cases = (
-            (_axes((2,), (3, 4)), (0, 1, 2), (v, w), u * (v @ v) * (w @ w)),
-            (_axes((3,), (2, 4)), (1, 0, 2), (u, w), v * (u @ u) * (w @ w)),
-            (_axes((4,), (2, 3)), (2, 0, 1), (u, v), w * (u @ u) * (v @ v)),
-        )
-        for view, perm, inputs, want in cases:
-            params = jnp.transpose(tensor, perm).reshape(-1)
-            assert jnp.allclose(view(params, _product(*inputs)), want)
-
-    def test_partial_contraction_composes(self) -> None:
-        """Contracting axes one at a time equals contracting them together.
-
-        This is what lets the partition split contract the root axes and leave the deep ones:
-        the result must not depend on the order the root axes are taken in.
-        """
-        params = jax.random.normal(_key(9), (self.form.dim,))
-        u = jax.random.normal(_key(10), (2,))
-        v = jax.random.normal(_key(11), (3,))
-        keep_last = _axes((4,), (2, 3))
-        both = keep_last(
-            jnp.transpose(params.reshape(2, 3, 4), (2, 0, 1)).reshape(-1),
-            _product(u, v),
-        )
-
-        # axis 0 first, leaving a (3, 4) tensor read with its last axis kept
-        step = _axes((4,), (3,))
-        after_u = jnp.tensordot(params.reshape(2, 3, 4), u, axes=([0], [0]))
-        stepwise = step(after_u.T.reshape(-1), v)
-        assert jnp.allclose(both, stepwise)
-
-    def test_the_input_joint_spans_both_contracted_axes(self) -> None:
-        """The contracted group is one joint space, not two separate arguments."""
-        assert self.form.dom_man.dim == 12
-
-
-class TestArityOne:
-    """A bias is a form with an empty input group; nothing should special-case it."""
-
-    def test_outer_product_and_application_are_identity(self) -> None:
-        form = _axes((5,), ())
-        v = jax.random.normal(_key(13), (5,))
-        assert form.dim == 5
-        assert form.matrix_shape == (5, 1)
-        assert form.dom_embs == ()
-        # The empty input group's joint is the constant 1.
-        assert jnp.array_equal(form.outer_product(v, jnp.ones(1)), v)
-        assert jnp.array_equal(form(v, jnp.ones(1)), v)
-
-
-class TestTranspose:
-    """Direction is the (out, in) split of the embeddings, so the transpose is a swap."""
+        assert jnp.array_equal(clq_map.to_matrix(params), emb_map.to_matrix(params))
 
     def test_trn_man_is_an_involution(self) -> None:
-        form = _axes((2,), (3, 4))
-        assert form.trn_man.trn_man == form
-        assert form.trn_man.cod_embs == form.dom_embs
-        assert form.trn_man.dom_embs == form.cod_embs
+        clq_map = _clq_map(2, 3)
+        params = jax.random.normal(_key(6), (clq_map.dim,))
+        assert clq_map.trn_man.trn_man == clq_map
+        assert jnp.allclose(
+            clq_map.trn_man.transpose(clq_map.transpose(params)), params
+        )
 
-    def test_transpose_round_trips_parameters(self) -> None:
-        form = _axes((2,), (3, 4))
-        params = jax.random.normal(_key(14), (form.dim,))
-        assert jnp.allclose(form.trn_man.transpose(form.transpose(params)), params)
 
-    def test_a_bias_transposes_to_a_functional(self) -> None:
-        """The old design raised here; the two-group shape handles it for free."""
-        form = _axes((5,), ())
-        trn = form.trn_man
-        assert trn.matrix_shape == (1, 5)
-        v = jax.random.normal(_key(15), (5,))
-        assert jnp.allclose(trn(v, v), jnp.dot(v, v)[None])
+class TestSubMapEmbedding:
+    """A sub-block of a map-valued block: the location rows of a Gaussian, all columns."""
+
+    @staticmethod
+    def _emb() -> SubMapEmbedding:
+        nor = Normal(2, PositiveDefinite())
+        amb = CliqueMap(
+            Rectangular(), IdentityEmbedding(nor), IdentityEmbedding(Euclidean(3))
+        )
+        return SubMapEmbedding(
+            amb,
+            GeneralizedGaussianLocationEmbedding(nor),
+            IdentityEmbedding(Euclidean(3)),
+        )
+
+    def test_the_sub_block_is_a_map_on_nested_subspaces(self) -> None:
+        emb = self._emb()
+        assert emb.sub_man.cod_man == emb.amb_man.cod_man
+        assert emb.sub_man.dom_man == emb.amb_man.dom_man
+        assert emb.sub_man.matrix_shape == (2, 3)
+
+    def test_project_inverts_embed(self) -> None:
+        emb = self._emb()
+        sub = jax.random.normal(_key(7), (emb.sub_man.dim,))
+        assert jnp.allclose(emb.project(emb.embed(sub)), sub)
+
+    def test_project_is_the_transpose_of_embed(self) -> None:
+        emb = self._emb()
+        sub = jax.random.normal(_key(8), (emb.sub_man.dim,))
+        amb = jax.random.normal(_key(9), (emb.amb_man.dim,))
+        assert jnp.allclose(
+            jnp.dot(emb.embed(sub), amb), jnp.dot(sub, emb.project(amb))
+        )
+
+    def test_the_sub_block_acts_as_its_embedding(self) -> None:
+        """Applying the sub-block equals applying the ambient block at its embedding."""
+        emb = self._emb()
+        sub = jax.random.normal(_key(10), (emb.sub_man.dim,))
+        v = jax.random.normal(_key(11), (3,))
+        assert jnp.allclose(emb.sub_man(sub, v), emb.amb_man(emb.embed(sub), v))

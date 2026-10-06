@@ -7,27 +7,33 @@ history.
 
 ## Current state
 
+- **Blocks (2026-10-06).** Each node has a space (`nod_mans`) and each clique one block
+  (`clq_mans`), a subspace of the tensor product of its nodes' spaces. The block of a single node
+  is its space. Every multi-node clique is a crossing, whose block is a two-sided `CliqueMap`
+  from a subspace of the touched deep block to a subspace of the touched root block; its
+  embeddings have those blocks as ambients, which is the posterior-in-family condition. A
+  touched block that is itself a map is restricted by `SubMapEmbedding`. Replaced: arity-$n$
+  `CliqueMap`s with per-node axes, `TensorProduct`, `TensorProductEmbedding`, `bias_map`,
+  `clq_maps`, `crs_rep` and `crs_emb_constructors`.
 - Every `ExponentialFamily` is a `LinearCliques`. By default it is one node, `cliques = ((0,),)`,
-  whose map is `bias_map(self)`. `ExponentialFamilyPair` places its components' graphs side by
-  side. A harmonium composes its graph.
-- `LinearCliques`' contract is `clq_maps`, the map on each clique in storage order; each map is
-  oriented, and that orientation is part of the parameterization.
+  whose block is the family itself. `ExponentialFamilyPair` places its components' graphs side
+  by side. A harmonium composes its graph.
+- A crossing's block is oriented (root block against deep block), and that orientation is part
+  of the parameterization.
 - Node numbers are local: each `LinearCliques` numbers its own nodes $0, \ldots, n-1$.
-- `CrossMap(cod_man, dom_man, terms)`: each term is `(cod_clique, dom_clique, CliqueMap)`, with
+- `CrossMap(cod_man, dom_man, trms)`: each term is a `CrossTerm(cod_clq, dom_clq, clq_map)`, with
   each clique in its own side's numbering, read and written through `CliqueEmbedding`.
 - `RecursiveLinearCliques[Root: LinearCliques, Deep: LinearCliques]` composes its graph from its
   parts.
-  - A model declares `rot_man`, `dep_man`, `crs_cliques` (pairs: a root clique and a deep
-    clique) and, per crossing, `crs_rep` and `crs_emb_constructors` (codomain constructors,
-    domain constructors).
-  - Derived: the numbering (root first, deep offset by the root's node count), `cliques` (root,
-    crossings, deep: the triple's storage order), `clq_maps` (concatenated in the same order),
-    `crs_maps`, `crs_man`.
+  - A model declares `rot_man`, `dep_man` and `crs_trms` (one `CrossTerm` per crossing: a root
+    clique and a deep clique with its `CliqueMap`); `crs_man` is the `CrossMap` with those terms.
+  - Derived: `crs_clqs`, `crs_maps`, the numbering (root first, deep offset by the root's node
+    count), `cliques` (root, crossings, deep: the triple's storage order), `clq_mans` and
+    `nod_mans` (concatenated in the same order), `crs_man`.
 - Deleted: `part_emb`, `cod_group`/`dom_group`, the bias branch, `split_clique`, `Mixture.impose`,
   `upr_graph`, `mix_nodes`/`mix_graph`, and every `_raw_cliques`/`_root_nodes` field.
-- `clq_map(clique)`, `clq_emb(clique)` and `crs_map(crossing)` are replaced by the tuples
-  `clq_maps` and `crs_maps` (a clique's block is `CliqueEmbedding(clique, man)`), and the `Crossing`/`EmbeddingConstructor` aliases are
-  removed.
+- A clique's block manifold is `clq_man(clique)`, and its coordinates are read by
+  `CliqueEmbedding(clique, man)`.
 - `RecursiveCliques` is deleted. Its levels are distances from the root set, which agree with
   the partition nesting for chains but not in general: MFA's distance levels are x | {y, k},
   its nesting x | (y | k). The layout and conjugation follow the nesting.
@@ -121,16 +127,15 @@ cascades upward.
 
 ### Raised by the composed graph
 
-- A clique's map has one orientation (output axes against contracted axes), fixed by the level
-  that introduced it, and supports only that reading and its transpose. A conditional that
+- A crossing has one orientation (root block against deep block), fixed by the level that
+  introduced it, and supports only that reading and its transpose. A conditional that
   groups a clique's nodes differently (MFA's $k \mid x, y$, for Gibbs over arbitrary nodes)
   needs a re-matricization `CliqueMap` does not have. For `Rectangular` cliques it would be a
   reshape and transpose. No current use needs it.
-- A crossing part that is a multi-node clique with a structured (non-`Rectangular`)
-  representation cannot be coupled per node: the axes are the clique's nodes, but its block
-  holds fewer parameters than their product. `CompleteMixture` over such an observable fails
-  loudly (shape mismatch). Coupling to a clique's block *as a flat vector* would need a second
-  kind of crossing axis.
+- A crossing may touch a block with a structured (non-`Rectangular`) representation: its
+  embedding is into the block as a whole. `SubMapEmbedding` restricts rows and columns through
+  `to_matrix`/`from_matrix`, so on a structured block `embed` keeps only the entries the
+  representation stores. No current model touches a structured block; untested.
 - `Mixture` with a general `obs_emb` assumes a one-node observable (one crossing). Only
   `CompleteMixture` generalizes to several cliques.
 - The pendulum example's latent is a `DifferentiablePair`, so it is now two nodes with two
@@ -154,30 +159,40 @@ cascades upward.
 
 ### `exponential_family/graphical.py`
 
-Built 2026-10-03: `GraphicalHarmonium` (a deep model plus attachments, crossings derived),
-`DifferentiableGraphical` (conjugation = each attachment's, placed on its clique of the prior
-and summed; offsets summed), `AnalyticGraphical` (single attachment). Openings:
+Built 2026-10-03: `GraphicalHarmonium` (a deep model plus observable harmoniums on cliques `obs_hrms_clqs`, crossings
+derived), `DifferentiableGraphical` (conjugation = each observable harmonium's, placed on its clique of
+the prior and summed; offsets summed), `AnalyticGraphical` (single observable harmonium). Placement and
+reading go through `SubCliquesEmbedding` (2026-10-05). Openings:
 
-- Two attachments give an `ObservablePair` (differentiable only; CCA uses it, replacing
-  `NormalPair`). More than two attachments need a nested or n-ary product.
-- An attachment's prior is placed clique by clique through the attachment's clique map, so a
-  prior with more nodes than its posterior (a fill-in across attachments) is not expressible.
-- `pst_prr_emb` stays declared by the model; deriving it from the attachments is open.
+- Several observable harmoniums give a right-nested `ObservablePair` (differentiable only; CCA
+  uses it). The crossing offsets in `_crossing_sources` and the block splits in
+  `obs_likelihoods` restate the pair's side-by-side layout instead of reading it off the pair.
+- An observable harmonium's prior is placed clique by clique through its clique map, so a prior with
+  more nodes than its posterior (a fill-in across observable harmoniums) is not expressible.
+- `pst_prr_emb` stays declared by the model; deriving it from the observable harmoniums is open.
 - Depth: a deep model that is itself graphical composes, but nothing tests depth three yet.
 - MFA stays a hand-written primitive.
-- `VariationalGraphical` (2026-10-04) handles depth three only: one attachment on node $0$ of
-  an upper harmonium. Deeper chains need the per-edge recursion; the lower harmonium's
-  posterior and prior must equal the upper harmonium's observable.
+- `VariationalGraphical` and its `Conjugation` classes were removed (2026-10-06): a graphical
+  harmonium is fit variationally as the `gen_hrm` of a `VariationalDifferentiable`, whose prior
+  may itself be variational (`VariationalPrior` in `variational.py`). Open:
+  - the posterior variables are read as the leading slice of a prior datapoint
+    (`VariationalConjugated._latent_stats`); a `gen_hrm` whose posterior is not the prior's
+    leading node needs per-node data slices;
+  - residual variances are per level, not per observable harmonium;
+  - pathwise gradients were dropped with `pathwise_top`;
+  - `VariationalConjugated` is still a `Generative` whose `sufficient_statistic` and
+    `log_base_measure` delegate to `gen_hrm`, which is not the joint over a nested prior.
 - Concrete composites (`_Chain` in the tests)
   are small field-holding subclasses; a generic concrete composite in core is open.
 
 ### `exponential_family/harmonium.py`
 
-- `LatentHarmoniumEmbedding` (briefly `RootEmbedding`, restricted to harmoniums again) moved from
-  `manifold/clique.py` to `harmonium.py`, then to `graphical.py` (2026-10-03): its only role is
-  `pst_prr_emb` for HMoG. Generalize it into a cliquewise posterior-to-prior embedding (one
-  embedding per clique block the fill-in reaches; `TensorProductEmbedding` on crossing blocks),
-  which would also replace MFA's `CompleteMixtureEmbedding`, and later derive it from the fill-in.
+- `RootEmbedding` (previously `LatentHarmoniumEmbedding` in `graphical.py`) moved back to
+  `manifold/clique.py` (2026-10-05), typed over `RecursiveLinearCliques`, next to
+  `SubCliquesEmbedding`: its only role is `pst_prr_emb` for HMoG. Generalize it into a cliquewise
+  posterior-to-prior embedding (one embedding per clique block the fill-in reaches;
+  `SubMapEmbedding` on crossing blocks), which would also replace MFA's
+  `CompleteMixtureEmbedding`, and later derive it from the fill-in.
 
 - `Conjugated.extract_likelihood_input` was removed (6e2b96d): `sample` passes the whole prior
   sample to `likelihood_at`. Inferred, not verified: this is correct because `pst_man` is the
@@ -194,9 +209,9 @@ and summed; offsets summed), `AnalyticGraphical` (single attachment). Openings:
 
 - MFA (`graphical/mixture.py`): check the `jnp.split` offsets in `from_mixture_coords`. They are
   now covered by the clique-block test in `tests/graphical_mixture.py`.
-- CCA (`harmonium/cca.py`) is a `DifferentiableGraphical` with two attachments on latent node
+- CCA (`harmonium/cca.py`) is a `DifferentiableGraphical` with two observable harmoniums on latent node
   $0$ (2026-10-03); its hand-written conjugation sum is gone.
-- HMoG (`graphical/hmog.py`) is a `DifferentiableGraphical` with one attachment, the lower
+- HMoG (`graphical/hmog.py`) is a `DifferentiableGraphical` with one observable harmonium, the lower
   harmonium on the mixture's node $0$ (2026-10-03); crossings, conjugation and
   `to_natural_likelihood` come from `exponential_family/graphical.py`.
 - CCA is probabilistic CCA and exposes no canonical directions; rename or document.
@@ -216,8 +231,9 @@ and summed; offsets summed), `AnalyticGraphical` (single attachment). Openings:
 
 Decided to avoid generalizing before a model needs it.
 
-- **Partial (embedded) biases.** A bias covers its whole node (`bias_map`). Under the composed
-  graph this becomes a family's own choice of `clq_maps`.
+- **Partial (embedded) biases.** A single node's block is its whole space. A partial bias would
+  be a block given as an embedding into `nod_mans[i]`; crossings through that node would then
+  nest inside it. The block design admits it; no model needs it yet.
 - **Validation of the composed graph.** Nothing checks that crossings touch both partitions,
   that each part is a clique of its partition (it fails only in the clique lookup, with `ValueError`
   from `cliques.index`), or that the fill-in condition of the conjugation calculus holds.
@@ -231,7 +247,7 @@ Decided to avoid generalizing before a model needs it.
 - Generic conjugation cascade over `RecursiveLinearCliques` (see the calculus above), and the
   variational $\rho$ slot. Trap: ~10 sites unpack `split_coords` positionally; rename in the same
   change.
-- Short user-facing architecture page (chain, fork, arity-3 example).
+- Short user-facing architecture page (chain, fork, MFA's three-node crossing).
 
 ## Verification
 

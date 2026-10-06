@@ -31,26 +31,10 @@ Graphical Harmoniums
    :undoc-members:
    :show-inheritance:
 
-Variational Graphical Harmoniums
---------------------------------
-
-.. autoclass:: goal.geometry.exponential_family.graphical.VariationalGraphical
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Observables
 -----------
 
 .. autoclass:: goal.geometry.exponential_family.graphical.ObservablePair
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Embeddings
-----------
-
-.. autoclass:: goal.geometry.exponential_family.graphical.LatentHarmoniumEmbedding
    :members:
    :undoc-members:
    :show-inheritance:

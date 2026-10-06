@@ -100,7 +100,7 @@ def main() -> None:
         lat_dim=lat_dim,
         pst_rep=PositiveDefinite(),
     )
-    print(f"CCA over {model.n_nodes} nodes, crossings {model.crs_cliques}")
+    print(f"CCA over {model.n_nodes} nodes, crossings {model.crs_clqs}")
     print(f"  cliques {model.cliques}")
     print(f"  blocks  {model.clq_dims}  (dim {model.dim})")
 

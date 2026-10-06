@@ -296,7 +296,7 @@ class TestMFAGraph:
         """
         mfa = self._mfa()
         mix = mfa.mix_man
-        assert mix.crs_cliques == (((0,), (0,)), ((0, 1), (0,)), ((1,), (0,)))
+        assert mix.crs_clqs == (((0,), (0,)), ((0, 1), (0,)), ((1,), (0,)))
         assert mix.cliques == ((0,), (0, 1), (1,), (0, 2), (0, 1, 2), (1, 2), (2,))
         assert sorted(mix.cliques) == sorted(mfa.cliques)
 
@@ -377,12 +377,12 @@ class TestDerivedInteractionEmbeddings:
     @classmethod
     def _blocks(cls, **kwargs) -> tuple[CrossMap[Any, Any], ...]:
         m = cls._mfa(**kwargs).crs_man
-        return tuple(CrossMap(m.cod_man, m.dom_man, (term,)) for term in m.terms)
+        return tuple(CrossMap(m.cod_man, m.dom_man, (trm,)) for trm in m.trms)
 
     @classmethod
     def _dom_clq_embs(cls, **kwargs) -> tuple[CliqueEmbedding, ...]:
         return tuple(
-            CliqueEmbedding(block.terms[0][1], block.dom_man)
+            CliqueEmbedding(block.trms[0].dom_clq, block.dom_man)
             for block in cls._blocks(**kwargs)
         )
 
@@ -408,7 +408,7 @@ class TestDerivedInteractionEmbeddings:
         mfa = self._mfa()
         mix = mfa.pst_man
         xyk = self._blocks()[1]
-        dom_clq_emb = CliqueEmbedding(xyk.terms[0][1], xyk.dom_man)
+        dom_clq_emb = CliqueEmbedding(xyk.trms[0].dom_clq, xyk.dom_man)
 
         coords = jax.random.normal(jax.random.PRNGKey(30), (mix.dim,))
         _, m_yk, _ = mix.split_coords(coords)

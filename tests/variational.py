@@ -24,7 +24,6 @@ of the residual at exact conjugation, and agreement between
 ``regress_conjugation_parameters`` and the prior conjugation loss.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -33,11 +32,10 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
+    CliqueMap,
+    CrossTerm,
     Harmonium,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
-    MatrixRep,
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
@@ -183,8 +181,7 @@ class TestStandardFormElbo:
         key = jax.random.PRNGKey(7)
         surrogate = model.elbo_at(key, params, X_OBS, N_MC)
 
-        q_params = model.recognition_at(params, X_OBS)
-        z_samples = model.pst_man.sample(key, q_params, N_MC)
+        z_samples = model.sample_recognition(key, params, X_OBS, N_MC)
         r_vals = jax.vmap(lambda z: model.conjugation_residual(params, z, X_OBS))(
             z_samples
         )
@@ -251,22 +248,14 @@ class _ConcreteHarmonium(Harmonium[Binomials, Any]):
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
         """The observable with the mixture's observable node."""
-        return (((0,), (0,)),)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        return (IdentityEmbedding,), (IdentityEmbedding,)
+        int_map = CliqueMap(
+            Rectangular(),
+            IdentityEmbedding(self.obs_man),
+            IdentityEmbedding(self.pst_man.clq_man((0,))),
+        )
+        return (CrossTerm((0,), (0,), int_map),)
 
 
 @dataclass(frozen=True)

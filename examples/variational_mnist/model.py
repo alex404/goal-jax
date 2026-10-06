@@ -12,7 +12,6 @@ This module provides:
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportArgumentType=false
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, override
 
@@ -21,13 +20,12 @@ import jax.numpy as jnp
 from jax import Array
 
 from goal.geometry import (
+    CliqueMap,
+    CrossTerm,
     Diagonal,
     Differentiable,
     Harmonium,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
-    MatrixRep,
     Rectangular,
 )
 from goal.geometry.exponential_family.variational import (
@@ -120,21 +118,13 @@ class ConcreteHarmonium[Observable: Differentiable, Latent: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        return (((0,), (0,)),)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        return (IdentityEmbedding,), (IdentityEmbedding,)
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        int_map = CliqueMap(
+            Rectangular(),
+            IdentityEmbedding(self.obs_man),
+            IdentityEmbedding(self.pst_man),
+        )
+        return (CrossTerm((0,), (0,), int_map),)
 
 
 ### Concrete mixture of harmoniums ###

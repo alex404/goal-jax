@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..algebra.clique import shift_clique
-from ..manifold.clique import CliqueMap
+from ..manifold.base import Manifold
 from ..manifold.combinators import Pair, Replicated
 from .base import (
     Analytic,
@@ -78,9 +78,15 @@ class ExponentialFamilyPair[A: ExponentialFamily, B: ExponentialFamily](
 
     @property
     @override
-    def clq_maps(self) -> tuple[CliqueMap, ...]:
-        """The first component's maps, then the second's."""
-        return self.fst_man.clq_maps + self.snd_man.clq_maps
+    def nod_mans(self) -> tuple[Manifold, ...]:
+        """The first component's node spaces, then the second's."""
+        return self.fst_man.nod_mans + self.snd_man.nod_mans
+
+    @property
+    @override
+    def clq_mans(self) -> tuple[Manifold, ...]:
+        """The first component's blocks, then the second's."""
+        return self.fst_man.clq_mans + self.snd_man.clq_mans
 
     @property
     @override

@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
+    CliqueMap,
+    CrossTerm,
     IdentityEmbedding,
-    LinearEmbedding,
-    Manifold,
-    MatrixRep,
     Rectangular,
 )
 from ...geometry.exponential_family.base import Differentiable
@@ -53,22 +52,14 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
         """The observable and the latent, coupled."""
-        return (((0,), (0,)),)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        return (IdentityEmbedding,), (IdentityEmbedding,)
+        int_map = CliqueMap(
+            Rectangular(),
+            IdentityEmbedding(self.obs_man),
+            IdentityEmbedding(self.pst_man),
+        )
+        return (CrossTerm((0,), (0,), int_map),)
 
     @property
     @override
@@ -196,22 +187,14 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
         """The observable and the latent, coupled."""
-        return (((0,), (0,)),)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        return (IdentityEmbedding,), (IdentityEmbedding,)
+        int_map = CliqueMap(
+            Rectangular(),
+            IdentityEmbedding(self.obs_man),
+            IdentityEmbedding(self.pst_man),
+        )
+        return (CrossTerm((0,), (0,), int_map),)
 
     @property
     @override

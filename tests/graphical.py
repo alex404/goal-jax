@@ -1,10 +1,10 @@
 """Tests for geometry/exponential_family/graphical.py.
 
 A graphical harmonium is a deep model with harmoniums attached to its cliques, and its
-crossings and conjugation are read off the attachments. The tests pin both against the
+crossings and conjugation are read off the observable harmoniums. The tests pin both against the
 hierarchical mixture of Gaussians, a linear Gaussian model attached to the observable node
 of a mixture, whose conjugation parameters are the lower model's placed in the prior
-mixture's observable block. They also test ``LatentHarmoniumEmbedding``.
+mixture's observable block. They also test ``SubCliquesEmbedding`` and ``RootEmbedding`` on it.
 """
 
 from __future__ import annotations
@@ -17,9 +17,10 @@ import pytest
 
 from goal.geometry import (
     Diagonal,
-    LatentHarmoniumEmbedding,
     ObservableEmbedding,
+    RootEmbedding,
     Scale,
+    SubCliquesEmbedding,
 )
 from goal.models import (
     analytic_hmog,
@@ -40,33 +41,33 @@ def _hmogs() -> list[Any]:
 
 
 class TestComposedLayout:
-    """An attachment on node $0$ of the deep model keeps its crossings unchanged."""
+    """An observable harmonium on node $0$ of the deep model keeps its crossings unchanged."""
 
     @pytest.mark.parametrize("model", _hmogs())
-    def test_crossings_are_the_attachments(self, model: Any) -> None:
-        assert model.crs_cliques == model.lwr_hrm.crs_cliques
+    def test_crossings_are_the_root_harmoniums(self, model: Any) -> None:
+        assert model.crs_clqs == model.lwr_hrm.crs_clqs
         assert model.crs_maps == model.lwr_hrm.crs_maps
 
     @pytest.mark.parametrize("model", _hmogs())
-    def test_observable_is_the_attachments(self, model: Any) -> None:
+    def test_observable_is_the_root_harmoniums(self, model: Any) -> None:
         assert model.obs_man == model.lwr_hrm.obs_man
 
     @pytest.mark.parametrize("model", _hmogs())
-    def test_likelihood_splits_into_the_attachments(self, model: Any) -> None:
+    def test_likelihood_splits_into_the_root_harmoniums(self, model: Any) -> None:
         params = model.initialize(jax.random.PRNGKey(0), shape=0.5)
         lkl = model.likelihood_function(params)
-        (att_lkl,) = model.attachment_likelihoods(lkl)
+        (att_lkl,) = model.obs_likelihoods(lkl)
         assert jnp.array_equal(att_lkl, lkl)
 
     @pytest.mark.parametrize("model", _hmogs())
-    def test_attachment_posterior_is_the_observable_block(self, model: Any) -> None:
+    def test_root_posterior_is_the_observable_block(self, model: Any) -> None:
         lat = jax.random.normal(jax.random.PRNGKey(1), (model.pst_man.dim,))
         expected = ObservableEmbedding(model.pst_man).project(lat)
-        assert jnp.array_equal(model.attachment_posterior(0, lat), expected)
+        assert jnp.array_equal(model.obs_pst_emb(0).project(lat), expected)
 
 
 class TestConjugation:
-    """The conjugation parameters are the attachment's, placed on its clique of the prior."""
+    """The conjugation parameters are the observable harmonium's, placed on its clique of the prior."""
 
     @pytest.mark.parametrize("model", _hmogs())
     def test_matches_observable_placement(self, model: Any) -> None:
@@ -78,7 +79,7 @@ class TestConjugation:
         assert jnp.allclose(model.conjugation_parameters(lkl), expected)
 
     @pytest.mark.parametrize("model", _hmogs())
-    def test_offset_is_the_attachments(self, model: Any) -> None:
+    def test_offset_is_the_root_harmoniums(self, model: Any) -> None:
         params = model.initialize(jax.random.PRNGKey(3), shape=0.5)
         lkl = model.likelihood_function(params)
         assert jnp.allclose(
@@ -97,8 +98,36 @@ class TestConjugation:
         )
 
 
-class TestLatentHarmoniumEmbedding:
-    """Transforms the observable; the interaction and posterior pass through untouched."""
+class TestSubCliquesEmbedding:
+    """Places a smaller layout on some cliques of a larger one, block for block."""
+
+    @staticmethod
+    def _deep_in_composite() -> tuple[Any, SubCliquesEmbedding]:
+        """The upper mixture on nodes $(y, k) = (1, 2)$ of the whole model: three cliques."""
+        model = _hmogs()[1]
+        return model, SubCliquesEmbedding((1, 2), model, model.pst_man)
+
+    def test_embed_fills_the_deep_partition(self) -> None:
+        model, emb = self._deep_in_composite()
+        v = jax.random.normal(jax.random.PRNGKey(7), (model.pst_man.dim,))
+        expected = model.join_coords(model.obs_man.zeros(), model.int_man.zeros(), v)
+        assert jnp.array_equal(emb.embed(v), expected)
+
+    def test_project_inverts_embed(self) -> None:
+        model, emb = self._deep_in_composite()
+        v = jax.random.normal(jax.random.PRNGKey(8), (model.pst_man.dim,))
+        assert jnp.array_equal(emb.project(emb.embed(v)), v)
+
+    def test_project_is_the_transpose(self) -> None:
+        model, emb = self._deep_in_composite()
+        key_a, key_b = jax.random.split(jax.random.PRNGKey(9))
+        a = jax.random.normal(key_a, (model.pst_man.dim,))
+        b = jax.random.normal(key_b, (model.dim,))
+        assert jnp.allclose(jnp.dot(emb.embed(a), b), jnp.dot(a, emb.project(b)))
+
+
+class TestRootEmbedding:
+    """Transforms the root partition; the cross and deep partitions pass through untouched."""
 
     @staticmethod
     def _asymmetric_pair():
@@ -150,5 +179,5 @@ class TestLatentHarmoniumEmbedding:
         model, _ = self._asymmetric_pair()
         pst = model.pst_upr_hrm
         assert pst.cliques != model.cliques
-        with pytest.raises(ValueError, match="differ only in their observable"):
-            LatentHarmoniumEmbedding(model.lwr_hrm.pst_prr_emb, model, pst)
+        with pytest.raises(ValueError, match="differ only in the root partition"):
+            RootEmbedding(model.lwr_hrm.pst_prr_emb, model, pst)

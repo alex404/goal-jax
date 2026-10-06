@@ -15,9 +15,8 @@ against whichever view makes them a one-liner.
 from __future__ import annotations
 
 from abc import ABC
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -26,15 +25,16 @@ from jax import Array
 from ...geometry import (
     Analytic,
     AnalyticConjugated,
+    CliqueMap,
+    CrossTerm,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
     Harmonium,
     IdentityEmbedding,
     LinearEmbedding,
-    Manifold,
-    MatrixRep,
     Rectangular,
+    SubMapEmbedding,
     SymmetricConjugated,
 )
 from ..base.gaussian.normal import FullNormal, Normal
@@ -175,35 +175,27 @@ class CompleteMixtureOfHarmoniums[
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        """$(x, y)$, $(x, y, k)$ and $(x, k)$, with $y$ and $k$ the mixture's nodes $0$ and $1$."""
-        return (((0,), (0,)), ((0,), (0, 1)), ((0,), (1,)))
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """$(x, y)$, $(x, y, k)$ and $(x, k)$, with $y$ and $k$ the mixture's nodes $0$ and $1$.
 
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        """$\\theta_{XY}$ keeps the base interaction's representation."""
-        _, far = crossing
-        if far == (0,):
-            (bas_crossing,) = self.bas_hrm.crs_cliques
-            return self.bas_hrm.crs_rep(bas_crossing)
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        """The base interaction's subspaces at $x$ and $y$, except that $\\theta_{XK}$ uses all of $x$, and all of $k$ throughout."""
-        _, far = crossing
-        if far == (1,):
-            return (IdentityEmbedding,), (IdentityEmbedding,)
-        (bas_crossing,) = self.bas_hrm.crs_cliques
-        bas_cod, bas_dom = self.bas_hrm.crs_emb_constructors(bas_crossing)
-        if far == (0,):
-            return bas_cod, bas_dom
-        return bas_cod, (*bas_dom, IdentityEmbedding)
+        $\\theta_{XY}$ is the base interaction. $\\theta_{XYK}$ reads the base interaction's
+        subspace of $y$, and all of $k$, from the mixture's $(y, k)$ block. $\\theta_{XK}$
+        uses all of $x$ and all of $k$.
+        """
+        (bas_map,) = self.bas_hrm.crs_maps
+        (yk_map,) = self.pst_man.crs_maps
+        cat_emb = IdentityEmbedding(self.pst_man.lat_man)
+        xyk_map = CliqueMap(
+            Rectangular(),
+            bas_map.cod_emb,
+            SubMapEmbedding(yk_map, bas_map.dom_emb, cat_emb),
+        )
+        xk_map = CliqueMap(Rectangular(), IdentityEmbedding(self.obs_man), cat_emb)
+        return (
+            CrossTerm((0,), (0,), bas_map),
+            CrossTerm((0,), (0, 1), xyk_map),
+            CrossTerm((0,), (1,), xk_map),
+        )
 
     # Methods
 

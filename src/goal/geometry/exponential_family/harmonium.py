@@ -1,6 +1,6 @@
-"""Harmonium models: product exponential families over observable and latent variables coupled through an interaction matrix.
+"""Harmoniums: exponential families over observable and latent variables, coupled by an interaction.
 
-Natural parameters of a harmonium are the concatenation ``[obs_params, int_params, lat_params]`` of observable biases, interaction matrix, and latent biases. The conjugated subclasses add structure that decomposes the joint into a likelihood and a prior, enabling exact density evaluation and EM.
+The natural parameters of a harmonium are ``[obs_params, int_params, lat_params]``: the observable biases, the interaction, and the latent biases. A conjugated harmonium also factors the joint into a likelihood and a prior, which gives the marginal density of the observable in closed form.
 """
 
 from __future__ import annotations
@@ -35,9 +35,11 @@ class Harmonium[
     Gibbs,
     ABC,
 ):
-    """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
+    """An exponential family over observable variables $x$ and latent variables $z$, coupled by an interaction.
 
-    A model declares the two sides (:attr:`obs_man`, :attr:`pst_man`) and the cliques joining them, with :meth:`crs_rep` and :meth:`crs_emb_constructors` for each (see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`); each side is an exponential family and so carries its own cliques, one node unless it says otherwise (CCA's observable pair, a deeper harmonium as posterior). The graph, the parameter layout and the interaction :attr:`int_man` are derived from that. The composed graph comes before the single-node default of :class:`~goal.geometry.exponential_family.base.ExponentialFamily` in the method order, which is why ``RecursiveLinearCliques`` is listed first among the bases. The observable, the interaction and the posterior are the root, cross, and deep partitions, so :meth:`~goal.geometry.manifold.combinators.Triple.split_coords` returns ``(obs_params, int_params, lat_params)`` however many cliques the deep partition holds.
+    A subclass declares the observable family (:attr:`obs_man`), the posterior family (:attr:`pst_man`), and the crossing cliques between them, each with its block (:meth:`crs_trms`; see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`). Either family may have several nodes. The parameter layout and the interaction :attr:`int_man` are derived. The observable, interaction and posterior are the root, cross and deep partitions of the layout, so :meth:`~goal.geometry.manifold.combinators.Triple.split_coords` returns ``(obs_params, int_params, lat_params)``.
+
+    ``RecursiveLinearCliques`` is listed before ``Gibbs`` among the bases, so that the composed graph overrides the single-node default of :class:`~goal.geometry.exponential_family.base.ExponentialFamily`.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -52,7 +54,7 @@ class Harmonium[
     @property
     @abstractmethod
     def pst_man(self) -> Posterior:
-        """Manifold of posterior latent biases --- the deep partition."""
+        """Manifold of latent biases --- the deep partition."""
 
     # Overrides
 
@@ -65,7 +67,7 @@ class Harmonium[
     @property
     @override
     def dep_man(self) -> Posterior:
-        """The deep partition is the latent side, however deep it goes."""
+        """The deep partition is the latent biases."""
         return self.pst_man
 
     # Methods
@@ -240,7 +242,7 @@ class Conjugated[
     Generative,
     ABC,
 ):
-    """A harmonium whose prior $p(z)$ belongs to the same exponential family as the posterior $p(z \\mid x)$, enabling exact computation of the prior via conjugation parameters $\\rho$.
+    """A harmonium whose prior family contains its posterior family (:attr:`pst_prr_emb`), so that the prior $p(z)$ is computed from conjugation parameters $\\rho$.
 
     Mathematically, conjugation holds when $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho \\cdot \\mathbf s_Z(z) + \\chi$ for all $z$, with $\\rho$ from :meth:`conjugation_parameters` and $\\chi$ from :meth:`conjugation_offset`."""
 
@@ -482,7 +484,7 @@ class HarmoniumEmbedding[
 ](TupleEmbedding[Harmonium[Observable, Posterior], Component], ABC):
     """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
 
-    The blocks are the observable, interaction and posterior partitions of :meth:`~goal.geometry.manifold.combinators.Triple.split_coords`, so a deeper graph changes what the posterior block holds but not which block it is.
+    The blocks are those of :meth:`~goal.geometry.manifold.combinators.Triple.split_coords`. The posterior block holds every latent parameter, however many cliques the posterior has.
     """
 
     # Fields

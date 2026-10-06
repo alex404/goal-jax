@@ -8,9 +8,8 @@ This module implements mixture models using a harmonium structure where
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Any, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -20,12 +19,12 @@ from ...geometry import (
     Analytic,
     AnalyticConjugated,
     CliqueMap,
+    CrossTerm,
     Differentiable,
     ExponentialFamilyProduct,
     IdentityEmbedding,
     LinearEmbedding,
     Manifold,
-    MatrixRep,
     Rectangular,
     StatisticalMoments,
     SymmetricConjugated,
@@ -94,23 +93,9 @@ class Mixture[Observable: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
-        """The observable and the category, coupled."""
-        return (((0,), (0,)),)
-
-    @override
-    def crs_rep(self, crossing: tuple[tuple[int, ...], tuple[int, ...]]) -> MatrixRep:
-        return Rectangular()
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        """The coupled part of the observable, and the whole of the category."""
-        return (lambda _: self.obs_emb,), (IdentityEmbedding,)
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """The observable and the category, coupled: the coupled part of the observable (:attr:`cmp_int_map`)."""
+        return (CrossTerm((0,), (0,), self.cmp_int_map),)
 
     @property
     @override
@@ -142,7 +127,7 @@ class Mixture[Observable: Differentiable](
         int_comps = int_map.to_matrix(int_mat).T  # [n_categories-1, sub_obs_dim]
 
         def compute_rho(comp_params: Array) -> Array:
-            adjusted_obs = int_map.cod_embs[0].translate(obs_bias, comp_params)
+            adjusted_obs = int_map.cod_emb.translate(obs_bias, comp_params)
             return self.obs_man.log_partition_function(adjusted_obs) - rho_0
 
         return jax.vmap(compute_rho)(int_comps)  # [n_categories-1]
@@ -157,9 +142,7 @@ class Mixture[Observable: Differentiable](
         :class:`CompleteMixture` over an observable of several cliques, each clique's
         crossing block, which are consecutive row bands of this matrix.
         """
-        return CliqueMap(
-            Rectangular(), (self.obs_emb,), (IdentityEmbedding(self.lat_man),)
-        )
+        return CliqueMap(Rectangular(), self.obs_emb, IdentityEmbedding(self.lat_man))
 
     @property
     def cmp_man(self) -> MixtureComponents[Observable]:
@@ -195,9 +178,7 @@ class Mixture[Observable: Differentiable](
         obs_means = jnp.sum(weighted_comps, axis=0)
 
         # Project components (excluding first) to interaction subspace
-        projected_comps = jax.vmap(self.cmp_int_map.cod_embs[0].project)(
-            weighted_comps[1:]
-        )
+        projected_comps = jax.vmap(self.cmp_int_map.cod_emb.project)(weighted_comps[1:])
         # [n_categories-1, sub_obs_dim]
 
         # Transpose and convert to int_man storage format
@@ -234,7 +215,7 @@ class Mixture[Observable: Differentiable](
 
         # Translate each column from subspace to full observable space
         def translate_col(col: Array) -> Array:
-            return int_map.cod_embs[0].translate(obs_bias, col)
+            return int_map.cod_emb.translate(obs_bias, col)
 
         translated = jax.vmap(translate_col)(int_cols)
 
@@ -290,26 +271,26 @@ class CompleteMixture[Observable: Differentiable](
 
     @property
     @override
-    def crs_cliques(self) -> tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]:
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
         """The category with every clique of the observable.
 
         One crossing when the observable is one node. When it has several cliques (a
-        harmonium, as in MFA's mixture view) the category couples to each of them in full,
-        so the mixture of a harmonium is the harmonium's graph with $k$ joined to every
-        clique.
+        harmonium, as in MFA's mixture view) the category couples to the whole block of
+        each of them, so the mixture of a harmonium is the harmonium's graph with $k$
+        joined to every clique.
         """
-        return tuple((clique, (0,)) for clique in self.obs_man.cliques)
-
-    @override
-    def crs_emb_constructors(
-        self, crossing: tuple[tuple[int, ...], tuple[int, ...]]
-    ) -> tuple[
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-        tuple[Callable[[Manifold], LinearEmbedding[Any, Any]], ...],
-    ]:
-        """Every node in full."""
-        near, _ = crossing
-        return (IdentityEmbedding,) * len(near), (IdentityEmbedding,)
+        return tuple(
+            CrossTerm(
+                clq,
+                (0,),
+                CliqueMap(
+                    Rectangular(),
+                    IdentityEmbedding(self.obs_man.clq_man(clq)),
+                    IdentityEmbedding(self.lat_man),
+                ),
+            )
+            for clq in self.obs_man.cliques
+        )
 
     def split_mean_mixture(
         self,

@@ -20,7 +20,6 @@ from goal.geometry import (
     Diagonal,
     PositiveDefinite,
     Scale,
-    TensorProduct,
 )
 from goal.models import CanonicalCorrelationAnalysis
 
@@ -50,7 +49,7 @@ class TestGraph:
     def test_clique_set(self) -> None:
         model = cca()
         assert model.n_nodes == 3
-        assert model.crs_cliques == (((0,), (0,)), ((1,), (0,)))
+        assert model.crs_clqs == (((0,), (0,)), ((1,), (0,)))
         assert model.cliques == ((0,), (1,), (0, 2), (1, 2), (2,))
 
     def test_the_latent_follows_the_observables(self) -> None:
@@ -84,11 +83,11 @@ class TestGraph:
         observable node; the interaction's two sides are the whole pair and the latent.
         """
         model = cca()
-        fst, snd = (clq_map for _, _, clq_map in model.crs_man.terms)
+        fst, snd = (trm.clq_map for trm in model.crs_man.trms)
         assert fst.dom_man == snd.dom_man
         assert fst.cod_man != snd.cod_man
-        assert fst.cod_man == TensorProduct((model.obs_man.fst_man,))
-        assert snd.cod_man == TensorProduct((model.obs_man.snd_man,))
+        assert fst.cod_man == model.obs_man.fst_man
+        assert snd.cod_man == model.obs_man.snd_man
 
 
 class TestDimensions:
