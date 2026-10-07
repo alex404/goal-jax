@@ -10,35 +10,39 @@ Class Hierarchy
 
 .. inheritance-diagram:: goal.geometry.exponential_family.variational
    :parts: 2
-   :top-classes: goal.geometry.exponential_family.base.ExponentialFamily
+   :top-classes: goal.geometry.manifold.combinators.Triple
 
 \
 
 Variational Conjugated
 ----------------------
 
-.. autoclass:: goal.geometry.exponential_family.variational.VariationalPrior
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. autoclass:: goal.geometry.exponential_family.variational.VariationalConjugated
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.VariationalDifferentiable
+.. autoclass:: goal.geometry.exponential_family.variational.ExactPriorVariational
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.VariationalSymmetric
+.. autoclass:: goal.geometry.exponential_family.variational.NestedPriorVariational
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.variational.ConjugationCoordinates
    :members:
    :undoc-members:
    :show-inheritance:
 
 Helpers
 -------
+
+.. autofunction:: goal.geometry.exponential_family.variational.score_mean_estimate
+
+.. autofunction:: goal.geometry.exponential_family.variational.score_variance_estimate
 
 .. autofunction:: goal.geometry.exponential_family.variational.regress_conjugation_parameters
 

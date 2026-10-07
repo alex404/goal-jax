@@ -10,6 +10,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
+    AttachedHarmonium,
     CliqueMap,
     CrossTerm,
     IdentityEmbedding,
@@ -18,7 +19,7 @@ from ...geometry import (
 from ...geometry.exponential_family.base import Differentiable
 from ...geometry.exponential_family.harmonium import Harmonium
 from ...geometry.exponential_family.variational import (
-    VariationalSymmetric,
+    ExactPriorVariational,
     regress_conjugation_parameters,
 )
 from ..base.categorical import Bernoullis
@@ -77,45 +78,53 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
 @dataclass(frozen=True)
 class VonMisesPopulationCode(
-    VariationalSymmetric[Poissons, VonMisesProduct, VonMisesProduct]
+    ExactPriorVariational[
+        AttachedHarmonium[VonMisesProduct], VonMisesProduct, VonMisesProduct
+    ]
 ):
     """Variational population code with Poisson observables and VonMises latents.
 
     Unifies 1D population codes and multi-dimensional toroidal models under
     the variational conjugation framework. Posterior = prior = conjugation =
-    ``VonMisesProduct``, so :meth:`~goal.geometry.exponential_family.variational.VariationalConjugated.conjugation_parameters` returns the stored $\\rho$ unchanged.
+    ``VonMisesProduct``, so :meth:`conjugation_parameters` returns the stored $\\rho$.
     """
 
-    _gen_hrm: PoissonVonMisesHarmonium
+    # Fields
+
+    hrm: PoissonVonMisesHarmonium
 
     # Overrides
 
     @property
     @override
-    def gen_hrm(self) -> PoissonVonMisesHarmonium:
-        return self._gen_hrm
-
-    @property
-    @override
-    def lat_man(self) -> VonMisesProduct:
-        return self._gen_hrm.pst_man
+    def gen_hrm(self) -> AttachedHarmonium[VonMisesProduct]:
+        return AttachedHarmonium(self.hrm)
 
     @property
     @override
     def cnj_man(self) -> VonMisesProduct:
-        return self.lat_man
+        return self.hrm.pst_man
+
+    @property
+    @override
+    def pst_prr_emb(self) -> IdentityEmbedding[VonMisesProduct]:
+        return IdentityEmbedding(self.hrm.pst_man)
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
+        return cnj_params
 
     # Methods
 
     @property
     def n_neurons(self) -> int:
         """Number of Poisson observable neurons."""
-        return self.gen_hrm.n_neurons
+        return self.hrm.n_neurons
 
     @property
     def n_latent(self) -> int:
         """Number of VonMises latent dimensions."""
-        return self.gen_hrm.n_latent
+        return self.hrm.n_latent
 
     def initialize_from_tuning_curves(
         self,
@@ -130,26 +139,29 @@ class VonMisesPopulationCode(
         """Initialize parameters from tuning curve specification.
 
         Builds likelihood and prior parameters from gains, preferred directions, and baselines,
-        then fits conjugation parameters $\\rho$ via least-squares regression.
+        then fits conjugation parameters $\\rho$ via least-squares regression against
+        samples of the prior, and sets the latent bias to the prior minus $\\rho$.
         """
-        vm = self.pst_man.rep_man  # underlying VonMises
+        vm = self.hrm.pst_man.rep_man  # underlying VonMises
 
         # Build likelihood params from tuning curves
         obs_params = baselines
         int_col_1 = gains * jnp.cos(preferred)
         int_col_2 = gains * jnp.sin(preferred)
         int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
-        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
         prior_nat = vm.join_mean_concentration(prior_mean, prior_concentration)
+        prior_nat = jnp.tile(prior_nat, self.n_latent)
 
-        # Fit rho via regression
+        # Fit rho via regression, with zero rho so that the prior is prior_nat
+        def params_at(lat_params: Array, rho: Array) -> Array:
+            hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_params)
+            return self.join_coords(hrm_params, rho, jnp.zeros(0))
+
         zero_rho = jnp.zeros(self.cnj_man.dim)
-        init_params = self.join_coords(lkl_params, prior_nat, zero_rho)
         rho, _, _, _ = regress_conjugation_parameters(
-            self, key, init_params, n_regression_samples
+            self, key, params_at(prior_nat, zero_rho), n_regression_samples
         )
-
-        return self.join_coords(lkl_params, prior_nat, rho)
+        return params_at(prior_nat - rho, rho)
 
 
 # --- Boltzmann Population Code (Gaussian latent) ---
@@ -209,47 +221,51 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
 
 @dataclass(frozen=True)
 class BoltzmannPopulationCode[Shape: Differentiable](
-    VariationalSymmetric[Boltzmann[Shape], FullNormal, FullNormal]
+    ExactPriorVariational[AttachedHarmonium[FullNormal], FullNormal, FullNormal]
 ):
     """Variational population code with a Boltzmann observable and a Normal latent.
 
-    Posterior = prior = conjugation = ``FullNormal``, so
-    :meth:`~goal.geometry.exponential_family.variational.VariationalConjugated.conjugation_parameters`
-    returns the stored $\\rho$ unchanged. Trained via the variational ELBO with the
-    conjugation residual regularized; inherits ``mean_elbo``,
-    ``conjugation_residual``, ``prior_residual_variance``, and joint ``sample``.
+    Posterior = prior = conjugation = ``FullNormal``, so :meth:`conjugation_parameters`
+    returns the stored $\\rho$. Trained via the variational ELBO with the conjugation
+    residual regularized.
     """
 
-    _gen_hrm: BoltzmannNormalHarmonium[Shape]
+    # Fields
+
+    hrm: BoltzmannNormalHarmonium[Shape]
 
     # Overrides
 
     @property
     @override
-    def gen_hrm(self) -> BoltzmannNormalHarmonium[Shape]:
-        return self._gen_hrm
-
-    @property
-    @override
-    def lat_man(self) -> FullNormal:
-        return self._gen_hrm.pst_man
+    def gen_hrm(self) -> AttachedHarmonium[FullNormal]:
+        return AttachedHarmonium(self.hrm)
 
     @property
     @override
     def cnj_man(self) -> FullNormal:
-        return self.lat_man
+        return self.hrm.pst_man
+
+    @property
+    @override
+    def pst_prr_emb(self) -> IdentityEmbedding[FullNormal]:
+        return IdentityEmbedding(self.hrm.pst_man)
+
+    @override
+    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
+        return cnj_params
 
     # Methods
 
     @property
     def n_neurons(self) -> int:
         """Number of Boltzmann observable neurons."""
-        return self._gen_hrm.boltzmann.data_dim
+        return self.hrm.boltzmann.data_dim
 
     @property
     def n_latent(self) -> int:
         """Dimension of the Gaussian latent."""
-        return self._gen_hrm.lat_dim
+        return self.hrm.lat_dim
 
 
 def chordal_boltzmann_population_code(

@@ -21,6 +21,11 @@ Graphical Harmoniums
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.exponential_family.graphical.AttachedHarmonium
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.geometry.exponential_family.graphical.DifferentiableGraphical
    :members:
    :undoc-members:

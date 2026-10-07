@@ -2,7 +2,7 @@
 
 A population code of correlated binary neurons --- a Boltzmann machine with
 pairwise couplings on a chordal graph --- encodes a continuous Gaussian latent.
-The model is a real ``VariationalConjugated`` harmonium
+The model is a ``VariationalConjugated`` population code
 (:class:`~goal.models.harmonium.population_codes.BoltzmannPopulationCode`), so we
 can ask the two questions that matter together:
 
@@ -154,8 +154,8 @@ def conjugacy_curves(
     psi = jax.vmap(
         lambda z: model.obs_man.log_partition_function(model.likelihood_at(params, z))
     )(z_pts)
-    r_after = jax.vmap(lambda z: model.conjugation_residual(params, z))(z_pts)
-    r_before = jax.vmap(lambda z: model.conjugation_residual(params0, z))(z_pts)
+    r_after = jax.vmap(lambda z: model.conjugation_residuals(params, z)[0])(z_pts)
+    r_before = jax.vmap(lambda z: model.conjugation_residuals(params0, z)[0])(z_pts)
     return psi, psi + r_after, r_before, r_after
 
 
@@ -216,7 +216,7 @@ def fit_family(
     def loss_fn(params: Array, key: Array, batch: Array, conj_beta: Array) -> Array:
         e_key, c_key = jax.random.split(key)
         elbo = model.mean_elbo(e_key, params, batch, MC_SAMPLES)
-        conj = model.prior_residual_variance(c_key, params, CONJ_SAMPLES)
+        (conj,) = model.prior_residual_variances(c_key, params, CONJ_SAMPLES)
         return -elbo + conj_beta * LAMBDA * conj
 
     def step(

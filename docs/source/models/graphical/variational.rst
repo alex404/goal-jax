@@ -10,7 +10,7 @@ Class Hierarchy
 
 .. inheritance-diagram:: goal.models.graphical.variational
    :parts: 2
-   :top-classes: goal.geometry.exponential_family.variational.VariationalConjugated, goal.geometry.exponential_family.base.ExponentialFamily
+   :top-classes: goal.geometry.exponential_family.variational.VariationalConjugated
 
 \
 

@@ -26,6 +26,7 @@ import optax
 from jax import Array
 
 from goal.geometry import (
+    AttachedHarmonium,
     CliqueMap,
     CrossTerm,
     DifferentiableTuple,
@@ -37,7 +38,7 @@ from goal.geometry import (
 )
 from goal.geometry.exponential_family.harmonium import Harmonium
 from goal.geometry.exponential_family.variational import (
-    VariationalSymmetric,
+    ExactPriorVariational,
     conjugation_metrics,
     regress_conjugation_parameters,
 )
@@ -111,34 +112,40 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
 
 @dataclass(frozen=True)
 class PendulumPopulationCode(
-    VariationalSymmetric[Poissons, VonMisesNormalPair, VonMisesNormalPair]
+    ExactPriorVariational[
+        AttachedHarmonium[VonMisesNormalPair], VonMisesNormalPair, VonMisesNormalPair
+    ]
 ):
     """Variational population code with Poisson observations and pendulum-latent posterior."""
 
-    _gen_hrm: PoissonPendulumHarmonium
+    hrm: PoissonPendulumHarmonium
 
     @property
     @override
-    def gen_hrm(self) -> PoissonPendulumHarmonium:
-        return self._gen_hrm
-
-    @property
-    @override
-    def lat_man(self) -> VonMisesNormalPair:
-        return self._gen_hrm.pst_man
+    def gen_hrm(self) -> AttachedHarmonium[VonMisesNormalPair]:
+        return AttachedHarmonium(self.hrm)
 
     @property
     @override
     def cnj_man(self) -> VonMisesNormalPair:
-        return self.lat_man
+        return self.hrm.pst_man
+
+    @property
+    @override
+    def pst_prr_emb(self) -> IdentityEmbedding[VonMisesNormalPair]:
+        return IdentityEmbedding(self.hrm.pst_man)
 
     @override
-    def recognition_at(self, params: Array, x: Array) -> Array:
+    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
+        return cnj_params
+
+    @override
+    def posterior_at(self, params: Array, x: Array) -> Array:
         """Approximate posterior with a soft clamp on the recognition Normal's precision.
 
-        The recognition $q(z\\mid x)$ has natural parameters $\\theta_Z + s_X(x)\\cdot\\Theta_{XZ} - \\rho$. The Normal portion's precision slot $\\theta_2$ must stay strictly negative for downstream :meth:`log_partition_function` / :meth:`to_mean` to be finite. The likelihood interaction column for $v^2$ is initialized at $-1/(2\\sigma_v^2) < 0$ which keeps $s_X\\cdot\\Theta$ non-positive when $s_X \\geq 0$, but free training can flip it positive on individual neurons. Mirror the transition's soft clamp here so a momentary overshoot doesn't NaN the whole loss.
+        The recognition $q(z\\mid x)$ has natural parameters $\\theta_Z + s_X(x)\\cdot\\Theta_{XZ}$, with $\\theta_Z$ the latent bias (the prior minus $\\rho$). The ELBO's residual reads its slope off this override, so the ELBO decomposition stays exact. The Normal portion's precision slot $\\theta_2$ must stay strictly negative for downstream :meth:`log_partition_function` / :meth:`to_mean` to be finite. The likelihood interaction column for $v^2$ is initialized at $-1/(2\\sigma_v^2) < 0$ which keeps $s_X\\cdot\\Theta$ non-positive when $s_X \\geq 0$, but free training can flip it positive on individual neurons. Mirror the transition's soft clamp here so a momentary overshoot doesn't NaN the whole loss.
         """
-        q_params = super().recognition_at(params, x)
+        q_params = super().posterior_at(params, x)
         vm_part, n_part = self.pst_man.split_coords(q_params)
         n_clamped = jnp.array(
             [
@@ -169,22 +176,28 @@ class PendulumPopulationCode(
         col_sin = angle_concentrations * jnp.sin(preferred_angles)
         col_v_lin = preferred_velocities / velocity_variances
         col_v_quad = -1.0 / (2.0 * velocity_variances)
-        int_params = jnp.stack(
-            [col_cos, col_sin, col_v_lin, col_v_quad], axis=1
-        ).ravel()
-        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
-
+        # The interaction is stored term by term: the von Mises block, then the
+        # normal block, each a neurons x 2 matrix
+        int_params = jnp.concatenate(
+            [
+                jnp.stack([col_cos, col_sin], axis=1).ravel(),
+                jnp.stack([col_v_lin, col_v_quad], axis=1).ravel(),
+            ]
+        )
         prior_vm = jnp.zeros(2)  # uniform on circle
         prior_normal = jnp.array([0.0, -1.0 / (2.0 * prior_velocity_variance)])
         prior_nat = jnp.concatenate([prior_vm, prior_normal])
 
-        zero_rho = jnp.zeros(self.cnj_man.dim)
-        init_params = self.join_coords(lkl_params, prior_nat, zero_rho)
+        # Fit rho at zero rho, where the prior is prior_nat, then keep the prior
+        def params_at(lat_params: Array, rho: Array) -> Array:
+            hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_params)
+            return self.join_coords(hrm_params, rho, jnp.zeros(0))
 
+        zero_rho = jnp.zeros(self.cnj_man.dim)
         rho, _, _, _ = regress_conjugation_parameters(
-            self, key, init_params, n_regression_samples
+            self, key, params_at(prior_nat, zero_rho), n_regression_samples
         )
-        return self.join_coords(lkl_params, prior_nat, rho)
+        return params_at(prior_nat - rho, rho)
 
 
 @dataclass(frozen=True)
@@ -226,7 +239,7 @@ class PendulumFilter(
     @property
     @override
     def ems_hrm(self) -> PendulumPopulationCode:
-        return PendulumPopulationCode(_gen_hrm=PoissonPendulumHarmonium(self.n_neurons))
+        return PendulumPopulationCode(PoissonPendulumHarmonium(self.n_neurons))
 
     @property
     @override
@@ -339,11 +352,11 @@ def extract_learned_tuning(model: PendulumFilter, params: Array) -> TuningParams
     _, ems_lkl, _, _ = model.split_coords(params)
     obs_params, int_params = model.ems_hrm.gen_hrm.lkl_fun_man.split_coords(ems_lkl)
 
-    int_mat = int_params.reshape(model.n_neurons, 4)
-    col_cos = int_mat[:, 0]
-    col_sin = int_mat[:, 1]
-    col_v_lin = int_mat[:, 2]
-    col_v_quad = int_mat[:, 3]
+    # The interaction is stored term by term: the von Mises block, then the normal
+    # block, each a neurons x 2 matrix
+    vm_mat, n_mat = int_params.reshape(2, model.n_neurons, 2)
+    col_cos, col_sin = vm_mat[:, 0], vm_mat[:, 1]
+    col_v_lin, col_v_quad = n_mat[:, 0], n_mat[:, 1]
 
     kappas = jnp.sqrt(col_cos**2 + col_sin**2)
     pref_a = jnp.arctan2(col_sin, col_cos)
@@ -429,11 +442,11 @@ def train_mode(
 
         prior_params, ems_lkl, rho, _ = model.split_coords(p)
         ems_hrm = model.ems_hrm
-        ems_full = ems_hrm.join_coords(ems_lkl, prior_params, rho)
+        ems_full = model.emission_params(ems_lkl, rho, prior_params)
         z_sg = jax.lax.stop_gradient(
-            ems_hrm.pst_man.sample(conj_key, prior_params, n_conj_samples)
+            ems_hrm.prr_man.sample(conj_key, prior_params, n_conj_samples)
         )
-        r_vals = jax.vmap(lambda z: ems_hrm.conjugation_residual(ems_full, z))(z_sg)
+        r_vals = jax.vmap(lambda z: ems_hrm.conjugation_residuals(ems_full, z)[0])(z_sg)
         conj_var = jnp.var(r_vals)
         return -elbo + weight * conj_var, (elbo, conj_var)
 
@@ -495,12 +508,11 @@ def train_mode(
             elbos_hist.extend(out_free.tolist())
 
         train_key, metrics_key = jax.random.split(train_key)
-        prior_params, ems_lkl, rho_stored, _ = model.split_coords(params)
-        ems_full = model.ems_hrm.join_coords(ems_lkl, prior_params, rho_stored)
+        prior_params, ems_lkl, rho, _ = model.split_coords(params)
+        ems_full = model.emission_params(ems_lkl, rho, prior_params)
         var_f, _, r_sq = conjugation_metrics(
             model.ems_hrm, metrics_key, ems_full, n_samples=n_conj_samples
         )
-        rho = model.ems_hrm.conjugation_parameters(ems_full)
         var_cr_hist.append(float(var_f))
         r_sq_hist.append(float(r_sq))
         rho_norm_hist.append(float(jnp.linalg.norm(rho)))
@@ -650,7 +662,9 @@ def main(**overrides: Any) -> None:
         velocity_variances=sigmas,
         log_gains=log_gains,
     )
-    ems_lkl, prior_part, rho = model.ems_hrm.split_coords(ems_full)
+    ems_lkl = model.ems_hrm.likelihood_function(ems_full)
+    _, rho, _ = model.ems_hrm.split_coords(ems_full)
+    prior_part = model.ems_hrm.prior(ems_full)
     trns_params = model.trn_map.glorot_initialize(keys[7])
 
     init_params = model.join_coords(prior_part, ems_lkl, rho, trns_params)

@@ -32,6 +32,7 @@ from .exponential_family.dynamical import (
 )
 from .exponential_family.graphical import (
     AnalyticGraphical,
+    AttachedHarmonium,
     DifferentiableGraphical,
     GraphicalHarmonium,
 )
@@ -50,10 +51,10 @@ from .exponential_family.protocols import (
     StatisticalMoments,
 )
 from .exponential_family.variational import (
+    ConjugationCoordinates,
+    ExactPriorVariational,
+    NestedPriorVariational,
     VariationalConjugated,
-    VariationalDifferentiable,
-    VariationalPrior,
-    VariationalSymmetric,
 )
 from .manifold.base import (
     Manifold,
@@ -101,11 +102,13 @@ __all__ = [
     "AnalyticGraphical",
     "AnalyticProduct",
     "AnalyticTuple",
+    "AttachedHarmonium",
     "CliqueEmbedding",
     "CliqueMap",
     "Cliques",
     "ComposedEmbedding",
     "Conjugated",
+    "ConjugationCoordinates",
     "CrossMap",
     "CrossTerm",
     "Diagonal",
@@ -115,6 +118,7 @@ __all__ = [
     "DifferentiableProduct",
     "DifferentiableTuple",
     "Embedding",
+    "ExactPriorVariational",
     "ExponentialFamily",
     "ExponentialFamilyProduct",
     "ExponentialFamilyTuple",
@@ -138,6 +142,7 @@ __all__ = [
     "MatrixMap",
     "MatrixRep",
     "MultilayerPerceptron",
+    "NestedPriorVariational",
     "Null",
     "ObservableEmbedding",
     "Pair",
@@ -160,8 +165,5 @@ __all__ = [
     "TrivialEmbedding",
     "TupleEmbedding",
     "VariationalConjugated",
-    "VariationalDifferentiable",
     "VariationalLatentProcess",
-    "VariationalPrior",
-    "VariationalSymmetric",
 ]

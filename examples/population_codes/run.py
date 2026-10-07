@@ -26,7 +26,7 @@ max_rate = 10.0  # Maximum firing rate at preferred direction
 
 def create_population_code(key: jax.Array) -> tuple[VonMisesPopulationCode, jax.Array]:
     """Create a population code with evenly spaced tuning curves."""
-    model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, 1))
+    model = VonMisesPopulationCode(PoissonVonMisesHarmonium(n_neurons, 1))
     preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
     params = model.initialize_from_tuning_curves(
         key=key,
@@ -44,7 +44,7 @@ def compute_tuning_curves(
 ) -> tuple[jax.Array, jax.Array]:
     """Compute tuning curves over a grid of stimuli."""
     grid = jnp.linspace(0, 2 * jnp.pi, n_grid_points, endpoint=False)
-    lkl_params, _, _ = model.split_coords(params)
+    lkl_params = model.likelihood_function(params)
 
     def rates_at(z: jax.Array) -> jax.Array:
         mz = model.pst_man.sufficient_statistic(z)
@@ -59,7 +59,7 @@ def compute_regression_diagnostics(
     model: VonMisesPopulationCode, params: jax.Array
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Compute regression fit diagnostics for visualization."""
-    lkl_params, _, _ = model.split_coords(params)
+    lkl_params = model.likelihood_function(params)
     obs_params, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     vm = model.pst_man.rep_man  # underlying VonMises
@@ -119,7 +119,7 @@ def main():
     model, params = create_population_code(init_key)
 
     # Extract preferred directions from interaction weights
-    lkl_params, _, _ = model.split_coords(params)
+    lkl_params = model.likelihood_function(params)
     _, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])

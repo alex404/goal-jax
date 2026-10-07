@@ -19,8 +19,10 @@ composite's prior on its clique. Then the composite has
 .. math::
     \\rho = \\sum_i \\iota_i(\\rho_i), \\qquad \\chi = \\sum_i \\chi_i.
 
-A graphical harmonium that is not conjugated can be fit variationally, as the underlying
-harmonium of a :class:`~goal.geometry.exponential_family.variational.VariationalDifferentiable`.
+A graphical harmonium makes no assumption of conjugation: it is the joint family and its
+two conditionals. One that is not conjugated can be fit variationally, as the
+``gen_hrm`` of a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
+A plain harmonium is given to the variational classes as an :class:`AttachedHarmonium`.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from ..algebra.clique import shift_clique
 from ..manifold.clique import CrossTerm, SubCliquesEmbedding
 from ..manifold.util import split_by_dims
 from .base import Analytic, Differentiable, Gibbs
-from .combinators import AnalyticTuple, DifferentiableTuple
+from .combinators import AnalyticTuple, DifferentiableTuple, GenerativeTuple
 from .harmonium import (
     AnalyticConjugated,
     Conjugated,
@@ -63,7 +65,7 @@ class GraphicalHarmonium[Deep: Gibbs](Harmonium[Any, Deep], ABC):
     @abstractmethod
     def obs_hrms_att_clqs(
         self,
-    ) -> tuple[tuple[Harmonium[Differentiable, Any], tuple[int, ...]], ...]:
+    ) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
         """The attached harmoniums, in order, each with the clique of the latent model its posterior is attached to.
 
         Node $j$ of the posterior is node ``att_clq[j]`` of the latent model. The observables of
@@ -74,9 +76,9 @@ class GraphicalHarmonium[Deep: Gibbs](Harmonium[Any, Deep], ABC):
 
     @property
     @override
-    def obs_man(self) -> DifferentiableTuple[Any]:
+    def obs_man(self) -> GenerativeTuple[Any]:
         """The observables of the harmoniums in :attr:`obs_hrms`, as the elements of a tuple, also when there is only one."""
-        return DifferentiableTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
+        return GenerativeTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
 
     @property
     @override
@@ -101,7 +103,7 @@ class GraphicalHarmonium[Deep: Gibbs](Harmonium[Any, Deep], ABC):
     # Methods
 
     @property
-    def obs_hrms(self) -> tuple[Harmonium[Differentiable, Any], ...]:
+    def obs_hrms(self) -> tuple[Harmonium[Any, Any], ...]:
         """The attached harmoniums of :attr:`obs_hrms_att_clqs`."""
         return tuple(obs_hrm for obs_hrm, _ in self.obs_hrms_att_clqs)
 
@@ -130,6 +132,34 @@ class GraphicalHarmonium[Deep: Gibbs](Harmonium[Any, Deep], ABC):
         )
 
 
+@dataclass(frozen=True)
+class AttachedHarmonium[Deep: Gibbs](GraphicalHarmonium[Deep]):
+    """One harmonium as a graphical harmonium: its posterior is the latent model, attached on all of its nodes.
+
+    The parameter layout is that of the harmonium. It lets a plain harmonium be used where
+    a graphical harmonium is expected, e.g. as the ``gen_hrm`` of a
+    :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
+    """
+
+    # Fields
+
+    att_hrm: Harmonium[Any, Deep]
+
+    # Overrides
+
+    @property
+    @override
+    def pst_man(self) -> Deep:
+        return self.att_hrm.pst_man
+
+    @property
+    @override
+    def obs_hrms_att_clqs(
+        self,
+    ) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+        return ((self.att_hrm, tuple(range(self.att_hrm.pst_man.n_nodes))),)
+
+
 class DifferentiableGraphical[Deep: Differentiable, PriorDeep: Differentiable](
     GraphicalHarmonium[Deep],
     DifferentiableConjugated[Any, Deep, PriorDeep],
@@ -149,6 +179,12 @@ class DifferentiableGraphical[Deep: Differentiable, PriorDeep: Differentiable](
     def obs_hrms(self) -> tuple[Conjugated[Any, Any, Any], ...]:
         """The attached harmoniums, typed as conjugated."""
         return cast(tuple[Conjugated[Any, Any, Any], ...], super().obs_hrms)
+
+    @property
+    @override
+    def obs_man(self) -> DifferentiableTuple[Any]:
+        """The observables of the attached harmoniums, as the elements of a differentiable tuple."""
+        return DifferentiableTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:

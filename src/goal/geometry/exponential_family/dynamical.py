@@ -4,27 +4,28 @@ This module contains:
 
 - ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
-- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is a ``VariationalSymmetric`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
+- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is an ``ExactPriorVariational`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ..manifold.base import Manifold
 from ..manifold.combinators import Quadruple, Triple
 from ..manifold.map import AffineMap, Map
-from .base import Analytic, Differentiable, ExponentialFamily
+from .base import Analytic, Differentiable
 from .harmonium import (
     AnalyticConjugated,
     SymmetricConjugated,
 )
-from .variational import VariationalSymmetric
+from .variational import ExactPriorVariational
 
 
 def transpose_harmonium[L: Differentiable](
@@ -380,7 +381,7 @@ class AnalyticLatentProcess[
 class VariationalLatentProcess[
     O: Differentiable,
     L: Differentiable,
-    C: ExponentialFamily,
+    C: Manifold,
 ](
     Quadruple[L, AffineMap[O, L], C, Map[L, L]],
     ABC,
@@ -401,8 +402,8 @@ class VariationalLatentProcess[
 
     @property
     @abstractmethod
-    def ems_hrm(self) -> VariationalSymmetric[O, L, C]:
-        """The variational-conjugate emission harmonium $p(x_t \\mid z_t)$ with learned conjugation $\\rho$. Symmetric variational because the transition operates on belief natural parameters in ``L``."""
+    def ems_hrm(self) -> ExactPriorVariational[Any, L, C]:
+        """The variational emission $p(x_t \\mid z_t)$ with learned conjugation $\\rho$. Its posterior and prior families must both be ``L`` (an identity ``pst_prr_emb``), because the transition operates on belief natural parameters in ``L``."""
 
     @property
     @abstractmethod
@@ -435,6 +436,14 @@ class VariationalLatentProcess[
 
     # Methods
 
+    def emission_params(self, ems_lkl: Array, cnj_params: Array, prior: Array) -> Array:
+        """Parameters of :attr:`ems_hrm` whose prior is the given belief: its latent bias is the belief minus the conjugation parameters."""
+        ems_hrm = self.ems_hrm
+        obs_params, int_params = ems_hrm.gen_hrm.lkl_fun_man.split_coords(ems_lkl)
+        lat_params = prior - ems_hrm.conjugation_parameters(ems_lkl, cnj_params)
+        hrm_params = ems_hrm.gen_hrm.join_coords(obs_params, int_params, lat_params)
+        return ems_hrm.join_coords(hrm_params, cnj_params, jnp.zeros(0))
+
     def filter(
         self,
         key: Array,
@@ -459,7 +468,7 @@ class VariationalLatentProcess[
             belief, total_elbo = carry
             obs, step_key = step_input
             predicted = trn_map(trns_params, belief)
-            ems_full = ems_hrm.join_coords(ems_lkl, predicted, rho)
+            ems_full = self.emission_params(ems_lkl, rho, predicted)
             posterior = ems_hrm.recognition_at(ems_full, obs)
             elbo_t = ems_hrm.elbo_at(step_key, ems_full, obs, n_mc_samples)
             return (posterior, total_elbo + elbo_t), posterior

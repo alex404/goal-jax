@@ -38,7 +38,7 @@ def _make_population_code(
     n_neurons: int, key: Array, *, n_regression_samples: int = 1000
 ) -> tuple[VonMisesPopulationCode, Array]:
     """Create a VonMisesPopulationCode with uniform preferred directions."""
-    model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, 1))
+    model = VonMisesPopulationCode(PoissonVonMisesHarmonium(n_neurons, 1))
     preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
     params = model.initialize_from_tuning_curves(
         key=key,
@@ -56,7 +56,7 @@ class TestVonMisesPopulationCode:
     @pytest.mark.parametrize("n", [4, 8, 16])
     def test_dimensions(self, n: int) -> None:
         hrm = PoissonVonMisesHarmonium(n, 1)
-        model = VonMisesPopulationCode(_gen_hrm=hrm)
+        model = VonMisesPopulationCode(hrm)
         assert model.obs_man.dim == n
         assert model.obs_man.data_dim == n
         assert model.pst_man.dim == 2
@@ -68,7 +68,7 @@ class TestVonMisesPopulationCode:
     def test_tuning_curve_peaks_at_preferred(self, n: int) -> None:
         """Each neuron's firing rate is higher at its preferred direction."""
         model, params = _make_population_code(n, jax.random.PRNGKey(42))
-        lkl_params, _, _ = model.split_coords(params)
+        lkl_params = model.likelihood_function(params)
         _, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
         int_matrix = int_params.reshape(n, 2)
         preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])
@@ -133,7 +133,7 @@ class TestVonMisesPopulationCodeConjugation:
 
     def test_regression_with_variation(self) -> None:
         n_neurons = 16
-        model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, 1))
+        model = VonMisesPopulationCode(PoissonVonMisesHarmonium(n_neurons, 1))
         key = jax.random.PRNGKey(42)
 
         preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
@@ -142,12 +142,10 @@ class TestVonMisesPopulationCodeConjugation:
         int_col_1 = gains * jnp.cos(preferred)
         int_col_2 = gains * jnp.sin(preferred)
         int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
-        lkl_params = model.gen_hrm.lkl_fun_man.join_coords(
-            jnp.zeros(n_neurons), int_params
+        hrm_params = model.gen_hrm.join_coords(
+            jnp.zeros(n_neurons), int_params, jnp.zeros(2)
         )
-        params = model.join_coords(
-            jnp.zeros(2), lkl_params, jnp.zeros(model.cnj_man.dim)
-        )
+        params = model.join_coords(hrm_params, model.cnj_man.zeros(), jnp.zeros(0))
 
         key, reg_key = jax.random.split(key)
         rho, r_squared, _, _ = regress_conjugation_parameters(
@@ -159,7 +157,7 @@ class TestVonMisesPopulationCodeConjugation:
 def _make_boltzmann_pc(
     kind: str, n: int, d: int, key: Array, *, n_reg: int = 1500
 ) -> tuple[BoltzmannPopulationCode[Any], Array]:
-    """Build a chain-chordal or diagonal Boltzmann PPC with rho seeded by regression."""
+    """Build a chain-chordal or diagonal Boltzmann PPC with rho seeded by regression, keeping the prior of the initialization."""
     edges = [(i, i + 1) for i in range(n - 1)]
     model: BoltzmannPopulationCode[Any]
     if kind == "chordal":
@@ -170,8 +168,10 @@ def _make_boltzmann_pc(
     rho, _, _, _ = regress_conjugation_parameters(
         model, jax.random.fold_in(key, 1), params, n_reg
     )
-    lkl_p, prior_p, _ = model.split_coords(params)
-    return model, model.join_coords(lkl_p, prior_p, rho)
+    hrm_params, _, dep_params = model.split_coords(params)
+    obs_p, int_p, lat_p = model.gen_hrm.split_coords(hrm_params)
+    hrm_params = model.gen_hrm.join_coords(obs_p, int_p, lat_p - rho)
+    return model, model.join_coords(hrm_params, rho, dep_params)
 
 
 class TestBoltzmannPopulationCode:
@@ -186,23 +186,25 @@ class TestBoltzmannPopulationCode:
             model.obs_man.dim,
             full_normal(2).dim,
         )
-        assert model.cnj_man.dim == model.lat_man.dim
+        assert model.cnj_man.dim == model.prr_man.dim
         assert model.n_neurons == 6
         assert model.n_latent == 2
 
     def test_conjugation_residual_matches_recompute(self) -> None:
-        """conjugation_residual equals an independent recompute from the public API."""
+        """The residual equals an independent recompute from the public API."""
         model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(1))
         z = 0.5 * jax.random.normal(jax.random.PRNGKey(2), (2,))
-        r_model = model.conjugation_residual(params, z)
-        lkl, _, _ = model.split_coords(params)
-        s_z = model.lat_man.sufficient_statistic(z)
+        (r_model,) = model.conjugation_residuals(params, z)
+        _, cnj, _ = model.split_coords(params)
+        lkl = model.likelihood_function(params)
+        s_z = model.prr_man.sufficient_statistic(z)
         psi_z = model.obs_man.log_partition_function(
             model.gen_hrm.lkl_fun_man(lkl, s_z)
         )
         obs_p, _ = model.gen_hrm.lkl_fun_man.split_coords(lkl)
         psi_b = model.obs_man.log_partition_function(obs_p)
-        r_direct = jnp.dot(model.conjugation_parameters(params), s_z) - psi_z + psi_b
+        rho = model.conjugation_parameters(lkl, cnj)
+        r_direct = jnp.dot(rho, s_z) - psi_z + psi_b
         assert jnp.allclose(r_model, r_direct, rtol=RTOL, atol=ATOL)
 
     @pytest.mark.parametrize("kind", ["chordal", "diagonal"])
@@ -219,15 +221,15 @@ class TestBoltzmannPopulationCode:
         model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(5))
         q0 = model.recognition_at(params, jnp.zeros(6))
         q1 = model.recognition_at(params, jnp.ones(6))
-        _, prec0 = model.lat_man.split_location_precision(q0)
-        _, prec1 = model.lat_man.split_location_precision(q1)
+        _, prec0 = model.prr_man.split_location_precision(q0)
+        _, prec1 = model.prr_man.split_location_precision(q1)
         assert jnp.all(jnp.isfinite(q0))
         assert not jnp.allclose(prec0, prec1)
 
     def test_sample_observable_binary(self) -> None:
         model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(6))
         s = model.sample(jax.random.PRNGKey(7), params, 16)
-        assert s.shape == (16, model.obs_man.data_dim + model.lat_man.data_dim)
+        assert s.shape == (16, model.data_dim)
         x = s[:, : model.obs_man.data_dim]
         assert jnp.all((x == 0) | (x == 1))
 

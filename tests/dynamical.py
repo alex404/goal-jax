@@ -253,7 +253,7 @@ class _MinimalVarLP(
     @override
     def ems_hrm(self) -> VonMisesPopulationCode:
         return VonMisesPopulationCode(
-            _gen_hrm=PoissonVonMisesHarmonium(self.n_neurons, self.n_latent)
+            PoissonVonMisesHarmonium(self.n_neurons, self.n_latent)
         )
 
     @property
@@ -320,7 +320,8 @@ class TestVariationalLatentProcess:
         model = _MinimalVarLP(n_neurons=8, n_latent=1)
         params = _init_var_lp(model, jax.random.PRNGKey(0))
         prior_params, ems_lkl, rho, _ = model.split_coords(params)
-        ems_full = model.ems_hrm.join_coords(ems_lkl, prior_params, rho)
+        ems_full = model.emission_params(ems_lkl, rho, prior_params)
+        assert jnp.allclose(model.ems_hrm.prior(ems_full), prior_params)
         assert ems_full.shape == (model.ems_hrm.dim,)
 
         key = jax.random.PRNGKey(1)
