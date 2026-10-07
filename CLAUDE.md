@@ -68,7 +68,7 @@ This is a **library**, not an application. The dependency policy is:
 Examples are located in the `examples/` directory and organized by topic:
 - Run example: `uv run python -m examples.multivariate.run`
 - Generate plots: `uv run python -m examples.multivariate.plot`
-- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, cca, chordal_boltzmann_ppc, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
+- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, cca, chordal_boltzmann_ppc, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, pendulum, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
 
 ### Documentation
 - Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`
@@ -119,6 +119,7 @@ The library is organized into three main modules under `src/goal/`:
 - **Normal distributions**: `Normal[Rep]` parameterized by covariance representation
 - **Linear Gaussian Models**: `NormalLGM[ObsRep, PstRep]`, `FactorAnalysis`, `PrincipalComponentAnalysis`
 - **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
+- **Canonical correlation analysis**: `CanonicalCorrelationAnalysis` (gradient-based), `AnalyticCanonicalCorrelationAnalysis` (exact EM)
 - **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
 - **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`
 
@@ -236,6 +237,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `binomial.py` | `models/base/binomial.py` (Binomial, Binomials) |
 | `poisson.py` | `models/base/poisson.py` |
 | `von_mises.py` | `models/base/von_mises.py` |
+| `dirichlet.py` | `models/base/dirichlet.py` |
 | `cca.py` | `models/harmonium/cca.py` (`CanonicalCorrelationAnalysis`: two-node observable, fork conjugation as a sum; `AnalyticCanonicalCorrelationAnalysis`: branch-by-branch mean-to-natural conversion, EM) |
 | `lgm.py` | `models/harmonium/lgm.py` |
 | `population_codes.py` | `models/harmonium/population_codes.py` |
