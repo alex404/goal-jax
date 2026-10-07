@@ -1,8 +1,10 @@
-"""Combinators for composing exponential families: location-shape products, heterogeneous pairs, and replicated (independent) products."""
+"""Combinators for composing exponential families: location-shape products, heterogeneous tuples, and replicated (independent) products."""
 
 from __future__ import annotations
 
 from abc import ABC
+from dataclasses import dataclass
+from itertools import pairwise
 from typing import override
 
 import jax
@@ -11,7 +13,8 @@ from jax import Array
 
 from ..algebra.clique import shift_clique
 from ..manifold.base import Manifold
-from ..manifold.combinators import Pair, Replicated
+from ..manifold.combinators import Pair, Replicated, Tuple
+from ..manifold.util import split_by_dims
 from .base import (
     Analytic,
     Differentiable,
@@ -56,113 +59,188 @@ class LocationShape[Location: ExponentialFamily, Shape: ExponentialFamily](
         return self.snd_man.log_base_measure(x)
 
 
-class ExponentialFamilyPair[A: ExponentialFamily, B: ExponentialFamily](
-    Pair[A, B], ExponentialFamily, ABC
-):
-    """A product of two exponential families over disjoint data slices.
+@dataclass(frozen=True)
+class ExponentialFamilyTuple[M: ExponentialFamily](Tuple, ExponentialFamily):
+    """A product of exponential families over disjoint data slices.
 
-    The data array is split along the last axis at ``fst_man.data_dim``, with the leading slice going to the first component and the remainder to the second. Sufficient statistics, log-base-measures, and (in subclasses) sampling/log-partition/negative-entropy decompose additively across the two slots.
+    The data array is split along the last axis into consecutive slices of the elements' ``data_dim``, one per element, in order. Sufficient statistics, log-base-measures, and (in subclasses) sampling/log-partition/negative-entropy decompose additively across the elements.
 
-    Contrast with ``LocationShape``, where both components consume the *same* ``x``. Accordingly the pair's graph is its components' graphs side by side, with no clique between them: the first component's nodes, then the second's, offset by the first's node count. Two single-node components make two nodes, each holding its component as a bias, where a ``LocationShape`` is one node.
+    Contrast with ``LocationShape``, where both components consume the *same* ``x``. Accordingly the tuple's graph is its elements' graphs side by side, with no clique between them: each element's nodes, offset by the node counts of the elements before it. Two single-node elements make two nodes, each holding its element as a bias, where a ``LocationShape`` is one node.
     """
+
+    # Fields
+
+    elm_mans: tuple[M, ...]
+    """The element families, in storage order."""
 
     # Overrides
 
     @property
     @override
+    def dim(self) -> int:
+        return sum(elm.dim for elm in self.elm_mans)
+
+    @override
+    def split_coords(self, coords: Array) -> tuple[Array, ...]:
+        """Split into the coordinates of each element."""
+        return split_by_dims(coords, tuple(elm.dim for elm in self.elm_mans))
+
+    @override
+    def join_coords(self, *components: Array) -> Array:
+        """Concatenate the coordinates of each element."""
+        return jnp.concatenate(components)
+
+    @property
+    @override
     def cliques(self) -> tuple[tuple[int, ...], ...]:
-        """The first component's cliques, then the second's, offset by the first's node count."""
-        n_fst = self.fst_man.n_nodes
-        snd = tuple(shift_clique(clique, n_fst) for clique in self.snd_man.cliques)
-        return self.fst_man.cliques + snd
+        """Each element's cliques, offset by :attr:`elm_nod_offsets`."""
+        return tuple(
+            shift_clique(clique, offset)
+            for elm, offset in zip(self.elm_mans, self.elm_nod_offsets)
+            for clique in elm.cliques
+        )
 
     @property
     @override
     def nod_mans(self) -> tuple[Manifold, ...]:
-        """The first component's node spaces, then the second's."""
-        return self.fst_man.nod_mans + self.snd_man.nod_mans
+        """Each element's node spaces, in order."""
+        return tuple(man for elm in self.elm_mans for man in elm.nod_mans)
 
     @property
     @override
     def clq_mans(self) -> tuple[Manifold, ...]:
-        """The first component's blocks, then the second's."""
-        return self.fst_man.clq_mans + self.snd_man.clq_mans
+        """Each element's coordinate blocks, in order."""
+        return tuple(man for elm in self.elm_mans for man in elm.clq_mans)
 
     @property
     @override
     def data_dim(self) -> int:
-        return self.fst_man.data_dim + self.snd_man.data_dim
+        return sum(elm.data_dim for elm in self.elm_mans)
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        d_fst = self.fst_man.data_dim
-        x_fst = x[..., :d_fst]
-        x_snd = x[..., d_fst:]
         return self.join_coords(
-            self.fst_man.sufficient_statistic(x_fst),
-            self.snd_man.sufficient_statistic(x_snd),
+            *(
+                elm.sufficient_statistic(x_elm)
+                for elm, x_elm in zip(self.elm_mans, self.split_data(x))
+            )
         )
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        d_fst = self.fst_man.data_dim
-        x_fst = x[..., :d_fst]
-        x_snd = x[..., d_fst:]
-        return self.fst_man.log_base_measure(x_fst) + self.snd_man.log_base_measure(
-            x_snd
+        return sum(
+            (
+                elm.log_base_measure(x_elm)
+                for elm, x_elm in zip(self.elm_mans, self.split_data(x))
+            ),
+            start=jnp.asarray(0.0),
         )
 
     @override
     def initialize(
         self, key: Array, location: float = 0.0, shape: float = 0.1
     ) -> Array:
-        key_fst, key_snd = jax.random.split(key)
-        fst_params = self.fst_man.initialize(key_fst, location, shape)
-        snd_params = self.snd_man.initialize(key_snd, location, shape)
-        return self.join_coords(fst_params, snd_params)
+        keys = jax.random.split(key, len(self.elm_mans))
+        return self.join_coords(
+            *(
+                elm.initialize(elm_key, location, shape)
+                for elm, elm_key in zip(self.elm_mans, keys)
+            )
+        )
+
+    @override
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        """Initialize each element from its slice of the sample."""
+        keys = jax.random.split(key, len(self.elm_mans))
+        return self.join_coords(
+            *(
+                elm.initialize_from_sample(elm_key, elm_sample, location, shape)
+                for elm, elm_key, elm_sample in zip(
+                    self.elm_mans, keys, self.split_data(sample)
+                )
+            )
+        )
+
+    # Methods
+
+    @property
+    def elm_nod_offsets(self) -> tuple[int, ...]:
+        """The number of nodes before each element, which offsets its node numbers in the tuple's graph."""
+        counts = [0]
+        for elm in self.elm_mans[:-1]:
+            counts.append(counts[-1] + elm.n_nodes)
+        return tuple(counts)
+
+    def split_data(self, x: Array) -> tuple[Array, ...]:
+        """Split data along its last axis into the slices of each element."""
+        bounds = [0]
+        for elm in self.elm_mans:
+            bounds.append(bounds[-1] + elm.data_dim)
+        return tuple(x[..., lo:hi] for lo, hi in pairwise(bounds))
 
 
-class GenerativePair[A: Generative, B: Generative](
-    ExponentialFamilyPair[A, B], Generative, ABC
-):
-    """Heterogeneous EF pair adding independent sampling across the two slots."""
+@dataclass(frozen=True)
+class GenerativeTuple[M: Generative](ExponentialFamilyTuple[M], Generative):
+    """A tuple of generative exponential families, sampling each element independently."""
 
     # Overrides
 
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        fst_params, snd_params = self.split_coords(params)
-        key_fst, key_snd = jax.random.split(key)
-        fst_samples = self.fst_man.sample(key_fst, fst_params, n)
-        snd_samples = self.snd_man.sample(key_snd, snd_params, n)
-        return jnp.concatenate([fst_samples, snd_samples], axis=-1)
+        keys = jax.random.split(key, len(self.elm_mans))
+        return jnp.concatenate(
+            [
+                elm.sample(elm_key, elm_params, n)
+                for elm, elm_key, elm_params in zip(
+                    self.elm_mans, keys, self.split_coords(params)
+                )
+            ],
+            axis=-1,
+        )
 
 
-class DifferentiablePair[A: Differentiable, B: Differentiable](
-    GenerativePair[A, B], Differentiable, ABC
-):
-    """Heterogeneous EF pair with log-partition function summed across slots."""
+@dataclass(frozen=True)
+class DifferentiableTuple[M: Differentiable](GenerativeTuple[M], Differentiable):
+    """A tuple of differentiable exponential families, with log-partition function summed across elements."""
 
     # Overrides
 
     @override
     def log_partition_function(self, params: Array) -> Array:
-        fst_params, snd_params = self.split_coords(params)
-        return self.fst_man.log_partition_function(
-            fst_params
-        ) + self.snd_man.log_partition_function(snd_params)
+        return sum(
+            (
+                elm.log_partition_function(elm_params)
+                for elm, elm_params in zip(self.elm_mans, self.split_coords(params))
+            ),
+            start=jnp.asarray(0.0),
+        )
 
 
-class AnalyticPair[A: Analytic, B: Analytic](DifferentiablePair[A, B], Analytic, ABC):
-    """Heterogeneous EF pair with negative entropy summed across slots."""
+@dataclass(frozen=True)
+class AnalyticTuple[M: Analytic](DifferentiableTuple[M], Analytic):
+    """A tuple of analytic exponential families, with negative entropy summed across elements."""
 
     # Overrides
 
     @override
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        """Initialize each element from its slice of the sample, rather than through the generic ``Analytic`` version."""
+        return ExponentialFamilyTuple.initialize_from_sample(
+            self, key, sample, location, shape
+        )
+
+    @override
     def negative_entropy(self, means: Array) -> Array:
-        fst_means, snd_means = self.split_coords(means)
-        return self.fst_man.negative_entropy(fst_means) + self.snd_man.negative_entropy(
-            snd_means
+        return sum(
+            (
+                elm.negative_entropy(elm_means)
+                for elm, elm_means in zip(self.elm_mans, self.split_coords(means))
+            ),
+            start=jnp.asarray(0.0),
         )
 
 

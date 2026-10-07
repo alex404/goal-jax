@@ -30,11 +30,3 @@ Graphical Harmoniums
    :members:
    :undoc-members:
    :show-inheritance:
-
-Observables
------------
-
-.. autoclass:: goal.geometry.exponential_family.graphical.ObservablePair
-   :members:
-   :undoc-members:
-   :show-inheritance:

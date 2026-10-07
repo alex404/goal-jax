@@ -37,7 +37,7 @@ class Harmonium[
 ):
     """An exponential family over observable variables $x$ and latent variables $z$, coupled by an interaction.
 
-    A subclass declares the observable family (:attr:`obs_man`), the posterior family (:attr:`pst_man`), and the crossing cliques between them, each with its block (:meth:`crs_trms`; see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`). Either family may have several nodes. The parameter layout and the interaction :attr:`int_man` are derived. The observable, interaction and posterior are the root, cross and deep partitions of the layout, so :meth:`~goal.geometry.manifold.combinators.Triple.split_coords` returns ``(obs_params, int_params, lat_params)``.
+    A subclass declares the observable family (:attr:`obs_man`), the posterior family (:attr:`pst_man`), and the crossing cliques between them, each with its coordinate block (:meth:`crs_trms`; see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`). Either family may have several nodes. The parameter layout and the interaction :attr:`int_man` are derived. The observable, interaction and posterior are the root, cross and deep partitions of the layout, so :meth:`~goal.geometry.manifold.combinators.Triple.split_coords` returns ``(obs_params, int_params, lat_params)``.
 
     ``RecursiveLinearCliques`` is listed before ``Gibbs`` among the bases, so that the composed graph overrides the single-node default of :class:`~goal.geometry.exponential_family.base.ExponentialFamily`.
 

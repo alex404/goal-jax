@@ -28,7 +28,7 @@ from jax import Array
 from goal.geometry import (
     CliqueMap,
     CrossTerm,
-    DifferentiablePair,
+    DifferentiableTuple,
     IdentityEmbedding,
     MultilayerPerceptron,
     PositiveDefinite,
@@ -62,22 +62,17 @@ jax.config.update("jax_enable_x64", True)
 # =====================================================================
 
 
-@dataclass(frozen=True)
-class VonMisesNormalPair(DifferentiablePair[VonMisesProduct, Normal[PositiveDefinite]]):
+type VonMisesNormalPair = DifferentiableTuple[
+    VonMisesProduct | Normal[PositiveDefinite]
+]
+
+
+def von_mises_normal_pair() -> VonMisesNormalPair:
     """Heterogeneous exponential family: 1D circular variable (VonMises) x 1D real variable (Normal).
 
     Sufficient statistic is $(\\cos\\theta, \\sin\\theta, x, x^2)$; ``data_dim = 2``, ``dim = 4``.
     """
-
-    @property
-    @override
-    def fst_man(self) -> VonMisesProduct:
-        return VonMisesProduct(1)
-
-    @property
-    @override
-    def snd_man(self) -> Normal[PositiveDefinite]:
-        return Normal(_data_dim=1, rep=PositiveDefinite())
+    return DifferentiableTuple((VonMisesProduct(1), Normal(1, PositiveDefinite())))
 
 
 @dataclass(frozen=True)
@@ -94,7 +89,7 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
     @property
     @override
     def pst_man(self) -> VonMisesNormalPair:
-        return VonMisesNormalPair()
+        return von_mises_normal_pair()
 
     @property
     @override
@@ -226,7 +221,7 @@ class PendulumFilter(
     @property
     @override
     def lat_man(self) -> VonMisesNormalPair:
-        return VonMisesNormalPair()
+        return von_mises_normal_pair()
 
     @property
     @override
@@ -236,7 +231,7 @@ class PendulumFilter(
     @property
     @override
     def trn_map(self) -> PendulumTransition:
-        lat = VonMisesNormalPair()
+        lat = von_mises_normal_pair()
         return PendulumTransition(
             lat,
             lat,

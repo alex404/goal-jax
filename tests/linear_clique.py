@@ -24,8 +24,8 @@ from goal.geometry import (
     CliqueMap,
     CrossTerm,
     Diagonal,
+    DifferentiableTuple,
     ExponentialFamily,
-    ExponentialFamilyPair,
     IdentityEmbedding,
     InteractionEmbedding,
     MatrixMap,
@@ -150,7 +150,7 @@ class TestHarmoniumSpans:
         """The block of a crossing reads the deep block and writes the root block."""
         model, _ = _hmog_partitions()
         clq_map = CliqueEmbedding((0, 1), model).sub_man
-        assert clq_map.cod_man == model.obs_man
+        assert clq_map.cod_man == model.clq_man((0,))
         assert clq_map.dom_man == model.lwr_hrm.pst_man
 
     @pytest.mark.parametrize(
@@ -416,12 +416,12 @@ class TestDeclarationOrderRegressions:
         assert model.cliques == ((0,), (1,), (1, 2), (0, 2), (2,))
         assert layout_problems(model) == []
         params = jnp.arange(float(model.dim))
-        blocks = model.crs_man.coord_blocks(model.split_coords(params)[1])
+        int_coords = model.crs_man.clq_coords(model.split_coords(params)[1])
         assert jnp.array_equal(
-            CliqueEmbedding((1, 2), model).project(params), blocks[0]
+            CliqueEmbedding((1, 2), model).project(params), int_coords[0]
         )
         assert jnp.array_equal(
-            CliqueEmbedding((0, 2), model).project(params), blocks[1]
+            CliqueEmbedding((0, 2), model).project(params), int_coords[1]
         )
 
     def test_a_crossing_past_the_deep_root_composes(self) -> None:
@@ -431,48 +431,54 @@ class TestDeclarationOrderRegressions:
         assert layout_problems(man) == []
 
 
-@dataclass(frozen=True)
-class _Pair(ExponentialFamilyPair[Any, Any]):
-    """A pair of two given families, for testing how a pair composes its components."""
+class TestTupleComposition:
+    """A tuple places its elements' graphs side by side and keeps their cliques."""
 
-    _fst: ExponentialFamily
-    _snd: ExponentialFamily
+    def test_single_node_elements_make_one_node_each(self) -> None:
+        tup = DifferentiableTuple(
+            (Normal(2, PositiveDefinite()), Normal(3, Diagonal()))
+        )
+        assert tup.cliques == ((0,), (1,))
+        assert tup.clq_mans == tup.elm_mans
+        assert tup.nod_mans == tup.elm_mans
 
-    @property
-    @override
-    def fst_man(self) -> Any:
-        return self._fst
-
-    @property
-    @override
-    def snd_man(self) -> Any:
-        return self._snd
-
-
-class TestPairComposition:
-    """A pair places its components' graphs side by side and keeps their cliques."""
-
-    def test_single_node_components_make_two_nodes(self) -> None:
-        pair = _Pair(Normal(2, PositiveDefinite()), Normal(3, Diagonal()))
-        assert pair.cliques == ((0,), (1,))
-        assert pair.clq_mans == (pair.fst_man, pair.snd_man)
-        assert pair.nod_mans == (pair.fst_man, pair.snd_man)
-
-    def test_a_multi_clique_component_keeps_its_cliques(self) -> None:
+    def test_a_single_element_keeps_its_graph(self) -> None:
         cca = _cca()
-        pair = _Pair(cca, Normal(2, PositiveDefinite()))
-        n = cca.n_nodes
-        assert pair.cliques == (*cca.cliques, (n,))
-        assert pair.clq_mans == (*cca.clq_mans, pair.snd_man)
-        assert sum(pair.clq_dims) == pair.dim
-        params = jnp.arange(float(pair.dim))
-        fst, snd = pair.split_coords(params)
-        for clique in cca.cliques:
-            assert jnp.array_equal(
-                CliqueEmbedding(clique, pair).project(params),
-                CliqueEmbedding(clique, cca).project(fst),
-            )
-        assert jnp.array_equal(CliqueEmbedding((n,), pair).project(params), snd)
+        tup = DifferentiableTuple((cca,))
+        assert tup.cliques == cca.cliques
+        assert tup.clq_mans == cca.clq_mans
+        assert tup.nod_mans == cca.nod_mans
+
+    def test_multi_clique_elements_keep_their_cliques(self) -> None:
+        """Two multi-node elements flatten into one graph, the second offset by the first's nodes."""
+        fst = _cca()
+        snd = CanonicalCorrelationAnalysis(
+            fst_dim=1,
+            fst_rep=Diagonal(),
+            snd_dim=2,
+            snd_rep=PositiveDefinite(),
+            lat_dim=1,
+            pst_rep=PositiveDefinite(),
+        )
+        tup = DifferentiableTuple((fst, Normal(2, PositiveDefinite()), snd))
+        n = fst.n_nodes
+        assert tup.elm_nod_offsets == (0, n, n + 1)
+        assert tup.cliques == (
+            *fst.cliques,
+            (n,),
+            *(tuple(i + n + 1 for i in clique) for clique in snd.cliques),
+        )
+        assert tup.clq_mans == (*fst.clq_mans, tup.elm_mans[1], *snd.clq_mans)
+        assert sum(tup.clq_dims) == tup.dim
+        params = jnp.arange(float(tup.dim))
+        fst_params, _, snd_params = tup.split_coords(params)
+        for elm, offset, elm_params in ((fst, 0, fst_params), (snd, n + 1, snd_params)):
+            for clique in elm.cliques:
+                shifted = tuple(i + offset for i in clique)
+                assert jnp.array_equal(
+                    CliqueEmbedding(shifted, tup).project(params),
+                    CliqueEmbedding(clique, elm).project(elm_params),
+                )
 
 
 ### Clique maps ###

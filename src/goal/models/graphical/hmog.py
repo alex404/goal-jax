@@ -41,6 +41,7 @@ from jax import Array
 
 from ...geometry import (
     AnalyticGraphical,
+    Differentiable,
     DifferentiableConjugated,
     DifferentiableGraphical,
     Harmonium,
@@ -98,7 +99,9 @@ class _HMoGBase[
 
     @property
     @override
-    def obs_hrms_clqs(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+    def obs_hrms_att_clqs(
+        self,
+    ) -> tuple[tuple[Harmonium[Differentiable, Any], tuple[int, ...]], ...]:
         """The lower harmonium, on the upper mixture's observable node $y$."""
         return ((self.lwr_hrm, (0,)),)
 
@@ -148,7 +151,7 @@ class _HMoGBase[
         new_lat_means = self.pst_upr_hrm.join_mean_mixture(new_comp_means, cat_means)
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
-        obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
+        obs_loc, _ = self.lwr_hrm.obs_man.split_mean_second_moment(obs_means)
         (lwr_int_map,) = self.lwr_hrm.crs_maps
         lwr_int_mat = lwr_int_map.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)

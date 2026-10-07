@@ -25,37 +25,40 @@ Mathematically, the conjugation equation's left-hand side therefore factorizes,
 and since each branch is a linear Gaussian model with its own conjugation, the joint
 conjugation parameters are their sum, $\\rho = \\rho_X + \\rho_Y$, and likewise the
 offsets. The graphical harmonium computes both sums for any number of attached harmoniums.
+The same independence makes the expected log-likelihood a sum over the branches, so with a
+full-covariance latent the model is analytic and each branch's likelihood is fit on its own.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override
 
 from ...geometry import (
+    AnalyticGraphical,
+    Differentiable,
+    DifferentiableConjugated,
     DifferentiableGraphical,
     Harmonium,
     PositiveDefinite,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
-from .lgm import NormalCovarianceEmbedding, NormalLGM
+from .lgm import NormalAnalyticLGM, NormalCovarianceEmbedding, NormalLGM
 
 
 @dataclass(frozen=True)
-class CanonicalCorrelationAnalysis[
+class _CCABase[
     FstRep: PositiveDefinite,
     SndRep: PositiveDefinite,
-    PstRep: PositiveDefinite,
-](
-    DifferentiableGraphical[Normal[PstRep], FullNormal],
-):
+    FstLGM: DifferentiableConjugated[Any, Any, Any],
+    SndLGM: DifferentiableConjugated[Any, Any, Any],
+](DifferentiableGraphical[Any, Any], ABC):
     """Two observable normals coupled through one shared Gaussian latent.
 
-    Data points are the concatenation $[x, y, z]$, and the two observable blocks may have
-    different dimensions and different covariance structures. Fitting is gradient-based:
-    the model is :class:`~goal.geometry.exponential_family.harmonium.DifferentiableConjugated`
-    rather than analytic, because inverting the conjugation sum branch-wise needs structure
-    a fork does not supply.
+    Data points are the concatenation $[x, y, z]$, and the two observables may have
+    different dimensions and different covariance structures. Subclasses fix the latent
+    and the linear Gaussian model of each branch.
     """
 
     # Fields
@@ -75,16 +78,46 @@ class CanonicalCorrelationAnalysis[
     lat_dim: int
     """Dimension of the shared latent."""
 
-    pst_rep: PstRep
-    """Covariance structure of the posterior latent."""
+    # Contract
+
+    @property
+    @abstractmethod
+    def fst_lgm(self) -> FstLGM:
+        """The first branch as a standalone linear Gaussian model."""
+
+    @property
+    @abstractmethod
+    def snd_lgm(self) -> SndLGM:
+        """The second branch as a standalone linear Gaussian model."""
 
     # Overrides
 
     @property
     @override
-    def obs_hrms_clqs(self) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+    def obs_hrms_att_clqs(
+        self,
+    ) -> tuple[tuple[Harmonium[Differentiable, Any], tuple[int, ...]], ...]:
         """The fork $x - z - y$: one linear Gaussian model per branch, both on the shared latent."""
         return ((self.fst_lgm, (0,)), (self.snd_lgm, (0,)))
+
+
+@dataclass(frozen=True)
+class CanonicalCorrelationAnalysis[
+    FstRep: PositiveDefinite,
+    SndRep: PositiveDefinite,
+    PstRep: PositiveDefinite,
+](
+    _CCABase[FstRep, SndRep, NormalLGM[FstRep, PstRep], NormalLGM[SndRep, PstRep]],
+    DifferentiableGraphical[Normal[PstRep], FullNormal],
+):
+    """Canonical correlation analysis with a posterior latent of any covariance structure, fit by gradient descent."""
+
+    # Fields
+
+    pst_rep: PstRep
+    """Covariance structure of the posterior latent."""
+
+    # Overrides
 
     @property
     @override
@@ -96,14 +129,40 @@ class CanonicalCorrelationAnalysis[
     def pst_prr_emb(self) -> NormalCovarianceEmbedding[PositiveDefinite, PstRep]:
         return NormalCovarianceEmbedding(full_normal(self.lat_dim), self.pst_man)
 
-    # Methods
-
     @property
+    @override
     def fst_lgm(self) -> NormalLGM[FstRep, PstRep]:
-        """The first branch as a standalone linear Gaussian model."""
         return NormalLGM(self.fst_dim, self.fst_rep, self.lat_dim, self.pst_rep)
 
     @property
+    @override
     def snd_lgm(self) -> NormalLGM[SndRep, PstRep]:
-        """The second branch as a standalone linear Gaussian model."""
         return NormalLGM(self.snd_dim, self.snd_rep, self.lat_dim, self.pst_rep)
+
+
+@dataclass(frozen=True)
+class AnalyticCanonicalCorrelationAnalysis[
+    FstRep: PositiveDefinite,
+    SndRep: PositiveDefinite,
+](
+    _CCABase[FstRep, SndRep, NormalAnalyticLGM[FstRep], NormalAnalyticLGM[SndRep]],
+    AnalyticGraphical[FullNormal],
+):
+    """Canonical correlation analysis with a full-covariance latent, with closed-form conversion from mean to natural parameters and exact EM."""
+
+    # Overrides
+
+    @property
+    @override
+    def lat_man(self) -> FullNormal:
+        return full_normal(self.lat_dim)
+
+    @property
+    @override
+    def fst_lgm(self) -> NormalAnalyticLGM[FstRep]:
+        return NormalAnalyticLGM(self.fst_dim, self.fst_rep, self.lat_dim)
+
+    @property
+    @override
+    def snd_lgm(self) -> NormalAnalyticLGM[SndRep]:
+        return NormalAnalyticLGM(self.snd_dim, self.snd_rep, self.lat_dim)

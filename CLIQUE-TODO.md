@@ -154,7 +154,7 @@ cascades upward.
 
 - Walk the module method by method.
 - `CliqueEmbedding.sub_man` returns the clique's map itself. Should it be the node space?
-- `CrossMap` keeps its own `clq_dims`/`coord_blocks`. It could become a `LinearCliques`, but its
+- `CrossMap` keeps its own `clq_dims`/`clq_coords`. It could become a `LinearCliques`, but its
   terms are pairs of cliques on two sides, not cliques of one graph.
 
 ### `exponential_family/graphical.py`

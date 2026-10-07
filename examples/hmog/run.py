@@ -34,7 +34,7 @@ def create_ground_truth() -> tuple[AnalyticHMoG[Diagonal], Array]:
     mix_mean = um.join_mean_mixture(components, cat_mean)
     mix_natural = um.to_natural(mix_mean)
 
-    om = hmog.obs_man
+    om = hmog.lwr_hrm.obs_man
     obs_mean = om.join_mean_covariance(
         jnp.array([0.0, 0.0]), jnp.array([width, height])
     )

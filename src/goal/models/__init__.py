@@ -51,7 +51,10 @@ from .graphical.mixture import (
 from .graphical.variational import (
     VariationalHierarchicalMixture,
 )
-from .harmonium.cca import CanonicalCorrelationAnalysis
+from .harmonium.cca import (
+    AnalyticCanonicalCorrelationAnalysis,
+    CanonicalCorrelationAnalysis,
+)
 from .harmonium.lgm import (
     LGM,
     BoltzmannEmbedding,
@@ -82,6 +85,7 @@ from .harmonium.population_codes import (
 
 __all__ = [
     "LGM",
+    "AnalyticCanonicalCorrelationAnalysis",
     "AnalyticHMoG",
     "AnalyticMixture",
     "Bernoulli",

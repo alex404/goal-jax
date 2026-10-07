@@ -179,7 +179,7 @@ class CompleteMixtureOfHarmoniums[
         """$(x, y)$, $(x, y, k)$ and $(x, k)$, with $y$ and $k$ the mixture's nodes $0$ and $1$.
 
         $\\theta_{XY}$ is the base interaction. $\\theta_{XYK}$ reads the base interaction's
-        subspace of $y$, and all of $k$, from the mixture's $(y, k)$ block. $\\theta_{XK}$
+        subspace of $y$, and all of $k$, from the mixture's $(y, k)$ coordinate block. $\\theta_{XK}$
         uses all of $x$ and all of $k$.
         """
         (bas_map,) = self.bas_hrm.crs_maps
@@ -276,18 +276,19 @@ class CompleteMixtureOfHarmoniums[
     def to_mixture_coords(self, coords: Array) -> Array:
         """Repack coordinates from this model's layout to ``mix_man``'s.
 
-        The two layouts hold the same seven blocks in different orders:
+        The two layouts hold the same seven coordinate blocks in different orders:
 
         - this model: $x$ | $xy$, $xyk$, $xk$ | $y$, $yk$, $k$
         - ``mix_man``: $x$, $xy$, $y$ | $xk$, $xyk$, $yk$ | $k$
 
         ``mix_man``'s interaction is a matrix with one row per base-harmonium coordinate and
         one column per non-reference category, stored row-major, so its row bands for $x$,
-        $xy$ and $y$ are the $xk$, $xyk$ and $yk$ blocks concatenated. A block permutation
+        $xy$ and $y$ are the $xk$, $xyk$ and $yk$ coordinate blocks concatenated. A permutation of
+        coordinate blocks
         is the same linear operation in natural and mean coordinates.
         """
         x, int_coords, lat_coords = self.split_coords(coords)
-        xy, xyk, xk = self.crs_man.coord_blocks(int_coords)
+        xy, xyk, xk = self.crs_man.clq_coords(int_coords)
         y, yk, k = self.dep_man.split_coords(lat_coords)
         hrm = self.bas_hrm.join_coords(x, xy, y)
         return self.mix_man.join_coords(hrm, jnp.concatenate([xk, xyk, yk]), k)
@@ -372,8 +373,8 @@ class CompleteMixtureOfConjugated[
         # Extract base harmonium parameters and interaction matrix
         x_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
 
-        # Section interaction matrix into blocks: xy, xyk, xk
-        xy_params, xyk_params, xk_params = self.crs_man.coord_blocks(int_params)
+        # Section interaction matrix into coordinate blocks: xy, xyk, xk
+        xy_params, xyk_params, xk_params = self.crs_man.clq_coords(int_params)
 
         # Compute base conjugation parameters from component 0
         # Note: conjugation_parameters returns params in bas_hrm.prr_man space

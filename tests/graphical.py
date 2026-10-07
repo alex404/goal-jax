@@ -50,20 +50,21 @@ class TestComposedLayout:
 
     @pytest.mark.parametrize("model", _hmogs())
     def test_observable_is_the_root_harmoniums(self, model: Any) -> None:
-        assert model.obs_man == model.lwr_hrm.obs_man
+        assert model.obs_man.elm_mans == (model.lwr_hrm.obs_man,)
 
     @pytest.mark.parametrize("model", _hmogs())
     def test_likelihood_splits_into_the_root_harmoniums(self, model: Any) -> None:
         params = model.initialize(jax.random.PRNGKey(0), shape=0.5)
         lkl = model.likelihood_function(params)
-        (att_lkl,) = model.obs_likelihoods(lkl)
+        (att_lkl,) = model.likelihood_functions(lkl)
         assert jnp.array_equal(att_lkl, lkl)
 
     @pytest.mark.parametrize("model", _hmogs())
     def test_root_posterior_is_the_observable_block(self, model: Any) -> None:
         lat = jax.random.normal(jax.random.PRNGKey(1), (model.pst_man.dim,))
         expected = ObservableEmbedding(model.pst_man).project(lat)
-        assert jnp.array_equal(model.obs_pst_emb(0).project(lat), expected)
+        emb = SubCliquesEmbedding((0,), model.pst_man, model.lwr_hrm.pst_man)
+        assert jnp.array_equal(emb.project(lat), expected)
 
 
 class TestConjugation:
@@ -84,17 +85,6 @@ class TestConjugation:
         lkl = model.likelihood_function(params)
         assert jnp.allclose(
             model.conjugation_offset(lkl), model.lwr_hrm.conjugation_offset(lkl)
-        )
-
-    @pytest.mark.parametrize("model", _hmogs())
-    def test_placement_is_linear(self, model: Any) -> None:
-        key_a, key_b = jax.random.split(jax.random.PRNGKey(4))
-        dim = model.lwr_hrm.prr_man.dim
-        a = jax.random.normal(key_a, (dim,))
-        b = jax.random.normal(key_b, (dim,))
-        assert jnp.allclose(
-            model.place_conjugation((a + b,)),
-            model.place_conjugation((a,)) + model.place_conjugation((b,)),
         )
 
 

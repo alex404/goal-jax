@@ -332,7 +332,7 @@ class TestThreeNodeCrossingReproducesMFA:
         x = jax.random.normal(jax.random.PRNGKey(4), (mfa.obs_man.data_dim,))
         s_x = mfa.obs_man.sufficient_statistic(x)
         _, int_params, _ = mfa.split_coords(params)
-        xyk_params = mfa.crs_man.coord_blocks(int_params)[1]
+        xyk_params = mfa.crs_man.clq_coords(int_params)[1]
 
         live = _dom_node(xyk, xyk.transpose_apply(xyk_params, s_x))
         rebuilt = clique.trn_man(clique.transpose(xyk_params), s_x)
@@ -349,7 +349,7 @@ class TestThreeNodeCrossingReproducesMFA:
         mix = mfa.pst_man
         params = mfa.initialize(jax.random.PRNGKey(5), shape=0.5)
         _, int_params, _ = mfa.split_coords(params)
-        xyk_params = mfa.crs_man.coord_blocks(int_params)[1]
+        xyk_params = mfa.crs_man.clq_coords(int_params)[1]
 
         y = jax.random.normal(jax.random.PRNGKey(6), (mix.obs_man.data_dim,))
         z = jnp.concatenate([y, jnp.array([1.0])])

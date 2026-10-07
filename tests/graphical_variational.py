@@ -132,7 +132,7 @@ class _Fan(DifferentiableGraphical[Any, Any]):
 
     @property
     @override
-    def obs_hrms_clqs(self) -> tuple[tuple[Any, tuple[int, ...]], ...]:
+    def obs_hrms_att_clqs(self) -> tuple[tuple[Any, tuple[int, ...]], ...]:
         return tuple((NormalLGM(d, PD, self.lat_dim, PD), (0,)) for d in self.obs_dims)
 
     @property

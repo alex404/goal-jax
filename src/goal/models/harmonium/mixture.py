@@ -140,7 +140,7 @@ class Mixture[Observable: Differentiable](
 
         Its coordinates are those of :attr:`int_man`: the single crossing's here, and in a
         :class:`CompleteMixture` over an observable of several cliques, each clique's
-        crossing block, which are consecutive row bands of this matrix.
+        crossing coordinate block, which are consecutive row bands of this matrix.
         """
         return CliqueMap(Rectangular(), self.obs_emb, IdentityEmbedding(self.lat_man))
 
@@ -275,8 +275,8 @@ class CompleteMixture[Observable: Differentiable](
         """The category with every clique of the observable.
 
         One crossing when the observable is one node. When it has several cliques (a
-        harmonium, as in MFA's mixture view) the category couples to the whole block of
-        each of them, so the mixture of a harmonium is the harmonium's graph with $k$
+        harmonium, as in MFA's mixture view) the category couples to the whole coordinate
+        block of each of them, so the mixture of a harmonium is the harmonium's graph with $k$
         joined to every clique.
         """
         return tuple(

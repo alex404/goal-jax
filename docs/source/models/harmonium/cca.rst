@@ -20,3 +20,8 @@ Two-View Model
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: goal.models.harmonium.cca.AnalyticCanonicalCorrelationAnalysis
+   :members:
+   :undoc-members:
+   :show-inheritance:

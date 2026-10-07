@@ -150,7 +150,7 @@ class TestCompleteMixtureOfSymmetric:
     ) -> None:
         model, params = model_and_params
         _, int_params, _ = model.split_coords(params)
-        xy, xyk, xk = model.crs_man.coord_blocks(int_params)
+        xy, xyk, xk = model.crs_man.clq_coords(int_params)
         assert xy.shape[0] + xyk.shape[0] + xk.shape[0] == model.int_man.dim
 
 
