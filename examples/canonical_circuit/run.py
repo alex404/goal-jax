@@ -1,12 +1,22 @@
-"""Train the three-layer canonical circuit on points near a curve, sweeping the conjugation penalty.
+"""Train the canonical circuit on points near a curve by the ELBO, sweeping the conjugation penalty.
 
-The circuit $X - N - Z$ (:mod:`.model`) is fit by maximizing either the exact log-likelihood of the
-harmonium or the ELBO of the variational model, minus $\\lambda$ times the residual variances of the population code edge, at the recognition model and at
-the prior. $\\lambda$ is increased linearly from zero over the first half of training, and each final
-value is one point on the frontier between fit and conjugation. Each seed gives one initialization,
-shared by the runs at every $\\lambda$.
+The circuit (:mod:`.model`) is fit by maximizing
 
-``--experiment`` selects the circuit and the objective, and the results go to a subdirectory of that name.
+$$\\mathcal L_\\lambda = \\hat{\\mathcal L} - \\lambda \\Big(\\sum_\\ell \\mathcal R^p_\\ell + \\sum_\\ell \\bar{\\mathcal R}^q_\\ell\\Big),$$
+
+the Monte Carlo ELBO (:meth:`~goal.geometry.VariationalConjugated.mean_elbo`) minus the residual
+variances of both levels under the model
+(:meth:`~goal.geometry.VariationalConjugated.conjugation_residual_variances`) and under the recognition
+model, averaged over the batch
+(:meth:`~goal.geometry.VariationalConjugated.mean_recognition_residual_variances`). All three are library
+estimators with score-function gradients. $\\lambda$ is increased linearly from zero over the first half
+of training, and each final value is one point on the frontier between fit and conjugation. Each seed
+gives one initialization, shared by the runs at every $\\lambda$. Nothing constrains the parameters: a run
+whose loss becomes NaN is stopped, and its last finite parameters are measured. The ``*_exact``
+experiments instead maximize the exact log-likelihood of the graphical harmonium, as a baseline.
+
+``--experiment`` selects the data, the graph of couplings, the conjugation function and the objective, and the results go
+to a subdirectory of that name.
 """
 
 import argparse
@@ -20,35 +30,35 @@ import optax
 from jax import Array
 
 from ..shared import example_paths, jax_cli
-from .model import CanonicalCircuit, NoiseCorrelations, Unconstrained
+from .model import CanonicalCircuit, Conjugation, Couplings, Tied, canonical_circuit
 from .types import Results, RunResult
 
 
 @dataclass(frozen=True)
 class Experiment:
-    """A dataset, a circuit and an objective."""
+    """A dataset, a circuit, an objective and a sweep of penalty strengths.
+
+    ``fit`` is the penalized ELBO, or the exact log-likelihood of the graphical harmonium by enumeration
+    (a baseline for how much the harmonium gains from $z$; it leaves $\rho_Z$ at its initial value, so
+    the variational measurements of those runs describe that $\rho_Z$).
+    """
 
     data: Literal["arc", "bump", "bump8"]
-    noise_correlations: NoiseCorrelations
-    latent: bool
-    use_elbo: bool
+    couplings: Couplings
+    conjugation: Conjugation
+    fit: Literal["elbo", "exact"]
     lams: tuple[float, ...]
 
 
-SWEEP = (0.0, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0)
-BUMP_SWEEP = (0.0, 0.3, 1.0, 3.0)
+SWEEP = (0.0, 0.3, 1.0, 3.0)
 
 EXPERIMENTS = {
-    "arc_none_ll": Experiment("arc", "none", True, False, SWEEP),
-    "arc_none_elbo": Experiment("arc", "none", True, True, SWEEP),
-    "arc_harmonium_ll": Experiment("arc", "harmonium", True, False, SWEEP),
-    "bump_none_elbo": Experiment("bump", "none", True, True, BUMP_SWEEP),
-    "bump_chain_elbo": Experiment("bump", "chain", True, True, BUMP_SWEEP),
-    "bump_full_elbo": Experiment("bump", "full", True, True, BUMP_SWEEP),
-    "bump_chain_nolatent": Experiment("bump", "chain", False, False, (0.0,)),
-    "bump8_chain_elbo": Experiment("bump8", "chain", True, True, BUMP_SWEEP),
-    "bump8_full_elbo": Experiment("bump8", "full", True, True, BUMP_SWEEP),
-    "bump8_chain_nolatent": Experiment("bump8", "chain", False, False, (0.0,)),
+    "bump_chain_exact": Experiment("bump", "chain", "constant", "exact", (0.0,)),
+    "bump_chain_constant": Experiment("bump", "chain", "constant", "elbo", SWEEP),
+    "bump_chain_mlp": Experiment("bump", "chain", "mlp", "elbo", SWEEP),
+    "bump8_chain_exact": Experiment("bump8", "chain", "constant", "exact", (0.0,)),
+    "bump8_chain_constant": Experiment("bump8", "chain", "constant", "elbo", SWEEP),
+    "bump8_chain_mlp": Experiment("bump8", "chain", "mlp", "elbo", SWEEP),
 }
 
 
@@ -90,24 +100,66 @@ def off_curve_fraction(data: str, xs: Array, noise: float) -> float:
 
 
 def objective(
-    circuit: CanonicalCircuit, u: Unconstrained, xs: Array, lam: Array, use_elbo: bool
+    circuit: CanonicalCircuit,
+    u: Tied,
+    key: Array,
+    xs: Array,
+    lam: Array,
+    n_samples: int,
 ) -> tuple[Array, tuple[Array, Array, Array]]:
-    """Negative of the mean fit term minus the penalties, and the three terms.
+    """The negative penalized ELBO, and the ELBO and the summed residual variances under $q$ and $\\tilde p$."""
+    params = circuit.tie(u)
+    k_elbo, k_p, k_q = jax.random.split(key, 3)
+    elbo = circuit.mean_elbo(k_elbo, params, xs, n_samples)
+    var_p = sum(
+        circuit.conjugation_residual_variances(k_p, params, n_samples),
+        start=jnp.zeros(()),
+    )
+    var_q = sum(
+        circuit.mean_recognition_residual_variances(k_q, params, xs, n_samples),
+        start=jnp.zeros(()),
+    )
+    return -(elbo - lam * (var_q + var_p)), (elbo, var_q, var_p)
 
-    The fit term is the exact log-likelihood of the harmonium, or the ELBO of the variational model.
-    """
-    params = circuit.constrain(u)
-    if use_elbo:
-        fit = jnp.mean(
-            jax.vmap(circuit.variational_bounds, in_axes=(None, 0))(params, xs)[1]
+
+def exact_objective(circuit: CanonicalCircuit, u: Tied, xs: Array) -> Array:
+    """The negative mean exact log-likelihood of the graphical harmonium."""
+    params = circuit.tie(u)
+    return -jnp.mean(
+        jax.vmap(circuit.exact_log_observable_density, in_axes=(None, 0))(params, xs)
+    )
+
+
+def min_precision(circuit: CanonicalCircuit, params: Array, xs: Array) -> Array:
+    """Smallest precision of $z$ over $p(z \\mid n)$ at every state, the prior $\\theta_Z + \\rho_Z$, and the recognition model at ``xs``: negative when a run has left the domain."""
+    lat, dep = circuit.lat_man, circuit.dep
+
+    def precision(nrm_params: Array) -> Array:
+        _, prc = lat.split_location_precision(nrm_params)
+        return lat.cov_man.to_matrix(prc)[0, 0]
+
+    def z_params(dep_params: Array) -> Array:
+        nrm_params, _ = dep.dep_man.split_coords(
+            dep.conjugated_prior_params(dep_params)
         )
-    else:
-        fit = jnp.mean(
-            jax.vmap(circuit.log_observable_density, in_axes=(None, 0))(params, xs)
+        return nrm_params
+
+    hrm_params, _ = circuit.split_coords(params)
+    _, _, pop_params = circuit.gen_hrm.split_coords(hrm_params)
+    states = jax.vmap(dep.gen_hrm.posterior_at, in_axes=(None, 0))(
+        pop_params, circuit.states
+    )
+    prior = z_params(circuit.conjugated_prior_params(params))
+    recog = jax.vmap(lambda x: z_params(circuit.recognition_at(params, x)))(xs)
+    return jnp.min(
+        jnp.concatenate(
+            [
+                jax.vmap(precision)(states),
+                precision(prior)[None],
+                jax.vmap(precision)(recog),
+            ]
         )
-    var_q = jnp.mean(jax.vmap(lambda x: circuit.recognition(params, x)[2])(xs))
-    _, _, var_p = circuit.generative_prior(params)
-    return -(fit - lam * (var_q + var_p)), (fit, var_q, var_p)
+    )
 
 
 def spearman(a: Array, b: Array) -> float:
@@ -116,103 +168,79 @@ def spearman(a: Array, b: Array) -> float:
     return float(jnp.corrcoef(ra, rb)[0, 1])
 
 
-def affine_r2(xs: Array, ys: Array) -> list[float]:
-    """Coefficient of determination of an affine regression of each column of ``ys`` on ``xs``."""
-    design = jnp.concatenate([xs, jnp.ones((xs.shape[0], 1))], axis=1)
-    coef, *_ = jnp.linalg.lstsq(design, ys)
-    res = ys - design @ coef
-    return list(map(float, 1 - jnp.var(res, axis=0) / jnp.var(ys, axis=0)))
-
-
 def measure(
     circuit: CanonicalCircuit,
     key: Array,
-    u: Unconstrained,
+    u: Tied,
     test_x: Array,
     test_t: Array,
     data: str,
     noise: float,
+    n_samples: int,
 ) -> dict[str, Any]:
     """Final measurements on the test set."""
-    params = circuit.constrain(u)
-    lat = circuit.lat_man
-    exact = jax.vmap(circuit.log_observable_density, in_axes=(None, 0))(params, test_x)
-    log_tilde, elbo = jax.vmap(circuit.variational_bounds, in_axes=(None, 0))(
-        params, test_x
-    )
-    ident, ess_q, ess_p = jax.vmap(circuit.log_likelihood_identity, in_axes=(None, 0))(
-        params, test_x
-    )
-    _, q_params, var_q = jax.vmap(circuit.recognition, in_axes=(None, 0))(
-        params, test_x
-    )
-    _, p_params, var_p = circuit.generative_prior(params)
+    params = circuit.tie(u)
+    lat, dep = circuit.lat_man, circuit.dep
+    k_p, k_q, k_s = jax.random.split(key, 3)
+    var_p = circuit.conjugation_residual_variances(k_p, params, n_samples)
+    var_q = circuit.mean_recognition_residual_variances(k_q, params, test_x, n_samples)
 
-    # Exact posteriors, moment matched
-    ex_means = jax.vmap(circuit.exact_posterior_means, in_axes=(None, 0))(
-        params, test_x
-    )
-    ex_params = jax.vmap(lat.to_natural)(ex_means)
-    q_means = jax.vmap(lat.to_mean)(q_params)
-    kl = jax.vmap(lat.relative_entropy)(ex_params, q_params)
-
-    def mean_sd(means: Array) -> tuple[Array, Array]:
-        m, s2 = means[:, 0], means[:, 1]
-        return m, jnp.sqrt(s2 - m**2)
-
-    m_ex, sd_ex = mean_sd(ex_means)
-    m_q, sd_q = mean_sd(q_means)
-
-    # Tuning curves (prior logits theta^*_N + Theta_NZ s_Z(z), without couplings) and the prior over z
-    zs = jnp.linspace(-4.0, 4.0, 201)
-    lgm_params, pch_params = circuit.split_params(params)
-    _, nz_params, _ = circuit.pch.split_coords(pch_params)
-    lkl_params = circuit.pch.lkl_fun_man.join_coords(
-        circuit.lgm.prior(lgm_params), nz_params
-    )
-    logits = jax.vmap(
-        lambda z: circuit.blz_man.split_couplings(
-            circuit.pch.lkl_fun_man(lkl_params, lat.sufficient_statistic(z))
-        )[0]
-    )(zs[:, None])
-    state_params = circuit.state_latents(params)
-    log_wts = circuit._state_log_weights(state_params, circuit.lgm.prior(lgm_params))  # pyright: ignore[reportPrivateUsage]
-    wts = jax.nn.softmax(log_wts)
-    dens = jax.vmap(
-        lambda z: (
-            wts @ jnp.exp(jax.vmap(lat.log_density, in_axes=(0, None))(state_params, z))
+    # Posterior over z: the exact mixture against the recognition Gaussian
+    def posterior_moments(x: Array) -> tuple[Array, Array, Array, Array]:
+        post = circuit.posterior_at(params, x)
+        wts = jax.nn.softmax(circuit.state_log_weights(post))
+        comps = jax.vmap(dep.gen_hrm.posterior_at, in_axes=(None, 0))(
+            post, circuit.states
         )
-    )(zs[:, None])
-    gauss = jnp.exp(jax.vmap(lat.log_density, in_axes=(None, 0))(p_params, zs[:, None]))
+        means = jax.vmap(lambda p: lat.split_mean_second_moment(lat.to_mean(p)))(comps)
+        m_ex = wts @ means[0][:, 0]
+        s2_ex = wts @ means[1][:, 0]
+        q_params, _ = dep.dep_man.split_coords(
+            dep.conjugated_prior_params(circuit.recognition_at(params, x))
+        )
+        m_q, s2_q = lat.split_mean_second_moment(lat.to_mean(q_params))
+        return m_ex, jnp.sqrt(s2_ex - m_ex**2), m_q[0], jnp.sqrt(s2_q[0] - m_q[0] ** 2)
 
-    samples, sample_ns, _ = circuit.sample(key, params, 1000)
-    lgm_params, _ = circuit.split_params(params)
+    m_ex, sd_ex, m_q, sd_q = jax.vmap(posterior_moments)(test_x)
+
+    # Tuning curves: the logits theta_N + rho_N + Theta_NZ s_Z(z) at the prior, without couplings
+    zs = jnp.linspace(-4.0, 4.0, 201)[:, None]
+    dep_prior = circuit.conjugated_prior_params(params)
+    logits = jax.vmap(
+        lambda z: circuit.neurons.split_couplings(dep.likelihood_at(dep_prior, z))[0]
+    )(zs)
+
+    # The exact prior over z, a mixture over the states, against the Gaussian of the variational model
+    hrm_params, _ = circuit.split_coords(params)
+    _, _, pop_params = circuit.gen_hrm.split_coords(hrm_params)
+    wts = jax.nn.softmax(circuit.exact_state_log_weights(params))
+    comps = jax.vmap(dep.gen_hrm.posterior_at, in_axes=(None, 0))(
+        pop_params, circuit.states
+    )
+    dens = jax.vmap(
+        lambda z: wts @ jnp.exp(jax.vmap(lat.log_density, in_axes=(0, None))(comps, z))
+    )(zs)
+    p_params, _ = dep.dep_man.split_coords(dep.conjugated_prior_params(dep_prior))
+    gauss = jnp.exp(jax.vmap(lat.log_density, in_axes=(None, 0))(p_params, zs))
+
+    # Samples of the variational model, and the means of x at the sampled neurons
+    obs_dim = circuit.obs_dim
+    xnz = circuit.sample(k_s, params, 1000)
     comp_means = jax.vmap(
-        lambda n: circuit.obs_man.split_mean_covariance(
-            circuit.obs_man.to_mean(circuit.lgm.likelihood_at(lgm_params, n))
-        )[0]
-    )(sample_ns)
+        lambda nz: circuit.obs_man.to_mean(circuit.likelihood_at(params, nz))[:obs_dim]
+    )(xnz[:, obs_dim:])
     return {
-        "final_test_ll": float(jnp.mean(exact)),
-        "final_log_tilde": float(jnp.mean(log_tilde)),
-        "final_elbo": float(jnp.mean(elbo)),
-        "final_var_q": float(jnp.mean(var_q)),
-        "final_var_p": float(var_p),
-        "identity_error": float(jnp.mean(jnp.abs(ident - exact))),
-        "ess_q": float(jnp.mean(ess_q)),
-        "ess_p": float(jnp.mean(ess_p)),
-        "kl_q": float(jnp.mean(kl)),
-        "r2_q": affine_r2(test_x, q_params),
-        "r2_exact": affine_r2(test_x, ex_params),
+        "final_var_p_levels": [float(v) for v in var_p],
+        "final_var_q_levels": [float(v) for v in var_q],
         "corr_t": spearman(m_ex, test_t),
-        "off_curve": off_curve_fraction(data, samples, noise),
+        "off_curve": off_curve_fraction(data, xnz[:, :obs_dim], noise),
         "off_curve_means": off_curve_fraction(data, comp_means, noise),
-        "samples": samples.tolist(),
+        "samples": xnz[:, :obs_dim].tolist(),
         "post_mean_exact": m_ex.tolist(),
         "post_mean_q": m_q.tolist(),
         "post_sd_exact": sd_ex.tolist(),
         "post_sd_q": sd_q.tolist(),
-        "tuning_z": zs.tolist(),
+        "tuning_z": zs[:, 0].tolist(),
         "tuning_logits": logits.T.tolist(),
         "prior_density": dens.tolist(),
         "prior_gaussian": gauss.tolist(),
@@ -231,109 +259,136 @@ def main() -> None:
 
     # Model and data
     obs_dim = {"arc": 2, "bump": 16, "bump8": 8}[exp.data]
-    n_neurons = 10
-    circuit = CanonicalCircuit(
-        obs_dim=obs_dim,
-        n_neurons=n_neurons,
-        lat_dim=1,
-        noise_correlations=exp.noise_correlations,
-        latent=exp.latent,
-        exact_reference=True,
-    )
+    circuit = canonical_circuit(obs_dim, 10, exp.couplings, exp.conjugation, (32,))
     n_train, n_test, noise = 2000, 500, 0.05
-    use_elbo = exp.use_elbo
+    z_range = 2.0
 
     # Training
-    lams = exp.lams
     n_seeds = 3
     n_chunks, chunk_steps, batch_size, learning_rate = 50, 100, 128, 2e-2
+    n_samples, n_eval_samples, n_nodes = 16, 64, 40
     anneal_steps = n_chunks * chunk_steps // 2
-    # The bias of Z is held at its initial value (standard normal), which fixes the scale and location
-    # of z: otherwise rescaling z with the tuning curves and the bias leaves the likelihood unchanged
-    fixed = {"z_mean", "z_chol"}
 
-    k_train, k_test, k_init, k_run = jax.random.split(key, 4)
+    k_train, k_test, k_init, k_run, k_eval = jax.random.split(key, 5)
     train_x, _ = curve_data(exp.data, k_train, n_train, noise)
     test_x, test_t = curve_data(exp.data, k_test, n_test, noise)
     optimizer = optax.adam(learning_rate)
 
-    def evaluate(u: Unconstrained) -> tuple[Array, ...]:
-        params = circuit.constrain(u)
+    def evaluate(u: Tied) -> tuple[Array, ...]:
+        params = circuit.tie(u)
         train_ll = jnp.mean(
-            jax.vmap(circuit.log_observable_density, in_axes=(None, 0))(params, train_x)
+            jax.vmap(circuit.exact_log_observable_density, in_axes=(None, 0))(
+                params, train_x
+            )
         )
-        _, (test_ll, var_q, var_p) = objective(
-            circuit, u, test_x, jnp.array(0.0), False
+        test_ll = jnp.mean(
+            jax.vmap(circuit.exact_log_observable_density, in_axes=(None, 0))(
+                params, test_x
+            )
         )
-        log_tilde, elbo = jax.vmap(circuit.variational_bounds, in_axes=(None, 0))(
-            params, test_x
+        log_tilde, elbo = jax.vmap(circuit.variational_bounds, in_axes=(None, 0, None))(
+            params, test_x, n_nodes
         )
-        return train_ll, test_ll, jnp.mean(log_tilde), jnp.mean(elbo), var_q, var_p
+        kl = jax.vmap(circuit.recognition_divergence, in_axes=(None, 0, None))(
+            params, test_x, n_nodes
+        )
+        _, (_, var_q, var_p) = objective(
+            circuit, u, k_eval, test_x, jnp.array(0.0), n_eval_samples
+        )
+        return (
+            train_ll,
+            test_ll,
+            jnp.mean(log_tilde),
+            jnp.mean(elbo),
+            jnp.mean(kl),
+            var_q,
+            var_p,
+            min_precision(circuit, params, test_x),
+        )
 
     def train_chunk(
-        carry: tuple[Unconstrained, Any, Array], lam_final: Array
-    ) -> tuple[Unconstrained, Any, Array]:
+        carry: tuple[Tied, Any, Array], lam_final: Array
+    ) -> tuple[tuple[Tied, Any, Array], Array]:
         def step(
-            carry: tuple[Unconstrained, Any, Array], _: None
-        ) -> tuple[tuple[Unconstrained, Any, Array], None]:
+            carry: tuple[Tied, Any, Array], _: None
+        ) -> tuple[tuple[Tied, Any, Array], Array]:
             u, opt_state, step_key = carry
-            step_key, k_batch = jax.random.split(step_key)
+            step_key, k_batch, k_obj = jax.random.split(step_key, 3)
             idx = jax.random.choice(k_batch, n_train, (batch_size,), replace=False)
             count = optax.tree_utils.tree_get(opt_state, "count")
             lam = lam_final * jnp.minimum(1.0, count / anneal_steps)
-            grads, _ = jax.grad(
-                lambda v: objective(circuit, v, train_x[idx], lam, use_elbo),
-                has_aux=True,
-            )(u)
-            grads = {
-                k: jnp.zeros_like(g) if k in fixed else g for k, g in grads.items()
-            }
+            if exp.fit == "exact":
+                loss, grads = jax.value_and_grad(
+                    lambda v: exact_objective(circuit, v, train_x[idx])
+                )(u)
+            else:
+                (loss, _), grads = jax.value_and_grad(
+                    lambda v: objective(
+                        circuit, v, k_obj, train_x[idx], lam, n_samples
+                    ),
+                    has_aux=True,
+                )(u)
             updates, opt_state = optimizer.update(grads, opt_state, u)
-            return (optax.apply_updates(u, updates), opt_state, step_key), None
+            return (optax.apply_updates(u, updates), opt_state, step_key), loss  # pyright: ignore[reportReturnType]
 
-        carry, _ = jax.lax.scan(step, carry, None, chunk_steps)
-        return carry
+        return jax.lax.scan(step, carry, None, chunk_steps)
 
     train_chunk_jit = jax.jit(train_chunk)
     evaluate_jit = jax.jit(evaluate)
 
+    names = (
+        "train_ll",
+        "test_ll",
+        "log_tilde",
+        "elbo",
+        "kl_q",
+        "var_q",
+        "var_p",
+        "min_prc",
+    )
     runs: list[RunResult] = []
     steps = [chunk * chunk_steps for chunk in range(n_chunks + 1)]
-    for seed, lam in [(seed, lam) for seed in range(n_seeds) for lam in lams]:
-        u0 = circuit.initialize(jax.random.fold_in(k_init, seed), train_x)
+    for seed, lam in [(seed, lam) for seed in range(n_seeds) for lam in exp.lams]:
+        u0 = circuit.initialize_tied(jax.random.fold_in(k_init, seed), train_x, z_range)
         carry = (u0, optimizer.init(u0), jax.random.fold_in(k_run, seed))
-        hist: dict[str, list[float]] = {
-            name: []
-            for name in ("train_ll", "test_ll", "log_tilde", "elbo", "var_q", "var_p")
-        }
+        hist: dict[str, list[float]] = {name: [] for name in names}
+        stopped: int | None = None
         for chunk in range(n_chunks + 1):
             if chunk > 0:
-                carry = train_chunk_jit(carry, jnp.array(lam))
-            for name, val in zip(hist, evaluate_jit(carry[0]), strict=True):
+                new_carry, losses = train_chunk_jit(carry, jnp.array(lam))
+                if not bool(jnp.all(jnp.isfinite(losses))):
+                    stopped = (chunk - 1) * chunk_steps + int(
+                        jnp.argmin(jnp.isfinite(losses))
+                    )
+                    print(f"seed {seed}, lambda {lam:g}: NaN loss at step {stopped}")
+                    break
+                carry = new_carry
+            for name, val in zip(names, evaluate_jit(carry[0]), strict=True):
                 hist[name].append(float(val))
             print(
                 f"seed {seed}, lambda {lam:g}, step {chunk * chunk_steps}: "
-                f"test ll {hist['test_ll'][-1]:.4f}, elbo {hist['elbo'][-1]:.4f}",
+                f"test ll {hist['test_ll'][-1]:.4f}, log p~ {hist['log_tilde'][-1]:.4f}, "
+                f"elbo {hist['elbo'][-1]:.4f}, kl {hist['kl_q'][-1]:.2e}, "
+                f"var_q {hist['var_q'][-1]:.2e}, var_p {hist['var_p'][-1]:.2e}, "
+                f"min prc {hist['min_prc'][-1]:.3f}",
                 flush=True,
             )
-        print(
-            f"seed {seed}, lambda {lam:5.2f}: test ll {hist['test_ll'][-1]:.4f}, "
-            f"var_q {hist['var_q'][-1]:.2e}, var_p {hist['var_p'][-1]:.2e}",
-            flush=True,
-        )
         runs.append(
             {
                 "lam": lam,
                 "seed": seed,
+                "stopped": stopped,
                 **hist,
+                **{f"final_{name}": hist[name][-1] for name in names},
                 **measure(
                     circuit,
-                    jax.random.fold_in(k_run, 1),
+                    jax.random.fold_in(k_eval, 1),
                     carry[0],
                     test_x,
                     test_t,
                     exp.data,
                     noise,
+                    n_eval_samples,
                 ),
             }  # pyright: ignore[reportArgumentType]
         )

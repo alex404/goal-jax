@@ -3,7 +3,7 @@
 Panels other than the frontier show the runs of the first seed. Top row: training histories and the frontier between fit and conjugation. Middle row: model samples
 without and with the strongest penalty, and the exact posterior mean of $z$ against the curve
 coordinate. Third row: tuning curves and priors over $z$ for the strongest penalty, and the
-recognition Gaussian against the moment-matched exact posterior. Bottom row: the mismatch between the
+recognition Gaussian against the mean and s.d. of the exact posterior. Bottom row: the mismatch between the
 harmonium and the variational model, the variational gap, and the final bounds against the exact
 log-likelihood. ``--experiment`` selects the results subdirectory.
 """
@@ -37,9 +37,13 @@ def _label(run: RunResult) -> str:
 
 def _plot_history(ax: Axes, res: Results, key: str, ylabel: str, log: bool) -> None:
     for i, run in enumerate(res["runs"]):
+        hist = run[key]
         ax.plot(
-            res["steps"], run[key], color=_color(i, len(res["runs"])), label=_label(run)
-        )  # pyright: ignore[reportArgumentType]
+            res["steps"][: len(hist)],
+            hist,
+            color=_color(i, len(res["runs"])),
+            label=_label(run),
+        )
     ax.set_xlabel("Step")
     ax.set_ylabel(ylabel)
     if log:
@@ -139,7 +143,12 @@ def _plot_recognition(ax: Axes, res: Results, key: str, label: str) -> None:
 def _plot_gap(ax: Axes, res: Results, upper: str, lower: str, ylabel: str) -> None:
     for i, run in enumerate(res["runs"]):
         gap = np.array(run[upper]) - np.array(run[lower])  # pyright: ignore[reportArgumentType]
-        ax.plot(res["steps"], gap, color=_color(i, len(res["runs"])), label=_label(run))
+        ax.plot(
+            res["steps"][: len(gap)],
+            gap,
+            color=_color(i, len(res["runs"])),
+            label=_label(run),
+        )
     ax.set_xlabel("Step")
     ax.set_ylabel(ylabel)
     ax.set_yscale("symlog", linthresh=1e-3)

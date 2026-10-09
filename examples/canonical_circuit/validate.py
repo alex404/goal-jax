@@ -1,220 +1,203 @@
-"""Check the canonical circuit's computations against brute-force integration.
+"""Check the canonical circuit against brute-force integration, at 4 neurons and a one-dimensional $x$.
 
-The brute force is written from the densities directly, in numpy, without the library: neurons are
-enumerated, $z$ is integrated on a fine grid, and $x$ is integrated in closed form for the
-log-partition function and on a grid for the normalization of $p_X$. Checked:
+The brute force enumerates the neurons and integrates $x$ and $z$ on grids. It uses only sufficient
+statistics and the circuit's joint densities, not the closed forms the diagnostics rely on. For a chain and a
+full graph of couplings, checked:
 
-1. the logits of the population code against the tuning-curve parameterization;
-2. the exact log-partition function and $\\log p_X$;
-3. $\\int p_X = 1$;
-4. the log-likelihood identity by quadrature, against the exact value;
-5. the exact posterior mean against the grid;
-6. the least-squares residual variance, against the variance of the residual at its own nodes;
-7. $\\log \\tilde p_X$ of the variational model by quadrature, against a grid over $z$, and that the ELBO
-   bounds it;
-8. that the prior over the neurons has the stored biases and noise correlations.
+1. the likelihood of the $X - N$ harmonium equals that of :class:`~goal.models.BoltzmannLGM` at the same
+   parameters, at every state of the neurons;
+2. the residual of the $X - N$ level is zero for a full graph, and $-\\sum_{i < j, (i, j) \\notin E} G_{ij}
+   n_i n_j$ with $G = \\Theta_{XN}^\\top \\Sigma_X \\Theta_{XN}$ for a chain;
+3. the exact $\\log p(x)$ against the unnormalized joint of the graphical harmonium on grids;
+4. $\\log \\tilde p(x)$ and the ELBO by quadrature against the circuit's own joint and recognition densities
+   on a grid, and the divergence of the recognition model from the exact posterior likewise;
+5. the mean of the ELBO estimator over many keys, and of its gradient, against the quadrature ELBO.
+
+Parameters are the initialization moved by noise (smaller on the map, which keeps the precision of $z$
+positive), with $\\rho_Z$ a map, so that every block is nonzero.
 """
+
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from scipy.special import logsumexp
+from jax import Array
+from jax.scipy.special import logsumexp
+
+from goal.geometry import PositiveDefinite
+from goal.models import BoltzmannLGM
 
 from ..shared import jax_cli
-from .model import CanonicalCircuit
+from .model import CanonicalCircuit, Couplings, canonical_circuit
+
+jax.config.update("jax_enable_x64", True)
+
+N_NEURONS, N_NODES = 4, 40
+ZS = jnp.linspace(-12.0, 12.0, 1201)[:, None]
+XS = jnp.linspace(-8.0, 8.0, 801)[:, None]
 
 
-def brute_force(
-    u: dict, xs: np.ndarray, n_neurons: int
-) -> tuple[float, np.ndarray, np.ndarray]:
-    """Brute-force log-partition function, log-likelihoods and posterior means of $z$."""
-    u = {k: np.asarray(v) for k, v in u.items()}
+def report(name: str, err: float, tol: float) -> bool:
+    ok = err < tol
+    print(f"  {'ok  ' if ok else 'FAIL'} {name}: {err:.2e} (tol {tol:.0e})")
+    return ok
 
-    def chol(c: np.ndarray) -> np.ndarray:
-        low = np.tril(c, -1) + np.diag(np.exp(np.diag(c)))
-        return low @ low.T
 
-    prc_x, mu_x, w = chol(u["x_chol"]), u["x_mean"], u["xn"]
-    a = chol(u["a_chol"])[0, 0]
-    mus = u["preferred"][:, 0]
-    lam_z, m_z = chol(u["z_chol"])[0, 0], u["z_mean"][0]
-    rows, cols = np.triu_indices(n_neurons, 1)
-    cpl = np.zeros((n_neurons, n_neurons))
-    cpl[rows, cols] = u["couplings"]
-    states = np.array(
-        [[(s >> i) & 1 for i in range(n_neurons)] for s in range(2**n_neurons)], float
-    )
-    zs = np.linspace(-20, 20, 40001)
-    dz = zs[1] - zs[0]
-    # log of exp(s_N theta_N + n Theta_NZ s_Z(z) + s_Z(z) theta_Z) * base(z), shape (states, grid)
-    logits = u["peak"][:, None] - 0.5 * a * (zs[None, :] - mus[:, None]) ** 2
-    log_nz = (
-        states @ logits
-        + np.einsum("si,ij,sj->s", states, cpl, states)[:, None]
-        - 0.5 * lam_z * zs[None, :] ** 2
-        + lam_z * m_z * zs[None, :]
-        - 0.5 * np.log(2 * np.pi)
-    )
-    h = prc_x @ mu_x
-    d_x = len(mu_x)
+def grid_logsumexp(vals: Array, grid: Array) -> Array:
+    """$\\log \\int e^{f}$ by the trapezoid rule, on the last axis."""
+    dx = grid[1, 0] - grid[0, 0]
+    w = jnp.full(grid.shape[0], dx).at[0].set(dx / 2).at[-1].set(dx / 2)
+    return logsumexp(vals + jnp.log(w), axis=-1)
 
-    def log_int_x(h_n: np.ndarray) -> np.ndarray:
-        cov = np.linalg.inv(prc_x)
+
+def harmonium_log_joint(circuit: CanonicalCircuit, params: Array) -> Any:
+    """Unnormalized $\\log p(x, n, z)$ of the graphical harmonium, from its sufficient statistics."""
+    hrm = circuit.gen_hrm
+    hrm_params, _ = circuit.split_coords(params)
+    obs_params, xn_params, pop_params = hrm.split_coords(hrm_params)
+    pop_hrm = circuit.dep.gen_hrm
+    bias, nz_params, z_params = pop_hrm.split_coords(pop_params)
+    (xn_map,) = hrm.crs_maps
+    (nz_map,) = pop_hrm.crs_maps
+    xn_mat, nz_mat = xn_map.to_matrix(xn_params), nz_map.to_matrix(nz_params)
+    obs, lat = circuit.obs_man, circuit.lat_man
+
+    def log_joint(x: Array, n: Array, z: Array) -> Array:
+        s_z = lat.sufficient_statistic(z)
         return (
-            0.5 * np.einsum("si,ij,sj->s", h_n, cov, h_n)
-            - 0.5 * np.linalg.slogdet(prc_x)[1]
+            obs.sufficient_statistic(x) @ obs_params
+            + obs.log_base_measure(x)
+            + x @ xn_mat @ n
+            + pop_hrm.obs_man.sufficient_statistic(n) @ bias
+            + n @ nz_mat @ s_z
+            + s_z @ z_params
+            + lat.log_base_measure(z)
         )
 
-    log_psi = logsumexp(
-        log_nz + log_int_x(h[None, :] + states @ w.T)[:, None]
-    ) + np.log(dz)
-    lls, post_means = [], []
-    for x in xs:
-        log_x = -0.5 * x @ prc_x @ x + x @ h - 0.5 * d_x * np.log(2 * np.pi)
-        log_joint = log_nz + (states @ (w.T @ x))[:, None] + log_x
-        lls.append(logsumexp(log_joint) + np.log(dz) - log_psi)
-        pz = np.exp(logsumexp(log_joint, axis=0) - logsumexp(log_joint))
-        post_means.append(np.sum(pz * zs))
-    return float(log_psi), np.array(lls), np.array(post_means)
+    return log_joint
+
+
+def check(couplings: Couplings) -> bool:
+    print(f"couplings: {couplings}")
+    circuit = canonical_circuit(1, N_NEURONS, couplings, "mlp", (5,))
+    key = jax.random.PRNGKey(1)
+    train_x = jax.random.normal(key, (200, 1))
+    u = circuit.initialize_tied(jax.random.PRNGKey(2), train_x, 2.0)
+    u = {
+        k: v
+        + (0.02 if k == "cnj" else 0.2)
+        * jax.random.normal(jax.random.fold_in(key, i), v.shape)
+        for i, (k, v) in enumerate(u.items())
+    }
+    params = circuit.tie(u)
+    states = circuit.states
+    x = jnp.array([0.4])
+    oks: list[bool] = []
+
+    # 1. The likelihood against BoltzmannLGM
+    lgm = BoltzmannLGM(1, PositiveDefinite(), N_NEURONS)
+    lkl = circuit.likelihood_function(params)
+    ours = jax.vmap(lambda n: circuit.likelihood_at(params, jnp.append(n, 0.0)))(states)
+    theirs = jax.vmap(
+        lambda n: lgm.lkl_fun_man(lkl, lgm.pst_man.sufficient_statistic(n))
+    )(states)
+    oks.append(
+        report(
+            "likelihood vs BoltzmannLGM", float(jnp.max(jnp.abs(ours - theirs))), 1e-12
+        )
+    )
+
+    # 2. The residual of the X - N level
+    r_n = jax.vmap(lambda n: circuit.conjugation_residual(params, jnp.append(n, 0.0)))(
+        states
+    )
+    obs_params, xn_params = circuit.gen_hrm.lkl_fun_man.split_coords(lkl)
+    (nrm,) = circuit.gen_hrm.obs_man.elm_mans
+    _, prc = nrm.split_location_precision(obs_params)
+    (xn_map,) = circuit.gen_hrm.crs_maps
+    w = xn_map.to_matrix(xn_params)
+    g = w.T @ jnp.linalg.inv(nrm.cov_man.to_matrix(prc)) @ w
+    off = (
+        jnp.triu(jnp.ones((N_NEURONS, N_NEURONS)), 2)
+        if couplings == "chain"
+        else jnp.zeros((N_NEURONS, N_NEURONS))
+    )
+    expected = -jnp.einsum("si,ij,sj->s", states, g * off, states)
+    oks.append(report("residual r_N", float(jnp.max(jnp.abs(r_n - expected))), 1e-10))
+
+    # 3. Exact log p(x) against grids over x and z
+    log_joint = harmonium_log_joint(circuit, params)
+
+    def log_nz(xv: Array) -> Array:
+        vals = jax.vmap(lambda n: jax.vmap(lambda z: log_joint(xv, n, z))(ZS))(states)
+        return logsumexp(grid_logsumexp(vals, ZS))
+
+    log_unnorm = jax.lax.map(log_nz, XS, batch_size=100)
+    brute = log_nz(x) - grid_logsumexp(log_unnorm, XS)
+    exact = circuit.exact_log_observable_density(params, x)
+    oks.append(report("log p(x)", float(jnp.abs(brute - exact)), 1e-8))
+
+    # 4. log p~(x), ELBO and divergence against the circuit's densities on a grid over z
+    def joint(n: Array, z: Array) -> Array:
+        return circuit.log_density(params, jnp.concatenate([x, n, z]))
+
+    def recog(n: Array, z: Array) -> Array:
+        return circuit.recognition_log_density(params, x, jnp.concatenate([n, z]))
+
+    lp = jax.vmap(lambda n: jax.vmap(lambda z: joint(n, z))(ZS))(states)
+    lq = jax.vmap(lambda n: jax.vmap(lambda z: recog(n, z))(ZS))(states)
+    log_tilde_brute = logsumexp(grid_logsumexp(lp, ZS))
+    q = jnp.exp(lq)
+    dz = float(ZS[1, 0] - ZS[0, 0])
+    elbo_brute = jnp.sum(q * (lp - lq)) * dz
+    post = jax.vmap(lambda n: jax.vmap(lambda z: log_joint(x, n, z))(ZS))(states)
+    post = post - logsumexp(grid_logsumexp(post, ZS))
+    kl_brute = jnp.sum(q * (lq - post)) * dz
+    log_tilde, elbo = circuit.variational_bounds(params, x, N_NODES)
+    kl = circuit.recognition_divergence(params, x, N_NODES)
+    oks.append(report("log p~(x)", float(jnp.abs(log_tilde - log_tilde_brute)), 1e-6))
+    oks.append(report("ELBO", float(jnp.abs(elbo - elbo_brute)), 1e-6))
+    oks.append(report("KL(q || p)", float(jnp.abs(kl - kl_brute)), 1e-6))
+    print(
+        f"  log p(x) {float(exact):.4f}, log p~(x) {float(log_tilde):.4f}, ELBO {float(elbo):.4f}, KL {float(kl):.4f}"
+    )
+
+    # 5. The ELBO estimator and its gradient
+    n_keys, n_samples = 400 if couplings == "chain" else 40, 16
+    keys = jax.random.split(jax.random.PRNGKey(3), n_keys)
+
+    def estimate(p: Array, k: Array) -> Array:
+        return circuit.elbo_at(k, p, x, n_samples)
+
+    vals, grads = jax.vmap(jax.value_and_grad(estimate), in_axes=(None, 0))(
+        params, keys
+    )
+    exact_grad = jax.grad(lambda p: circuit.variational_bounds(p, x, N_NODES)[1])(
+        params
+    )
+    se = float(jnp.std(vals) / np.sqrt(n_keys))
+    oks.append(
+        report(
+            "ELBO estimator (in standard errors)",
+            float(jnp.abs(jnp.mean(vals) - elbo)) / max(se, 1e-12),
+            4.0,
+        )
+    )
+    g_mean, g_se = jnp.mean(grads, axis=0), jnp.std(grads, axis=0) / np.sqrt(n_keys)
+    z_scores = jnp.abs(g_mean - exact_grad) / jnp.maximum(g_se, 1e-8)
+    rel = jnp.linalg.norm(g_mean - exact_grad) / jnp.linalg.norm(exact_grad)
+    print(
+        f"  gradient: relative error {float(rel):.2e}, largest z-score {float(jnp.max(z_scores)):.2f} over {params.size} coordinates"
+    )
+    oks.append(report("gradient (largest z-score)", float(jnp.max(z_scores)), 5.0))
+    return all(oks)
 
 
 def main() -> None:
     jax_cli()
-    jax.config.update("jax_enable_x64", True)
-    key = jax.random.PRNGKey(0)
-    n_neurons = 6
-    circuit = CanonicalCircuit(
-        obs_dim=2,
-        n_neurons=n_neurons,
-        lat_dim=1,
-        noise_correlations="harmonium",
-        latent=True,
-        exact_reference=False,
-        n_nodes=40,
-    )
-    k_data, k_u, k_x = jax.random.split(key, 3)
-    data = jax.random.normal(k_data, (100, 2))
-    u = circuit.initialize(k_u, data)
-    keys = jax.random.split(k_u, len(u))
-    u = {
-        k: v + 0.3 * jax.random.normal(kk, v.shape)
-        for (k, v), kk in zip(u.items(), keys)
-    }
-    params = circuit.constrain(u)
-    xs = jax.random.normal(k_x, (5, 2))
-
-    # 1. Logits of the population code
-    _, pch_params = circuit.split_params(params)
-    z = jnp.array([0.7])
-    logits = circuit.blz_man.split_couplings(circuit.pch.likelihood_at(pch_params, z))[
-        0
-    ]
-    a = jnp.exp(u["a_chol"][0, 0]) ** 2
-    expected = u["peak"] - 0.5 * a * (z[0] - u["preferred"][:, 0]) ** 2
-    print(f"logits: max error {jnp.max(jnp.abs(logits - expected)):.2e}")
-
-    # 2-3. Log-partition function and log-likelihoods
-    log_psi, lls, post_means = brute_force(u, np.asarray(xs), n_neurons)
-    print(
-        f"log-partition: {circuit.log_partition_function(params):.10f} vs {log_psi:.10f}"
-    )
-    exact = jax.vmap(circuit.log_observable_density, in_axes=(None, 0))(params, xs)
-    print(f"log p_X: max error {np.max(np.abs(np.asarray(exact) - lls)):.2e}")
-    grid = np.linspace(-30, 30, 1201)
-    gx = jnp.asarray(np.stack(np.meshgrid(grid, grid), axis=-1).reshape(-1, 2))
-    dens = jnp.exp(
-        jax.vmap(circuit.log_observable_density, in_axes=(None, 0))(params, gx)
-    )
-    print(f"integral of p_X: {float(jnp.sum(dens)) * (grid[1] - grid[0]) ** 2:.6f}")
-
-    # 4. The identity
-    ident, ess_q, ess_p = jax.vmap(circuit.log_likelihood_identity, in_axes=(None, 0))(
-        params, xs
-    )
-    print(f"identity: max error {np.max(np.abs(np.asarray(ident) - lls)):.2e}")
-    print(
-        f"relative ESS at recognition nodes: {np.round(np.asarray(ess_q), 3)}, prior: {float(ess_p[0]):.3f}"
-    )
-
-    # 5. Posterior means
-    pm = jax.vmap(circuit.exact_posterior_means, in_axes=(None, 0))(params, xs)[:, 0]
-    print(
-        f"posterior mean: max error {np.max(np.abs(np.asarray(pm) - post_means)):.2e}"
-    )
-
-    # 6. Residual variance
-    _, pch_params = circuit.split_params(params)
-    _, nz_params, z_params = circuit.pch.split_coords(pch_params)
-    beta, q_params, var = circuit.recognition(params, xs[0])
-    zs, ws = circuit.quadrature(q_params)
-    rs = circuit.residuals(nz_params, beta, q_params - z_params, zs)
-    direct = jnp.sum(ws * rs**2) - jnp.sum(ws * rs) ** 2
-    print(f"residual variance: least squares {var:.6e}, direct {direct:.6e}")
-
-    # 7. The variational model, on a grid over z, and its ELBO
-    lgm_params, _ = circuit.split_params(params)
-    beta_p, p_params, _ = circuit.generative_prior(params)
-    zg = jnp.linspace(-15.0, 15.0, 6001)
-    stats = jax.vmap(circuit.blz_man.sufficient_statistic)(circuit.blz_man.states)
-    log_pz = jax.vmap(circuit.lat_man.log_density, in_axes=(None, 0))(
-        p_params, zg[:, None]
-    )
-    log_cond = jax.vmap(
-        lambda z: jax.nn.log_softmax(
-            stats
-            @ circuit.pch.lkl_fun_man(
-                circuit.pch.lkl_fun_man.join_coords(beta_p, nz_params),
-                circuit.lat_man.sufficient_statistic(z),
-            )
-        )
-    )(zg[:, None])
-    lkl_params = jax.vmap(circuit.lgm.likelihood_at, in_axes=(None, 0))(
-        lgm_params, circuit.blz_man.states
-    )
-
-    def log_tilde_grid(x: jax.Array) -> jax.Array:
-        log_x = jax.vmap(circuit.obs_man.log_density, in_axes=(0, None))(lkl_params, x)
-        log_joint = log_pz[:, None] + log_cond + log_x[None, :]
-        return jax.scipy.special.logsumexp(log_joint) + jnp.log(zg[1] - zg[0])
-
-    grid_tilde = jax.vmap(log_tilde_grid)(xs)
-    quad_tilde, elbo = jax.vmap(circuit.variational_bounds, in_axes=(None, 0))(
-        params, xs
-    )
-    print(f"log p~_X: max error {jnp.max(jnp.abs(quad_tilde - grid_tilde)):.2e}")
-    print(
-        f"ELBO <= log p~_X: {bool(jnp.all(elbo <= quad_tilde))}, gaps {np.round(np.asarray(quad_tilde - elbo), 4)}"
-    )
-    coarse = np.linspace(-12, 12, 121)
-    cx = jnp.asarray(np.stack(np.meshgrid(coarse, coarse), axis=-1).reshape(-1, 2))
-    tilde_dens = jnp.exp(jax.lax.map(log_tilde_grid, cx, batch_size=64))
-    print(
-        f"integral of p~_X: {float(jnp.sum(tilde_dens)) * (coarse[1] - coarse[0]) ** 2:.4f}"
-    )
-
-    # 8. Noise correlations: the prior over the neurons has the stored biases and couplings
-    biases = u["peak"] - 0.5 * a * u["preferred"][:, 0] ** 2
-    rows, cols = np.triu_indices(n_neurons, 1)
-    for kind, mask in (
-        ("none", np.zeros(rows.size, bool)),
-        ("chain", cols == rows + 1),
-    ):
-        noisy = CanonicalCircuit(
-            obs_dim=2,
-            n_neurons=n_neurons,
-            lat_dim=1,
-            noise_correlations=kind,
-            latent=True,
-            exact_reference=True,
-        )
-        cpl = jax.random.normal(k_x, (int(mask.sum()),))
-        lgm_params, _ = noisy.split_params(noisy.constrain({**u, "couplings": cpl}))
-        diag, off = noisy.blz_man.split_couplings(noisy.lgm.prior(lgm_params))
-        expected = jnp.zeros(rows.size).at[np.flatnonzero(mask)].set(cpl)
-        print(
-            f"noise correlations {kind}: coupling error {jnp.max(jnp.abs(off - expected)):.2e}, "
-            f"bias error {jnp.max(jnp.abs(diag - biases)):.2e}"
-        )
+    results = [check(c) for c in ("chain", "full")]
+    print("all checks passed" if all(results) else "SOME CHECKS FAILED")
 
 
 if __name__ == "__main__":
