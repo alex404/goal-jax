@@ -19,7 +19,7 @@ from ...geometry import (
 from ...geometry.exponential_family.base import Differentiable
 from ...geometry.exponential_family.harmonium import Harmonium
 from ...geometry.exponential_family.variational import (
-    ExactPriorVariational,
+    DifferentiableVariationalConjugated,
     regress_conjugation_parameters,
 )
 from ..base.categorical import Bernoullis
@@ -78,7 +78,7 @@ class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
 
 @dataclass(frozen=True)
 class VonMisesPopulationCode(
-    ExactPriorVariational[
+    DifferentiableVariationalConjugated[
         AttachedHarmonium[VonMisesProduct], VonMisesProduct, VonMisesProduct
     ]
 ):
@@ -102,7 +102,7 @@ class VonMisesPopulationCode(
 
     @property
     @override
-    def cnj_man(self) -> VonMisesProduct:
+    def cnj_fun_man(self) -> VonMisesProduct:
         return self.hrm.pst_man
 
     @property
@@ -111,8 +111,8 @@ class VonMisesPopulationCode(
         return IdentityEmbedding(self.hrm.pst_man)
 
     @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
-        return cnj_params
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
+        return cnj_fun_params
 
     # Methods
 
@@ -155,9 +155,9 @@ class VonMisesPopulationCode(
         # Fit rho via regression, with zero rho so that the prior is prior_nat
         def params_at(lat_params: Array, rho: Array) -> Array:
             hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_params)
-            return self.join_coords(hrm_params, rho, jnp.zeros(0))
+            return self.join_coords(hrm_params, rho)
 
-        zero_rho = jnp.zeros(self.cnj_man.dim)
+        zero_rho = jnp.zeros(self.cnj_fun_man.dim)
         rho, _, _, _ = regress_conjugation_parameters(
             self, key, params_at(prior_nat, zero_rho), n_regression_samples
         )
@@ -221,7 +221,9 @@ class BoltzmannNormalHarmonium[Shape: Differentiable](
 
 @dataclass(frozen=True)
 class BoltzmannPopulationCode[Shape: Differentiable](
-    ExactPriorVariational[AttachedHarmonium[FullNormal], FullNormal, FullNormal]
+    DifferentiableVariationalConjugated[
+        AttachedHarmonium[FullNormal], FullNormal, FullNormal
+    ]
 ):
     """Variational population code with a Boltzmann observable and a Normal latent.
 
@@ -243,7 +245,7 @@ class BoltzmannPopulationCode[Shape: Differentiable](
 
     @property
     @override
-    def cnj_man(self) -> FullNormal:
+    def cnj_fun_man(self) -> FullNormal:
         return self.hrm.pst_man
 
     @property
@@ -252,8 +254,8 @@ class BoltzmannPopulationCode[Shape: Differentiable](
         return IdentityEmbedding(self.hrm.pst_man)
 
     @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
-        return cnj_params
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
+        return cnj_fun_params
 
     # Methods
 

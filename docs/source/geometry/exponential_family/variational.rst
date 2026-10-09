@@ -22,27 +22,28 @@ Variational Conjugated
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.ExactPriorVariational
+.. autoclass:: goal.geometry.exponential_family.variational.DifferentiableVariationalConjugated
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.NestedPriorVariational
+.. autoclass:: goal.geometry.exponential_family.variational.ConjugationTuple
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.ConjugationCoordinates
+.. autoclass:: goal.geometry.exponential_family.variational.DeepModel
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.variational.DifferentiableDeepModel
    :members:
    :undoc-members:
    :show-inheritance:
 
 Helpers
 -------
-
-.. autofunction:: goal.geometry.exponential_family.variational.score_mean_estimate
-
-.. autofunction:: goal.geometry.exponential_family.variational.score_variance_estimate
 
 .. autofunction:: goal.geometry.exponential_family.variational.regress_conjugation_parameters
 

@@ -10,6 +10,14 @@ condition holds only approximately, so the variational machinery
 All pendulum-specific composition lives in this file --- the only library
 piece used is ``VariationalLatentProcess`` itself.
 
+Status (2026-10-09): this example needs revision and has not been run since the
+variational module was revised. The recognition precision is no longer clamped. It stays
+negative only while the latent precision bias is negative and every $\\dot\\theta^2$ entry of
+the interaction is negative: the initialization ensures this, training does not enforce
+it. The transition map still clamps its output. When it is next run, record the largest
+$\\dot\\theta^2$ entry of the interaction during training, and decide whether tuning-curve
+coverage alone keeps the parameters in their domain.
+
 Usage::
 
     uv run python -m examples.pendulum.run
@@ -38,7 +46,7 @@ from goal.geometry import (
 )
 from goal.geometry.exponential_family.harmonium import Harmonium
 from goal.geometry.exponential_family.variational import (
-    ExactPriorVariational,
+    DifferentiableVariationalConjugated,
     conjugation_metrics,
     regress_conjugation_parameters,
 )
@@ -112,7 +120,7 @@ class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
 
 @dataclass(frozen=True)
 class PendulumPopulationCode(
-    ExactPriorVariational[
+    DifferentiableVariationalConjugated[
         AttachedHarmonium[VonMisesNormalPair], VonMisesNormalPair, VonMisesNormalPair
     ]
 ):
@@ -127,7 +135,7 @@ class PendulumPopulationCode(
 
     @property
     @override
-    def cnj_man(self) -> VonMisesNormalPair:
+    def cnj_fun_man(self) -> VonMisesNormalPair:
         return self.hrm.pst_man
 
     @property
@@ -136,24 +144,8 @@ class PendulumPopulationCode(
         return IdentityEmbedding(self.hrm.pst_man)
 
     @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
-        return cnj_params
-
-    @override
-    def posterior_at(self, params: Array, x: Array) -> Array:
-        """Approximate posterior with a soft clamp on the recognition Normal's precision.
-
-        The recognition $q(z\\mid x)$ has natural parameters $\\theta_Z + s_X(x)\\cdot\\Theta_{XZ}$, with $\\theta_Z$ the latent bias (the prior minus $\\rho$). The ELBO's residual reads its slope off this override, so the ELBO decomposition stays exact. The Normal portion's precision slot $\\theta_2$ must stay strictly negative for downstream :meth:`log_partition_function` / :meth:`to_mean` to be finite. The likelihood interaction column for $v^2$ is initialized at $-1/(2\\sigma_v^2) < 0$ which keeps $s_X\\cdot\\Theta$ non-positive when $s_X \\geq 0$, but free training can flip it positive on individual neurons. Mirror the transition's soft clamp here so a momentary overshoot doesn't NaN the whole loss.
-        """
-        q_params = super().posterior_at(params, x)
-        vm_part, n_part = self.pst_man.split_coords(q_params)
-        n_clamped = jnp.array(
-            [
-                n_part[0],
-                -jax.nn.softplus(-n_part[1]) - 1e-2,
-            ]
-        )
-        return self.pst_man.join_coords(vm_part, n_clamped)
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
+        return cnj_fun_params
 
     def initialize_from_tuning_curves(
         self,
@@ -191,9 +183,9 @@ class PendulumPopulationCode(
         # Fit rho at zero rho, where the prior is prior_nat, then keep the prior
         def params_at(lat_params: Array, rho: Array) -> Array:
             hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_params)
-            return self.join_coords(hrm_params, rho, jnp.zeros(0))
+            return self.join_coords(hrm_params, rho)
 
-        zero_rho = jnp.zeros(self.cnj_man.dim)
+        zero_rho = jnp.zeros(self.cnj_fun_man.dim)
         rho, _, _, _ = regress_conjugation_parameters(
             self, key, params_at(prior_nat, zero_rho), n_regression_samples
         )
@@ -446,7 +438,7 @@ def train_mode(
         z_sg = jax.lax.stop_gradient(
             ems_hrm.prr_man.sample(conj_key, prior_params, n_conj_samples)
         )
-        r_vals = jax.vmap(lambda z: ems_hrm.conjugation_residuals(ems_full, z)[0])(z_sg)
+        r_vals = jax.vmap(lambda z: ems_hrm.conjugation_residual(ems_full, z))(z_sg)
         conj_var = jnp.var(r_vals)
         return -elbo + weight * conj_var, (elbo, conj_var)
 
@@ -663,8 +655,8 @@ def main(**overrides: Any) -> None:
         log_gains=log_gains,
     )
     ems_lkl = model.ems_hrm.likelihood_function(ems_full)
-    _, rho, _ = model.ems_hrm.split_coords(ems_full)
-    prior_part = model.ems_hrm.prior(ems_full)
+    _, rho = model.ems_hrm.split_coords(ems_full)
+    prior_part = model.ems_hrm.conjugated_prior_params(ems_full)
     trns_params = model.trn_map.glorot_initialize(keys[7])
 
     init_params = model.join_coords(prior_part, ems_lkl, rho, trns_params)
@@ -672,7 +664,7 @@ def main(**overrides: Any) -> None:
         f"Model dim: {model.dim}"
         + f" (prior={model.lat_man.dim},"
         + f" ems_lkl={model.ems_hrm.gen_hrm.lkl_fun_man.dim},"
-        + f" rho={model.ems_hrm.cnj_man.dim},"
+        + f" rho={model.ems_hrm.cnj_fun_man.dim},"
         + f" trns={model.trn_map.dim})"
     )
     print(dim_msg)

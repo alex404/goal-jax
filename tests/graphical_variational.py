@@ -1,6 +1,6 @@
 """Tests for nested variational conjugation in geometry/exponential_family/variational.py.
 
-A :class:`~goal.geometry.exponential_family.variational.NestedPriorVariational` whose deep
+A :class:`~goal.geometry.exponential_family.variational.VariationalConjugated` whose deep
 model is again variational nests to any depth, and its graphical harmonium may attach
 several harmoniums to one latent. Five ground truths pin it down. With exact conjugation
 parameters the model is the graphical harmonium: its prior, log-partition function and
@@ -10,8 +10,8 @@ holds for two- and three-level chains, an exact harmonium as the prior, and grap
 harmoniums with two and three attached harmoniums on one latent. For Boltzmann and
 Gaussian levels mixed to depths two to four, $\\log \\tilde p(x, w) - \\log q(w \\mid x)$
 must equal $c(x)$ plus :meth:`elbo_residual`, and $\\log \\tilde p(x, w)$ the harmonium's
-unnormalized log-density minus $\\tilde\\Psi$ plus the residuals, also when ``prior`` and
-``posterior_at`` are overridden; exact levels have vanishing residuals. The estimator's
+unnormalized log-density minus $\\tilde\\Psi$ plus the residuals; exact levels have vanishing
+residuals. The estimator's
 gradient must match the gradient of the ELBO computed by enumerating the Boltzmann levels
 and Gauss--Hermite quadrature over one-dimensional Gaussian levels, at depth two (also
 from one or two samples per estimate) and depth three. The recognition and prior
@@ -33,12 +33,11 @@ from jax import Array
 
 from goal.geometry import (
     DifferentiableGraphical,
-    ExactPriorVariational,
+    DifferentiableVariationalConjugated,
     GraphicalHarmonium,
     Harmonium,
     IdentityEmbedding,
     MultilayerPerceptron,
-    NestedPriorVariational,
     PositiveDefinite,
     SubCliquesEmbedding,
     VariationalConjugated,
@@ -86,15 +85,15 @@ class _Link(GraphicalHarmonium[Any]):
         return ((self.lwr, tuple(range(self.lwr.pst_man.n_nodes))),)
 
 
-def _conjugation(level: Any, lkl_params: Array, cnj_params: Array) -> Array:
+def _conjugation(level: Any, lkl_params: Array, cnj_fun_params: Array) -> Array:
     """The conjugation parameters of a test level: exact, a stored constant, or ``inr_map`` of the observable bias; each attached harmonium's placed on its clique."""
     hrm = level.gen_hrm
     if level.inr_map is not None:
         (obs_hrm,), (att,) = hrm.obs_hrms, hrm.att_clqs
         theta_x, _ = hrm.lkl_fun_man.split_coords(lkl_params)
-        rho = level.inr_map(cnj_params, theta_x)
+        rho = level.inr_map(cnj_fun_params, theta_x)
         return SubCliquesEmbedding(att, level.prr_man, obs_hrm.pst_man).embed(rho)
-    stored = split_by_dims(cnj_params, _stored_dims(level))
+    stored = split_by_dims(cnj_fun_params, _stored_dims(level))
     rho = level.prr_man.zeros()
     for obs_hrm, att, hrm_lkl, rho_i in zip(
         hrm.obs_hrms, hrm.att_clqs, hrm.likelihood_functions(lkl_params), stored
@@ -120,7 +119,7 @@ def _cnj_man(level: Any) -> Euclidean:
 
 
 @dataclass(frozen=True)
-class _ExactLevel(ExactPriorVariational[Any, Any, Euclidean]):
+class _ExactLevel(DifferentiableVariationalConjugated[Any, Any, Euclidean]):
     """A level over an exact prior family, with exact, constant or mapped conjugation parameters."""
 
     hrm: Any
@@ -140,16 +139,16 @@ class _ExactLevel(ExactPriorVariational[Any, Any, Euclidean]):
 
     @property
     @override
-    def cnj_man(self) -> Euclidean:
+    def cnj_fun_man(self) -> Euclidean:
         return _cnj_man(self)
 
     @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
-        return _conjugation(self, lkl_params, cnj_params)
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
+        return _conjugation(self, lkl_params, cnj_fun_params)
 
 
 @dataclass(frozen=True)
-class _NestedLevel(NestedPriorVariational[Any, Any, Euclidean]):
+class _NestedLevel(VariationalConjugated[Any, Euclidean]):
     """A level over a variational deep model, with exact, constant or mapped conjugation parameters."""
 
     hrm: Any
@@ -164,7 +163,7 @@ class _NestedLevel(NestedPriorVariational[Any, Any, Euclidean]):
 
     @property
     @override
-    def dep_vrt(self) -> Any:
+    def dep_man(self) -> Any:
         return self.deep
 
     @property
@@ -174,30 +173,12 @@ class _NestedLevel(NestedPriorVariational[Any, Any, Euclidean]):
 
     @property
     @override
-    def cnj_man(self) -> Euclidean:
+    def cnj_fun_man(self) -> Euclidean:
         return _cnj_man(self)
 
     @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
-        return _conjugation(self, lkl_params, cnj_params)
-
-
-@dataclass(frozen=True)
-class _ShimmedExact(_ExactLevel):
-    """An exact level whose prior is scaled, as a stand-in for a stability shim."""
-
-    @override
-    def prior(self, params: Array) -> Array:
-        return 1.05 * super().prior(params)
-
-
-@dataclass(frozen=True)
-class _ShimmedNested(_NestedLevel):
-    """A nested level whose posterior is scaled, as a stand-in for a stability shim."""
-
-    @override
-    def posterior_at(self, params: Array, x: Array) -> Array:
-        return 0.95 * super().posterior_at(params, x)
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
+        return _conjugation(self, lkl_params, cnj_fun_params)
 
 
 def _level(
@@ -205,14 +186,11 @@ def _level(
     deep: Any,
     exact: bool,
     mlp: Any,
-    shim: bool = False,
 ) -> Any:
     """``lwr`` attached to the deep model: an exact family or another level."""
     if isinstance(deep, VariationalConjugated):
-        cls: Any = _ShimmedNested if shim else _NestedLevel
-        return cls(_Link(lwr, deep.gen_hrm), deep, exact, mlp)
-    cls = _ShimmedExact if shim else _ExactLevel
-    return cls(_Link(lwr, deep), deep, exact, mlp)
+        return _NestedLevel(_Link(lwr, deep.gen_hrm), deep, exact, mlp)
+    return _ExactLevel(_Link(lwr, deep), deep, exact, mlp)
 
 
 @dataclass(frozen=True)
@@ -254,23 +232,21 @@ def _boltzmann(kind: str, n: int) -> Any:
     return ChordalBoltzmann.from_edges(n, [(i, i + 1) for i in range(n - 1)])
 
 
-def _gaussian_boltzmann(
-    obs_dim: int, bol: Any, deep: Any, mlp: Any, shim: bool = False
-) -> Any:
+def _gaussian_boltzmann(obs_dim: int, bol: Any, deep: Any, mlp: Any) -> Any:
     """A Gaussian observable over a Boltzmann latent: exact for a full Boltzmann, learned otherwise."""
     if isinstance(bol, FullBoltzmann):
-        return _level(BoltzmannLGM(obs_dim, PD, bol.n_neurons), deep, True, None, shim)
-    return _level(NormalBoltzmannHarmonium(obs_dim, PD, bol), deep, False, mlp, shim)
+        return _level(BoltzmannLGM(obs_dim, PD, bol.n_neurons), deep, True, None)
+    return _level(NormalBoltzmannHarmonium(obs_dim, PD, bol), deep, False, mlp)
 
 
-def _circuit(kind: str, n: int = 4, lat_dim: int = 2, shim: bool = False) -> Any:
+def _circuit(kind: str, n: int = 4, lat_dim: int = 2) -> Any:
     """$x$ Gaussian, $y$ Boltzmann of the given kind, $z$ Gaussian; the lower level is exact for a full Boltzmann, and $\\rho_Z$ is a map of the bias of $y$."""
     bol = _boltzmann(kind, n)
     mlp = MultilayerPerceptron(full_normal(lat_dim), bol, (6,), jax.nn.tanh)
     upper = _level(
-        BoltzmannNormalHarmonium(bol, lat_dim), full_normal(lat_dim), False, mlp, shim
+        BoltzmannNormalHarmonium(bol, lat_dim), full_normal(lat_dim), False, mlp
     )
-    return _gaussian_boltzmann(3, bol, upper, None, shim)
+    return _gaussian_boltzmann(3, bol, upper, None)
 
 
 def _stack(depth: int, kind: str) -> Any:
@@ -332,17 +308,11 @@ def _fork(name: str, exact: bool) -> _ExactLevel:
     return _ExactLevel(hrm, hrm.pst_man, exact, None)
 
 
-def _recognition_deep_params(model: Any, params: Array, x: Array) -> Array:
-    return model.deep_params(
-        params, model.pst_prr_emb.embed(model.posterior_at(params, x))
-    )
-
-
 X3 = jnp.array([0.3, -0.2, 0.5])
 
 
 class TestLayout:
-    """The stored conjugation coordinates exist exactly for the learned levels, and the rest is the graphical harmonium."""
+    """The stored conjugation function parameters exist exactly for the learned levels, and the rest is the graphical harmonium."""
 
     def test_exact_chain_stores_no_conjugation(self) -> None:
         model = _gaussian_chain((3, 2, 1))
@@ -351,14 +321,33 @@ class TestLayout:
     @pytest.mark.parametrize("kind", ["chordal", "diagonal"])
     def test_learned_levels_store_their_conjugation(self, kind: str) -> None:
         model = _circuit(kind)
-        upper = model.dep_vrt
-        assert model.cnj_man.dim == model.gen_hrm.obs_hrms[0].pst_man.dim
-        assert upper.cnj_man.dim == upper.inr_map.dim
-        assert model.dim == model.gen_hrm.dim + model.cnj_man.dim + upper.cnj_man.dim
+        upper = model.dep_man
+        assert model.cnj_fun_man.dim == model.gen_hrm.obs_hrms[0].pst_man.dim
+        assert upper.cnj_fun_man.dim == upper.inr_map.dim
+        assert (
+            model.dim
+            == model.gen_hrm.dim + model.cnj_fun_man.dim + upper.cnj_fun_man.dim
+        )
+
+    def test_one_conjugation_element_per_level(self) -> None:
+        """Element $k$ of the conjugation tuple is level $k$, exact levels included."""
+        model = _stack(4, "chordal")
+        levels = [model]
+        while isinstance(levels[-1].dep_man, VariationalConjugated):
+            levels.append(levels[-1].dep_man)
+        assert model.snd_man.elm_mans == tuple(level.cnj_fun_man for level in levels)
+        params = _perturbed(model, 0)
+        _, cnj_fun_tup_params = model.split_coords(params)
+        _, *dep_cnj_fun_paramss = model.snd_man.split_coords(cnj_fun_tup_params)
+        dep_params = model.conjugated_prior_params(params)
+        _, dep_cnj_fun_tup_params = model.dep_man.split_coords(dep_params)
+        assert jnp.array_equal(
+            dep_cnj_fun_tup_params, jnp.concatenate(dep_cnj_fun_paramss)
+        )
 
     def test_exact_lower_level_stores_nothing(self) -> None:
         model = _circuit("full")
-        assert model.cnj_man.dim == 0
+        assert model.cnj_fun_man.dim == 0
 
     def test_split_join_round_trip(self) -> None:
         model = _stack(4, "chordal")
@@ -412,11 +401,13 @@ class TestExact:
         """Prior, log-partition function and $c(x)$ equal those of the conjugated graphical harmonium."""
         model = _fork(name, True)
         params = _perturbed(model, 8)
-        hrm_params, _, _ = model.split_coords(params)
+        hrm_params, _ = model.split_coords(params)
         hrm = model.gen_hrm
-        assert jnp.allclose(model.prior(params), hrm.prior(hrm_params), atol=1e-12)
         assert jnp.allclose(
-            model.log_partition_function(params),
+            model.conjugated_prior_params(params), hrm.prior(hrm_params), atol=1e-12
+        )
+        assert jnp.allclose(
+            model.conjugated_log_partition_function(params),
             hrm.log_partition_function(hrm_params),
             atol=1e-10,
         )
@@ -432,7 +423,11 @@ class TestExact:
         ws = model.sample_recognition(jax.random.PRNGKey(9), params, X3, 6)
         for w in ws:
             assert jnp.allclose(
-                jnp.stack(model.conjugation_residuals(params, w)), 0.0, atol=1e-10
+                jnp.stack(
+                    model.conjugation_residuals(params, jnp.concatenate([X3, w]))
+                ),
+                0.0,
+                atol=1e-10,
             )
             assert jnp.allclose(model.elbo_residual(params, X3, w), 0.0, atol=1e-10)
 
@@ -440,16 +435,16 @@ class TestExact:
         """Conditioning on an observation that adds nothing to the latent bias gives the prior: with a zero interaction, $q(w \\mid x) = \\tilde p(w)$."""
         model = _gaussian_chain((3, 2, 2, 1))
         params = _perturbed(model, 10)
-        hrm_params, cnj, dep = model.split_coords(params)
+        hrm_params, cnj_fun_tup_params = model.split_coords(params)
         obs_p, int_p, lat_p = model.gen_hrm.split_coords(hrm_params)
         zero_int = model.gen_hrm.join_coords(obs_p, jnp.zeros_like(int_p), lat_p)
-        params = model.join_coords(zero_int, cnj, dep)
+        params = model.join_coords(zero_int, cnj_fun_tup_params)
         ws = model.sample_recognition(jax.random.PRNGKey(11), params, X3, 4)
-        dep_prior = model.deep_params(params, model.prior(params))
+        dep_prior = model.conjugated_prior_params(params)
         for w in ws:
             assert jnp.allclose(
                 model.recognition_log_density(params, X3, w),
-                model.dep_vrt.log_density(dep_prior, w),
+                model.dep_man.log_density(dep_prior, w),
                 atol=1e-10,
             )
 
@@ -461,8 +456,8 @@ class TestDecomposition:
     def _check(model: Any, params: Array, x: Array) -> None:
         ws = model.sample_recognition(jax.random.PRNGKey(11), params, x, 8)
         c_x = model.conjugation_baseline(params, x)
-        hrm_params, _, _ = model.split_coords(params)
-        psi = model.log_partition_function(params)
+        hrm_params, _ = model.split_coords(params)
+        psi = model.conjugated_log_partition_function(params)
         for w in ws:
             xw = jnp.concatenate([x, w])
             log_p = model.log_density(params, xw)
@@ -473,19 +468,13 @@ class TestDecomposition:
             unnormalized = jnp.dot(
                 hrm_params, model.gen_hrm.sufficient_statistic(xw)
             ) + model.gen_hrm.log_base_measure(xw)
-            residuals = sum(model.conjugation_residuals(params, w))
+            residuals = sum(model.conjugation_residuals(params, xw))
             assert jnp.allclose(log_p, unnormalized - psi + residuals, atol=1e-10)
 
     @pytest.mark.parametrize("kind", ["chordal", "diagonal", "full"])
     def test_circuit(self, kind: str) -> None:
         model = _circuit(kind)
         self._check(model, _perturbed(model, 10), X3)
-
-    @pytest.mark.parametrize("kind", ["chordal", "full"])
-    def test_shimmed_circuit(self, kind: str) -> None:
-        """Overrides of ``prior`` and ``posterior_at`` keep both identities exact."""
-        model = _circuit(kind, shim=True)
-        self._check(model, _perturbed(model, 14), X3)
 
     @pytest.mark.parametrize("depth", [3, 4])
     @pytest.mark.parametrize("kind", ["chordal", "full"])
@@ -508,7 +497,7 @@ class TestExactLevel:
         ys = jnp.array(list(itertools.product([0.0, 1.0], repeat=4)))
         z = jnp.zeros(2)
         r_y = jax.vmap(
-            lambda y: model.conjugation_residuals(params, jnp.concatenate([y, z]))[0]
+            lambda y: model.conjugation_residual(params, jnp.concatenate([y, z]))
         )(ys)
         assert jnp.allclose(r_y, 0.0, atol=1e-10)
 
@@ -530,14 +519,15 @@ def _states(family: Any) -> Array:
 
 
 def _deep(model: Any) -> Any:
-    return model.dep_vrt if isinstance(model, NestedPriorVariational) else model.prr_man
+    deep = model.dep_man
+    return deep if isinstance(deep, VariationalConjugated) else model.prr_man
 
 
 def _levels(model: Any, params: Array) -> tuple[list[Any], list[Any]]:
     """The family of each level of a model at the given parameters, and the natural parameters of each level given the levels above it (root first); a model is an exact family or a level."""
     if not isinstance(model, VariationalConjugated):
         return [model], [lambda _above: params]
-    fams, conds = _levels(_deep(model), model.deep_params(params, model.prior(params)))
+    fams, conds = _levels(_deep(model), model.conjugated_prior_params(params))
     obs = model.gen_hrm.obs_hrms[0].obs_man
 
     def own(above: list[Array]) -> Array:
@@ -582,9 +572,7 @@ def _expectation(
 
 
 def _quadrature_elbo(model: Any, params: Array, x: Array) -> Array:
-    fams, conditional = _conditional(
-        _deep(model), _recognition_deep_params(model, params, x)
-    )
+    fams, conditional = _conditional(_deep(model), model.recognition_at(params, x))
 
     def f(levels: list[Array]) -> Array:
         w = jnp.concatenate(levels)
@@ -652,15 +640,17 @@ class TestRecognitionResidualVariances:
         model = _circuit("chordal", n=3, lat_dim=1)
         params = _perturbed(model, 16)
         x = jnp.array([0.4, -0.7, 0.1])
-        upper = model.dep_vrt
+        upper = model.dep_man
 
         def v_true(p: Array) -> Array:
-            dep_post = _recognition_deep_params(model, p, x)
-            fams, conditional = _conditional(upper.prr_man, upper.prior(dep_post))
+            dep_post = model.recognition_at(p, x)
+            fams, conditional = _conditional(
+                upper.prr_man, upper.conjugated_prior_params(dep_post)
+            )
 
             def r(levels: list[Array]) -> Array:
                 (z,) = levels
-                return upper.conjugation_residuals(dep_post, z)[0]
+                return upper.conjugation_residual(dep_post, z)
 
             return _variance(fams, conditional, r, 0)
 
@@ -684,19 +674,20 @@ class TestPriorResidualVariances:
     def test_matches_quadrature(self) -> None:
         model = _circuit("chordal", n=3, lat_dim=1)
         params = _perturbed(model, 17)
+        n_x = model.obs_man.data_dim
         n_y = model.gen_hrm.obs_hrms[0].pst_man.data_dim
 
         def v_true(p: Array) -> Array:
             fams, conditional = _conditional(
-                _deep(model), model.deep_params(p, model.prior(p))
+                _deep(model), model.conjugated_prior_params(p)
             )
 
             def r_lower(levels: list[Array]) -> Array:
-                return model.conjugation_residuals(p, jnp.concatenate(levels))[0]
+                return model.conjugation_residual(p, jnp.concatenate(levels))
 
             def r_upper(levels: list[Array]) -> Array:
-                w = jnp.concatenate([jnp.zeros(n_y), *levels])
-                return model.conjugation_residuals(p, w)[1]
+                xw = jnp.concatenate([jnp.zeros(n_x + n_y), *levels])
+                return model.conjugation_residuals(p, xw)[1]
 
             return jnp.stack(
                 [
@@ -706,7 +697,7 @@ class TestPriorResidualVariances:
             )
 
         def losses(p: Array, k: Array) -> Array:
-            return jnp.stack(model.prior_residual_variances(k, p, 4))
+            return jnp.stack(model.conjugation_residual_variances(k, p, 4))
 
         keys = jax.random.split(jax.random.PRNGKey(50), 40000)
         vals = jax.jit(jax.vmap(losses, in_axes=(None, 0)))(params, keys)

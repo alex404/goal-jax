@@ -40,15 +40,15 @@ def directed_params(
     """Model parameters with the given likelihood, prior and conjugation parameters: the latent bias is the prior minus $\\rho$."""
     obs_params, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
     hrm_params = model.gen_hrm.join_coords(obs_params, int_params, prior - rho)
-    return model.join_coords(hrm_params, rho, jnp.zeros(0))
+    return model.join_coords(hrm_params, rho)
 
 
 def directed_parts(
     model: VonMisesPopulationCode, params: Array
 ) -> tuple[Array, Array, Array]:
     """The likelihood, the prior and the conjugation parameters of the model."""
-    _, rho, _ = model.split_coords(params)
-    return model.likelihood_function(params), model.prior(params), rho
+    _, rho = model.split_coords(params)
+    return model.likelihood_function(params), model.conjugated_prior_params(params), rho
 
 
 def von_mises_inverse_cdf(u: Array, kappa: float, mu: float = 0.0) -> Array:
@@ -225,7 +225,7 @@ def compute_gt_conjugation(
     """Compute conjugation metrics for the ground truth model using library methods."""
     # Wrap GT harmonium in variational model to use library methods
     var_model = VonMisesPopulationCode(gt_model)
-    zero_rho = jnp.zeros(var_model.cnj_man.dim)
+    zero_rho = jnp.zeros(var_model.cnj_fun_man.dim)
 
     # The GT parameters [obs, int, prior] hold the prior directly
     gt_obs, gt_int, gt_prior = gt_model.split_coords(gt_params)
@@ -292,7 +292,7 @@ def train_model(  # noqa: C901
     prior_dim = model.prr_man.dim
     init_lkl_p, init_prior_p, _ = directed_parts(model, params)
     gen_params = jnp.concatenate([init_prior_p, init_lkl_p])
-    zero_rho = jnp.zeros(model.cnj_man.dim)
+    zero_rho = jnp.zeros(model.cnj_fun_man.dim)
 
     # Optimizer setup
     if use_analytical_rho:
@@ -320,11 +320,11 @@ def train_model(  # noqa: C901
 
         # Conjugation penalty with stop_gradient on samples (VonMises is
         # non-reparameterizable, so we can't differentiate through sampling)
-        p_params = model.prior(params)
+        p_params = model.conjugated_prior_params(params)
         z_sg = jax.lax.stop_gradient(
             model.prr_man.sample(conj_key, p_params, n_conj_samples)
         )
-        f_vals = jax.vmap(lambda z: model.conjugation_residuals(params, z)[0])(z_sg)
+        f_vals = jax.vmap(lambda z: model.conjugation_residual(params, z))(z_sg)
         conj_var = jnp.var(f_vals)
 
         loss = -elbo + conj_weight * conj_var
@@ -349,11 +349,11 @@ def train_model(  # noqa: C901
         elbo = model.mean_elbo(elbo_key, params_with_rho, batch, n_mc_samples)
 
         # Conjugation penalty: explicitly discourage nonlinear \psi_X
-        p_params = model.prior(params_with_rho)
+        p_params = model.conjugated_prior_params(params_with_rho)
         z_sg = jax.lax.stop_gradient(
             model.prr_man.sample(conj_key, p_params, n_conj_samples)
         )
-        f_vals = jax.vmap(lambda z: model.conjugation_residuals(params_with_rho, z)[0])(
+        f_vals = jax.vmap(lambda z: model.conjugation_residual(params_with_rho, z))(
             z_sg
         )
         conj_var = jnp.var(f_vals)
@@ -525,7 +525,7 @@ def train_model(  # noqa: C901
     # For analytical mode, recompute rho with many samples for stable evaluation
     if use_analytical_rho:
         key, rho_eval_key = jax.random.split(key)
-        zero_rho = jnp.zeros(model.cnj_man.dim)
+        zero_rho = jnp.zeros(model.cnj_fun_man.dim)
         cur_prior_p = current_gen_params[:prior_dim]
         cur_lkl_p = current_gen_params[prior_dim:]
         eval_params = directed_params(model, cur_lkl_p, cur_prior_p, zero_rho)
@@ -696,7 +696,7 @@ def main():
     model = VonMisesPopulationCode(PoissonVonMisesHarmonium(n_neurons, n_latent))
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
-    print(f"  Rho params: {model.cnj_man.dim}")
+    print(f"  Rho params: {model.cnj_fun_man.dim}")
     print(f"  Harmonium params: {model.gen_hrm.dim}")
 
     # Train all modes

@@ -69,9 +69,9 @@ def _setup() -> tuple[VonMisesPopulationCode, Array]:
     """Model with generic (non-conjugate, nonzero-rho) parameters."""
     model = VonMisesPopulationCode(PoissonVonMisesHarmonium(N_NEURONS, 1))
     k_init, k_rho = jax.random.split(jax.random.PRNGKey(0))
-    hrm_p, _, dep_p = model.split_coords(model.initialize(k_init, shape=0.5))
-    rho = 0.3 * jax.random.normal(k_rho, (model.cnj_man.dim,))
-    return model, model.join_coords(hrm_p, rho, dep_p)
+    hrm_p, _ = model.split_coords(model.initialize(k_init, shape=0.5))
+    rho = 0.3 * jax.random.normal(k_rho, (model.cnj_fun_man.dim,))
+    return model, model.join_coords(hrm_p, rho)
 
 
 # --- Quadrature ground truths (exact values and exact autodiff gradients) ---
@@ -89,7 +89,7 @@ def _exact_elbo(model: VonMisesPopulationCode, params: Array) -> Array:
     w, log_q = _recognition_weights(model, params)
     lkl_nat = jax.vmap(lambda z: model.likelihood_at(params, z))(Z_GRID)
     log_pxz = jax.vmap(model.obs_man.log_density)(lkl_nat, jnp.tile(X_OBS, (N_GRID, 1)))
-    prior_p = model.prior(params)
+    prior_p = model.conjugated_prior_params(params)
     log_pz = jax.vmap(lambda z: model.prr_man.log_density(prior_p, z))(Z_GRID)
     return DZ * jnp.sum(w * (log_pxz + log_pz - log_q))
 
@@ -102,7 +102,7 @@ def _exact_mean_r(model: VonMisesPopulationCode, params: Array) -> Array:
 
 def _exact_kl(model: VonMisesPopulationCode, params: Array) -> Array:
     w, log_q = _recognition_weights(model, params)
-    prior_p = model.prior(params)
+    prior_p = model.conjugated_prior_params(params)
     log_pz = jax.vmap(lambda z: model.prr_man.log_density(prior_p, z))(Z_GRID)
     return DZ * jnp.sum(w * (log_q - log_pz))
 
@@ -115,10 +115,10 @@ def _exact_var_q_r(model: VonMisesPopulationCode, params: Array) -> Array:
 
 
 def _exact_var_p_r(model: VonMisesPopulationCode, params: Array) -> Array:
-    prior_p = model.prior(params)
+    prior_p = model.conjugated_prior_params(params)
     log_p = jax.vmap(lambda z: model.prr_man.log_density(prior_p, z))(Z_GRID)
     w = jnp.exp(log_p)
-    r = jax.vmap(lambda z: model.conjugation_residuals(params, z)[0])(Z_GRID)
+    r = jax.vmap(lambda z: model.conjugation_residual(params, z))(Z_GRID)
     mean_r = DZ * jnp.sum(w * r)
     return DZ * jnp.sum(w * (r - mean_r) ** 2)
 
@@ -221,7 +221,7 @@ class TestPriorResidualVariance:
         exact_val = _exact_var_p_r(model, params)
         exact_grad = jax.grad(lambda p: _exact_var_p_r(model, p))(params)
         mc_val, val_se, mc_grad, grad_se = _mc_value_and_grad(
-            lambda k, p: model.prior_residual_variances(k, p, N_MC)[0], params
+            lambda k, p: model.conjugation_residual_variances(k, p, N_MC)[0], params
         )
         _assert_matches(exact_val, exact_grad, mc_val, val_se, mc_grad, grad_se)
 
@@ -281,7 +281,7 @@ class TestVariationalHierarchicalMixture:
         interaction and categorical slots are exactly zero."""
         model = _make_hierarchical_model()
         params = model.initialize(jax.random.PRNGKey(0))
-        rho = jnp.arange(1.0, model.cnj_man.dim + 1)
+        rho = jnp.arange(1.0, model.cnj_fun_man.dim + 1)
 
         rho_full = model.conjugation_parameters(model.likelihood_function(params), rho)
         assert rho_full.shape == (model.prr_man.dim,)
@@ -297,15 +297,15 @@ class TestVariationalHierarchicalMixture:
         model = _make_hierarchical_model()
         key_init, key_z = jax.random.split(jax.random.PRNGKey(1))
         params = model.initialize(key_init)
-        hrm_p, _, dep_p = model.split_coords(params)
+        hrm_p, _ = model.split_coords(params)
         obs_p, int_p, lat_p = model.gen_hrm.split_coords(hrm_p)
         hrm_zero = model.gen_hrm.join_coords(obs_p, jnp.zeros_like(int_p), lat_p)
-        params = model.join_coords(hrm_zero, model.cnj_man.zeros(), dep_p)
+        params = model.join_coords(hrm_zero, model.snd_man.zeros())
 
-        z_samples = model.prr_man.sample(key_z, model.prior(params), 20)
-        r_vals = jax.vmap(lambda z: model.conjugation_residuals(params, z)[0])(
-            z_samples
+        z_samples = model.prr_man.sample(
+            key_z, model.conjugated_prior_params(params), 20
         )
+        r_vals = jax.vmap(lambda z: model.conjugation_residual(params, z))(z_samples)
         assert jnp.all(r_vals == 0.0)
 
     def test_regression_reduces_prior_residual_variance(self):
@@ -315,7 +315,7 @@ class TestVariationalHierarchicalMixture:
         model = _make_hierarchical_model()
         key_init, key_reg, key_loss = jax.random.split(jax.random.PRNGKey(2), 3)
         params = model.initialize(key_init)
-        hrm_p, _, dep_p = model.split_coords(params)
+        hrm_p, _ = model.split_coords(params)
         obs_p, int_p, lat_p = model.gen_hrm.split_coords(hrm_p)
 
         rho_fit, r_squared, _, _ = regress_conjugation_parameters(
@@ -325,11 +325,14 @@ class TestVariationalHierarchicalMixture:
             model.likelihood_function(params), rho_fit
         )
         hrm_fit = model.gen_hrm.join_coords(obs_p, int_p, lat_p - rho_full)
-        params_fit = model.join_coords(hrm_fit, rho_fit, dep_p)
-        assert jnp.allclose(model.prior(params_fit), model.prior(params))
+        params_fit = model.join_coords(hrm_fit, rho_fit)
+        assert jnp.allclose(
+            model.conjugated_prior_params(params_fit),
+            model.conjugated_prior_params(params),
+        )
 
-        loss_zero = model.prior_residual_variances(key_loss, params, 1000)[0]
-        loss_fit = model.prior_residual_variances(key_loss, params_fit, 1000)[0]
+        loss_zero = model.conjugation_residual_variances(key_loss, params, 1000)[0]
+        loss_fit = model.conjugation_residual_variances(key_loss, params_fit, 1000)[0]
         assert loss_fit < loss_zero
         # Small-init couplings make psi_X near-affine in s_Y, so the affine
         # correction should explain nearly all the residual variance.

@@ -4,7 +4,7 @@ This module contains:
 
 - ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
-- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is an ``ExactPriorVariational`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
+- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is an ``DifferentiableVariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from .harmonium import (
     AnalyticConjugated,
     SymmetricConjugated,
 )
-from .variational import ExactPriorVariational
+from .variational import DifferentiableVariationalConjugated
 
 
 def transpose_harmonium[L: Differentiable](
@@ -402,7 +402,7 @@ class VariationalLatentProcess[
 
     @property
     @abstractmethod
-    def ems_hrm(self) -> ExactPriorVariational[Any, L, C]:
+    def ems_hrm(self) -> DifferentiableVariationalConjugated[Any, L, C]:
         """The variational emission $p(x_t \\mid z_t)$ with learned conjugation $\\rho$. Its posterior and prior families must both be ``L`` (an identity ``pst_prr_emb``), because the transition operates on belief natural parameters in ``L``."""
 
     @property
@@ -426,8 +426,8 @@ class VariationalLatentProcess[
     @property
     @override
     def trd_man(self) -> C:
-        """The conjugation parameter manifold (``ems_hrm.cnj_man``)."""
-        return self.ems_hrm.cnj_man
+        """The conjugation parameter manifold (``ems_hrm.cnj_fun_man``)."""
+        return self.ems_hrm.cnj_fun_man
 
     @property
     @override
@@ -436,13 +436,15 @@ class VariationalLatentProcess[
 
     # Methods
 
-    def emission_params(self, ems_lkl: Array, cnj_params: Array, prior: Array) -> Array:
+    def emission_params(
+        self, ems_lkl: Array, cnj_fun_params: Array, prior: Array
+    ) -> Array:
         """Parameters of :attr:`ems_hrm` whose prior is the given belief: its latent bias is the belief minus the conjugation parameters."""
         ems_hrm = self.ems_hrm
         obs_params, int_params = ems_hrm.gen_hrm.lkl_fun_man.split_coords(ems_lkl)
-        lat_params = prior - ems_hrm.conjugation_parameters(ems_lkl, cnj_params)
+        lat_params = prior - ems_hrm.conjugation_parameters(ems_lkl, cnj_fun_params)
         hrm_params = ems_hrm.gen_hrm.join_coords(obs_params, int_params, lat_params)
-        return ems_hrm.join_coords(hrm_params, cnj_params, jnp.zeros(0))
+        return ems_hrm.join_coords(hrm_params, cnj_fun_params)
 
     def filter(
         self,

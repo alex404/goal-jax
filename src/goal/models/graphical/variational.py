@@ -1,6 +1,6 @@
 """Variational hierarchical mixture model.
 
-Extends :class:`~goal.geometry.exponential_family.variational.ExactPriorVariational` for hierarchical models with mixture posterior structure: the underlying harmonium has interaction structurally restricted to the observable (BaseLatent) component of the mixture posterior --- no per-component observable offsets, so the analytic mixture completion of the conjugation collapses to a simple zero-pad embedding of the learned $\\rho$ into the mixture-shaped Prior space.
+Extends :class:`~goal.geometry.exponential_family.variational.DifferentiableVariationalConjugated` for hierarchical models with mixture posterior structure: the underlying harmonium has interaction structurally restricted to the observable (BaseLatent) component of the mixture posterior --- no per-component observable offsets, so the analytic mixture completion of the conjugation collapses to a simple zero-pad embedding of the learned $\\rho$ into the mixture-shaped Prior space.
 """
 
 from abc import ABC
@@ -14,7 +14,9 @@ from ...geometry import (
     IdentityEmbedding,
     ObservableEmbedding,
 )
-from ...geometry.exponential_family.variational import ExactPriorVariational
+from ...geometry.exponential_family.variational import (
+    DifferentiableVariationalConjugated,
+)
 from ..harmonium.mixture import CompleteMixture
 
 
@@ -22,7 +24,7 @@ class VariationalHierarchicalMixture[
     Observable: Differentiable,
     BaseLatent: Differentiable,
 ](
-    ExactPriorVariational[GraphicalHarmonium[Any], Any, BaseLatent],
+    DifferentiableVariationalConjugated[GraphicalHarmonium[Any], Any, BaseLatent],
     ABC,
 ):
     """Variational harmonium with hierarchical mixture latent structure.
@@ -56,16 +58,16 @@ class VariationalHierarchicalMixture[
 
     @property
     @override
-    def cnj_man(self) -> BaseLatent:
+    def cnj_fun_man(self) -> BaseLatent:
         return self.bas_lat_man
 
     @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_params: Array) -> Array:
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
         """Zero-pad the learned $\\rho_y$ into the full mixture-shape Prior conjugation.
 
         In the hierarchical case the graphical harmonium's interaction only touches the BaseLatent slot, so the analytic mixture completion has $\\rho_{yz} = 0$ and $\\rho_z = 0$. The full conjugation is just $\\rho_y$ embedded via :class:`~goal.geometry.exponential_family.harmonium.ObservableEmbedding` into the mixture.
         """
-        return ObservableEmbedding(self.mix_man).embed(cnj_params)
+        return ObservableEmbedding(self.mix_man).embed(cnj_fun_params)
 
     def get_cluster_probs(self, mixture_params: Array) -> Array:
         """Extract cluster probabilities from mixture natural parameters by marginalizing out the observable."""
@@ -78,6 +80,6 @@ class VariationalHierarchicalMixture[
 
         This is useful for regularization to prevent cluster collapse.
         """
-        cat_params = self.mix_man.prior(self.prior(params))
+        cat_params = self.mix_man.prior(self.conjugated_prior_params(params))
         cat_means = self.mix_man.lat_man.to_mean(cat_params)
         return -self.mix_man.lat_man.negative_entropy(cat_means)

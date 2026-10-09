@@ -145,7 +145,7 @@ class TestVonMisesPopulationCodeConjugation:
         hrm_params = model.gen_hrm.join_coords(
             jnp.zeros(n_neurons), int_params, jnp.zeros(2)
         )
-        params = model.join_coords(hrm_params, model.cnj_man.zeros(), jnp.zeros(0))
+        params = model.join_coords(hrm_params, model.snd_man.zeros())
 
         key, reg_key = jax.random.split(key)
         rho, r_squared, _, _ = regress_conjugation_parameters(
@@ -168,10 +168,10 @@ def _make_boltzmann_pc(
     rho, _, _, _ = regress_conjugation_parameters(
         model, jax.random.fold_in(key, 1), params, n_reg
     )
-    hrm_params, _, dep_params = model.split_coords(params)
+    hrm_params, _ = model.split_coords(params)
     obs_p, int_p, lat_p = model.gen_hrm.split_coords(hrm_params)
     hrm_params = model.gen_hrm.join_coords(obs_p, int_p, lat_p - rho)
-    return model, model.join_coords(hrm_params, rho, dep_params)
+    return model, model.join_coords(hrm_params, rho)
 
 
 class TestBoltzmannPopulationCode:
@@ -186,7 +186,7 @@ class TestBoltzmannPopulationCode:
             model.obs_man.dim,
             full_normal(2).dim,
         )
-        assert model.cnj_man.dim == model.prr_man.dim
+        assert model.cnj_fun_man.dim == model.prr_man.dim
         assert model.n_neurons == 6
         assert model.n_latent == 2
 
@@ -194,8 +194,8 @@ class TestBoltzmannPopulationCode:
         """The residual equals an independent recompute from the public API."""
         model, params = _make_boltzmann_pc("chordal", 6, 2, jax.random.PRNGKey(1))
         z = 0.5 * jax.random.normal(jax.random.PRNGKey(2), (2,))
-        (r_model,) = model.conjugation_residuals(params, z)
-        _, cnj, _ = model.split_coords(params)
+        r_model = model.conjugation_residual(params, z)
+        _, cnj = model.split_coords(params)
         lkl = model.likelihood_function(params)
         s_z = model.prr_man.sufficient_statistic(z)
         psi_z = model.obs_man.log_partition_function(

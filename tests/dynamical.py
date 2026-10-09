@@ -268,7 +268,7 @@ def _init_var_lp(model: _MinimalVarLP, key: Array) -> Array:
     prior_params = model.lat_man.initialize(keys[0])
     ems_full = model.ems_hrm.gen_hrm.initialize(keys[1])
     ems_lkl = model.ems_hrm.gen_hrm.likelihood_function(ems_full)
-    rho = jnp.zeros(model.ems_hrm.cnj_man.dim)
+    rho = jnp.zeros(model.ems_hrm.cnj_fun_man.dim)
     trns_params = model.trn_map.glorot_initialize(keys[2])
     return model.join_coords(prior_params, ems_lkl, rho, trns_params)
 
@@ -282,7 +282,7 @@ class TestVariationalLatentProcess:
         prior, ems_lkl, rho, trns = model.split_coords(params)
         assert prior.shape == (model.lat_man.dim,)
         assert ems_lkl.shape == (model.ems_hrm.gen_hrm.lkl_fun_man.dim,)
-        assert rho.shape == (model.ems_hrm.cnj_man.dim,)
+        assert rho.shape == (model.ems_hrm.cnj_fun_man.dim,)
         assert trns.shape == (model.trn_map.dim,)
         assert params.shape == (model.dim,)
 
@@ -321,7 +321,9 @@ class TestVariationalLatentProcess:
         params = _init_var_lp(model, jax.random.PRNGKey(0))
         prior_params, ems_lkl, rho, _ = model.split_coords(params)
         ems_full = model.emission_params(ems_lkl, rho, prior_params)
-        assert jnp.allclose(model.ems_hrm.prior(ems_full), prior_params)
+        assert jnp.allclose(
+            model.ems_hrm.conjugated_prior_params(ems_full), prior_params
+        )
         assert ems_full.shape == (model.ems_hrm.dim,)
 
         key = jax.random.PRNGKey(1)
@@ -333,4 +335,4 @@ class TestVariationalLatentProcess:
         rho_star, _, _, _ = regress_conjugation_parameters(
             model.ems_hrm, key, ems_full, n_samples=500
         )
-        assert rho_star.shape == (model.ems_hrm.cnj_man.dim,)
+        assert rho_star.shape == (model.ems_hrm.cnj_fun_man.dim,)
