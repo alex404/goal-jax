@@ -4,26 +4,32 @@ The circuit is a graphical harmonium over an observable $x \\in \\mathbb R^{d_X}
 1\\}^{d_N}$ and a latent $z \\in \\mathbb R$, with natural parameters
 
 - $\\theta_X$: the location and precision of $x$;
-- $\\theta_N$: the biases of the neurons, and their couplings on a graph $E$ (a chain, or all pairs);
+- $\\theta_N$: the biases and pairwise couplings of the neurons;
 - $\\theta_Z$: the location and precision of $z$;
 - $\\Theta_{XN}$: the location of $x$ times the activities of $n$;
 - $\\Theta_{NZ}$: the activities of $n$ times $(z, z^2)$, with a shared coefficient of $z^2$, so that the
   tuning curves are bell-shaped with a shared width.
 
-It is fit as a :class:`~goal.geometry.VariationalConjugated` with two levels and nothing else:
+It is fit as a :class:`~goal.geometry.VariationalConjugated` with two levels:
 
 - :class:`CanonicalCircuit` is the $X - N$ level. Its conjugation parameters $\\rho_N$ have no
-  parameters of their own: they are the closed form of :class:`~goal.models.BoltzmannLGM` restricted to
-  the couplings on $E$. For a full $E$ the level is exact; for a chain its residual is $r_N(n) =
-  -\\sum_{i < j, (i, j) \\notin E} G_{ij} n_i n_j$, with $G = \\Theta_{XN}^\\top \\Sigma_X \\Theta_{XN}$.
+  parameters of their own: they are the exact closed form of :class:`~goal.models.BoltzmannLGM`, which
+  is quadratic in $n$ with couplings $G = \\Theta_{XN}^\\top \\Sigma_X \\Theta_{XN}$. The level is
+  therefore exactly conjugate.
 - :class:`PopulationCodeLevel` is the $N - Z$ level, over the Gaussian prior family. Its conjugation
-  parameters $\\rho_Z$ are a stored constant, or a multilayer perceptron of the likelihood $(\\theta_N,
-  \\Theta_{NZ})$.
+  parameters $\\rho_Z$ are a multilayer perceptron of the likelihood $(\\theta_N, \\Theta_{NZ})$.
+
+The free parameters of the neurons are their generative biases and couplings $\\theta^*_N = \\theta_N +
+\\rho_N$, with the couplings restricted to a graph $E$ (none, a chain, or all pairs); the harmonium's
+$\\theta_N = \\theta^*_N - \\rho_N$ is dense. Given $z$, the generative model over the neurons then has
+couplings on $E$ only, and without $z$ the marginal of the harmonium over the neurons is the Boltzmann
+machine $\\theta^*_N$ on $E$. The recognition model over the neurons has the dense couplings of
+$\\theta_N$, since $x$ shifts only the biases.
 
 The diagnostics enumerate the neurons and integrate $z$ by Gauss-Hermite quadrature: the exact $\\log
 p(x)$ of the graphical harmonium, $\\log \\tilde p(x)$ and the ELBO of the variational model, and the
-divergence of the recognition model from the exact posterior. They are measurements and are not used in
-training. Experimental code: see ``scratch/variational-conjugation/canonical-circuit.tex``.
+divergence of the recognition model from the exact posterior. Experimental code: see
+``scratch/variational-conjugation/canonical-circuit.tex``.
 """
 
 import itertools
@@ -44,7 +50,6 @@ from goal.geometry import (
     GraphicalHarmonium,
     Harmonium,
     IdentityEmbedding,
-    Manifold,
     MultilayerPerceptron,
     PositiveDefinite,
     Rectangular,
@@ -52,7 +57,6 @@ from goal.geometry import (
 )
 from goal.models import (
     BoltzmannLGM,
-    ChainBoltzmann,
     Euclidean,
     FullBoltzmann,
     FullNormal,
@@ -61,14 +65,31 @@ from goal.models import (
 )
 from goal.models.harmonium.lgm import GeneralizedGaussianLocationEmbedding
 
-type Couplings = Literal["chain", "full"]
-type Conjugation = Literal["constant", "mlp"]
+type Couplings = Literal["independent", "chain", "full"]
 type Tied = dict[str, Array]
-type Neurons = ChainBoltzmann | FullBoltzmann
 
 
 @dataclass(frozen=True)
-class PopulationCodeHarmonium(Harmonium[Neurons, FullNormal]):
+class EnumeratedBoltzmann(FullBoltzmann):
+    """A dense Boltzmann machine sampled exactly, by enumerating its states."""
+
+    @override
+    def sample(
+        self,
+        key: Array,
+        params: Array,
+        n: int = 1,
+        n_burnin: int = 1000,
+        n_thin: int = 10,
+    ) -> Array:
+        """Exact samples; ``n_burnin`` and ``n_thin`` of the Gibbs sampler are ignored."""
+        states = self.states
+        logits = jax.vmap(self.sufficient_statistic)(states) @ params
+        return states[jax.random.categorical(key, logits, shape=(n,))]
+
+
+@dataclass(frozen=True)
+class PopulationCodeHarmonium(Harmonium[EnumeratedBoltzmann, FullNormal]):
     """Harmonium with a Boltzmann observable and a Normal latent, coupled through the node activities only.
 
     Neuron $i$ has the logit $\\theta_{N,i} + \\Theta_{NZ,i} \\cdot \\mathbf s_Z(z)$, so the couplings of
@@ -79,7 +100,7 @@ class PopulationCodeHarmonium(Harmonium[Neurons, FullNormal]):
 
     # Fields
 
-    neurons: Neurons
+    neurons: EnumeratedBoltzmann
     lat_dim: int
 
     # Overrides
@@ -97,7 +118,7 @@ class PopulationCodeHarmonium(Harmonium[Neurons, FullNormal]):
 
     @property
     @override
-    def obs_man(self) -> Neurons:
+    def obs_man(self) -> EnumeratedBoltzmann:
         return self.neurons
 
     @property
@@ -109,16 +130,23 @@ class PopulationCodeHarmonium(Harmonium[Neurons, FullNormal]):
 @dataclass(frozen=True)
 class PopulationCodeLevel(
     DifferentiableVariationalConjugated[
-        AttachedHarmonium[FullNormal], FullNormal, Manifold
+        AttachedHarmonium[FullNormal], FullNormal, MultilayerPerceptron[FullNormal, Any]
     ]
 ):
-    """The $N - Z$ level, with conjugation parameters $\\rho_Z$ a stored constant or a map of the likelihood $(\\theta_N, \\Theta_{NZ})$."""
+    """The $N - Z$ level, with conjugation parameters $\\rho_Z$ a map of the likelihood $(\\theta_N, \\Theta_{NZ})$.
+
+    The map's output is read as a location and a raw precision. The precision of $\\rho_Z$ is
+    $\\mathrm{softplus}(a + c) - 1$, with $c$ such that it vanishes at $a = 0$, so that with $\\theta_Z$
+    the standard normal (as :meth:`CanonicalCircuit.tie` holds it), the prior and the recognition model
+    over $z$ always have positive precision. This restricts the family of conjugation functions to those
+    that give valid distributions, which every exact conjugation function of a normalizable harmonium
+    does; it does not clamp anything.
+    """
 
     # Fields
 
     pop_hrm: PopulationCodeHarmonium
-    mlp: MultilayerPerceptron[FullNormal, Any] | None
-    """The map from the likelihood natural parameters to $\\rho_Z$, or ``None`` for a constant."""
+    mlp: MultilayerPerceptron[FullNormal, Any]
 
     # Overrides
 
@@ -134,16 +162,15 @@ class PopulationCodeLevel(
 
     @property
     @override
-    def cnj_fun_man(self) -> Manifold:
-        if self.mlp is None:
-            return Euclidean(self.pop_hrm.pst_man.dim)
+    def cnj_fun_man(self) -> MultilayerPerceptron[FullNormal, Any]:
         return self.mlp
 
     @override
     def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
-        if self.mlp is None:
-            return cnj_fun_params
-        return self.mlp(cnj_fun_params, lkl_params)
+        lat = self.pop_hrm.pst_man
+        loc, raw = lat.split_location_precision(self.mlp(cnj_fun_params, lkl_params))
+        prc = jax.nn.softplus(raw + np.log(np.e - 1.0)) - 1.0
+        return lat.join_location_precision(loc, prc)
 
 
 @dataclass(frozen=True)
@@ -175,12 +202,14 @@ class CanonicalCircuit(VariationalConjugated[ReadoutHarmonium, Euclidean]):
     """The circuit: the $X - N$ level over the population code level.
 
     Its parameters are $[\\theta_X, \\Theta_{XN}, (\\theta_N, \\Theta_{NZ}, \\theta_Z) | \\phi_Z]$, with
-    $\\phi_Z$ the parameters of $\\rho_Z$; $\\rho_N$ has none.
+    $\\phi_Z$ the parameters of $\\rho_Z$; $\\rho_N$ has none. ``edges`` is the graph $E$ of the
+    generative couplings $\\theta^*_N$, as pairs $i < j$.
     """
 
     # Fields
 
     obs_dim: int
+    edges: tuple[tuple[int, int], ...]
     dep: PopulationCodeLevel
 
     # Overrides
@@ -210,19 +239,10 @@ class CanonicalCircuit(VariationalConjugated[ReadoutHarmonium, Euclidean]):
 
     @override
     def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
-        """$\\rho_N$: the closed form of :class:`~goal.models.BoltzmannLGM`, with the couplings off $E$ dropped, on the biases of the neurons."""
-        neurons = self.neurons
-        n_neurons = neurons.n_neurons
+        """$\\rho_N$: the exact closed form of :class:`~goal.models.BoltzmannLGM`, on the biases and couplings of the neurons."""
         rho = BoltzmannLGM(
-            self.obs_dim, PositiveDefinite(), n_neurons
+            self.obs_dim, PositiveDefinite(), self.neurons.n_neurons
         ).conjugation_parameters(lkl_params)
-        if isinstance(neurons, ChainBoltzmann):
-            diag, off_diag = FullBoltzmann(n_neurons).split_couplings(rho)
-            rows, cols = np.triu_indices(n_neurons, 1)
-            mat = (
-                jnp.diag(diag).at[rows, cols].set(off_diag).at[cols, rows].set(off_diag)
-            )
-            rho = neurons.shp_man.from_matrix(mat)
         pop_hrm = self.dep.gen_hrm
         return pop_hrm.join_coords(
             rho, pop_hrm.int_man.zeros(), pop_hrm.pst_man.zeros()
@@ -231,7 +251,7 @@ class CanonicalCircuit(VariationalConjugated[ReadoutHarmonium, Euclidean]):
     # Manifolds
 
     @property
-    def neurons(self) -> Neurons:
+    def neurons(self) -> EnumeratedBoltzmann:
         return self.dep.pop_hrm.neurons
 
     @property
@@ -247,44 +267,65 @@ class CanonicalCircuit(VariationalConjugated[ReadoutHarmonium, Euclidean]):
 
     # Tied parameters
 
+    def generative_couplings(self, stored: Array) -> Array:
+        """$\\theta^*_N$ in the dense layout, from the biases followed by the couplings on ``edges``."""
+        n_neurons = self.neurons.n_neurons
+        rows, cols = np.triu_indices(n_neurons, 1)
+        index = {(int(i), int(j)): k for k, (i, j) in enumerate(zip(rows, cols))}
+        positions = np.array([index[e] for e in self.edges], dtype=int)
+        off_diag = jnp.zeros(rows.size).at[positions].set(stored[n_neurons:])
+        return self.neurons.join_couplings(stored[:n_neurons], off_diag)
+
+    def readout_conjugation(self, obs_params: Array, xn_params: Array) -> Array:
+        """$\\rho_N$ on the neurons at the readout $(\\theta_X, \\Theta_{XN})$."""
+        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, xn_params)
+        rho, _, _ = self.dep.gen_hrm.split_coords(
+            self.conjugation_parameters(lkl_params, self.cnj_fun_man.zeros())
+        )
+        return rho
+
     def tie(self, u: Tied) -> Array:
         """Circuit parameters from the stored blocks, with the shared tuning width and $\\theta_Z$ standard normal.
 
-        Every block is in natural coordinates, and the map is linear. ``nz_loc`` holds the coefficient
-        of $z$ for each neuron and ``nz_prc`` the shared precision coordinates of the coefficient of
-        $z^2$. $\\theta_Z$ is held at the standard normal: for a one-dimensional $z$ its location and
-        precision are an affine change of $z$, which $\\Theta_{NZ}$ absorbs.
+        ``neurons`` holds the generative biases and the couplings on ``edges``, and $\\theta_N =
+        \\theta^*_N - \\rho_N$. ``nz_loc`` holds the coefficient of $z$ for each neuron and ``nz_prc`` the
+        shared precision coordinates of the coefficient of $z^2$. $\\theta_Z$ is held at the standard
+        normal: for a one-dimensional $z$ its location and precision are an affine change of $z$, which
+        $\\Theta_{NZ}$ absorbs. Every block other than ``neurons`` enters linearly.
         """
         lat = self.lat_man
+        theta_n = self.generative_couplings(u["neurons"]) - self.readout_conjugation(
+            u["obs"], u["xn"]
+        )
         rows = jax.vmap(lat.join_location_precision, in_axes=(0, None))(
             u["nz_loc"][:, None], u["nz_prc"]
         )
         (nz_map,) = self.dep.pop_hrm.crs_maps
         z_params = lat.to_natural(lat.standard_normal())
         pop_params = self.dep.gen_hrm.join_coords(
-            u["neurons"], nz_map.from_matrix(rows), z_params
+            theta_n, nz_map.from_matrix(rows), z_params
         )
         hrm_params = self.gen_hrm.join_coords(u["obs"], u["xn"], pop_params)
         return self.join_coords(hrm_params, u["cnj"])
 
-    def initialize_tied(self, key: Array, xs: Array, z_range: float) -> Tied:
-        """Tuning curves tiling $[-r, r]$ at low prior firing, and a readout from the data.
+    def initialize_tied(
+        self, key: Array, xs: Array, z_range: float, obs_sd: float
+    ) -> Tied:
+        """Tuning curves tiling $[-r, r]$ at low prior firing, an isotropic readout, and $\\rho_Z = 0$.
 
-        Neighbouring tuning curves overlap by one spacing $s$ (precision $1 / s^2$), and the prior logit
-        $\\theta_N + \\rho_N + \\Theta_{NZ} \\cdot \\mathbf s_Z(z)$ peaks at $-1$ with no couplings: $\\theta_N$
-        is that target minus $\\rho_N$ at the initial likelihood. The readout has a quarter of the data
-        covariance and standard normal interactions with the neurons; with small interactions $p(n
-        \\mid x)$ does not depend on $x$ and the gradient with respect to them vanishes. $\\rho_Z$ starts at
-        zero, so the prior over $z$ is the standard normal, with precision $1$; for the map, its last
-        layer starts at zero.
+        Neighbouring tuning curves overlap by one spacing $s$ (precision $1 / s^2$), and the generative
+        logit $\\theta^*_N + \\Theta_{NZ} \\cdot \\mathbf s_Z(z)$ peaks at $-1$, with no couplings. The
+        readout has isotropic noise of s.d. ``obs_sd`` around the data mean and standard normal
+        interactions with the neurons. A noise covariance fitted to the data would explain the
+        correlations of the data as noise and leave nothing to the neurons. $\\rho_Z$ starts at zero:
+        the last layer of the map is zero.
         """
         k_xn, k_mlp = jax.random.split(key)
-        n_neurons, obs = self.neurons.n_neurons, self.gen_hrm.obs_man
-        mean = jnp.mean(xs, axis=0)
-        prc = jnp.linalg.inv(jnp.cov(xs.T) / 4 + 1e-6 * jnp.eye(self.obs_dim))
-        (obs_nrm,) = obs.elm_mans
+        n_neurons = self.neurons.n_neurons
+        (obs_nrm,) = self.gen_hrm.obs_man.elm_mans
+        prc = jnp.eye(self.obs_dim) / obs_sd**2
         obs_params = obs_nrm.join_location_precision(
-            prc @ mean, obs_nrm.cov_man.from_matrix(prc)
+            prc @ jnp.mean(xs, axis=0), obs_nrm.cov_man.from_matrix(prc)
         )
         (xn_map,) = self.gen_hrm.crs_maps
         xn_params = xn_map.from_matrix(
@@ -292,28 +333,18 @@ class CanonicalCircuit(VariationalConjugated[ReadoutHarmonium, Euclidean]):
         )
         preferred = jnp.linspace(-z_range, z_range, n_neurons)
         width_prc = (n_neurons - 1) ** 2 / (2 * z_range) ** 2
-        target = self.neurons.join_couplings(
-            -1.0 - 0.5 * width_prc * preferred**2,
-            jnp.zeros(self.neurons.dim - n_neurons),
-        )
-        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, xn_params)
-        rho_n, _, _ = self.dep.gen_hrm.split_coords(
-            self.conjugation_parameters(lkl_params, self.cnj_fun_man.zeros())
-        )
         mlp = self.dep.mlp
-        if mlp is None:
-            cnj = self.dep.cnj_fun_man.zeros()
-        else:
-            cnj = mlp.glorot_initialize(k_mlp)
-            last = mlp.layer_dims[-2] * mlp.layer_dims[-1] + mlp.layer_dims[-1]
-            cnj = cnj.at[-last:].set(0.0)
+        cnj = mlp.glorot_initialize(k_mlp)
+        last = mlp.layer_dims[-2] * mlp.layer_dims[-1] + mlp.layer_dims[-1]
         return {
             "obs": obs_params,
             "xn": xn_params,
-            "neurons": target - rho_n,
+            "neurons": jnp.concatenate(
+                [-1.0 - 0.5 * width_prc * preferred**2, jnp.zeros(len(self.edges))]
+            ),
             "nz_loc": width_prc * preferred,
             "nz_prc": self.lat_man.cov_man.from_matrix(jnp.full((1, 1), width_prc)),
-            "cnj": cnj,
+            "cnj": cnj.at[-last:].set(0.0),
         }
 
     # Exact computations by enumeration and quadrature
@@ -432,30 +463,22 @@ class CanonicalCircuit(VariationalConjugated[ReadoutHarmonium, Euclidean]):
         return ws @ jax.vmap(log_ratio)(zs)
 
 
+
 def canonical_circuit(
-    obs_dim: int,
-    n_neurons: int,
-    couplings: Couplings,
-    conjugation: Conjugation,
-    hidden_dims: tuple[int, ...],
+    obs_dim: int, n_neurons: int, couplings: Couplings, hidden_dims: tuple[int, ...]
 ) -> CanonicalCircuit:
-    """The circuit with a chain or full graph of couplings, and a constant or learned $\\rho_Z$; ``hidden_dims`` is used only for the map."""
-    neurons: Neurons = (
-        FullBoltzmann(n_neurons)
-        if couplings == "full"
-        else ChainBoltzmann.from_edges(
-            n_neurons, [(i, i + 1) for i in range(n_neurons - 1)]
-        )
+    """The circuit with generative couplings on no pairs, a chain, or all pairs, and a map with ``hidden_dims`` for $\\rho_Z$."""
+    pairs = itertools.combinations(range(n_neurons), 2)
+    edges = {
+        "independent": (),
+        "chain": tuple((i, i + 1) for i in range(n_neurons - 1)),
+        "full": tuple(pairs),
+    }[couplings]
+    pop_hrm = PopulationCodeHarmonium(EnumeratedBoltzmann(n_neurons), 1)
+    mlp = MultilayerPerceptron(
+        pop_hrm.pst_man,
+        AttachedHarmonium(pop_hrm).lkl_fun_man,
+        hidden_dims,
+        jax.nn.tanh,
     )
-    pop_hrm = PopulationCodeHarmonium(neurons, 1)
-    mlp = (
-        MultilayerPerceptron(
-            pop_hrm.pst_man,
-            AttachedHarmonium(pop_hrm).lkl_fun_man,
-            hidden_dims,
-            jax.nn.tanh,
-        )
-        if conjugation == "mlp"
-        else None
-    )
-    return CanonicalCircuit(obs_dim, PopulationCodeLevel(pop_hrm, mlp))
+    return CanonicalCircuit(obs_dim, edges, PopulationCodeLevel(pop_hrm, mlp))

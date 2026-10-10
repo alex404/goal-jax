@@ -1,13 +1,13 @@
 """Check the canonical circuit against brute-force integration, at 4 neurons and a one-dimensional $x$.
 
 The brute force enumerates the neurons and integrates $x$ and $z$ on grids. It uses only sufficient
-statistics and the circuit's joint densities, not the closed forms the diagnostics rely on. For a chain and a
-full graph of couplings, checked:
+statistics and the circuit's joint densities, not the closed forms the diagnostics rely on. For generative
+couplings on no pairs, a chain and all pairs, checked:
 
 1. the likelihood of the $X - N$ harmonium equals that of :class:`~goal.models.BoltzmannLGM` at the same
    parameters, at every state of the neurons;
-2. the residual of the $X - N$ level is zero for a full graph, and $-\\sum_{i < j, (i, j) \\notin E} G_{ij}
-   n_i n_j$ with $G = \\Theta_{XN}^\\top \\Sigma_X \\Theta_{XN}$ for a chain;
+2. the residual of the $X - N$ level is zero, the generative model over the neurons has no couplings off
+   $E$, and the exact sampler of the neurons matches the enumerated means;
 3. the exact $\\log p(x)$ against the unnormalized joint of the graphical harmonium on grids;
 4. $\\log \\tilde p(x)$ and the ELBO by quadrature against the circuit's own joint and recognition densities
    on a grid, and the divergence of the recognition model from the exact posterior likewise;
@@ -80,10 +80,10 @@ def harmonium_log_joint(circuit: CanonicalCircuit, params: Array) -> Any:
 
 def check(couplings: Couplings) -> bool:
     print(f"couplings: {couplings}")
-    circuit = canonical_circuit(1, N_NEURONS, couplings, "mlp", (5,))
+    circuit = canonical_circuit(1, N_NEURONS, couplings, (5,))
     key = jax.random.PRNGKey(1)
     train_x = jax.random.normal(key, (200, 1))
-    u = circuit.initialize_tied(jax.random.PRNGKey(2), train_x, 2.0)
+    u = circuit.initialize_tied(jax.random.PRNGKey(2), train_x, 2.0, 0.5)
     u = {
         k: v
         + (0.02 if k == "cnj" else 0.2)
@@ -108,23 +108,38 @@ def check(couplings: Couplings) -> bool:
         )
     )
 
-    # 2. The residual of the X - N level
+    # 2. The X - N level is exactly conjugate, and the generative couplings lie on E
     r_n = jax.vmap(lambda n: circuit.conjugation_residual(params, jnp.append(n, 0.0)))(
         states
     )
-    obs_params, xn_params = circuit.gen_hrm.lkl_fun_man.split_coords(lkl)
-    (nrm,) = circuit.gen_hrm.obs_man.elm_mans
-    _, prc = nrm.split_location_precision(obs_params)
-    (xn_map,) = circuit.gen_hrm.crs_maps
-    w = xn_map.to_matrix(xn_params)
-    g = w.T @ jnp.linalg.inv(nrm.cov_man.to_matrix(prc)) @ w
-    off = (
-        jnp.triu(jnp.ones((N_NEURONS, N_NEURONS)), 2)
-        if couplings == "chain"
-        else jnp.zeros((N_NEURONS, N_NEURONS))
+    oks.append(report("residual r_N", float(jnp.max(jnp.abs(r_n))), 1e-10))
+    rows, cols = np.triu_indices(N_NEURONS, 1)
+    off_e = np.array([(int(i), int(j)) not in circuit.edges for i, j in zip(rows, cols)])
+    gen = circuit.dep.likelihood_at(circuit.conjugated_prior_params(params), jnp.array([0.7]))
+    _, gen_off = circuit.neurons.split_couplings(gen)
+    oks.append(
+        report(
+            "generative couplings off E",
+            float(jnp.max(jnp.abs(gen_off[off_e]))) if off_e.any() else 0.0,
+            1e-12,
+        )
     )
-    expected = -jnp.einsum("si,ij,sj->s", states, g * off, states)
-    oks.append(report("residual r_N", float(jnp.max(jnp.abs(r_n - expected))), 1e-10))
+
+    # 2b. The exact sampler of the neurons
+    samples = circuit.neurons.sample(jax.random.PRNGKey(4), gen, 100000)
+    probs = jax.nn.softmax(jax.vmap(circuit.neurons.sufficient_statistic)(states) @ gen)
+    oks.append(
+        report(
+            "sampler means (in standard errors)",
+            float(
+                jnp.max(
+                    jnp.abs(jnp.mean(samples, 0) - probs @ states)
+                    / jnp.sqrt(probs @ states * (1 - probs @ states) / 100000)
+                )
+            ),
+            4.5,
+        )
+    )
 
     # 3. Exact log p(x) against grids over x and z
     log_joint = harmonium_log_joint(circuit, params)
@@ -164,7 +179,7 @@ def check(couplings: Couplings) -> bool:
     )
 
     # 5. The ELBO estimator and its gradient
-    n_keys, n_samples = 400 if couplings == "chain" else 40, 16
+    n_keys, n_samples = 400, 16
     keys = jax.random.split(jax.random.PRNGKey(3), n_keys)
 
     def estimate(p: Array, k: Array) -> Array:
@@ -196,7 +211,7 @@ def check(couplings: Couplings) -> bool:
 
 def main() -> None:
     jax_cli()
-    results = [check(c) for c in ("chain", "full")]
+    results = [check(c) for c in ("independent", "chain", "full")]
     print("all checks passed" if all(results) else "SOME CHECKS FAILED")
 
 
