@@ -46,6 +46,14 @@ Full Boltzmann
    :undoc-members:
    :show-inheritance:
 
+Enumerated Boltzmann
+--------------------
+
+.. autoclass:: goal.models.base.gaussian.boltzmann.EnumeratedBoltzmann
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Chordal Coupling Matrix
 -----------------------
 

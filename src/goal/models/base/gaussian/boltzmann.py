@@ -315,6 +315,29 @@ class FullBoltzmann(
 
 
 @dataclass(frozen=True)
+class EnumeratedBoltzmann(FullBoltzmann):
+    """Boltzmann machine with dense pairwise couplings, sampled exactly by enumerating its $2^n$ states.
+
+    Used where samples must be exact, e.g. under the score-function estimators of a
+    variational model, and the number of neurons is small enough to enumerate.
+    """
+
+    @override
+    def sample(
+        self,
+        key: Array,
+        params: Array,
+        n: int = 1,
+        n_burnin: int = 1000,
+        n_thin: int = 10,
+    ) -> Array:
+        """Exact samples; ``n_burnin`` and ``n_thin`` of the Gibbs sampler are ignored."""
+        states = self.states
+        logits = jax.vmap(self.sufficient_statistic)(states) @ params
+        return states[jax.random.categorical(key, logits, shape=(n,))]
+
+
+@dataclass(frozen=True)
 class ChordalCouplingMatrix(Differentiable):
     """Exponential family over chordal-pattern moment matrices $x \\otimes x$.
 

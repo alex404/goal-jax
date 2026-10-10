@@ -134,23 +134,38 @@ class GraphicalHarmonium[Deep: Gibbs](Harmonium[Any, Deep], ABC):
 
 @dataclass(frozen=True)
 class AttachedHarmonium[Deep: Gibbs](GraphicalHarmonium[Deep]):
-    """One harmonium as a graphical harmonium: its posterior is the latent model, attached on all of its nodes.
+    """One harmonium as a graphical harmonium, its posterior attached to the leading nodes of a latent model.
 
-    The parameter layout is that of the harmonium. It lets a plain harmonium be used where
-    a graphical harmonium is expected, e.g. as the ``gen_hrm`` of a
-    :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
+    The latent model is either the harmonium's own posterior, which makes this a plain harmonium
+    seen as a graphical one, or a larger model whose leading nodes carry the posterior's cliques,
+    e.g. the joint model of the next level of a deep model, whose leading nodes are its
+    observable. The parameter layout is that of the harmonium followed by the rest of the latent
+    model. It lets a harmonium be used where a graphical harmonium is expected, e.g. as the
+    ``gen_hrm`` of a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
     """
 
     # Fields
 
-    att_hrm: Harmonium[Any, Deep]
+    att_hrm: Harmonium[Any, Any]
+    lat_man: Deep
+
+    def __post_init__(self) -> None:
+        pst_man = self.att_hrm.pst_man
+        for clique in pst_man.cliques:
+            if (
+                clique not in self.lat_man.cliques
+                or self.lat_man.clq_man(clique) != pst_man.clq_man(clique)
+            ):
+                raise ValueError(
+                    f"Clique {clique} of the posterior is not a clique of the latent model with the same coordinate block"
+                )
 
     # Overrides
 
     @property
     @override
     def pst_man(self) -> Deep:
-        return self.att_hrm.pst_man
+        return self.lat_man
 
     @property
     @override

@@ -98,7 +98,7 @@ class VonMisesPopulationCode(
     @property
     @override
     def gen_hrm(self) -> AttachedHarmonium[VonMisesProduct]:
-        return AttachedHarmonium(self.hrm)
+        return AttachedHarmonium(self.hrm, self.hrm.pst_man)
 
     @property
     @override
@@ -241,7 +241,7 @@ class BoltzmannPopulationCode[Shape: Differentiable](
     @property
     @override
     def gen_hrm(self) -> AttachedHarmonium[FullNormal]:
-        return AttachedHarmonium(self.hrm)
+        return AttachedHarmonium(self.hrm, self.hrm.pst_man)
 
     @property
     @override

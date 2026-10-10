@@ -131,7 +131,7 @@ class PendulumPopulationCode(
     @property
     @override
     def gen_hrm(self) -> AttachedHarmonium[VonMisesNormalPair]:
-        return AttachedHarmonium(self.hrm)
+        return AttachedHarmonium(self.hrm, self.hrm.pst_man)
 
     @property
     @override

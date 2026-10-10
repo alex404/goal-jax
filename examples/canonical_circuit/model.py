@@ -153,7 +153,7 @@ class PopulationCodeLevel(
     @property
     @override
     def gen_hrm(self) -> AttachedHarmonium[FullNormal]:
-        return AttachedHarmonium(self.pop_hrm)
+        return AttachedHarmonium(self.pop_hrm, self.pop_hrm.pst_man)
 
     @property
     @override
@@ -477,7 +477,7 @@ def canonical_circuit(
     pop_hrm = PopulationCodeHarmonium(EnumeratedBoltzmann(n_neurons), 1)
     mlp = MultilayerPerceptron(
         pop_hrm.pst_man,
-        AttachedHarmonium(pop_hrm).lkl_fun_man,
+        AttachedHarmonium(pop_hrm, pop_hrm.pst_man).lkl_fun_man,
         hidden_dims,
         jax.nn.tanh,
     )

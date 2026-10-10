@@ -1,6 +1,6 @@
-"""Tests for geometry/exponential_family/variational.py and models/graphical/variational.py.
+"""Tests for geometry/exponential_family/variational.py, on two shipped models.
 
-Ground-truth verification of the variational estimators and their
+A single level: ground-truth verification of the variational estimators and their
 stop_gradient policy. A ``VonMisesPopulationCode`` with a single VonMises
 latent makes every latent expectation a 1D integral over [0, 2pi), where the
 periodic trapezoid rule is exact to near machine precision for smooth
@@ -15,40 +15,24 @@ direct gradient, a spurious sg would drop the score correction, and either
 error shifts the MC gradient mean away from the exact gradient by far more
 than its standard error.
 
-The final class covers the graphical specialization:
-``VariationalHierarchicalMixture`` stores a BaseLatent-shaped conjugation
-correction while its Posterior/Prior is the full mixture, so the inherited
-machinery only composes if ``conjugation_parameters`` zero-pads correctly
-into mixture shape. Those tests pin the pad structure, the exact vanishing
-of the residual at exact conjugation, and agreement between
-``regress_conjugation_parameters`` and the prior conjugation loss.
+Nested levels: the canonical circuit (models/graphical/canonical_circuit.py) at depths 1 and 2,
+in both variants, against its exact log-likelihood by enumeration of the neurons.
 """
-
-from dataclasses import dataclass
-from typing import Any, override
 
 import jax
 import jax.numpy as jnp
+import pytest
 from jax import Array
 
-from goal.geometry import (
-    AttachedHarmonium,
-    CliqueMap,
-    CrossTerm,
-    Harmonium,
-    IdentityEmbedding,
-    Rectangular,
-)
+from goal.geometry import PositiveDefinite
 from goal.geometry.exponential_family.variational import (
     regress_conjugation_parameters,
 )
 from goal.models import (
-    Bernoullis,
-    Binomials,
-    CompleteMixture,
+    CanonicalCircuit,
     PoissonVonMisesHarmonium,
-    VariationalHierarchicalMixture,
     VonMisesPopulationCode,
+    canonical_circuit,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -153,12 +137,14 @@ def _assert_matches(
 class TestStandardFormElbo:
     """elbo_at: value and full gradient against exact quadrature."""
 
-    def test_value_and_gradient_match_quadrature(self):
+    @pytest.mark.parametrize("n_mc", [1, 2, N_MC])
+    def test_value_and_gradient_match_quadrature(self, n_mc: int):
+        """Also with one or two samples, where the leave-one-out baseline degenerates or is rescaled."""
         model, params = _setup()
         exact_val = _exact_elbo(model, params)
         exact_grad = jax.grad(lambda p: _exact_elbo(model, p))(params)
         mc_val, val_se, mc_grad, grad_se = _mc_value_and_grad(
-            lambda k, p: model.elbo_at(k, p, X_OBS, N_MC), params
+            lambda k, p: model.elbo_at(k, p, X_OBS, n_mc), params
         )
         # The gradient must be right in every block: a wrong sg on the samples
         # or on r inside the score term would shift the rho/prior blocks.
@@ -226,114 +212,124 @@ class TestPriorResidualVariance:
         _assert_matches(exact_val, exact_grad, mc_val, val_se, mc_grad, grad_se)
 
 
-# --- models/graphical/variational.py: VariationalHierarchicalMixture ---
+class TestRegression:
+    def test_fit_lowers_the_residual_variance(self):
+        """``regress_conjugation_parameters`` against $\\rho = 0$, at the same prior, by quadrature."""
+        model, params = _setup()
+        hrm_params, _ = model.split_coords(params)
+        obs_p, int_p, _ = model.gen_hrm.split_coords(hrm_params)
+        prior = model.conjugated_prior_params(params)
+        rho_zero = model.cnj_fun_man.zeros()
 
+        def at_prior(rho: Array) -> Array:
+            hrm = model.gen_hrm.join_coords(obs_p, int_p, prior - rho)
+            return model.join_coords(hrm, rho)
 
-@dataclass(frozen=True)
-class _ConcreteHarmonium(Harmonium[Binomials, Any]):
-    """Harmonium with interaction restricted to the BaseLatent slot of the mixture."""
-
-    _pst_man: Any
-
-    @property
-    @override
-    def obs_man(self) -> Binomials:
-        return Binomials(6, 3)
-
-    @property
-    @override
-    def pst_man(self) -> Any:
-        return self._pst_man
-
-    @property
-    @override
-    def crs_trms(self) -> tuple[CrossTerm, ...]:
-        """The observable with the mixture's observable node."""
-        int_map = CliqueMap(
-            Rectangular(),
-            IdentityEmbedding(self.obs_man),
-            IdentityEmbedding(self.pst_man.clq_man((0,))),
+        rho_fit, _, _, _ = regress_conjugation_parameters(
+            model, jax.random.PRNGKey(3), at_prior(rho_zero), 4000
         )
-        return (CrossTerm((0,), (0,), int_map),)
-
-
-@dataclass(frozen=True)
-class _ConcreteHierarchicalMixture(
-    VariationalHierarchicalMixture[Binomials, Bernoullis]
-):
-    hrm: Harmonium[Binomials, Any]
-
-    @property
-    @override
-    def gen_hrm(self) -> AttachedHarmonium[Any]:
-        return AttachedHarmonium(self.hrm)
-
-
-def _make_hierarchical_model() -> _ConcreteHierarchicalMixture:
-    """Small instance: 6 Binomial(3) observables, 3 Bernoulli latents, 3 clusters."""
-    mix_man = CompleteMixture(Bernoullis(3), 3)
-    return _ConcreteHierarchicalMixture(_ConcreteHarmonium(mix_man))
-
-
-class TestVariationalHierarchicalMixture:
-    def test_conjugation_parameters_zero_pad_structure(self):
-        """The BaseLatent rho lands in the mixture's observable slot; the
-        interaction and categorical slots are exactly zero."""
-        model = _make_hierarchical_model()
-        params = model.initialize(jax.random.PRNGKey(0))
-        rho = jnp.arange(1.0, model.cnj_fun_man.dim + 1)
-
-        rho_full = model.conjugation_parameters(model.likelihood_function(params), rho)
-        assert rho_full.shape == (model.prr_man.dim,)
-        rho_y, rho_yk, rho_k = model.mix_man.split_coords(rho_full)
-        assert jnp.array_equal(rho_y, rho)
-        assert jnp.all(rho_yk == 0.0)
-        assert jnp.all(rho_k == 0.0)
-
-    def test_residual_vanishes_at_exact_conjugation(self):
-        """With zero interaction the likelihood is exactly conjugate with
-        rho = 0, and the +psi_X(theta_X) convention makes r identically zero
-        --- to machine precision, not just statistically."""
-        model = _make_hierarchical_model()
-        key_init, key_z = jax.random.split(jax.random.PRNGKey(1))
-        params = model.initialize(key_init)
-        hrm_p, _ = model.split_coords(params)
-        obs_p, int_p, lat_p = model.gen_hrm.split_coords(hrm_p)
-        hrm_zero = model.gen_hrm.join_coords(obs_p, jnp.zeros_like(int_p), lat_p)
-        params = model.join_coords(hrm_zero, model.snd_man.zeros())
-
-        z_samples = model.prr_man.sample(
-            key_z, model.conjugated_prior_params(params), 20
+        assert _exact_var_p_r(model, at_prior(rho_fit)) < 0.5 * _exact_var_p_r(
+            model, at_prior(rho_zero)
         )
-        r_vals = jax.vmap(lambda z: model.conjugation_residual(params, z))(z_samples)
-        assert jnp.all(r_vals == 0.0)
 
-    def test_regression_reduces_prior_residual_variance(self):
-        """regress_conjugation_parameters minimizes the sampled Var_p[r], so
-        the fitted rho must beat rho = 0 on the prior conjugation loss, at the same
-        prior (the latent bias moves by -rho)."""
-        model = _make_hierarchical_model()
-        key_init, key_reg, key_loss = jax.random.split(jax.random.PRNGKey(2), 3)
-        params = model.initialize(key_init)
-        hrm_p, _ = model.split_coords(params)
-        obs_p, int_p, lat_p = model.gen_hrm.split_coords(hrm_p)
 
-        rho_fit, r_squared, _, _ = regress_conjugation_parameters(
-            model, key_reg, params, n_samples=1000
+# --- Nested levels: the canonical circuit ---
+
+VARIANTS = ["partially_exact", "approximate"]
+DEPTHS = [1, 2]
+X_CIRCUIT = jnp.array([0.4])
+
+
+def _circuit(variant: str, depth: int) -> CanonicalCircuit:
+    """Three neurons per layer on a chain, one-dimensional latents and observable."""
+    return canonical_circuit(
+        1,
+        PositiveDefinite(),
+        (3,) * depth,
+        (((0, 1), (1, 2)),) * depth,
+        (1,) * depth,
+        variant,  # pyright: ignore[reportArgumentType]
+        (4,),
+    )
+
+
+def _circuit_params(circuit: CanonicalCircuit, key: Array, exact: bool) -> Array:
+    """Random generative coordinates, with a standard normal observable and positive tuning precisions.
+
+    With ``exact``, every population code is decoupled from its latent and every learned
+    conjugation function is zero, and in the approximate variant every readout is decoupled
+    from its neurons as well: then every level is exactly conjugate.
+    """
+    man = circuit.generative_man
+    blocks = list(man.split_coords(0.5 * jax.random.normal(key, (man.dim,))))
+    obs_man = circuit.rdt_hrm.obs_man
+    blocks[0] = obs_man.join_location_precision(
+        jnp.zeros(obs_man.data_dim),
+        obs_man.cov_man.from_matrix(jnp.eye(obs_man.data_dim)),
+    )
+    for k in range(len(circuit.layers)):
+        int_idx, loc_idx, prc_idx = 1 + 4 * k, 3 + 4 * k, 4 + 4 * k
+        blocks[prc_idx] = jnp.abs(blocks[prc_idx]) + 0.5
+        if exact:
+            blocks[loc_idx] = jnp.zeros_like(blocks[loc_idx])
+            blocks[prc_idx] = jnp.zeros_like(blocks[prc_idx])
+            if circuit.cnj_map is not None:
+                blocks[int_idx] = jnp.zeros_like(blocks[int_idx])
+    if exact:
+        blocks[-1] = jnp.zeros_like(blocks[-1])
+    return circuit.tie(man.join_coords(*blocks))
+
+
+class TestCanonicalCircuit:
+    @pytest.mark.parametrize("variant", VARIANTS)
+    @pytest.mark.parametrize("depth", DEPTHS)
+    def test_elbo_is_the_log_density_when_exact(self, variant: str, depth: int):
+        """Every residual vanishes, so the estimator is exact, with any samples."""
+        circuit = _circuit(variant, depth)
+        params = _circuit_params(circuit, jax.random.PRNGKey(0), exact=True)
+        elbo = circuit.elbo_at(jax.random.PRNGKey(1), params, X_CIRCUIT, 4)
+        log_p = circuit.exact_log_observable_density(params, X_CIRCUIT)
+        assert jnp.allclose(elbo, log_p, rtol=1e-10, atol=1e-10)
+
+    @pytest.mark.parametrize("variant", VARIANTS)
+    @pytest.mark.parametrize("depth", DEPTHS)
+    def test_elbo_gradient_is_the_log_density_gradient_when_exact(
+        self, variant: str, depth: int
+    ):
+        """The divergence of the recognition model is zero, its minimum, so its gradient vanishes."""
+        circuit = _circuit(variant, depth)
+        params = _circuit_params(circuit, jax.random.PRNGKey(2), exact=True)
+        exact_grad = jax.grad(circuit.exact_log_observable_density)(params, X_CIRCUIT)
+        _, _, mc_grad, grad_se = _mc_value_and_grad(
+            lambda k, p: circuit.elbo_at(k, p, X_CIRCUIT, 16), params
         )
-        rho_full = model.conjugation_parameters(
-            model.likelihood_function(params), rho_fit
-        )
-        hrm_fit = model.gen_hrm.join_coords(obs_p, int_p, lat_p - rho_full)
-        params_fit = model.join_coords(hrm_fit, rho_fit)
+        z_scores = jnp.abs(mc_grad - exact_grad) / jnp.maximum(grad_se, 1e-9)
+        assert jnp.max(z_scores) < Z_THRESHOLD
+
+    @pytest.mark.parametrize("variant", VARIANTS)
+    @pytest.mark.parametrize("depth", DEPTHS)
+    def test_decomposition(self, variant: str, depth: int):
+        """$\\log \\tilde p(x, z) - \\log q(z \\mid x) = c(x) + $ the ELBO residual, pointwise."""
+        circuit = _circuit(variant, depth)
+        params = _circuit_params(circuit, jax.random.PRNGKey(3), exact=False)
+        zs = circuit.sample_recognition(jax.random.PRNGKey(4), params, X_CIRCUIT, 8)
+
+        def gap(z: Array) -> Array:
+            log_joint = circuit.log_density(params, jnp.concatenate([X_CIRCUIT, z]))
+            log_q = circuit.recognition_log_density(params, X_CIRCUIT, z)
+            return log_joint - log_q - circuit.elbo_residual(params, X_CIRCUIT, z)
+
+        gaps = jax.vmap(gap)(zs)
+        baseline = circuit.conjugation_baseline(params, X_CIRCUIT)
+        assert jnp.allclose(gaps, baseline, rtol=1e-8, atol=1e-8)
+
+    @pytest.mark.parametrize("variant", VARIANTS)
+    @pytest.mark.parametrize("depth", DEPTHS)
+    def test_exact_density_normalizes(self, variant: str, depth: int):
+        circuit = _circuit(variant, depth)
+        params = _circuit_params(circuit, jax.random.PRNGKey(5), exact=False)
+        xs = jnp.linspace(-12.0, 12.0, 4001)[:, None]
+        log_ps = jax.vmap(lambda x: circuit.exact_log_observable_density(params, x))(xs)
         assert jnp.allclose(
-            model.conjugated_prior_params(params_fit),
-            model.conjugated_prior_params(params),
+            jnp.sum(jnp.exp(log_ps)) * (xs[1, 0] - xs[0, 0]), 1.0, atol=1e-6
         )
-
-        loss_zero = model.conjugation_residual_variances(key_loss, params, 1000)[0]
-        loss_fit = model.conjugation_residual_variances(key_loss, params_fit, 1000)[0]
-        assert loss_fit < loss_zero
-        # Small-init couplings make psi_X near-affine in s_Y, so the affine
-        # correction should explain nearly all the residual variance.
-        assert r_squared > 0.9

@@ -8,6 +8,7 @@ from .base.gaussian.boltzmann import (
     ChordalBoltzmann,
     ChordalCouplingMatrix,
     DiagonalBoltzmann,
+    EnumeratedBoltzmann,
     FullBoltzmann,
 )
 from .base.gaussian.coupling import ChainTree, JunctionTree
@@ -35,6 +36,13 @@ from .base.poisson import (
 from .base.von_mises import VonMises, VonMisesProduct
 from .dynamical.hmm import HiddenMarkovModel
 from .dynamical.kalman_filter import KalmanFilter
+from .graphical.canonical_circuit import (
+    CanonicalCircuit,
+    PopulationCodeHarmonium,
+    PopulationCodeLevel,
+    ReadoutLevel,
+    canonical_circuit,
+)
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -47,9 +55,6 @@ from .graphical.mixture import (
     CompleteMixtureOfHarmoniums,
     CompleteMixtureOfSymmetric,
     MixtureOfFactorAnalyzers,
-)
-from .graphical.variational import (
-    VariationalHierarchicalMixture,
 )
 from .harmonium.cca import (
     AnalyticCanonicalCorrelationAnalysis,
@@ -97,6 +102,7 @@ __all__ = [
     "BoltzmannLGM",
     "BoltzmannNormalHarmonium",
     "BoltzmannPopulationCode",
+    "CanonicalCircuit",
     "CanonicalCorrelationAnalysis",
     "Categorical",
     "ChainBoltzmann",
@@ -118,6 +124,7 @@ __all__ = [
     "DifferentiableBoltzmannLGM",
     "DifferentiableHMoG",
     "Dirichlet",
+    "EnumeratedBoltzmann",
     "Euclidean",
     "FactorAnalysis",
     "FullBoltzmann",
@@ -137,15 +144,18 @@ __all__ = [
     "PoissonMixture",
     "PoissonVonMisesHarmonium",
     "Poissons",
+    "PopulationCodeHarmonium",
+    "PopulationCodeLevel",
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
+    "ReadoutLevel",
     "StandardNormal",
     "SymmetricHMoG",
-    "VariationalHierarchicalMixture",
     "VonMises",
     "VonMisesPopulationCode",
     "VonMisesProduct",
     "analytic_hmog",
+    "canonical_circuit",
     "chordal_boltzmann_population_code",
     "com_poisson_mixture",
     "diagonal_boltzmann_population_code",

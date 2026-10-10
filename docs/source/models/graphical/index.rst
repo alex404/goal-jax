@@ -9,6 +9,6 @@ These models extend harmoniums by nesting them: a graphical model uses one harmo
    :maxdepth: 1
    :caption: Modules:
 
+   canonical_circuit
    hmog
    mixture
-   variational
