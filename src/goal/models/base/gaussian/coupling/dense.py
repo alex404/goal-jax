@@ -9,8 +9,6 @@ states; :func:`dense_sample` is approximate via Gibbs sweeps with burn-in and
 thinning.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -22,7 +20,7 @@ from ...categorical import Bernoulli
 def dense_states(n: int) -> Array:
     """All $2^n$ binary states via bit manipulation, LSB-first."""
     idx = jnp.arange(1 << n, dtype=jnp.uint32)
-    return ((idx[:, None] >> jnp.arange(n)) & 1).astype(jnp.float32)
+    return ((idx[:, None] >> jnp.arange(n)) & 1).astype(float)
 
 
 def dense_log_partition(n: int, params: Array) -> Array:
@@ -95,7 +93,7 @@ def dense_sample(
 ) -> Array:
     """Approximate i.i.d. samples via Gibbs sweeps with burn-in and thinning."""
     init_key, sample_key = jax.random.split(key)
-    init_state = jax.random.bernoulli(init_key, 0.5, shape=(n,)).astype(jnp.float32)
+    init_state = jax.random.bernoulli(init_key, 0.5, shape=(n,)).astype(float)
 
     def burn_step(state: Array, step: Array) -> tuple[Array, None]:
         subkey = jax.random.fold_in(sample_key, step)

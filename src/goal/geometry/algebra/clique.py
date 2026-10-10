@@ -8,8 +8,6 @@ two nodes are adjacent exactly when some clique contains both.
 Labels are integers. The module does not depend on JAX or on what a node represents.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from itertools import chain

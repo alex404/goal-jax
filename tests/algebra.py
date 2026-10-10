@@ -241,22 +241,9 @@ class TestStructuredOpsMatchDense:
         )
 
 
-def _matmat_cases() -> list[Any]:
-    """Every ordered pair of reps, with the known failures marked."""
-    broken: dict[tuple[MatrixRep, MatrixRep], str] = {
-        (Diagonal(), Identity()): "Diagonal * Identity multiplies (n,) by (0,) params",
-        (Scale(), Identity()): "Scale * Identity returns Identity and drops the scale",
-    }
-    cases: list[Any] = []
-    for left, right in product(CHAIN, CHAIN):
-        name = f"{rep_id(left)}-{rep_id(right)}"
-        reason = broken.get((left, right))
-        marks = [pytest.mark.xfail(strict=True, reason=reason)] if reason else []
-        cases.append(pytest.param(left, right, marks=marks, id=name))
-    return cases
-
-
-@pytest.mark.parametrize(("left", "right"), _matmat_cases())
+@pytest.mark.parametrize(
+    ("left", "right"), list(product(CHAIN, CHAIN)), ids=lambda rep: rep_id(rep)
+)
 def test_matmat_matches_dense(left: MatrixRep, right: MatrixRep) -> None:
     """The product, in whatever rep ``matmat`` returns, is the dense product."""
     left_shape = (2, N) if type(left) is Rectangular else (N, N)

@@ -1,7 +1,5 @@
 """This module provides implementations of linear Gaussian models (LGMs), including factor analysis and principal component analysis. LGMs model linear, Gaussian relationships between observable and latent variables. The conjugacy of LGMs enables exact inference and EM."""
 
-from __future__ import annotations
-
 from abc import ABC
 from dataclasses import dataclass
 from typing import Any, override

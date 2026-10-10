@@ -32,8 +32,6 @@ Multi-channel and 2D structure would be handled in ``manifold/map.py`` via a com
 (one block per channel pair) or embeddings that reshape between flat and spatial layouts.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import override
@@ -55,11 +53,14 @@ def _matmat(
 ) -> tuple[MatrixRep, tuple[int, int], Array]:
     """Compute matrix-matrix product, choosing the tightest representation for the result.
 
-    Dispatches on both operands' representations: Identity and Scale short-circuit,
+    Dispatches on both operands' representations: Identity (on either side) and Scale short-circuit,
     Diagonal * Diagonal stays Diagonal, and mixed cases fall back to dense multiplication
     with the result stored as Square or Rectangular based on output shape.
     """
     out_shape = (shape[0], right_shape[1])
+    if isinstance(right_rep, Identity):
+        # A * I = A, so result has same rep as left matrix
+        return rep, out_shape, params
     out_rep: MatrixRep
     out_params: Array
     match rep:

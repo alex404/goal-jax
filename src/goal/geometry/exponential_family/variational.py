@@ -35,8 +35,6 @@ where $c(x)$ is the log-marginal under exact conjugation
 $r^0$ and $r^X$ are the residuals of the deep model at the prior and at the posterior.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass

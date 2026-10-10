@@ -6,8 +6,6 @@ both an ``ExponentialFamily`` and support ``StatisticalMoments``, but the type
 system cannot express that constraint directly.
 """
 
-from __future__ import annotations
-
 from typing import Protocol, runtime_checkable
 
 from jax import Array

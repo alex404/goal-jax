@@ -120,7 +120,7 @@ The library is organized into three main modules under `src/goal/`:
 
 ## Typing Strategy
 
-This codebase uses Python 3.12+ modern generic syntax with a pragmatic approach to type safety:
+This codebase uses Python 3.14+ (PEP 695 generics, deferred annotations without `from __future__ import annotations`) with a pragmatic approach to type safety:
 
 ### Philosophy
 - **Pragmatic over purist**: Accept type system limitations rather than fight them when the code is functionally correct
@@ -225,7 +225,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `gaussian.py` | `models/base/gaussian/`: `Normal` against scipy, Boltzmann machines against enumeration (junction tree, chordal, chain) |
 | `harmonium.py` | `geometry/exponential_family/harmonium.py` over every conjugated harmonium, including the graphical ones (HMoG, MFA, mixtures of harmoniums): conjugation equation, marginal density against brute force, posterior normalization, round trips, EM |
 | `graphical.py` | `geometry/exponential_family/graphical.py` and `models/graphical/mixture.py`: the mixture view of a mixture of harmoniums, whitening |
-| `variational.py` | `geometry/exponential_family/variational.py`: a single level (`VonMisesPopulationCode`) against quadrature, nested levels (`CanonicalCircuit`) against enumeration |
+| `variational.py` | `geometry/exponential_family/variational.py`: a single level (`VonMisesPopulationCode`, `BoltzmannPopulationCode`) against quadrature, nested levels (`CanonicalCircuit`) against enumeration and, at depth 1, its exact ELBO by enumeration and quadrature |
 | `dynamical.py` | `geometry/exponential_family/dynamical.py` and `models/dynamical/`: Kalman filter against a dense Gaussian, HMM against the forward algorithm, EM |
 
 ### What a test is

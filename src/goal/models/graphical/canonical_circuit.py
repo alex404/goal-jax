@@ -25,8 +25,6 @@ the generative biases and couplings $\\theta^*_N = \\theta_N + \\rho_N$ on $E$, 
 $\\theta_N = \\theta^*_N - \\rho_N$, and every $\\theta_{Z_k}$ held at the standard normal.
 """
 
-from __future__ import annotations
-
 import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass

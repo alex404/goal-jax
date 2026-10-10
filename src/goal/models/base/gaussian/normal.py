@@ -1,7 +1,5 @@
 """Multivariate normal distributions as exponential families with flexible covariance structure."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import override
 

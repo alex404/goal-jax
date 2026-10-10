@@ -1,7 +1,5 @@
 """Population codes, Poisson-VonMises and Boltzmann-Normal harmoniums, and Poisson mixture models."""
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import override

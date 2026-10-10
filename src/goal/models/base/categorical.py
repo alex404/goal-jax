@@ -1,7 +1,5 @@
 """Categorical and Bernoulli distributions as exponential families."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import override
 
@@ -44,7 +42,7 @@ class Bernoulli(Analytic):
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        return jnp.atleast_1d(x).astype(jnp.float32)
+        return jnp.atleast_1d(x).astype(float)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -63,7 +61,7 @@ class Bernoulli(Analytic):
     @override
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         prob = self.to_mean(params)[0]
-        return jax.random.bernoulli(key, prob, shape=(n, 1)).astype(jnp.float32)
+        return jax.random.bernoulli(key, prob, shape=(n, 1)).astype(float)
 
     @override
     def initialize_from_sample(
@@ -139,7 +137,7 @@ class Categorical(Analytic):
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        return jax.nn.one_hot(x - 1, self.n_categories - 1).reshape(-1)
+        return jax.nn.one_hot(jnp.asarray(x, dtype=int) - 1, self.n_categories - 1).reshape(-1)
 
     @override
     def log_base_measure(self, x: Array) -> Array:

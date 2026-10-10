@@ -5,8 +5,6 @@ Each level adds capabilities --- sufficient statistics, Gibbs sampling, i.i.d. s
 Variable names encode the coordinate system throughout: ``params`` for natural parameters (with prefixed variants like ``obs_params`` for slices), ``means`` for mean parameters, and ``coords`` for coordinate-system-agnostic arrays in the manifold layer.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import override
 

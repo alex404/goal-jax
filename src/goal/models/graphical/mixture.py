@@ -12,8 +12,6 @@ harmonium; :meth:`from_mixture_coords` inverts it. Conjugation and whitening are
 against whichever view makes them a one-liner.
 """
 
-from __future__ import annotations
-
 from abc import ABC
 from dataclasses import dataclass
 from typing import override
@@ -465,7 +463,7 @@ class CompleteMixtureOfSymmetric[
 
 
 @dataclass(frozen=True)
-class CompleteMixtureOfAnalytic[  # pyright: ignore[reportIncompatibleMethodOverride]
+class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues, reportIncompatibleMethodOverride]
     Observable: Differentiable,
     Latent: Analytic,
 ](

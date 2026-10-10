@@ -15,8 +15,6 @@ partition. A :class:`SubMapEmbedding` selects a subspace of a coordinate block t
 map.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override

@@ -7,8 +7,6 @@ This module contains:
 - ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is an ``DifferentiableVariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override

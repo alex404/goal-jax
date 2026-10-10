@@ -1,7 +1,5 @@
 """Combinators for composing exponential families: location-shape products, heterogeneous tuples, and replicated (independent) products."""
 
-from __future__ import annotations
-
 from abc import ABC
 from dataclasses import dataclass
 from itertools import pairwise

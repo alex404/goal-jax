@@ -2,7 +2,7 @@
 name = "goal-jax"
 version = "0.1.0"
 description = "(G)eometric (O)ptimiz(A)tion (L)ibraries"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "jax",
     "optax",
@@ -18,7 +18,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",

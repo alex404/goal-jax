@@ -6,8 +6,6 @@ This module implements mixture models using a harmonium structure where
 - the latent manifold is `Categorical` distribution over mixture components
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, replace
 from typing import override
 

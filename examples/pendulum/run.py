@@ -23,8 +23,6 @@ Usage::
     uv run python -m examples.pendulum.run
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any, override
 

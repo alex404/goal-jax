@@ -10,8 +10,6 @@ everything that follows from binariness alone; subclasses supply the coupling
 manifold and its parameter layout.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass

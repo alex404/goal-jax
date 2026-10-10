@@ -25,8 +25,6 @@ two conditionals. One that is not conjugated can be fit variationally, as the
 A plain harmonium is given to the variational classes as an :class:`AttachedHarmonium`.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, cast, override

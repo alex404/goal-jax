@@ -3,8 +3,6 @@
 An embedding defines how one manifold sits inside another: it provides maps for injecting points into the ambient space (``embed``), and for pulling back cotangent vectors --- i.e. gradients --- from the ambient space to the subspace (``pullback``). Linear embeddings additionally support projection and translation.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import override

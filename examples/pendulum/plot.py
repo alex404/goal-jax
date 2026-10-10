@@ -14,8 +14,6 @@ Usage::
     uv run python -m examples.pendulum.plot
 """
 
-from __future__ import annotations
-
 from typing import cast
 
 import matplotlib.pyplot as plt

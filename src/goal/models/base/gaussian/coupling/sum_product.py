@@ -24,8 +24,6 @@ of the clique's $p$-th node (in sorted node order), and separator states pack
 the separator's bits in the same convention.
 """
 
-from __future__ import annotations
-
 from itertools import pairwise
 
 import jax
@@ -328,8 +326,8 @@ def chain_sample(
     phi_path = phi[jnp.asarray(np.array(order, dtype=np.int32))]  # (K, 2^m)
 
     if k_total == 1:
-        vals = bits[jax.random.categorical(key, phi_path[0])].astype(jnp.float32)
-        x = jnp.zeros(n + 1, dtype=jnp.float32).at[jnp.asarray(var_idx[0])].set(vals)
+        vals = bits[jax.random.categorical(key, phi_path[0])].astype(float)
+        x = jnp.zeros(n + 1, dtype=float).at[jnp.asarray(var_idx[0])].set(vals)
         return x[:n]
 
     cliques = chain.cliques
@@ -406,9 +404,9 @@ def chain_sample(
     t_prev = jnp.concatenate([jnp.zeros(1, dtype=prefix.dtype), prefix[:, 0]])
     states = jnp.take_along_axis(sampled, t_prev[:, None], axis=1)[:, 0]  # (K,)
 
-    vals = bits[states].astype(jnp.float32).reshape(-1)
+    vals = bits[states].astype(float).reshape(-1)
     x = (
-        jnp.zeros(n + 1, dtype=jnp.float32)
+        jnp.zeros(n + 1, dtype=float)
         .at[jnp.asarray(var_idx).reshape(-1)]
         .set(vals)
     )
@@ -507,7 +505,7 @@ def jt_sample(
         x = x.at[nvars].set(sampled[npos].astype(x.dtype))
         return (x, key), None
 
-    init = (jnp.zeros(n + 1, dtype=jnp.float32), key)
+    init = (jnp.zeros(n + 1, dtype=float), key)
     (x, _), _ = jax.lax.scan(
         step,
         init,

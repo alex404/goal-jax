@@ -53,7 +53,7 @@ def plot_final(ax: Axes, res: Results, value: str, ylabel: str, title: str) -> N
     for j, name in enumerate(names):
         for i, couplings in enumerate(COUPLINGS):
             runs = [r for r in res["runs"] if variant(r) == name and r["couplings"] == couplings]
-            vals = np.array([float(r[value]) for r in runs])  # pyright: ignore[reportGeneralTypeIssues]
+            vals = np.array([float(r[value]) for r in runs])
             x = i - 0.4 + width * (j + 0.5)
             ax.scatter(np.full(len(vals), x), vals, color=model_color(j), s=12,
                        label=name if i == 0 else None)

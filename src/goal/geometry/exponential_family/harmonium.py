@@ -3,8 +3,6 @@
 The natural parameters of a harmonium are ``[obs_params, int_params, lat_params]``: the observable biases, the interaction, and the latent biases. A conjugated harmonium also factors the joint into a likelihood and a prior, which gives the marginal density of the observable in closed form.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import override

@@ -29,8 +29,6 @@ The same independence makes the expected log-likelihood a sum over the branches,
 full-covariance latent the model is analytic and each branch's likelihood is fit on its own.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override
