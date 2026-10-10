@@ -137,7 +137,9 @@ class Categorical(Analytic):
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        return jax.nn.one_hot(jnp.asarray(x, dtype=int) - 1, self.n_categories - 1).reshape(-1)
+        return jax.nn.one_hot(
+            jnp.asarray(x, dtype=int) - 1, self.n_categories - 1
+        ).reshape(-1)
 
     @override
     def log_base_measure(self, x: Array) -> Array:

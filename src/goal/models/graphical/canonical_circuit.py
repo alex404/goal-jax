@@ -235,7 +235,9 @@ class PopulationCodeLevel(
     def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
         """$\\rho_Z$, placed on the latent of the deep model."""
         lat = self.pop_hrm.pst_man
-        loc, raw = lat.split_location_precision(self.cnj_map(cnj_fun_params, lkl_params))
+        loc, raw = lat.split_location_precision(
+            self.cnj_map(cnj_fun_params, lkl_params)
+        )
         prc = jax.nn.softplus(raw + np.log(np.e - 1.0)) - 1.0
         (att_clq,) = self.gen_hrm.att_clqs
         rho = lat.join_location_precision(loc, prc)
@@ -355,7 +357,9 @@ class CanonicalCircuit(ReadoutLevel):
                 nz_loc.reshape(gen_nrn.data_dim, lat.data_dim), nz_prc
             )
             (nz_map,) = pop.pop_hrm.crs_maps
-            per_layer.append((obs_params, int_params, nrn_params, nz_map.from_matrix(rows)))
+            per_layer.append(
+                (obs_params, int_params, nrn_params, nz_map.from_matrix(rows))
+            )
 
         _, top_pop = layers[-1]
         hrm_params = _standard_normal_params(top_pop.pop_hrm.pst_man)
@@ -414,7 +418,9 @@ class CanonicalCircuit(ReadoutLevel):
             for k, (_, pop) in enumerate(layers):
                 _, _, nrn, nz = per_layer[k]
                 lat_params = (
-                    top_lat_params if k == len(layers) - 1 else readout_at(k + 1, ns[k + 1])
+                    top_lat_params
+                    if k == len(layers) - 1
+                    else readout_at(k + 1, ns[k + 1])
                 )
                 pop_params = pop.pop_hrm.join_coords(nrn, nz, lat_params)
                 z_params = pop.pop_hrm.posterior_at(pop_params, ns[k])

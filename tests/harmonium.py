@@ -14,7 +14,7 @@ from jax.scipy import stats
 from jax.scipy.linalg import block_diag
 from jax.scipy.special import logsumexp
 
-from goal.geometry import Diagonal, PositiveDefinite, Scale
+from goal.geometry import Diagonal, DifferentiableTuple, PositiveDefinite, Scale
 from goal.models import (
     AnalyticCanonicalCorrelationAnalysis,
     AnalyticMixture,
@@ -26,7 +26,8 @@ from goal.models import (
     NormalAnalyticLGM,
     NormalCovarianceEmbedding,
     NormalLGM,
-    PoissonVonMisesHarmonium,
+    PoissonPopulationHarmonium,
+    VonMisesProduct,
     analytic_hmog,
     com_poisson_mixture,
     differentiable_hmog,
@@ -399,20 +400,41 @@ def test_analytic_cca_matches_differentiable_cca() -> None:
     )
 
 
-def test_von_mises_tuning_curves() -> None:
-    """The Poisson-von Mises harmonium has rates $\\lambda_i(z) = \\exp(b_i + g_i \\cos(z - \\mu_i))$ for gains $g_i$ and preferred stimuli $\\mu_i$."""
-    n = 6
-    model = PoissonVonMisesHarmonium(n, 1)
-    baselines = jnp.linspace(-0.5, 0.5, n)
-    gains = jnp.linspace(0.5, 2.0, n)
-    preferred = jnp.linspace(0.0, 2 * jnp.pi, n, endpoint=False)
-    (xz_map,) = model.crs_maps
-    weights = jnp.stack(
+def test_population_tuning_curves() -> None:
+    """Each subpopulation's rates depend only on the latent node it is tuned to.
+
+    Subpopulation 0 is tuned to an angle, with rates $\\exp(b_i + g_i \\cos(\\theta - \\mu_i))$;
+    subpopulation 1 to a velocity, with rates $\\exp(b_j + a_j v + c_j v^2)$.
+    """
+    lat = DifferentiableTuple((VonMisesProduct(1), Normal(1, PositiveDefinite())))
+    model = PoissonPopulationHarmonium((3, 2), lat, ((0, 0), (1, 1)))
+    baselines = jnp.linspace(-0.5, 0.5, 5)
+    gains = jnp.array([0.5, 1.0, 2.0])
+    preferred = jnp.array([0.0, 2.0, 4.0])
+    angle_map, velocity_map = model.crs_maps
+    angle_weights = jnp.stack(
         [gains * jnp.cos(preferred), gains * jnp.sin(preferred)], axis=1
     )
-    params = model.join_coords(baselines, xz_map.from_matrix(weights), jnp.zeros(2))
+    velocity_weights = jnp.array([[0.5, -0.2], [-1.0, -0.4]])
+    int_params = jnp.concatenate(
+        [
+            angle_map.from_matrix(angle_weights),
+            velocity_map.from_matrix(velocity_weights),
+        ]
+    )
+    params = model.join_coords(baselines, int_params, lat.zeros())
 
-    for z in jnp.linspace(-jnp.pi, jnp.pi, 7):
-        rates = model.obs_man.to_mean(model.likelihood_at(params, jnp.array([z])))
-        expected = jnp.exp(baselines + gains * jnp.cos(z - preferred))
+    for theta, v in [(-3.0, 0.5), (0.0, -1.0), (1.5, 2.0), (2.5, 0.0)]:
+        rates = model.obs_man.to_mean(
+            model.likelihood_at(params, jnp.array([theta, v]))
+        )
+        expected = jnp.exp(
+            baselines
+            + jnp.concatenate(
+                [
+                    gains * jnp.cos(theta - preferred),
+                    velocity_weights @ jnp.array([v, v**2]),
+                ]
+            )
+        )
         assert jnp.allclose(rates, expected, rtol=RTOL, atol=ATOL)

@@ -17,12 +17,12 @@ Class Hierarchy
 Classes
 -------
 
-.. autoclass:: goal.models.harmonium.population_codes.PoissonVonMisesHarmonium
+.. autoclass:: goal.models.harmonium.population_codes.PoissonPopulationHarmonium
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.population_codes.VonMisesPopulationCode
+.. autoclass:: goal.models.harmonium.population_codes.PoissonPopulationCode
    :members:
    :undoc-members:
    :show-inheritance:

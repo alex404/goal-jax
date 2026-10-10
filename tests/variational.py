@@ -1,11 +1,12 @@
 """Tests for geometry/exponential_family/variational.py, on three shipped models.
 
 A single level: ground-truth verification of the variational estimators and their
-stop_gradient policy, on a ``VonMisesPopulationCode`` with a single VonMises latent and a
-``BoltzmannPopulationCode`` with a one-dimensional Normal latent. Every latent expectation
-is then a 1D integral: over [0, 2pi) for the VonMises latent, where the periodic trapezoid
-rule is exact to near machine precision for smooth integrands, and over a wide interval for
-the Normal latent. ``jax.grad`` of the quadrature expressions therefore yields exact
+stop_gradient policy, on a ``PoissonPopulationCode`` with a single VonMises latent, a
+``BoltzmannPopulationCode`` with a one-dimensional Normal latent, and a
+``PoissonPopulationCode`` with two subpopulations, each tuned to its own VonMises latent.
+Every latent expectation is then an integral over a grid: over [0, 2pi) or its square for
+the VonMises latents, where the periodic trapezoid rule is exact to near machine precision
+for smooth integrands, and over a wide interval for the Normal latent. ``jax.grad`` of the quadrature expressions therefore yields exact
 gradients --- including the dependence of the sampling measure on the parameters ---
 against which the autodiff gradients of the Monte-Carlo estimators are compared over many
 independent keys (a z-test on each parameter coordinate).
@@ -28,15 +29,16 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import PositiveDefinite
+from goal.geometry import DifferentiableTuple, PositiveDefinite
 from goal.geometry.exponential_family.variational import (
     DifferentiableVariationalConjugated,
     regress_conjugation_parameters,
 )
 from goal.models import (
     CanonicalCircuit,
-    PoissonVonMisesHarmonium,
-    VonMisesPopulationCode,
+    PoissonPopulationCode,
+    PoissonPopulationHarmonium,
+    VonMisesProduct,
     canonical_circuit,
     chordal_boltzmann_population_code,
 )
@@ -55,26 +57,45 @@ class Case:
     model: DifferentiableVariationalConjugated[Any, Any, Any]
     x: Array
     z_grid: Array
-    """Quadrature points of the one-dimensional latent, equally spaced."""
-
-    @property
-    def dz(self) -> Array:
-        return self.z_grid[1, 0] - self.z_grid[0, 0]
+    """Quadrature points of the latent, on an equally spaced grid."""
+    dz: float
+    """Volume of a grid cell."""
 
 
 N_GRID = 2048
+N_GRID_2D = 128
+_ANGLES = jnp.arange(N_GRID_2D) / N_GRID_2D * 2 * jnp.pi
 CASES = [
     Case(
         "von_mises",
-        VonMisesPopulationCode(PoissonVonMisesHarmonium(4, 1)),
+        PoissonPopulationCode(
+            PoissonPopulationHarmonium((4,), VonMisesProduct(1), ((0, 0),))
+        ),
         jnp.array([2.0, 0.0, 1.0, 3.0]),
         (jnp.arange(N_GRID) / N_GRID * 2 * jnp.pi).reshape(-1, 1),
+        2 * jnp.pi / N_GRID,
     ),
     Case(
         "boltzmann",
         chordal_boltzmann_population_code(4, [(0, 1), (1, 2), (2, 3)], 1),
         jnp.array([1.0, 0.0, 1.0, 1.0]),
         jnp.linspace(-30.0, 30.0, N_GRID).reshape(-1, 1),
+        60.0 / (N_GRID - 1),
+    ),
+    Case(
+        "poisson_subpopulations",
+        PoissonPopulationCode(
+            PoissonPopulationHarmonium(
+                (3, 2),
+                DifferentiableTuple((VonMisesProduct(1), VonMisesProduct(1))),
+                ((0, 0), (1, 1)),
+            )
+        ),
+        jnp.array([2.0, 0.0, 1.0, 3.0, 1.0]),
+        jnp.stack(jnp.meshgrid(_ANGLES, _ANGLES, indexing="ij"), axis=-1).reshape(
+            -1, 2
+        ),
+        (2 * jnp.pi / N_GRID_2D) ** 2,
     ),
 ]
 CASE_IDS = [case.name for case in CASES]

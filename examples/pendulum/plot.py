@@ -25,7 +25,8 @@ from .types import Results, TuningParams
 
 
 def _angles_array(t: TuningParams) -> np.ndarray:
-    return np.asarray(t["preferred_angles"])
+    """Preferred angles in $[0, 2\\pi)$, the range of the ground truth."""
+    return np.mod(np.asarray(t["preferred_angles"]), 2 * np.pi)
 
 
 def _velocities_array(t: TuningParams) -> np.ndarray:

@@ -1,10 +1,9 @@
-"""Population codes, Poisson-VonMises and Boltzmann-Normal harmoniums, and Poisson mixture models."""
+"""Population codes: Poisson populations over any latent family, Boltzmann-Normal harmoniums, and Poisson mixture models."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import override
 
-import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
@@ -15,10 +14,10 @@ from ...geometry import (
     Rectangular,
 )
 from ...geometry.exponential_family.base import Differentiable
+from ...geometry.exponential_family.combinators import AnalyticTuple
 from ...geometry.exponential_family.harmonium import Harmonium
 from ...geometry.exponential_family.variational import (
     DifferentiableVariationalConjugated,
-    regress_conjugation_parameters,
 )
 from ..base.categorical import Bernoullis
 from ..base.gaussian.boltzmann import (
@@ -29,137 +28,103 @@ from ..base.gaussian.boltzmann import (
 )
 from ..base.gaussian.normal import FullNormal, full_normal
 from ..base.poisson import CoMPoissons, Poissons, PopulationLocationEmbedding
-from ..base.von_mises import VonMisesProduct
 from .mixture import AnalyticMixture, Mixture
 
-# --- Poisson-VonMises Harmonium ---
+# --- Poisson Population Code (any latent family) ---
 
 
 @dataclass(frozen=True)
-class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
-    """Harmonium with Poisson observables and VonMises latents."""
+class PoissonPopulationHarmonium[Latent: Differentiable](
+    Harmonium[AnalyticTuple[Poissons], Latent]
+):
+    """Harmonium with subpopulations of Poisson neurons over a latent family, each subpopulation tuned to some nodes of the latent.
+
+    The observable is a tuple of independent Poisson populations, one node per subpopulation, and
+    ``tuning`` lists the pairs (subpopulation, latent node) that are coupled. Coupling one
+    subpopulation to every node of the latent gives mixed selectivity; coupling subpopulation $k$
+    to node $k$ alone gives a code specific to each node.
+
+    Mathematically, the log-rate of neuron $i$ in subpopulation $k$ is $\\theta_{X,i} + \\sum_j
+    \\Theta_{X_k Z_j, i} \\cdot \\mathbf s_{Z_j}(z_j)$, summed over the nodes $j$ that $k$ is tuned
+    to, so the shape of each tuning curve is set by the sufficient statistics of those nodes: a
+    von Mises node gives a cosine bump in an angle, a Normal node a Gaussian bump.
+    """
 
     # Fields
 
-    n_neurons: int
-    """Number of Poisson observable neurons."""
+    pop_sizes: tuple[int, ...]
+    """Number of neurons in each subpopulation."""
 
-    n_latent: int
-    """Number of VonMises latent dimensions."""
+    latent: Latent
+    """The latent family; every node that a subpopulation is tuned to must be a clique of its own."""
+
+    tuning: tuple[tuple[int, int], ...]
+    """The coupled pairs (subpopulation, latent node)."""
 
     # Overrides
 
     @property
     @override
     def crs_trms(self) -> tuple[CrossTerm, ...]:
-        """The observable and the latent, coupled."""
-        int_map = CliqueMap(
-            Rectangular(),
-            IdentityEmbedding(self.obs_man),
-            IdentityEmbedding(self.pst_man),
+        """One crossing per tuned pair, over the whole coordinate block on each side."""
+        return tuple(
+            CrossTerm(
+                (pop,),
+                (node,),
+                CliqueMap(
+                    Rectangular(),
+                    IdentityEmbedding(self.obs_man.clq_man((pop,))),
+                    IdentityEmbedding(self.pst_man.clq_man((node,))),
+                ),
+            )
+            for pop, node in self.tuning
         )
-        return (CrossTerm((0,), (0,), int_map),)
 
     @property
     @override
-    def obs_man(self) -> Poissons:
-        return Poissons(self.n_neurons)
+    def obs_man(self) -> AnalyticTuple[Poissons]:
+        return AnalyticTuple(tuple(Poissons(n) for n in self.pop_sizes))
 
     @property
     @override
-    def pst_man(self) -> VonMisesProduct:
-        return VonMisesProduct(self.n_latent)
-
-
-# --- Von Mises Population Code (unified variational model) ---
+    def pst_man(self) -> Latent:
+        return self.latent
 
 
 @dataclass(frozen=True)
-class VonMisesPopulationCode(
-    DifferentiableVariationalConjugated[
-        AttachedHarmonium[VonMisesProduct], VonMisesProduct, VonMisesProduct
-    ]
+class PoissonPopulationCode[Latent: Differentiable](
+    DifferentiableVariationalConjugated[AttachedHarmonium[Latent], Latent, Latent]
 ):
-    """Variational population code with Poisson observables and VonMises latents.
+    """Variational population code of a :class:`PoissonPopulationHarmonium`, with constant conjugation parameters.
 
-    Unifies 1D population codes and multi-dimensional toroidal models under
-    the variational conjugation framework. Posterior = prior = conjugation =
-    ``VonMisesProduct``, so :meth:`conjugation_parameters` returns the stored $\\rho$.
+    Posterior = prior = conjugation = the latent family, so :meth:`conjugation_parameters`
+    returns the stored $\\rho$.
     """
 
     # Fields
 
-    hrm: PoissonVonMisesHarmonium
+    hrm: PoissonPopulationHarmonium[Latent]
 
     # Overrides
 
     @property
     @override
-    def gen_hrm(self) -> AttachedHarmonium[VonMisesProduct]:
+    def gen_hrm(self) -> AttachedHarmonium[Latent]:
         return AttachedHarmonium(self.hrm, self.hrm.pst_man)
 
     @property
     @override
-    def cnj_fun_man(self) -> VonMisesProduct:
+    def cnj_fun_man(self) -> Latent:
         return self.hrm.pst_man
 
     @property
     @override
-    def pst_prr_emb(self) -> IdentityEmbedding[VonMisesProduct]:
+    def pst_prr_emb(self) -> IdentityEmbedding[Latent]:
         return IdentityEmbedding(self.hrm.pst_man)
 
     @override
     def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
         return cnj_fun_params
-
-    # Methods
-
-    @property
-    def n_neurons(self) -> int:
-        """Number of Poisson observable neurons."""
-        return self.hrm.n_neurons
-
-    @property
-    def n_latent(self) -> int:
-        """Number of VonMises latent dimensions."""
-        return self.hrm.n_latent
-
-    def initialize_from_tuning_curves(
-        self,
-        key: Array,
-        gains: Array,
-        preferred: Array,
-        baselines: Array,
-        prior_mean: float = 0.0,
-        prior_concentration: float = 0.0,
-        n_regression_samples: int = 5000,
-    ) -> Array:
-        """Initialize parameters from tuning curve specification.
-
-        Builds likelihood and prior parameters from gains, preferred directions, and baselines,
-        then fits conjugation parameters $\\rho$ via least-squares regression against
-        samples of the prior, and sets the latent bias to the prior minus $\\rho$.
-        """
-        vm = self.hrm.pst_man.rep_man  # underlying VonMises
-
-        # Build likelihood params from tuning curves
-        obs_params = baselines
-        int_col_1 = gains * jnp.cos(preferred)
-        int_col_2 = gains * jnp.sin(preferred)
-        int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
-        prior_nat = vm.join_mean_concentration(prior_mean, prior_concentration)
-        prior_nat = jnp.tile(prior_nat, self.n_latent)
-
-        # Fit rho via regression, with zero rho so that the prior is prior_nat
-        def params_at(lat_params: Array, rho: Array) -> Array:
-            hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_params)
-            return self.join_coords(hrm_params, rho)
-
-        zero_rho = jnp.zeros(self.cnj_fun_man.dim)
-        rho, _, _, _ = regress_conjugation_parameters(
-            self, key, params_at(prior_nat, zero_rho), n_regression_samples
-        )
-        return params_at(prior_nat - rho, rho)
 
 
 # --- Boltzmann Population Code (Gaussian latent) ---

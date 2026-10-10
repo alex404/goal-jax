@@ -46,6 +46,7 @@ Neural Population Codes
 
 Neuroscience applications modeling neural spike data.
 
-- **poisson_mixture** --- Poisson vs CoM-Poisson spike count mixtures with Fano factor analysis, using :class:`~goal.models.harmonium.population_codes.PoissonVonMisesHarmonium`.
-- **population_codes** --- Bayesian stimulus decoding from cosine-tuned neural responses (:class:`~goal.models.harmonium.population_codes.VonMisesPopulationCode`).
+- **poisson_mixture** --- Poisson vs CoM-Poisson spike count mixtures with Fano factor analysis (:func:`~goal.models.harmonium.population_codes.poisson_mixture`, :func:`~goal.models.harmonium.population_codes.com_poisson_mixture`).
+- **population_codes** --- Bayesian stimulus decoding from cosine-tuned neural responses (:class:`~goal.models.harmonium.population_codes.PoissonPopulationCode`).
 - **torus_poisson** --- Variational inference with non-differentiable von Mises sampler; compares free, regularized, and analytical conjugation parameter learning.
+- **pendulum** --- Filtering a stochastic pendulum from a Poisson population tuned to angle and velocity (:class:`~goal.models.dynamical.population_code_process.PopulationCodeProcess`).

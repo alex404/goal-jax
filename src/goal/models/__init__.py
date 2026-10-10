@@ -36,6 +36,7 @@ from .base.poisson import (
 from .base.von_mises import VonMises, VonMisesProduct
 from .dynamical.hmm import HiddenMarkovModel
 from .dynamical.kalman_filter import KalmanFilter
+from .dynamical.population_code_process import PopulationCodeProcess
 from .graphical.canonical_circuit import (
     CanonicalCircuit,
     PopulationCodeHarmonium,
@@ -80,8 +81,8 @@ from .harmonium.population_codes import (
     BoltzmannPopulationCode,
     CoMPoissonMixture,
     PoissonMixture,
-    PoissonVonMisesHarmonium,
-    VonMisesPopulationCode,
+    PoissonPopulationCode,
+    PoissonPopulationHarmonium,
     chordal_boltzmann_population_code,
     com_poisson_mixture,
     diagonal_boltzmann_population_code,
@@ -142,17 +143,18 @@ __all__ = [
     "NormalLGM",
     "Poisson",
     "PoissonMixture",
-    "PoissonVonMisesHarmonium",
+    "PoissonPopulationCode",
+    "PoissonPopulationHarmonium",
     "Poissons",
     "PopulationCodeHarmonium",
     "PopulationCodeLevel",
+    "PopulationCodeProcess",
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
     "ReadoutLevel",
     "StandardNormal",
     "SymmetricHMoG",
     "VonMises",
-    "VonMisesPopulationCode",
     "VonMisesProduct",
     "analytic_hmog",
     "canonical_circuit",

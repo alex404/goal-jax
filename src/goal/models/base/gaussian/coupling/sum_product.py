@@ -405,11 +405,7 @@ def chain_sample(
     states = jnp.take_along_axis(sampled, t_prev[:, None], axis=1)[:, 0]  # (K,)
 
     vals = bits[states].astype(float).reshape(-1)
-    x = (
-        jnp.zeros(n + 1, dtype=float)
-        .at[jnp.asarray(var_idx).reshape(-1)]
-        .set(vals)
-    )
+    x = jnp.zeros(n + 1, dtype=float).at[jnp.asarray(var_idx).reshape(-1)].set(vals)
     return x[:n]
 
 

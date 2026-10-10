@@ -299,7 +299,9 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         import jax.numpy as jnp
         from scipy.special import i0 as bessel_i0
 
-        from goal.models import PoissonVonMisesHarmonium, VonMisesPopulationCode
+        from goal.models import PoissonPopulationCode
+
+        from .run import torus_harmonium
 
         config = results["config"]
         models = results["models"]
@@ -316,9 +318,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         else:
             mode_to_use = next(iter(models.keys()))
 
-        var_model = VonMisesPopulationCode(
-            PoissonVonMisesHarmonium(n_neurons, n_latent)
-        )
+        var_model = PoissonPopulationCode(torus_harmonium(n_neurons, n_latent))
 
         # Get learned parameters
         learned_weights = np.array(models[mode_to_use]["learned_weight_matrix"])

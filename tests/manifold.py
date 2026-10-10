@@ -41,7 +41,8 @@ from goal.models import (
     Euclidean,
     MixtureOfFactorAnalyzers,
     Normal,
-    PoissonVonMisesHarmonium,
+    PoissonPopulationHarmonium,
+    VonMisesProduct,
     analytic_hmog,
     differentiable_hmog,
     factor_analysis,
@@ -99,7 +100,11 @@ MODELS: dict[str, Callable[[], Layout]] = {
     "mixture_of_cca": lambda: CompleteMixture(_cca(), 3),
     "boltzmann_lgm": lambda: BoltzmannLGM(3, PositiveDefinite(), 2),
     "boltzmann_normal": lambda: BoltzmannNormalHarmonium(DiagonalBoltzmann(3), 2),
-    "poisson_von_mises": lambda: PoissonVonMisesHarmonium(5, 1),
+    "poisson_population": lambda: PoissonPopulationHarmonium(
+        (3, 2),
+        DifferentiableTuple((VonMisesProduct(1), Normal(1, PositiveDefinite()))),
+        ((0, 0), (0, 1), (1, 1)),
+    ),
 }
 """Every shipped model shape with crossings."""
 

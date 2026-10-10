@@ -150,10 +150,9 @@ class AttachedHarmonium[Deep: Gibbs](GraphicalHarmonium[Deep]):
     def __post_init__(self) -> None:
         pst_man = self.att_hrm.pst_man
         for clique in pst_man.cliques:
-            if (
-                clique not in self.lat_man.cliques
-                or self.lat_man.clq_man(clique) != pst_man.clq_man(clique)
-            ):
+            if clique not in self.lat_man.cliques or self.lat_man.clq_man(
+                clique
+            ) != pst_man.clq_man(clique):
                 raise ValueError(
                     f"Clique {clique} of the posterior is not a clique of the latent model with the same coordinate block"
                 )

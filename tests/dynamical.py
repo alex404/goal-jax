@@ -1,6 +1,8 @@
 """Tests for geometry/exponential_family/dynamical.py and models/dynamical.
 
 The forward filter's log-likelihood is checked against independent ground truth: for the Kalman filter, the dense joint normal of the whole observation sequence built from the standard parameters $(A, Q, C, R, \\mu_0, \\Sigma_0)$; for the hidden Markov model, the forward algorithm on the decoded probability tables. EM does not decrease the log-likelihood of either.
+
+The variational filter (``VariationalLatentProcess``, through ``PopulationCodeProcess`` with a single VonMises latent) is checked against the sum of its per-step ELBOs by quadrature over the latent, value and gradient, the gradient flowing through each posterior into the next prediction.
 """
 
 from typing import Any
@@ -11,7 +13,15 @@ import pytest
 from jax import Array
 from jax.scipy import stats
 
-from goal.models import HiddenMarkovModel, KalmanFilter
+from goal.geometry import MultilayerPerceptron
+from goal.models import (
+    HiddenMarkovModel,
+    KalmanFilter,
+    PoissonPopulationCode,
+    PoissonPopulationHarmonium,
+    PopulationCodeProcess,
+    VonMisesProduct,
+)
 
 jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_enable_x64", True)
@@ -145,3 +155,76 @@ def test_em_does_not_decrease_log_likelihood(
         params = model.expectation_maximization(params, obs_batch)
         lls.append(average_log_likelihood(params))
     assert jnp.all(jnp.diff(jnp.stack(lls)) >= -1e-8), lls
+
+
+PCP_N_GRID = 1024
+PCP_N_KEYS = 128
+PCP_OBS = jnp.array([[2.0, 0.0, 1.0, 3.0], [0.0, 1.0, 4.0, 1.0], [1.0, 0.0, 0.0, 0.0]])
+
+
+class TestPopulationCodeProcess:
+    def model_and_params(self) -> tuple[PopulationCodeProcess[Any, Any], Array]:
+        """One population of four neurons over one VonMises latent, generic parameters."""
+        lat = VonMisesProduct(1)
+        hrm = PoissonPopulationHarmonium((4,), lat, ((0, 0),))
+        model = PopulationCodeProcess(
+            PoissonPopulationCode(hrm),
+            MultilayerPerceptron(lat, lat, (4,), jax.nn.tanh),
+        )
+        keys = jax.random.split(jax.random.PRNGKey(0), 4)
+        ems = model.ems_hrm
+        lkl = ems.gen_hrm.likelihood_function(
+            ems.gen_hrm.initialize(keys[0], shape=0.5)
+        )
+        rho = 0.3 * jax.random.normal(keys[1], (ems.cnj_fun_man.dim,))
+        params = model.join_coords(
+            lat.initialize(keys[2], shape=0.5),
+            lkl,
+            rho,
+            model.trn_map.glorot_initialize(keys[3]),
+        )
+        return model, params
+
+    def exact_total_elbo(
+        self, model: PopulationCodeProcess[Any, Any], params: Array
+    ) -> Array:
+        """The sum over steps of the ELBO under the predicted prior, each by the periodic trapezoid rule."""
+        ems = model.ems_hrm
+        zs = (jnp.arange(PCP_N_GRID) / PCP_N_GRID * 2 * jnp.pi).reshape(-1, 1)
+        dz = 2 * jnp.pi / PCP_N_GRID
+        belief, lkl, rho, trn = model.split_coords(params)
+        total = jnp.asarray(0.0)
+        for x in PCP_OBS:
+            ems_params = model.emission_params(lkl, rho, model.trn_map(trn, belief))
+            q = ems.recognition_at(ems_params, x)
+            prior = ems.conjugated_prior_params(ems_params)
+
+            def integrand(z: Array) -> Array:
+                log_q = ems.pst_man.log_density(q, z)
+                log_joint = ems.obs_man.log_density(
+                    ems.likelihood_at(ems_params, z), x
+                ) + ems.prr_man.log_density(prior, z)
+                return jnp.exp(log_q) * (log_joint - log_q)
+
+            total = total + dz * jnp.sum(jax.vmap(integrand)(zs))
+            belief = q
+        return total
+
+    def test_filter_elbo_matches_quadrature(self) -> None:
+        model, params = self.model_and_params()
+        exact_val = self.exact_total_elbo(model, params)
+        exact_grad = jax.grad(lambda p: self.exact_total_elbo(model, p))(params)
+        keys = jax.random.split(jax.random.PRNGKey(42), PCP_N_KEYS)
+        vals, grads = jax.vmap(
+            jax.value_and_grad(
+                lambda k, p: model.filter(k, p, PCP_OBS, 16)[1], argnums=1
+            ),
+            in_axes=(0, None),
+        )(keys, params)
+        val_se = jnp.std(vals) / jnp.sqrt(PCP_N_KEYS)
+        grad_se = jnp.std(grads, axis=0) / jnp.sqrt(PCP_N_KEYS)
+        assert jnp.abs(jnp.mean(vals) - exact_val) < 5.0 * val_se + 1e-9
+        z_scores = jnp.abs(jnp.mean(grads, axis=0) - exact_grad) / jnp.maximum(
+            grad_se, 1e-9
+        )
+        assert jnp.max(z_scores) < 5.0
