@@ -161,6 +161,32 @@ class TestNormal:
         )
 
     @pytest.mark.parametrize("rep", REPS, ids=REP_IDS)
+    @pytest.mark.parametrize("shape", [0.1, 2.0, 10.0])
+    def test_initialize_from_sample_is_valid_at_any_noise(
+        self, rep: Rep, shape: float
+    ) -> None:
+        """Initialization from a sample gives valid natural parameters at any noise scale, also for a mean far from zero relative to the spread and for a dimension without variance."""
+        key_data, key_init = jax.random.split(jax.random.PRNGKey(3))
+        xs = 10.0 + jax.random.normal(key_data, (500, 4))
+        xs = xs.at[:, 3].set(5.0)
+        model = Normal(4, rep)
+        for key in jax.random.split(key_init, 5):
+            params = model.initialize_from_sample(key, xs, shape=shape)
+            assert model.check_natural_parameters(params)
+            assert jnp.isfinite(model.average_log_density(params, xs))
+
+    @pytest.mark.parametrize("rep", REPS, ids=REP_IDS)
+    def test_initialize_from_sample_without_noise_is_the_fit(self, rep: Rep) -> None:
+        """Without noise, initialization from a sample is the fit to its sample moments."""
+        xs = jax.random.multivariate_normal(
+            jax.random.PRNGKey(0), jnp.asarray(MEAN), jnp.asarray(COVARIANCE), (2000,)
+        )
+        model = Normal(2, rep)
+        params = model.initialize_from_sample(jax.random.PRNGKey(1), xs, shape=0.0)
+        fit = model.to_natural(model.average_sufficient_statistic(xs))
+        assert jnp.allclose(params, fit, rtol=1e-4, atol=1e-6)
+
+    @pytest.mark.parametrize("rep", REPS, ids=REP_IDS)
     def test_sample_statistics_match_mean_parameters(self, rep: Rep) -> None:
         model = Normal(2, rep)
         params = model.to_natural(normal_means(model, MEAN, COVARIANCE))
