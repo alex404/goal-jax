@@ -4,10 +4,9 @@ Demonstrates variational inference for recovering toroidal latent structure
 from Poisson spike counts. Generates synthetic data from a known ground-truth
 model and trains to recover the parameters.
 
-Supports three training modes:
+Supports two training modes:
 1. free: Learnable rho via gradient descent
 2. regularized: Learnable rho with conjugation variance penalty
-3. analytical: Least-squares rho computation each step
 
 Usage:
     python -m examples.torus_poisson.run
@@ -265,7 +264,7 @@ def compute_gt_conjugation(
     }
 
 
-def train_model(  # noqa: C901
+def train_model(
     key: Array,
     model: TorusCode,
     train_data: Array,
@@ -276,21 +275,17 @@ def train_model(  # noqa: C901
     n_mc_samples: int,
     init_params: Array,
     conj_weight: float,
-    analytical_samples_mult: int,
     n_conj_samples: int,
     log_interval: int,
 ) -> tuple[Array, ModeResults]:
     """Train a model with specified mode."""
-    use_analytical_rho = mode == "analytical"
     use_conj_penalty = mode == "regularized"
 
-    n_analytical_samples = analytical_samples_mult * model.pst_man.dim
     n_samples = train_data.shape[0]
 
     mode_str = {
         "free": "LEARNABLE rho",
         "regularized": f"REGULARIZED (weight={conj_weight})",
-        "analytical": f"ANALYTICAL rho ({n_analytical_samples} samples)",
     }[mode]
 
     print(f"\n{'=' * 60}")
@@ -298,22 +293,8 @@ def train_model(  # noqa: C901
     print(f"{'=' * 60}")
 
     params = init_params
-    prior_dim = model.prr_man.dim
-    init_lkl_p, init_prior_p, _ = directed_parts(model, params)
-    gen_params = jnp.concatenate([init_prior_p, init_lkl_p])
-    zero_rho = jnp.zeros(model.cnj_fun_man.dim)
-
-    # Optimizer setup
-    if use_analytical_rho:
-        # Gradient clipping stabilizes the implicit gradient through lstsq,
-        # which can amplify noise early in training.
-        optimizer = optax.chain(
-            optax.clip_by_global_norm(1.0), optax.adam(learning_rate)
-        )
-        opt_state = optimizer.init(gen_params)
-    else:
-        optimizer = optax.adam(learning_rate)
-        opt_state = optimizer.init(params)
+    optimizer = optax.adam(learning_rate)
+    opt_state = optimizer.init(params)
 
     # --- Loss functions (close over train_data) ---
 
@@ -339,55 +320,7 @@ def train_model(  # noqa: C901
         loss = -elbo + conj_weight * conj_var
         return loss, (elbo, conj_var)
 
-    def loss_fn_analytical(
-        gen_params: Array, key: Array, batch: Array
-    ) -> tuple[Array, tuple[Array, Array]]:
-        rho_key, elbo_key, conj_key = jax.random.split(key, 3)
-
-        prior_p = gen_params[:prior_dim]
-        lkl_p = gen_params[prior_dim:]
-
-        # Compute analytical rho via library regression
-        dummy_params = directed_params(model, lkl_p, prior_p, zero_rho)
-        rho_star, _, _, _ = regress_conjugation_parameters(
-            model, rho_key, dummy_params, n_analytical_samples
-        )
-
-        # Let implicit gradient flow through lstsq for proper rho coupling
-        params_with_rho = directed_params(model, lkl_p, prior_p, rho_star)
-        elbo = model.mean_elbo(elbo_key, params_with_rho, batch, n_mc_samples)
-
-        # Conjugation penalty: explicitly discourage nonlinear \psi_X
-        p_params = model.conjugated_prior_params(params_with_rho)
-        z_sg = jax.lax.stop_gradient(
-            model.prr_man.sample(conj_key, p_params, n_conj_samples)
-        )
-        f_vals = jax.vmap(lambda z: model.conjugation_residual(params_with_rho, z))(
-            z_sg
-        )
-        conj_var = jnp.var(f_vals)
-
-        loss = -elbo + conj_weight * conj_var
-        return loss, (elbo, rho_star)
-
     # --- Training step functions (close over train_data, no @jax.jit - scan handles compilation) ---
-
-    def train_step_analytical(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
-        gen_params, opt_state, step_key = carry
-        step_key, next_key, batch_key = jax.random.split(step_key, 3)
-        batch = train_data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
-
-        (_, (elbo, rho_star)), grads = jax.value_and_grad(
-            loss_fn_analytical, has_aux=True
-        )(gen_params, next_key, batch)
-
-        updates, new_opt_state = optimizer.update(grads, opt_state, gen_params)
-        new_gen_params = optax.apply_updates(gen_params, updates)
-
-        return (new_gen_params, new_opt_state, step_key), (
-            elbo,
-            rho_star,
-        )
 
     def train_step_regularized(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
         params, opt_state, step_key = carry
@@ -427,7 +360,6 @@ def train_model(  # noqa: C901
 
     key, train_key = jax.random.split(key)
     current_params = params
-    current_gen_params = gen_params
     current_opt_state = opt_state
 
     n_chunks = n_steps // log_interval
@@ -436,21 +368,7 @@ def train_model(  # noqa: C901
     print(f"Training for {n_steps} steps ({n_chunks} chunks of {log_interval})...")
 
     for chunk in range(n_chunks):
-        if use_analytical_rho:
-            carry = (current_gen_params, current_opt_state, train_key)
-            carry, (elbos_chunk, rho_stars_chunk) = jax.lax.scan(
-                train_step_analytical, carry, None, length=log_interval
-            )
-            current_gen_params, current_opt_state, train_key = carry
-            current_params = directed_params(
-                model,
-                current_gen_params[prior_dim:],
-                current_gen_params[:prior_dim],
-                rho_stars_chunk[-1],
-            )
-            all_elbos.append(elbos_chunk)
-            all_conj_errors.append(jnp.zeros(log_interval))
-        elif use_conj_penalty:
+        if use_conj_penalty:
             carry = (current_params, current_opt_state, train_key)
             carry, (elbos_chunk, conj_vars_chunk) = jax.lax.scan(
                 train_step_regularized, carry, None, length=log_interval
@@ -493,21 +411,7 @@ def train_model(  # noqa: C901
 
     # Handle remainder steps
     if remainder > 0:
-        if use_analytical_rho:
-            carry = (current_gen_params, current_opt_state, train_key)
-            carry, (elbos_chunk, rho_stars_chunk) = jax.lax.scan(
-                train_step_analytical, carry, None, length=remainder
-            )
-            current_gen_params, current_opt_state, train_key = carry
-            current_params = directed_params(
-                model,
-                current_gen_params[prior_dim:],
-                current_gen_params[:prior_dim],
-                rho_stars_chunk[-1],
-            )
-            all_elbos.append(elbos_chunk)
-            all_conj_errors.append(jnp.zeros(remainder))
-        elif use_conj_penalty:
+        if use_conj_penalty:
             carry = (current_params, current_opt_state, train_key)
             carry, (elbos_chunk, conj_vars_chunk) = jax.lax.scan(
                 train_step_regularized, carry, None, length=remainder
@@ -530,18 +434,6 @@ def train_model(  # noqa: C901
 
     # Final evaluation
     print("\nFinal evaluation...")
-
-    # For analytical mode, recompute rho with many samples for stable evaluation
-    if use_analytical_rho:
-        key, rho_eval_key = jax.random.split(key)
-        zero_rho = jnp.zeros(model.cnj_fun_man.dim)
-        cur_prior_p = current_gen_params[:prior_dim]
-        cur_lkl_p = current_gen_params[prior_dim:]
-        eval_params = directed_params(model, cur_lkl_p, cur_prior_p, zero_rho)
-        rho_final, _, _, _ = regress_conjugation_parameters(
-            model, rho_eval_key, eval_params, n_conj_samples * 2
-        )
-        current_params = directed_params(model, cur_lkl_p, cur_prior_p, rho_final)
 
     key, eval_key = jax.random.split(key)
 
@@ -617,9 +509,6 @@ def main():
 
     # Training mode parameters
     conj_weight = 1.0  # Weight for var[CR] penalty in regularized mode
-    analytical_rho_samples_multiplier = (
-        500  # Enough samples for stable lstsq regression
-    )
 
     # Logging
     log_interval = 200
@@ -709,7 +598,7 @@ def main():
     print(f"  Harmonium params: {model.gen_hrm.dim}")
 
     # Train all modes
-    modes = ["free", "regularized", "analytical"]
+    modes = ["free", "regularized"]
     all_results: dict[str, ModeResults] = {}
     all_params: dict[str, Array] = {}
 
@@ -732,7 +621,6 @@ def main():
             n_mc_samples=n_mc_samples,
             init_params=shared_init_params,
             conj_weight=conj_weight,
-            analytical_samples_mult=analytical_rho_samples_multiplier,
             n_conj_samples=n_conj_samples,
             log_interval=log_interval,
         )
@@ -763,7 +651,6 @@ def main():
             "gain": gain,
             "prior_concentration": prior_concentration,
             "conj_weight": conj_weight,
-            "analytical_samples_mult": analytical_rho_samples_multiplier,
             "density_kappa1": density_kappa1,
             "density_kappa2": density_kappa2,
             "density_mu1": density_mu1,

@@ -14,17 +14,16 @@ from .types import PoissonAnalysisResults
 def plot_scatter_comparison(
     ax: Axes,
     sample_vals: NDArray[np.float64],
-    model_vals: NDArray[np.float64],
-    color: str,
-    label: str,
+    models: list[tuple[str, NDArray[np.float64], str]],
 ) -> None:
-    """Plot scatter comparison with diagonal line."""
-    data_min = min(float(sample_vals.min()), float(model_vals.min()))
-    data_max = max(float(sample_vals.max()), float(model_vals.max()))
+    """Scatter each model's values (name, values, color) against the sample's, with the diagonal, on shared limits."""
+    values = np.concatenate([sample_vals] + [vals for _, vals, _ in models])
+    data_min, data_max = float(values.min()), float(values.max())
     padding = (data_max - data_min) * 0.05
     data_range = (data_min - padding, data_max + padding)
 
-    ax.scatter(model_vals, sample_vals, s=30, color=color, label=label, alpha=0.7)
+    for label, model_vals, color in models:
+        ax.scatter(model_vals, sample_vals, s=30, color=color, label=label, alpha=0.7)
     ax.plot(data_range, data_range, "k--", alpha=0.5)
     ax.set_xlim(data_range)
     ax.set_ylim(data_range)
@@ -69,36 +68,46 @@ def main():
     fig = plt.figure(figsize=(12, 7.5))
     gs = fig.add_gridspec(2, 3)
 
-    ax_means = fig.add_subplot(gs[0, 0])
+    ax_fano = fig.add_subplot(gs[0, 0])
     ax_covs = fig.add_subplot(gs[0, 1])
     ax_ll = fig.add_subplot(gs[0, 2])
     ax_fa = fig.add_subplot(gs[1, 0])
     ax_psn = fig.add_subplot(gs[1, 1])
     ax_com = fig.add_subplot(gs[1, 2])
 
-    # Means comparison
+    # Fano factors: the data are under-dispersed, which a Poisson mixture (Fano >= 1) cannot fit
     models = [
         ("FA", results["fan_stats"], model_color(0)),
         ("Poisson", results["psn_stats"], model_color(1)),
         ("COM-Poisson", results["com_stats"], model_color(2)),
     ]
-    sample_means = np.array(results["sample_stats"]["means"])
-    for name, stats, color in models:
-        plot_scatter_comparison(
-            ax_means, sample_means, np.array(stats["means"]), color, name
-        )
-    ax_means.set_xlabel("Model Means")
-    ax_means.set_ylabel("Sample Means")
-    ax_means.legend()
+    plot_scatter_comparison(
+        ax_fano,
+        np.array(results["sample_stats"]["fano_factors"]),
+        [
+            (name, np.array(stats["fano_factors"]), color)
+            for name, stats, color in models
+        ],
+    )
+    ax_fano.axvline(1.0, color="gray", linestyle=":", linewidth=1)
+    ax_fano.axhline(1.0, color="gray", linestyle=":", linewidth=1)
+    ax_fano.set_xlabel("Model Fano Factor")
+    ax_fano.set_ylabel("Sample Fano Factor")
+    ax_fano.set_title("Fano Factors")
+    ax_fano.legend()
 
     # Covariances comparison
-    sample_covs = np.array(results["sample_stats"]["covariances"])
-    for name, stats, color in models:
-        plot_scatter_comparison(
-            ax_covs, sample_covs, np.array(stats["covariances"]), color, name
-        )
+    plot_scatter_comparison(
+        ax_covs,
+        np.array(results["sample_stats"]["covariances"]),
+        [
+            (name, np.array(stats["covariances"]), color)
+            for name, stats, color in models
+        ],
+    )
     ax_covs.set_xlabel("Model Covariances")
     ax_covs.set_ylabel("Sample Covariances")
+    ax_covs.set_title("Covariances")
     ax_covs.legend()
 
     # Training history

@@ -6,7 +6,13 @@ where everything can be checked exactly: the circuit learns hierarchical structu
 of `scratch/variational-conjugation/article.tex` reaches the performance of brute-force maximum likelihood.
 If the theory fails here, the theory changes, not the example.
 
-## Model (`model.py`)
+## Model (`goal.models.CanonicalCircuit`)
+
+Since 2026-10-11 the example uses the core module (`src/goal/models/graphical/canonical_circuit.py`): one
+layer, the partially exact variant, trained in its generative coordinates (`CanonicalCircuit.tie`). The
+example's own model classes and `validate.py` were removed; the grid results below were produced by them.
+The ported example reproduces their measurements at initialization to three decimals (chain, with z, ELBO,
+seed 0); the Monte Carlo estimators draw different random numbers, so trajectories differ after step 0.
 
 | block | contents |
 |---|---|
@@ -30,7 +36,7 @@ The free parameters of the neurons are the generative biases and couplings θ*_N
 couplings on a graph E: `independent` (none), `chain`, or `full`. The harmonium's θ_N = θ*_N − ρ_N is
 dense. Generative and recognition models are the same family evaluated at θ*_N and at θ_N + Θ_XNᵀ x; the
 generative couplings lie on E, and the recognition couplings are dense (x shifts only the biases, so the
-couplings −G off E remain: explaining away between overlapping readouts). Without z, the harmonium's
+couplings −G off E remain: explaining away between neurons whose columns of Θ_XN overlap). Without z, the harmonium's
 marginal over the neurons is the Boltzmann machine θ*_N on E, so with a chain, long-range correlations can
 only come from z.
 
@@ -38,7 +44,7 @@ The dense neurons are sampled exactly by enumeration (`EnumeratedBoltzmann`), wh
 about 12 neurons. At scale, p̃ could be sampled by a junction tree on E, but the recognition model needs the
 graph of G.
 
-The readout is initialized with isotropic noise (s.d. 0.1). Initializing it from the data covariance
+The X–N level is initialized with isotropic noise of x (s.d. 0.1). Initializing it from the data covariance
 explains the correlations of the data as noise, and every objective then finds a tangled code with little
 use of z.
 
@@ -60,12 +66,13 @@ objective depends on, so changing ELBO settings does not rerun the MLE baselines
 runs of the current settings into `analysis.json`; `plot.py` makes `plot.png`. Flags select a subset of the
 grid (`--couplings`, `--z`, `--fits`, `--lams`, `--seeds`) and the settings.
 
-## Validation (`validate.py`, all pass, about 1 min on CPU)
+## Validation
 
-4 neurons, one-dimensional x, each graph E, against brute-force grids: the likelihood equals
-`BoltzmannLGM`'s; r_N = 0; the generative couplings off E are zero; the sampler matches the enumerated
-means; exact log p(x), log p̃(x), the ELBO and the divergence of q agree to about 1e-14; the ELBO
-estimator and its gradient are unbiased (largest z-score 2.3).
+The core circuit is checked in `tests/variational.py` (`TestCanonicalCircuit`) against enumeration and
+quadrature. Before the port, `validate.py` checked the example's own classes at 4 neurons against
+brute-force grids: the likelihood equals `BoltzmannLGM`'s; r_N = 0; the generative couplings off E are zero;
+the sampler matches the enumerated means; exact log p(x), log p̃(x), the ELBO and the divergence of q agree
+to about 1e-14; the ELBO estimator and its gradient are unbiased (largest z-score 2.3).
 
 ## Grid results (defaults: Algorithm 1, λ = 0.1, constant learning rate; 3 seeds; `plot.png`)
 

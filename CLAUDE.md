@@ -62,7 +62,7 @@ This is a **library**, not an application. The dependency policy is:
 Examples are located in the `examples/` directory and organized by topic:
 - Run example: `uv run python -m examples.multivariate.run`
 - Generate plots: `uv run python -m examples.multivariate.plot`
-- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, cca, chordal_boltzmann_ppc, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, pendulum, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, canonical_circuit
+- Available examples: boltzmann, boltzmann_lgm, cca, chordal_boltzmann_ppc, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, pendulum, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, canonical_circuit (not run in CI: its grid takes hours)
 
 ### Documentation
 - Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`
@@ -115,7 +115,7 @@ The library is organized into three main modules under `src/goal/`:
 - **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
 - **Canonical correlation analysis**: `CanonicalCorrelationAnalysis` (gradient-based), `AnalyticCanonicalCorrelationAnalysis` (exact EM)
 - **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
-- **Canonical circuit**: `CanonicalCircuit`, built by `canonical_circuit(...)`, the shipped nested `VariationalConjugated`: $L$ layers of readout and population code levels, partially exact or approximate
+- **Canonical circuit**: `CanonicalCircuit`, built by `canonical_circuit(...)`, the shipped nested `VariationalConjugated`: $L$ layers of Gaussian-Boltzmann and population code levels, partially exact or approximate
 - **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`, `PopulationCodeProcess` (a variational filter over a `PoissonPopulationCode`, whose subpopulations are each tuned to chosen nodes of the latent)
 
 ## Typing Strategy

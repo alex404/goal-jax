@@ -7,11 +7,9 @@ designs and the full design notes are in git history (this file before 2026-10-0
 
 ## Before merging
 
-- `examples/variational_mnist` is broken (imports `EmbeddedMap`/`BlockMap`/`VariationalSymmetric`,
-  calls `coord_blocks`). Experimental; fix or leave out of the merge.
-- Audit every example built on the variational classes (pendulum, torus_poisson,
-  chordal_boltzmann_ppc, population_codes, variational_mnist, canonical_circuit); they were only
-  type- and import-checked after the review. The pendulum example also needs a run.
+- Every example was run and its plot inspected on 2026-10-11 (pendulum, torus_poisson,
+  chordal_boltzmann_ppc and population_codes included). canonical_circuit is ported onto the core
+  module; its full grid has not been rerun since the port (one condition was, and matches).
 - Planned follow-up: the conjugation function as a `Map[Prior, Likelihood]`, generic level classes,
   and deleting `VariationalHierarchicalMixture` (`models/graphical/variational.py`).
 

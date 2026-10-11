@@ -327,12 +327,12 @@ def _circuit_params(circuit: CanonicalCircuit, key: Array, exact: bool) -> Array
     """Random generative coordinates, with a standard normal observable and positive tuning precisions.
 
     With ``exact``, every population code is decoupled from its latent and every learned
-    conjugation function is zero, and in the approximate variant every readout is decoupled
-    from its neurons as well: then every level is exactly conjugate.
+    conjugation function is zero, and in the approximate variant every Gaussian-Boltzmann harmonium is
+    decoupled from its neurons as well: then every level is exactly conjugate.
     """
     man = circuit.generative_man
     blocks = list(man.split_coords(0.5 * jax.random.normal(key, (man.dim,))))
-    obs_man = circuit.rdt_hrm.obs_man
+    obs_man = circuit.gb_hrm.obs_man
     blocks[0] = obs_man.join_location_precision(
         jnp.zeros(obs_man.data_dim),
         obs_man.cov_man.from_matrix(jnp.eye(obs_man.data_dim)),

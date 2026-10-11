@@ -52,7 +52,7 @@ def fit_hmog[Rep: PositiveDefinite](
     key: Array, hmog: AnalyticHMoG[Rep], sample: Array, n_steps: int
 ) -> tuple[Array, Array, Array]:
     """Fit HMoG via EM."""
-    init_params = hmog.initialize_from_sample(key, sample, shape=2)
+    init_params = hmog.initialize_from_sample(key, sample, shape=0.1)
 
     def em_step(params: Array, _: Any) -> tuple[Array, Array]:
         ll = hmog.average_log_observable_density(params, sample)

@@ -29,7 +29,9 @@ def variant(run: RunResult) -> str:
 
 def variants(res: Results) -> list[str]:
     """Variants in display order: with $z$ first, MLE before ELBO."""
-    found = {variant(r): (not r["use_z"], r["fit"] != "exact", r["lam"]) for r in res["runs"]}
+    found = {
+        variant(r): (not r["use_z"], r["fit"] != "exact", r["lam"]) for r in res["runs"]
+    }
     return sorted(found, key=lambda v: found[v])
 
 
@@ -52,20 +54,33 @@ def plot_final(ax: Axes, res: Results, value: str, ylabel: str, title: str) -> N
     width = 0.8 / max(len(names), 1)
     for j, name in enumerate(names):
         for i, couplings in enumerate(COUPLINGS):
-            runs = [r for r in res["runs"] if variant(r) == name and r["couplings"] == couplings]
+            runs = [
+                r
+                for r in res["runs"]
+                if variant(r) == name and r["couplings"] == couplings
+            ]
             vals = np.array([float(r[value]) for r in runs])
             x = i - 0.4 + width * (j + 0.5)
-            ax.scatter(np.full(len(vals), x), vals, color=model_color(j), s=12,
-                       label=name if i == 0 else None)
+            ax.scatter(
+                np.full(len(vals), x),
+                vals,
+                color=model_color(j),
+                s=12,
+                label=name if i == 0 else None,
+            )
             if len(vals) > 0:
-                ax.hlines(np.nanmean(vals), x - width / 2, x + width / 2, color=model_color(j))
+                ax.hlines(
+                    np.nanmean(vals), x - width / 2, x + width / 2, color=model_color(j)
+                )
     ax.set_xticks(range(len(COUPLINGS)))
     ax.set_xticklabels([c.capitalize() for c in COUPLINGS])
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
 
-def find(res: Results, couplings: str, use_z: bool, fit: str, lam: float, seed: int) -> RunResult | None:
+def find(
+    res: Results, couplings: str, use_z: bool, fit: str, lam: float, seed: int
+) -> RunResult | None:
     for r in res["runs"]:
         if (
             r["couplings"] == couplings
@@ -80,17 +95,23 @@ def find(res: Results, couplings: str, use_z: bool, fit: str, lam: float, seed: 
 
 def image(ax: Axes, xs: np.ndarray, title: str) -> None:
     order = np.argsort(np.argmax(xs, axis=1))
-    ax.imshow(xs[order].T, aspect="auto", origin="lower", cmap="magma", vmin=0, vmax=1.2)
+    ax.imshow(
+        xs[order].T, aspect="auto", origin="lower", cmap="magma", vmin=0, vmax=1.2
+    )
     ax.set_title(title)
     ax.set_xlabel("Sample")
     ax.set_ylabel("Pixel")
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901
     parser = argparse.ArgumentParser()
-    parser.add_argument("--couplings", default="chain", help="graph shown in the lower rows")
+    parser.add_argument(
+        "--couplings", default="chain", help="graph shown in the lower rows"
+    )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--lam", type=float, default=None, help="ELBO run shown (default: smallest)")
+    parser.add_argument(
+        "--lam", type=float, default=None, help="ELBO run shown (default: smallest)"
+    )
     args = parser.parse_args()
     paths = example_paths(__file__)
     apply_style(paths)
@@ -105,8 +126,16 @@ def main() -> None:
     ax = fig.add_subplot(gs[0, 0:2])
     plot_final(ax, res, "final_test_ll", r"Test $\log p(x)$ (nats)", "Fit")
     ax.legend(fontsize="small", ncol=2)
-    plot_final(fig.add_subplot(gs[0, 2]), res, "off_curve", "Mass off the curve", "Samples")
-    plot_final(fig.add_subplot(gs[0, 3]), res, "z_usage", r"Variance of $z$ explained by $x$", "Use of $z$")
+    plot_final(
+        fig.add_subplot(gs[0, 2]), res, "off_curve", "Mass off the curve", "Samples"
+    )
+    plot_final(
+        fig.add_subplot(gs[0, 3]),
+        res,
+        "z_usage",
+        r"Variance of $z$ explained by $x$",
+        "Use of $z$",
+    )
 
     shown = {
         "ELBO, with $z$": find(res, args.couplings, True, "elbo", lam, args.seed),
@@ -120,9 +149,20 @@ def main() -> None:
             continue
         color = model_color(names.index(variant(run)))
         h = run["history"]
-        ax.plot(run["steps"][1:], h["test_ll"][1:], color=color, label=rf"{name}: $\log p(x)$")
+        ax.plot(
+            run["steps"][1:],
+            h["test_ll"][1:],
+            color=color,
+            label=rf"{name}: $\log p(x)$",
+        )
         if name == "ELBO, with $z$":
-            ax.plot(run["steps"][1:], h["log_tilde"][1:], color=color, ls="--", label=r"$\log \tilde p(x)$")
+            ax.plot(
+                run["steps"][1:],
+                h["log_tilde"][1:],
+                color=color,
+                ls="--",
+                label=r"$\log \tilde p(x)$",
+            )
             ax.plot(run["steps"][1:], h["elbo"][1:], color=color, ls=":", label="ELBO")
     finals = [r["final_test_ll"] for r in shown.values() if r is not None]
     if finals:
@@ -137,8 +177,13 @@ def main() -> None:
         run = shown[name]
         if run is not None:
             r2 = position_r2(run["post_mean"], res["test_t"])
-            ax.scatter(res["test_t"], run["post_mean"], s=3, label=rf"{name} ($R^2$ of $t$: {r2:.2f})",
-                       color=model_color(names.index(variant(run))))
+            ax.scatter(
+                res["test_t"],
+                run["post_mean"],
+                s=3,
+                label=rf"{name} ($R^2$ of $t$: {r2:.2f})",
+                color=model_color(names.index(variant(run))),
+            )
     ax.set_xlabel("Bump Position $t$")
     ax.set_ylabel(r"$E[z \mid x]$")
     ax.set_title("Posterior Mean")
@@ -160,7 +205,9 @@ def main() -> None:
     ax.set_title(r"Tuning Curves and $\tilde p(z)$")
 
     image(fig.add_subplot(gs[2, 0]), np.array(res["data_x"]), "Data")
-    for col, name in enumerate(("ELBO, with $z$", "MLE, with $z$", "MLE, without $z$"), start=1):
+    for col, name in enumerate(
+        ("ELBO, with $z$", "MLE, with $z$", "MLE, without $z$"), start=1
+    ):
         run = shown[name]
         ax = fig.add_subplot(gs[2, col])
         if run is None:

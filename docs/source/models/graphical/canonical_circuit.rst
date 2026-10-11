@@ -21,7 +21,7 @@ Core Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.graphical.canonical_circuit.ReadoutLevel
+.. autoclass:: goal.models.graphical.canonical_circuit.GaussianBoltzmannLevel
    :members:
    :undoc-members:
    :show-inheritance:

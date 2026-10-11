@@ -2,22 +2,22 @@
 
 A circuit with $L$ layers is the chain $X \\leftarrow N_1 \\leftarrow Z_1 \\leftarrow N_2 \\leftarrow
 \\cdots \\leftarrow N_L \\leftarrow Z_L$, with $x \\in \\mathbb R^{d_X}$ observed, binary neurons $n_k \\in
-\\{0, 1\\}^{n_k}$, and Gaussian latents $z_k \\in \\mathbb R^{d_k}$. Each layer is a readout, which couples
+\\{0, 1\\}^{n_k}$, and Gaussian latents $z_k \\in \\mathbb R^{d_k}$. Each layer is a Gaussian-Boltzmann edge, which couples
 the location of the Gaussian below to the activities of the neurons, and a population code, which
 couples the activities of the neurons to the statistics of the Gaussian above. Given $z_k$ the
 neurons $n_k$ have the couplings of their own family, and given the neurons every $z_k$ is Gaussian.
 
 The circuit is a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated` with
-$2L$ levels, bottom first: a :class:`ReadoutLevel` and a :class:`PopulationCodeLevel` per layer, the
+$2L$ levels, bottom first: a :class:`GaussianBoltzmannLevel` and a :class:`PopulationCodeLevel` per layer, the
 bottom level being the :class:`CanonicalCircuit` itself. It comes in two variants:
 
 - **Partially exact**: the neurons are dense (:class:`~goal.models.EnumeratedBoltzmann`), and the
-  conjugation parameters of each readout are the exact closed form of
+  conjugation parameters of each Gaussian-Boltzmann level are the exact closed form of
   :class:`~goal.models.BoltzmannLGM`, quadratic in $n$ with dense couplings. Only the population
   codes are approximated. Exact computations enumerate the neurons, so the populations must be small.
 - **Approximate**: the neurons are a :class:`~goal.models.ChordalBoltzmann` on a graph $E$, in the
-  harmonium, the prior and the recognition model, and the conjugation parameters of each readout are
-  learned in that family. The neurons are sampled and normalized by junction tree.
+  harmonium, the prior and the recognition model, and the conjugation parameters of each Gaussian-Boltzmann
+  level are learned in that family. The neurons are sampled and normalized by junction tree.
 
 In both, every conjugation function that is learned is a multilayer perceptron of the likelihood
 parameters of its level. The circuit is trained in its generative coordinates (:meth:`CanonicalCircuit.tie`):
@@ -120,8 +120,8 @@ class PopulationCodeHarmonium(Harmonium[Boltzmann[Any], DiagonalNormal]):
 
 
 @dataclass(frozen=True)
-class ReadoutLevel(VariationalConjugated[AttachedHarmonium[Any], Manifold]):
-    """The level of a readout: a Gaussian (the observable, or the latent of the layer below) over the neurons of a layer.
+class GaussianBoltzmannLevel(VariationalConjugated[AttachedHarmonium[Any], Manifold]):
+    """The level of a Gaussian-Boltzmann edge: a Gaussian (the observable, or the latent of the layer below) over the neurons of a layer.
 
     Its deep model is the population code level of the same layer. With ``cnj_map`` ``None``,
     $\\rho_N$ is the exact closed form of :class:`~goal.models.BoltzmannLGM`, which has dense
@@ -131,7 +131,7 @@ class ReadoutLevel(VariationalConjugated[AttachedHarmonium[Any], Manifold]):
 
     # Fields
 
-    rdt_hrm: NormalBoltzmannHarmonium[Any, Any]
+    gb_hrm: NormalBoltzmannHarmonium[Any, Any]
     cnj_map: MultilayerPerceptron[Any, Any] | None
     deep: PopulationCodeLevel
 
@@ -146,7 +146,7 @@ class ReadoutLevel(VariationalConjugated[AttachedHarmonium[Any], Manifold]):
     @property
     @override
     def gen_hrm(self) -> AttachedHarmonium[Any]:
-        return AttachedHarmonium(self.rdt_hrm, self.deep.gen_hrm)
+        return AttachedHarmonium(self.gb_hrm, self.deep.gen_hrm)
 
     @property
     @override
@@ -174,7 +174,7 @@ class ReadoutLevel(VariationalConjugated[AttachedHarmonium[Any], Manifold]):
 
     @property
     def neurons(self) -> Boltzmann[Any]:
-        return self.rdt_hrm.pst_man
+        return self.gb_hrm.pst_man
 
     def neuron_conjugation_parameters(
         self, lkl_params: Array, cnj_fun_params: Array
@@ -182,7 +182,7 @@ class ReadoutLevel(VariationalConjugated[AttachedHarmonium[Any], Manifold]):
         """$\\rho_N$ in natural coordinates of the neurons."""
         if self.cnj_map is None:
             lgm = BoltzmannLGM(
-                self.rdt_hrm.obs_dim, self.rdt_hrm.obs_rep, self.neurons.data_dim
+                self.gb_hrm.obs_dim, self.gb_hrm.obs_rep, self.neurons.data_dim
             )
             return lgm.conjugation_parameters(lkl_params)
         return self.cnj_map(cnj_fun_params, lkl_params)
@@ -194,7 +194,7 @@ class PopulationCodeLevel(
 ):
     """The level of a population code: the neurons of a layer over its Gaussian latent.
 
-    Its deep model is the readout level of the next layer, or the latent's family at the top.
+    Its deep model is the Gaussian-Boltzmann level of the next layer, or the latent's family at the top.
     $\\rho_Z$ is ``cnj_map`` of the likelihood parameters $(\\theta_N, \\Theta_{NZ})$, read as a
     location and a raw precision $a$. The precision of $\\rho_Z$ is $\\mathrm{softplus}(a + c) - 1$,
     with $c$ such that it vanishes at $a = 0$, so that with $\\theta_Z$ the standard normal (as
@@ -272,8 +272,8 @@ class GenerativeCoordinates(Tuple):
 
 
 @dataclass(frozen=True)
-class CanonicalCircuit(ReadoutLevel):
-    """The canonical circuit: the readout level of the first layer, over every level above it.
+class CanonicalCircuit(GaussianBoltzmannLevel):
+    """The canonical circuit: the Gaussian-Boltzmann level of the first layer, over every level above it.
 
     ``edges`` is the graph $E_k$ of the generative couplings of each layer, as pairs $i < j$.
     """
@@ -285,42 +285,42 @@ class CanonicalCircuit(ReadoutLevel):
     # Methods
 
     @property
-    def layers(self) -> tuple[tuple[ReadoutLevel, PopulationCodeLevel], ...]:
-        """The readout and population code level of each layer, bottom first."""
-        layers: list[tuple[ReadoutLevel, PopulationCodeLevel]] = []
-        rdt: ReadoutLevel = self
+    def layers(self) -> tuple[tuple[GaussianBoltzmannLevel, PopulationCodeLevel], ...]:
+        """The Gaussian-Boltzmann and population code level of each layer, bottom first."""
+        layers: list[tuple[GaussianBoltzmannLevel, PopulationCodeLevel]] = []
+        gb: GaussianBoltzmannLevel = self
         while True:
-            pop = rdt.deep
-            layers.append((rdt, pop))
-            if not isinstance(pop.deep, ReadoutLevel):
+            pop = gb.deep
+            layers.append((gb, pop))
+            if not isinstance(pop.deep, GaussianBoltzmannLevel):
                 return tuple(layers)
-            rdt = pop.deep
+            gb = pop.deep
 
     @property
     def generative_neuron_mans(self) -> tuple[ChordalBoltzmann, ...]:
         """The family of the generative biases and couplings of each layer: a Boltzmann machine on $E_k$."""
         return tuple(
-            ChordalBoltzmann.from_edges(rdt.neurons.data_dim, edges)
-            for (rdt, _), edges in zip(self.layers, self.edges)
+            ChordalBoltzmann.from_edges(gb.neurons.data_dim, edges)
+            for (gb, _), edges in zip(self.layers, self.edges)
         )
 
     @property
     def generative_man(self) -> GenerativeCoordinates:
         """The free blocks of the circuit, bottom first.
 
-        Per layer: the observable of the readout (first layer only; above it, the latent below is
-        held at the standard normal), the readout interaction, the generative biases and
+        Per layer: the observable of the Gaussian-Boltzmann harmonium (first layer only; above it, the
+        latent below is held at the standard normal), its interaction, the generative biases and
         couplings $\\theta^*_N$ on $E_k$, the coefficients of the location of $z_k$ for each neuron,
         and the coefficients of the precision of $z_k$, shared by the neurons, so that the tuning
         curves have a common width. Last, the conjugation function parameters of every level.
         """
         mans: list[Manifold] = []
-        for k, ((rdt, pop), gen_nrn) in enumerate(
+        for k, ((gb, pop), gen_nrn) in enumerate(
             zip(self.layers, self.generative_neuron_mans)
         ):
             if k == 0:
-                mans.append(rdt.rdt_hrm.obs_man)
-            mans.append(rdt.rdt_hrm.int_man)
+                mans.append(gb.gb_hrm.obs_man)
+            mans.append(gb.gb_hrm.int_man)
             mans.append(gen_nrn)
             lat_dim = pop.pop_hrm.lat_dim
             mans.append(Euclidean(gen_nrn.data_dim * lat_dim))
@@ -332,7 +332,7 @@ class CanonicalCircuit(ReadoutLevel):
         """Circuit parameters from generative coordinates (:attr:`generative_man`).
 
         $\\theta_{N_k} = \\theta^*_{N_k} - \\rho_{N_k}$, with $\\rho_{N_k}$ the conjugation parameters
-        of the readout of layer $k$ at its likelihood. Every $\\theta_{Z_k}$ is the standard normal:
+        of the Gaussian-Boltzmann level of layer $k$ at its likelihood. Every $\\theta_{Z_k}$ is the standard normal:
         an affine change of $z_k$ is absorbed by the interactions it enters.
         """
         blocks = list(self.generative_man.split_coords(gen_params))
@@ -341,16 +341,16 @@ class CanonicalCircuit(ReadoutLevel):
         layers = self.layers
         obs_params = blocks.pop(0)
         per_layer: list[tuple[Array, Array, Array, Array]] = []
-        for k, ((rdt, pop), gen_nrn) in enumerate(
+        for k, ((gb, pop), gen_nrn) in enumerate(
             zip(layers, self.generative_neuron_mans)
         ):
             int_params, gen_nrn_params, nz_loc, nz_prc = blocks[4 * k : 4 * k + 4]
             if k > 0:
-                obs_params = _standard_normal_params(rdt.rdt_hrm.obs_man)
-            lkl_params = rdt.rdt_hrm.lkl_fun_man.join_coords(obs_params, int_params)
-            rho = rdt.neuron_conjugation_parameters(lkl_params, cnj_paramss[2 * k])
+                obs_params = _standard_normal_params(gb.gb_hrm.obs_man)
+            lkl_params = gb.gb_hrm.lkl_fun_man.join_coords(obs_params, int_params)
+            rho = gb.neuron_conjugation_parameters(lkl_params, cnj_paramss[2 * k])
             nrn_params = (
-                _generative_neuron_params(rdt.neurons, gen_nrn, gen_nrn_params) - rho
+                _generative_neuron_params(gb.neurons, gen_nrn, gen_nrn_params) - rho
             )
             lat = pop.pop_hrm.pst_man
             rows = jax.vmap(lat.join_location_precision, in_axes=(0, None))(
@@ -363,9 +363,9 @@ class CanonicalCircuit(ReadoutLevel):
 
         _, top_pop = layers[-1]
         hrm_params = _standard_normal_params(top_pop.pop_hrm.pst_man)
-        for (rdt, pop), (obs, int_, nrn, nz) in reversed(list(zip(layers, per_layer))):
+        for (gb, pop), (obs, int_, nrn, nz) in reversed(list(zip(layers, per_layer))):
             hrm_params = pop.gen_hrm.join_coords(nrn, nz, hrm_params)
-            hrm_params = rdt.gen_hrm.join_coords(obs, int_, hrm_params)
+            hrm_params = gb.gen_hrm.join_coords(obs, int_, hrm_params)
         return self.join_coords(hrm_params, cnj_params)
 
     # Exact computations by enumeration
@@ -377,12 +377,12 @@ class CanonicalCircuit(ReadoutLevel):
         is $2^{\\sum_k n_k}$, so this is for small circuits, e.g. as ground truth.
         """
         log_weights, x_params = self._joint_state_log_weights(params)
-        psi_x = jax.vmap(self.rdt_hrm.obs_man.log_partition_function)(x_params)
+        psi_x = jax.vmap(self.gb_hrm.obs_man.log_partition_function)(x_params)
         return logsumexp(log_weights + psi_x)
 
     def exact_log_observable_density(self, params: Array, x: Array) -> Array:
         """$\\log p(x)$ of the graphical harmonium, by enumeration; see :meth:`exact_log_partition_function`."""
-        obs_man = self.rdt_hrm.obs_man
+        obs_man = self.gb_hrm.obs_man
         log_weights, x_params = self._joint_state_log_weights(params)
         log_joint = jax.vmap(
             lambda p: obs_man.log_density(p, x) + obs_man.log_partition_function(p)
@@ -396,21 +396,21 @@ class CanonicalCircuit(ReadoutLevel):
         layers = self.layers
         hrm_params, _ = self.split_coords(params)
         per_layer: list[tuple[Array, Array, Array, Array]] = []
-        for rdt, pop in layers:
-            obs, int_, pop_params = rdt.gen_hrm.split_coords(hrm_params)
+        for gb, pop in layers:
+            obs, int_, pop_params = gb.gen_hrm.split_coords(hrm_params)
             nrn, nz, hrm_params = pop.gen_hrm.split_coords(pop_params)
             per_layer.append((obs, int_, nrn, nz))
         top_lat_params = hrm_params
-        sizes = [rdt.neurons.data_dim for rdt, _ in layers]
+        sizes = [gb.neurons.data_dim for gb, _ in layers]
         states = jnp.array(
             list(itertools.product([0.0, 1.0], repeat=sum(sizes))), dtype=float
         )
 
-        def readout_at(k: int, n: Array) -> Array:
-            rdt, _ = layers[k]
+        def gaussian_likelihood_at(k: int, n: Array) -> Array:
+            gb, _ = layers[k]
             obs, int_, _, _ = per_layer[k]
-            rdt_params = rdt.rdt_hrm.join_coords(obs, int_, rdt.neurons.zeros())
-            return rdt.rdt_hrm.likelihood_at(rdt_params, n)
+            gb_params = gb.gb_hrm.join_coords(obs, int_, gb.neurons.zeros())
+            return gb.gb_hrm.likelihood_at(gb_params, n)
 
         def at_state(state: Array) -> tuple[Array, Array]:
             ns = jnp.split(state, np.cumsum(sizes)[:-1])
@@ -420,7 +420,7 @@ class CanonicalCircuit(ReadoutLevel):
                 lat_params = (
                     top_lat_params
                     if k == len(layers) - 1
-                    else readout_at(k + 1, ns[k + 1])
+                    else gaussian_likelihood_at(k + 1, ns[k + 1])
                 )
                 pop_params = pop.pop_hrm.join_coords(nrn, nz, lat_params)
                 z_params = pop.pop_hrm.posterior_at(pop_params, ns[k])
@@ -429,7 +429,7 @@ class CanonicalCircuit(ReadoutLevel):
                     + jnp.dot(pop.pop_hrm.obs_man.sufficient_statistic(ns[k]), nrn)
                     + pop.pop_hrm.pst_man.log_partition_function(z_params)
                 )
-            return log_weight, readout_at(0, ns[0])
+            return log_weight, gaussian_likelihood_at(0, ns[0])
 
         return jax.vmap(at_state)(states)
 
@@ -473,12 +473,13 @@ def canonical_circuit(
     """A canonical circuit with one entry of ``n_neurons``, ``edges`` and ``lat_dims`` per layer, bottom first.
 
     ``edges`` is the graph $E_k$ of the generative couplings of each layer. With ``variant``
-    ``"partially_exact"`` the neurons are dense and the readouts exact; with ``"approximate"`` the
-    neurons are a chordal Boltzmann machine on $E_k$ and the readouts learned. Every learned
+    ``"partially_exact"`` the neurons are dense and the Gaussian-Boltzmann levels exact; with
+    ``"approximate"`` the neurons are a chordal Boltzmann machine on $E_k$ and the Gaussian-Boltzmann
+    levels learned. Every learned
     conjugation function is a multilayer perceptron with ``hidden_dims`` and a tanh activation.
     """
     edgess = tuple(tuple((int(i), int(j)) for i, j in es) for es in edges)
-    deep: ReadoutLevel | None = None
+    deep: GaussianBoltzmannLevel | None = None
     for k in reversed(range(len(n_neurons))):
         neurons: Boltzmann[Any] = (
             EnumeratedBoltzmann(n_neurons[k])
@@ -495,7 +496,7 @@ def canonical_circuit(
             MultilayerPerceptron(pop_hrm.pst_man, pop_dom, hidden_dims, jax.nn.tanh),
             pop_deep,
         )
-        rdt_hrm: NormalBoltzmannHarmonium[Any, Any] = (
+        gb_hrm: NormalBoltzmannHarmonium[Any, Any] = (
             NormalBoltzmannHarmonium(obs_dim, obs_rep, neurons)
             if k == 0
             else NormalBoltzmannHarmonium(lat_dims[k - 1], Diagonal(), neurons)
@@ -505,12 +506,12 @@ def canonical_circuit(
             if variant == "partially_exact"
             else MultilayerPerceptron(
                 neurons,
-                AttachedHarmonium(rdt_hrm, pop.gen_hrm).lkl_fun_man,
+                AttachedHarmonium(gb_hrm, pop.gen_hrm).lkl_fun_man,
                 hidden_dims,
                 jax.nn.tanh,
             )
         )
         if k == 0:
-            return CanonicalCircuit(rdt_hrm, cnj_map, pop, edgess)
-        deep = ReadoutLevel(rdt_hrm, cnj_map, pop)
+            return CanonicalCircuit(gb_hrm, cnj_map, pop, edgess)
+        deep = GaussianBoltzmannLevel(gb_hrm, cnj_map, pop)
     raise ValueError("A canonical circuit needs at least one layer")

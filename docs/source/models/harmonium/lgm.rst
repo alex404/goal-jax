@@ -87,5 +87,5 @@ Specializations
 
 .. seealso::
 
-   :doc:`/examples` --- **dimensionality_reduction**: Factor analysis recovering a latent curve from 20D observations; **mfa**: Mixture of factor analyzers.
+   :doc:`/examples` --- **mfa**: Mixture of factor analyzers.
 

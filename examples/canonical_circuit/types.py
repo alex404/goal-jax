@@ -22,6 +22,7 @@ class RunResult(TypedDict):
     ``post_var`` the exact posterior moments of $z$ on the test set, ``z_usage`` the fraction of the
     variance of $z$ explained by $x$, and ``tuning_rates`` the firing probabilities of each neuron
     under the generative model at ``tuning_z``, with ``prior_density`` the density of $\\tilde p(z)$.
+    ``params`` are the final generative coordinates (``CanonicalCircuit.generative_man``).
     """
 
     key: str
@@ -35,7 +36,7 @@ class RunResult(TypedDict):
     skipped: int
     steps: list[int]
     history: dict[str, list[float]]
-    params: dict[str, Any]
+    params: list[float]
     final_test_ll: float
     final_log_tilde: float
     final_elbo: float

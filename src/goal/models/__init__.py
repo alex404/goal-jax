@@ -39,9 +39,9 @@ from .dynamical.kalman_filter import KalmanFilter
 from .dynamical.population_code_process import PopulationCodeProcess
 from .graphical.canonical_circuit import (
     CanonicalCircuit,
+    GaussianBoltzmannLevel,
     PopulationCodeHarmonium,
     PopulationCodeLevel,
-    ReadoutLevel,
     canonical_circuit,
 )
 from .graphical.hmog import (
@@ -130,6 +130,7 @@ __all__ = [
     "FactorAnalysis",
     "FullBoltzmann",
     "FullNormal",
+    "GaussianBoltzmannLevel",
     "HiddenMarkovModel",
     "IsotropicNormal",
     "JunctionTree",
@@ -151,7 +152,6 @@ __all__ = [
     "PopulationCodeProcess",
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
-    "ReadoutLevel",
     "StandardNormal",
     "SymmetricHMoG",
     "VonMises",
