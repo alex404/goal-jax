@@ -6,6 +6,7 @@ from typing import Any, override
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ...geometry import (
@@ -15,17 +16,14 @@ from ...geometry import (
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
-    Harmonium,
     Identity,
-    IdentityEmbedding,
     LinearEmbedding,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
     Scale,
-    SymmetricConjugated,
 )
-from ..base.gaussian.boltzmann import Boltzmann, DiagonalBoltzmann, FullBoltzmann
+from ..base.gaussian.boltzmann import Boltzmann, FullBoltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
@@ -141,56 +139,58 @@ class NormalCovarianceEmbedding[AmbRep: PositiveDefinite, SubRep: PositiveDefini
 
 
 @dataclass(frozen=True)
-class BoltzmannEmbedding(LinearEmbedding[FullBoltzmann, DiagonalBoltzmann]):
-    """Embedding of DiagonalBoltzmann (mean-field) into full Boltzmann.
+class BoltzmannCouplingEmbedding(LinearEmbedding[FullBoltzmann, Boltzmann[Any]]):
+    """Embedding of a Boltzmann machine with fewer coupled pairs into the dense Boltzmann machine on the same neurons.
 
-    This embedding connects the mean-field approximation (independent binary units)
-    to the full Boltzmann machine (with pairwise coupling).
-
-    - DiagonalBoltzmann has n parameters (biases only, no coupling)
-    - Boltzmann has n(n+1)/2 parameters (biases absorbed into diagonal + off-diagonal coupling)
-
-    The embedding places DiagonalBoltzmann parameters on the diagonal of the coupling matrix
-    (as bias terms) with zero off-diagonal coupling.
+    The analogue of :class:`NormalCovarianceEmbedding`: the biases are kept, the couplings
+    of the coupled pairs (:attr:`~goal.models.base.gaussian.boltzmann.Boltzmann.coupled_pairs`)
+    are placed on those pairs, and every other pair has coupling zero. Projection reads
+    the first moments and the second moments of the coupled pairs.
     """
 
+    # Fields
+
     _amb_man: FullBoltzmann
-    """The full Boltzmann machine with coupling."""
+    """The dense Boltzmann machine."""
 
-    _sub_man: DiagonalBoltzmann
-    """The mean-field Boltzmann (diagonal/independent units)."""
+    _sub_man: Boltzmann[Any]
+    """The Boltzmann machine whose coupled pairs are a subset of the dense ones (diagonal, chordal, chain, dense)."""
 
-    @property
-    @override
-    def sub_man(self) -> DiagonalBoltzmann:
-        return self._sub_man
+    # Overrides
 
     @property
     @override
     def amb_man(self) -> FullBoltzmann:
         return self._amb_man
 
+    @property
     @override
-    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Extract first moment (location) from full Boltzmann means."""
-        loc, _ = self._amb_man.split_mean_second_moment(means)
-        return loc
+    def sub_man(self) -> Boltzmann[Any]:
+        return self._sub_man
 
     @override
     def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed DiagonalBoltzmann params into full Boltzmann with zero coupling."""
-        zero_prec = self._amb_man.shp_man.zeros()
-        return self._amb_man.join_location_precision(params, zero_prec)
+        diag, off_diag = self._sub_man.split_couplings(params)
+        n_pairs = len(self._amb_man.coupled_pairs)
+        amb_off_diag = (
+            jnp.zeros(n_pairs, dtype=params.dtype).at[self._pair_idxs].set(off_diag)
+        )
+        return self._amb_man.join_couplings(diag, amb_off_diag)
 
     @override
-    def translate(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self,
-        params: Array,
-        delta: Array,
-    ) -> Array:
-        """Add DiagonalBoltzmann delta to Boltzmann params (location/bias only)."""
-        loc, prec = self._amb_man.split_location_precision(params)
-        return self._amb_man.join_location_precision(loc + delta, prec)
+    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+        diag, off_diag = self._amb_man.split_couplings(means)
+        return self._sub_man.join_couplings(diag, off_diag[self._pair_idxs])
+
+    # Methods
+
+    @property
+    def _pair_idxs(self) -> np.ndarray:
+        """Position of each coupled pair of the submanifold among the dense pairs."""
+        index = {pair: k for k, pair in enumerate(self._amb_man.coupled_pairs)}
+        return np.array(
+            [index[pair] for pair in self._sub_man.coupled_pairs], dtype=int
+        )
 
 
 @dataclass(frozen=True)
@@ -407,124 +407,39 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
 
 @dataclass(frozen=True)
-class BoltzmannLGM[ObsRep: PositiveDefinite](
-    SymmetricConjugated[Normal[ObsRep], FullBoltzmann],
-    LGM[ObsRep, FullBoltzmann, FullBoltzmann],
+class NormalBoltzmannMachine[ObsRep: PositiveDefinite, Shape: Differentiable](
+    LGM[ObsRep, Boltzmann[Shape], FullBoltzmann],
 ):
-    """Differentiable Linear Gaussian Model with Boltzmann latent variables.
+    """Linear Gaussian model with a Normal observable and Boltzmann (binary) latent variables.
 
-    This model combines a Normal observable distribution with Boltzmann (binary)
-    latent variables. The latent states are discrete binary vectors, making this
-    suitable for discrete representation learning and binary latent factor models.
-
-    The observable distribution remains Gaussian (continuous), while the latent
-    distribution is a Boltzmann machine (discrete binary). This enables learning
-    discrete latent representations of continuous data.
-    """
-
-    lat_dim: int
-    """Number of binary latent units."""
-
-    # Overrides
-
-    @property
-    @override
-    def pst_man(self) -> FullBoltzmann:
-        """Override to construct directly from fields, avoiding circular dependency."""
-        return FullBoltzmann(self.lat_dim)
-
-    @property
-    @override
-    def pst_prr_emb(self) -> LinearEmbedding[FullBoltzmann, FullBoltzmann]:
-        """Embedding of posterior Boltzmann into prior Boltzmann.
-
-        For Boltzmann machines, both posterior and prior use the same manifold
-        structure (no covariance simplification like in Normal case), so we use
-        the identity embedding.
-        """
-        return IdentityEmbedding(self.pst_man)
-
-    @property
-    @override
-    def lat_man(self) -> FullBoltzmann:
-        """The latent manifold is a Boltzmann machine."""
-        return FullBoltzmann(self.lat_dim)
-
-
-@dataclass(frozen=True)
-class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
-    LGM[ObsRep, DiagonalBoltzmann, FullBoltzmann],
-):
-    """Differentiable Linear Gaussian Model with mean-field Boltzmann latent variables.
-
-    Combines a Normal observable distribution with Boltzmann (binary) latent variables, using a mean-field (independent units) approximation for the posterior while keeping the full Boltzmann prior with pairwise coupling. The posterior uses ``DiagonalBoltzmann`` for O(n) log-partition computation; conjugation parameters naturally produce coupling terms even when the posterior is mean-field. The asymmetric structure enables efficient inference while preserving the prior's expressiveness for modeling complex dependencies.
-    """
-
-    lat_dim: int
-    """Number of binary latent units."""
-
-    # Overrides
-
-    @property
-    @override
-    def pst_man(self) -> DiagonalBoltzmann:
-        """Mean-field posterior (diagonal Boltzmann, independent units)."""
-        return DiagonalBoltzmann(self.lat_dim)
-
-    @property
-    @override
-    def pst_prr_emb(self) -> BoltzmannEmbedding:
-        """Embedding from mean-field DiagonalBoltzmann to full Boltzmann."""
-        return BoltzmannEmbedding(FullBoltzmann(self.lat_dim), self.pst_man)
-
-
-@dataclass(frozen=True)
-class NormalBoltzmannHarmonium[ObsRep: PositiveDefinite, Shape: Differentiable](
-    Harmonium[Normal[ObsRep], Boltzmann[Shape]],
-):
-    """Harmonium with a Normal observable and a Boltzmann latent, coupled through their locations.
-
-    The interaction couples the observable mean to the latent's node activities, as in
-    :class:`BoltzmannLGM`, but the latent may have any coupling graph (chordal, chain,
-    diagonal). It is not conjugated: the conjugation parameters of the observable carry
-    pairwise terms $\\frac{1}{2} W^\\top \\Sigma W$ on every pair of nodes, which only a full
-    Boltzmann can hold. It is the lower edge of variational models whose middle layer is a
-    restricted Boltzmann machine.
+    The Boltzmann analogue of :class:`NormalLGM`. The posterior is the given Boltzmann
+    machine, whose coupled pairs may be any of its family (independent units, chordal,
+    chain, dense), and the prior is the dense :class:`FullBoltzmann` on the same neurons:
+    since the interaction couples only the observable location to the node activities, the
+    posterior keeps the couplings of the latent bias, while the conjugation parameters add
+    a pairwise term from $W^\\top \\Sigma W$ on every pair. The model is exactly conjugated
+    for every posterior family; exact computations on the prior enumerate its $2^n$ states.
     """
 
     # Fields
 
-    obs_dim: int
-    """Dimension of the observable."""
-
-    obs_rep: ObsRep
-    """Covariance structure of the observable."""
-
     boltzmann: Boltzmann[Shape]
-    """The Boltzmann latent (chordal, chain, diagonal, ...)."""
+    """The posterior Boltzmann machine."""
 
     # Overrides
-
-    @property
-    @override
-    def crs_trms(self) -> tuple[CrossTerm, ...]:
-        """The observable location and the latent node activities, coupled."""
-        int_map = CliqueMap(
-            Rectangular(),
-            GeneralizedGaussianLocationEmbedding(self.obs_man),
-            GeneralizedGaussianLocationEmbedding(self.pst_man),
-        )
-        return (CrossTerm((0,), (0,), int_map),)
-
-    @property
-    @override
-    def obs_man(self) -> Normal[ObsRep]:
-        return Normal(self.obs_dim, self.obs_rep)
 
     @property
     @override
     def pst_man(self) -> Boltzmann[Shape]:
         return self.boltzmann
+
+    @property
+    @override
+    def pst_prr_emb(self) -> BoltzmannCouplingEmbedding:
+        """Embedding of the posterior Boltzmann machine into the dense one."""
+        return BoltzmannCouplingEmbedding(
+            FullBoltzmann(self.boltzmann.data_dim), self.boltzmann
+        )
 
 
 @dataclass(frozen=True)

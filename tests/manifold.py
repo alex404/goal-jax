@@ -33,14 +33,15 @@ from goal.geometry import (
     SubMapEmbedding,
 )
 from goal.models import (
-    BoltzmannLGM,
     BoltzmannNormalHarmonium,
     CanonicalCorrelationAnalysis,
     CompleteMixture,
     DiagonalBoltzmann,
     Euclidean,
+    FullBoltzmann,
     MixtureOfFactorAnalyzers,
     Normal,
+    NormalBoltzmannMachine,
     PoissonPopulationHarmonium,
     VonMisesProduct,
     analytic_hmog,
@@ -98,7 +99,9 @@ MODELS: dict[str, Callable[[], Layout]] = {
     "mfa_mixture_view": lambda: _mfa().mix_man,
     "poisson_mixture": lambda: poisson_mixture(n_neurons=4, n_components=3),
     "mixture_of_cca": lambda: CompleteMixture(_cca(), 3),
-    "boltzmann_lgm": lambda: BoltzmannLGM(3, PositiveDefinite(), 2),
+    "boltzmann_lgm": lambda: NormalBoltzmannMachine(
+        3, PositiveDefinite(), FullBoltzmann(2)
+    ),
     "boltzmann_normal": lambda: BoltzmannNormalHarmonium(DiagonalBoltzmann(3), 2),
     "poisson_population": lambda: PoissonPopulationHarmonium(
         (3, 2),

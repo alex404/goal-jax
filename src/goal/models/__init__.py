@@ -36,14 +36,6 @@ from .base.poisson import (
 from .base.von_mises import VonMises, VonMisesProduct
 from .dynamical.hmm import HiddenMarkovModel
 from .dynamical.kalman_filter import KalmanFilter
-from .dynamical.population_code_process import PopulationCodeProcess
-from .graphical.canonical_circuit import (
-    CanonicalCircuit,
-    GaussianBoltzmannLevel,
-    PopulationCodeHarmonium,
-    PopulationCodeLevel,
-    canonical_circuit,
-)
 from .graphical.hmog import (
     AnalyticHMoG,
     DifferentiableHMoG,
@@ -63,12 +55,10 @@ from .harmonium.cca import (
 )
 from .harmonium.lgm import (
     LGM,
-    BoltzmannEmbedding,
-    BoltzmannLGM,
-    DifferentiableBoltzmannLGM,
+    BoltzmannCouplingEmbedding,
     FactorAnalysis,
     NormalAnalyticLGM,
-    NormalBoltzmannHarmonium,
+    NormalBoltzmannMachine,
     NormalCovarianceEmbedding,
     NormalLGM,
     PrincipalComponentAnalysis,
@@ -78,15 +68,26 @@ from .harmonium.lgm import (
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 from .harmonium.population_codes import (
     BoltzmannNormalHarmonium,
-    BoltzmannPopulationCode,
     CoMPoissonMixture,
     PoissonMixture,
-    PoissonPopulationCode,
     PoissonPopulationHarmonium,
-    chordal_boltzmann_population_code,
+    PopulationCodeHarmonium,
     com_poisson_mixture,
-    diagonal_boltzmann_population_code,
     poisson_mixture,
+)
+from .variational.canonical_circuit import (
+    CanonicalCircuit,
+    GaussianBoltzmannLevel,
+    PopulationCodeLevel,
+    PopulationConjugationFunction,
+    canonical_circuit,
+)
+from .variational.population_code_process import PopulationCodeProcess
+from .variational.population_codes import (
+    BoltzmannPopulationCode,
+    PoissonPopulationCode,
+    chordal_boltzmann_population_code,
+    diagonal_boltzmann_population_code,
 )
 
 __all__ = [
@@ -99,8 +100,7 @@ __all__ = [
     "Binomial",
     "Binomials",
     "Boltzmann",
-    "BoltzmannEmbedding",
-    "BoltzmannLGM",
+    "BoltzmannCouplingEmbedding",
     "BoltzmannNormalHarmonium",
     "BoltzmannPopulationCode",
     "CanonicalCircuit",
@@ -122,7 +122,6 @@ __all__ = [
     "Covariance",
     "DiagonalBoltzmann",
     "DiagonalNormal",
-    "DifferentiableBoltzmannLGM",
     "DifferentiableHMoG",
     "Dirichlet",
     "EnumeratedBoltzmann",
@@ -139,7 +138,7 @@ __all__ = [
     "MixtureOfFactorAnalyzers",
     "Normal",
     "NormalAnalyticLGM",
-    "NormalBoltzmannHarmonium",
+    "NormalBoltzmannMachine",
     "NormalCovarianceEmbedding",
     "NormalLGM",
     "Poisson",
@@ -150,6 +149,7 @@ __all__ = [
     "PopulationCodeHarmonium",
     "PopulationCodeLevel",
     "PopulationCodeProcess",
+    "PopulationConjugationFunction",
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
     "StandardNormal",

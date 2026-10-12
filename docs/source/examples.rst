@@ -28,7 +28,7 @@ Boltzmann Machines
 Discrete latent models built on Boltzmann distributions.
 
 - **boltzmann** --- MLE training and Gibbs sampling convergence diagnostics.
-- **boltzmann_lgm** --- Hierarchical model: Boltzmann latent with Gaussian observable (concentric circles), using :class:`~goal.models.harmonium.lgm.BoltzmannLGM`.
+- **boltzmann_lgm** --- Hierarchical model: Boltzmann latent with Gaussian observable (concentric circles), using :class:`~goal.models.harmonium.lgm.NormalBoltzmannMachine`.
 
 Mixture & Latent Variable Models
 --------------------------------
@@ -52,8 +52,8 @@ Neural Population Codes
 Neuroscience applications modeling neural spike data.
 
 - **poisson_mixture** --- Poisson vs CoM-Poisson spike count mixtures with Fano factor analysis (:func:`~goal.models.harmonium.population_codes.poisson_mixture`, :func:`~goal.models.harmonium.population_codes.com_poisson_mixture`).
-- **population_codes** --- Bayesian stimulus decoding from cosine-tuned neural responses (:class:`~goal.models.harmonium.population_codes.PoissonPopulationCode`).
+- **population_codes** --- Bayesian stimulus decoding from cosine-tuned neural responses (:class:`~goal.models.variational.population_codes.PoissonPopulationCode`).
 - **torus_poisson** --- Variational inference with non-differentiable von Mises sampler; compares free and regularized conjugation parameter learning.
-- **chordal_boltzmann_ppc** --- A population code of correlated binary neurons on a chordal graph, made near-conjugate to a Gaussian latent and trained on data (:class:`~goal.models.harmonium.population_codes.BoltzmannPopulationCode`).
-- **canonical_circuit** --- The canonical circuit (:class:`~goal.models.CanonicalCircuit`) on a bump on a retina, by brute-force maximum likelihood and the penalized ELBO, measured exactly by enumeration and quadrature. Not run in CI: the full grid takes hours.
-- **pendulum** --- Filtering a stochastic pendulum from a Poisson population tuned to angle and velocity (:class:`~goal.models.dynamical.population_code_process.PopulationCodeProcess`).
+- **chordal_boltzmann_ppc** --- A population code of correlated binary neurons on a chordal graph, made near-conjugate to a Gaussian latent and trained on data (:class:`~goal.models.variational.population_codes.BoltzmannPopulationCode`).
+- **canonical_circuit** --- The one-layer canonical circuit (:class:`~goal.models.CanonicalCircuit`) on a bump on a retina, without z, partially exact and approximate, by the penalized ELBO, measured exactly by enumeration and quadrature.
+- **pendulum** --- Filtering a stochastic pendulum from a Poisson population tuned to angle and velocity (:class:`~goal.models.variational.population_code_process.PopulationCodeProcess`).

@@ -14,7 +14,7 @@ from ...geometry.exponential_family.combinators import AnalyticTuple
 from ...geometry.exponential_family.dynamical import VariationalLatentProcess
 from ...geometry.manifold.map import Map
 from ..base.poisson import Poissons
-from ..harmonium.population_codes import PoissonPopulationCode
+from .population_codes import PoissonPopulationCode
 
 
 @dataclass(frozen=True)

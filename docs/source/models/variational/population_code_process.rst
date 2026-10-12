@@ -1,11 +1,11 @@
 Population Code Process
 =======================
 
-.. automodule:: goal.models.dynamical.population_code_process
+.. automodule:: goal.models.variational.population_code_process
    :noindex:
    :no-members:
 
-.. autoclass:: goal.models.dynamical.population_code_process.PopulationCodeProcess
+.. autoclass:: goal.models.variational.population_code_process.PopulationCodeProcess
    :members:
    :undoc-members:
    :show-inheritance:

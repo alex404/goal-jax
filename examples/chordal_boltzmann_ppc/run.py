@@ -3,7 +3,7 @@
 A population code of correlated binary neurons --- a Boltzmann machine with
 pairwise couplings on a chordal graph --- encodes a continuous Gaussian latent.
 The model is a ``VariationalConjugated`` population code
-(:class:`~goal.models.harmonium.population_codes.BoltzmannPopulationCode`), so we
+(:class:`~goal.models.variational.population_codes.BoltzmannPopulationCode`), so we
 can ask the two questions that matter together:
 
 1. **Conjugacy.** Is the Boltzmann log-partition affine in the latent sufficient

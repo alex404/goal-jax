@@ -9,4 +9,3 @@ State-space models. The transition slot of a ``LatentProcess`` is any ``Map[L, L
 
    kalman_filter
    hmm
-   population_code_process

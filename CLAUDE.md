@@ -62,7 +62,7 @@ This is a **library**, not an application. The dependency policy is:
 Examples are located in the `examples/` directory and organized by topic:
 - Run example: `uv run python -m examples.multivariate.run`
 - Generate plots: `uv run python -m examples.multivariate.plot`
-- Available examples: boltzmann, boltzmann_lgm, cca, chordal_boltzmann_ppc, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, pendulum, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, canonical_circuit (not run in CI: its grid takes hours)
+- Available examples: boltzmann, boltzmann_lgm, cca, chordal_boltzmann_ppc, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, pendulum, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, canonical_circuit
 
 ### Documentation
 - Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`
@@ -81,8 +81,9 @@ The library is organized into three main modules under `src/goal/`:
 2. **models/**: Concrete statistical models
    - `base/`: Fundamental distributions (Normal, Categorical, Poisson, Von Mises)
    - `harmonium/`: Bipartite models (Mixtures, Linear Gaussian Models)
-   - `graphical/`: Complex graphical models (Hierarchical MoG, mixtures of harmoniums, the canonical circuit)
+   - `graphical/`: Complex graphical models (Hierarchical MoG, mixtures of harmoniums)
    - `dynamical/`: State-space and Markov-process models (Kalman filter, HMM, MLP-based hybrid filter, homogeneous Gaussian Markov chain)
+   - `variational/`: Models fit variationally (population codes, the population code process, the canonical circuit). Everything variational lives here; `harmonium/`, `graphical/` and `dynamical/` hold exact families only
 
 ### Key Abstractions
 
@@ -111,12 +112,13 @@ The library is organized into three main modules under `src/goal/`:
 
 ### Key Model Classes
 - **Normal distributions**: `Normal[Rep]` parameterized by covariance representation
-- **Linear Gaussian Models**: `NormalLGM[ObsRep, PstRep]`, `FactorAnalysis`, `PrincipalComponentAnalysis`
+- **Linear Gaussian Models**: `NormalLGM[ObsRep, PstRep]`, `FactorAnalysis`, `PrincipalComponentAnalysis`, and `NormalBoltzmannMachine[ObsRep, Shape]` (binary latents; any Boltzmann posterior, `FullBoltzmann` prior)
 - **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
 - **Canonical correlation analysis**: `CanonicalCorrelationAnalysis` (gradient-based), `AnalyticCanonicalCorrelationAnalysis` (exact EM)
 - **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
 - **Canonical circuit**: `CanonicalCircuit`, built by `canonical_circuit(...)`, the shipped nested `VariationalConjugated`: $L$ layers of Gaussian-Boltzmann and population code levels, partially exact or approximate
-- **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`, `PopulationCodeProcess` (a variational filter over a `PoissonPopulationCode`, whose subpopulations are each tuned to chosen nodes of the latent)
+- **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`
+- **Variational filter**: `PopulationCodeProcess` (a variational filter over a `PoissonPopulationCode`, whose subpopulations are each tuned to chosen nodes of the latent)
 
 ## Typing Strategy
 
@@ -226,7 +228,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `harmonium.py` | `geometry/exponential_family/harmonium.py` over every conjugated harmonium, including the graphical ones (HMoG, MFA, mixtures of harmoniums): conjugation equation, marginal density against brute force, posterior normalization, round trips, EM |
 | `graphical.py` | `geometry/exponential_family/graphical.py` and `models/graphical/mixture.py`: the mixture view of a mixture of harmoniums, whitening |
 | `variational.py` | `geometry/exponential_family/variational.py`: a single level (`PoissonPopulationCode` with one and with two latent nodes, `BoltzmannPopulationCode`) against quadrature, nested levels (`CanonicalCircuit`) against enumeration and, at depth 1, its exact ELBO by enumeration and quadrature |
-| `dynamical.py` | `geometry/exponential_family/dynamical.py` and `models/dynamical/`: Kalman filter against a dense Gaussian, HMM against the forward algorithm, EM; the variational filter (`PopulationCodeProcess`) against its per-step ELBOs by quadrature |
+| `dynamical.py` | `geometry/exponential_family/dynamical.py` `models/dynamical/` and `models/variational/population_code_process.py`: Kalman filter against a dense Gaussian, HMM against the forward algorithm, EM; the variational filter (`PopulationCodeProcess`) against its per-step ELBOs by quadrature |
 
 ### What a test is
 - Tests use shipped classes only. No test defines a model, manifold or embedding class: a reader must be able to map every test onto `src`. Helpers are plain functions (quadrature, enumeration, reference computations).

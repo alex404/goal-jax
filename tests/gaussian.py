@@ -18,7 +18,7 @@ from scipy import stats
 from goal.geometry import Diagonal, PositiveDefinite, Scale
 from goal.models import (
     Boltzmann,
-    BoltzmannEmbedding,
+    BoltzmannCouplingEmbedding,
     ChainBoltzmann,
     ChainTree,
     ChordalBoltzmann,
@@ -323,11 +323,32 @@ class TestBoltzmann:
 
     def test_embedding_of_independent_units(self) -> None:
         """A diagonal Boltzmann machine embedded with zero coupling has independent unit probabilities $\\sigma(\\theta_i)$."""
-        emb = BoltzmannEmbedding(FullBoltzmann(3), DiagonalBoltzmann(3))
+        emb = BoltzmannCouplingEmbedding(FullBoltzmann(3), DiagonalBoltzmann(3))
         params = jnp.array([0.7, -1.2, 0.1])
         means = emb.amb_man.to_mean(emb.embed(params))
         assert jnp.allclose(
             emb.project(means), jax.nn.sigmoid(params), rtol=RTOL, atol=ATOL
+        )
+
+    def test_embedding_of_chordal_couplings(self) -> None:
+        """A chordal Boltzmann machine embedded into the dense one is the same distribution, and projection of its mean parameters recovers the chordal mean parameters."""
+        sub = ChordalBoltzmann.from_edges(4, [(0, 1), (1, 2), (2, 3), (0, 3)])
+        emb = BoltzmannCouplingEmbedding(FullBoltzmann(4), sub)
+        params = jax.random.uniform(
+            jax.random.PRNGKey(7), (sub.dim,), minval=-1.0, maxval=1.0
+        )
+        amb_params = emb.embed(params)
+        assert jnp.allclose(
+            exact_probabilities(emb.amb_man, amb_params),
+            exact_probabilities(sub, params),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+        assert jnp.allclose(
+            emb.project(emb.amb_man.to_mean(amb_params)),
+            sub.to_mean(params),
+            rtol=RTOL,
+            atol=ATOL,
         )
 
 

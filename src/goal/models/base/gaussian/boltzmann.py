@@ -83,6 +83,15 @@ class Boltzmann[Shape: Differentiable](
     def join_couplings(self, diag: Array, off_diag: Array) -> Array:
         """Inverse of :meth:`split_couplings`."""
 
+    @property
+    @abstractmethod
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        """The coupled pairs $(i, j)$, $i < j$, in the order of the off-diagonal component of :meth:`split_couplings`.
+
+        Every Boltzmann machine stores the coupling of a pair as the coefficient of $x_i x_j$,
+        so two machines on the same neurons differ only in which pairs they couple.
+        """
+
     # Overrides
 
     @property
@@ -179,6 +188,11 @@ class DiagonalBoltzmann(
     @override
     def join_couplings(self, diag: Array, off_diag: Array) -> Array:
         return diag
+
+    @property
+    @override
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        return ()
 
 
 class CouplingMatrix(SquareMap[Euclidean], Differentiable):
@@ -303,6 +317,12 @@ class FullBoltzmann(
         out = jnp.zeros(rows.size, dtype=diag.dtype)
         out = out.at[np.flatnonzero(rows == cols)].set(diag)
         return out.at[np.flatnonzero(rows != cols)].set(off_diag)
+
+    @property
+    @override
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        rows, cols = np.triu_indices(self.n_neurons, k=1)
+        return tuple(zip(rows.tolist(), cols.tolist(), strict=True))
 
     # Methods
 
@@ -522,6 +542,11 @@ class ChordalBoltzmann(
     @override
     def join_couplings(self, diag: Array, off_diag: Array) -> Array:
         return jnp.concatenate([diag, off_diag])
+
+    @property
+    @override
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        return self.junction_tree.chordal_edges
 
     # Methods
 
