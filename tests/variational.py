@@ -34,6 +34,7 @@ from jax import Array
 from goal.geometry import PositiveDefinite
 from goal.geometry.exponential_family.variational import (
     DifferentiableVariationalConjugated,
+    ExactConjugationFunction,
     regress_conjugation_parameters,
 )
 from goal.models import (
@@ -277,12 +278,12 @@ class TestRegression:
         """``regress_conjugation_parameters`` against $\\rho = 0$, at the same prior, by quadrature."""
         model, params = case.model, _params(case)
         hrm_params, _ = model.split_coords(params)
-        obs_p, int_p, _ = model.gen_hrm.split_coords(hrm_params)
+        obs_p, int_p, _ = model.gph_hrm.split_coords(hrm_params)
         prior = model.conjugated_prior_params(params)
         rho_zero = model.cnj_fun_man.zeros()
 
         def at_prior(rho: Array) -> Array:
-            hrm = model.gen_hrm.join_coords(obs_p, int_p, prior - rho)
+            hrm = model.gph_hrm.join_coords(obs_p, int_p, prior - rho)
             return model.join_coords(hrm, rho)
 
         rho_fit, _, _, _ = regress_conjugation_parameters(
@@ -329,7 +330,7 @@ def _circuit_generative_params(
     """
     man = circuit.generative_man
     blocks = list(man.split_coords(0.5 * jax.random.normal(key, (man.dim,))))
-    obs_man = circuit.gb_hrm.obs_man
+    obs_man = circuit.att_hrm.obs_man
     blocks[0] = obs_man.join_location_precision(
         jnp.zeros(obs_man.data_dim),
         obs_man.cov_man.from_matrix(jnp.eye(obs_man.data_dim)),
@@ -340,7 +341,7 @@ def _circuit_generative_params(
         if exact:
             blocks[loc_idx] = jnp.zeros_like(blocks[loc_idx])
             blocks[prc_idx] = jnp.zeros_like(blocks[prc_idx])
-            if circuit.cnj_map is not None:
+            if not isinstance(circuit.cnj_fun, ExactConjugationFunction):
                 blocks[int_idx] = jnp.zeros_like(blocks[int_idx])
     if exact:
         blocks[-1] = jnp.zeros_like(blocks[-1])

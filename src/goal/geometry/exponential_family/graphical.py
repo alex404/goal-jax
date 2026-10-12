@@ -21,7 +21,7 @@ composite's prior on its clique. Then the composite has
 
 A graphical harmonium makes no assumption of conjugation: it is the joint family and its
 two conditionals. One that is not conjugated can be fit variationally, as the
-``gen_hrm`` of a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
+``gph_hrm`` of a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
 A plain harmonium is given to the variational classes as an :class:`AttachedHarmonium`.
 """
 
@@ -139,7 +139,7 @@ class AttachedHarmonium[Deep: Gibbs](GraphicalHarmonium[Deep]):
     e.g. the joint model of the next level of a deep model, whose leading nodes are its
     observable. The parameter layout is that of the harmonium followed by the rest of the latent
     model. It lets a harmonium be used where a graphical harmonium is expected, e.g. as the
-    ``gen_hrm`` of a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
+    ``gph_hrm`` of a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
     """
 
     # Fields

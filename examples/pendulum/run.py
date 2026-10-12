@@ -157,7 +157,7 @@ def initialize_from_tuning_curves(
 
     # Fit rho at zero rho, where the prior is prior_nat, then keep the prior
     def params_at(lat_params: Array, rho: Array) -> Array:
-        hrm_params = code.gen_hrm.join_coords(obs_params, int_params, lat_params)
+        hrm_params = code.gph_hrm.join_coords(obs_params, int_params, lat_params)
         return code.join_coords(hrm_params, rho)
 
     zero_rho = jnp.zeros(code.cnj_fun_man.dim)
@@ -263,7 +263,7 @@ def make_ground_truth_tuning(
 def extract_learned_tuning(model: PendulumFilter, params: Array) -> TuningParams:
     """Read tuning parameters back out of trained likelihood parameters."""
     _, ems_lkl, _, _ = model.split_coords(params)
-    obs_params, int_params = model.ems_hrm.gen_hrm.lkl_fun_man.split_coords(ems_lkl)
+    obs_params, int_params = model.ems_hrm.gph_hrm.lkl_fun_man.split_coords(ems_lkl)
 
     # The interaction is stored term by term: the von Mises block, then the normal
     # block, each a neurons x 2 matrix
@@ -588,7 +588,7 @@ def main(**overrides: Any) -> None:
     dim_msg = (
         f"Model dim: {model.dim}"
         + f" (prior={model.lat_man.dim},"
-        + f" ems_lkl={model.ems_hrm.gen_hrm.lkl_fun_man.dim},"
+        + f" ems_lkl={model.ems_hrm.gph_hrm.lkl_fun_man.dim},"
         + f" rho={model.ems_hrm.cnj_fun_man.dim},"
         + f" trns={model.trn_map.dim})"
     )

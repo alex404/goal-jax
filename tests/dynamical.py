@@ -172,8 +172,8 @@ class TestPopulationCodeProcess:
         )
         keys = jax.random.split(jax.random.PRNGKey(0), 4)
         ems = model.ems_hrm
-        lkl = ems.gen_hrm.likelihood_function(
-            ems.gen_hrm.initialize(keys[0], shape=0.5)
+        lkl = ems.gph_hrm.likelihood_function(
+            ems.gph_hrm.initialize(keys[0], shape=0.5)
         )
         cnj_fun_params = 0.3 * jax.random.normal(keys[1], (ems.cnj_fun_man.dim,))
         params = model.join_coords(

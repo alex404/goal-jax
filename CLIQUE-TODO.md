@@ -12,8 +12,12 @@ designs and the full design notes are in git history (this file before 2026-10-0
   2026-10-12, population_codes, torus_poisson, pendulum and chordal_boltzmann_ppc were rerun and
   their plots inspected. canonical_circuit is ported onto the core module; its full grid has not
   been rerun since the port (one condition was, and matches).
-- Planned follow-up: the conjugation function as a `Map[Prior, Likelihood]` and generic level
-  classes. `VariationalHierarchicalMixture` (`models/graphical/variational.py`) is deleted.
+- The conjugation function is a `Map` and there is one generic level class (`VariationalLevel`); its
+  name and the organization of `variational.py` are open (see **Variational design** below).
+  `VariationalHierarchicalMixture` (`models/graphical/variational.py`) is deleted.
+- Then: full test suite, every example run and plotted (one at a time, `--gpu` allowed), the full
+  canonical_circuit grid (`main` of `examples/canonical_circuit/run.py`, three fits), and the plots
+  inspected. Results from before 2026-10-12 are in the session scratchpad only, not in the repo.
 
 ## Review of `models/` and `dynamical.py`
 
@@ -110,7 +114,9 @@ statistics are now float64. The tests would not notice either way.
   products. New tests in `tests/algebra.py`: sum-product at random, non-pairwise potentials against
   enumeration (log-partition, gradient as clique marginals, joint of the samples) on hand-picked
   and random graphs.
-- `harmonium/lgm.py` (+91/−128): `NormalBoltzmannMachine[ObsRep, Shape](obs_dim, obs_rep,
+- `harmonium/lgm.py` (+91/−128): **reviewed 2026-10-12**, no changes. The exact model enumerates the
+  dense prior; variational uses avoid it (the approximate canonical circuit runs at 64 chain neurons
+  per layer). `NormalBoltzmannMachine[ObsRep, Shape](obs_dim, obs_rep,
   boltzmann)` replaces `BoltzmannLGM`, `DifferentiableBoltzmannLGM` and `NormalBoltzmannHarmonium`:
   the Boltzmann analogue of `NormalLGM`, any Boltzmann posterior, `FullBoltzmann` prior, exactly
   conjugated. `BoltzmannCouplingEmbedding` (any Boltzmann into dense, a scatter by `coupled_pairs`)
@@ -132,10 +138,17 @@ statistics are now float64. The tests would not notice either way.
   classes give identical sufficient statistics, likelihoods and posteriors (checked in a scratch
   script, not in the suite). `chordal_boltzmann_ppc` now fits the bias-only coupling, so its results
   changed.
-- `harmonium/cca.py` (+166, new).
+- `harmonium/cca.py` (+166, new): **reviewed 2026-10-12**, no changes. Generalizing (several views,
+  Boltzmann latents) is deferred.
 - `variational/canonical_circuit.py` (+532, new). Its population code level is
-  `BoltzmannPopulationCode[Any, DiagonalNormal]`; `GaussianBoltzmannLevel` computes exact $\rho_N$
-  from its own `gb_hrm`, and `_generative_neuron_params` uses `BoltzmannCouplingEmbedding`.
+  `BoltzmannPopulationCode[Any, DiagonalNormal]`, and `_generative_neuron_params` uses
+  `BoltzmannCouplingEmbedding`. **Reviewed 2026-10-12**: `GaussianBoltzmannLevel` and
+  `PopulationCodeLevel` replaced by the generic `VariationalLevel` (geometry, with
+  `ExactConjugationFunction`); they remain as type aliases. `PopulationConjugationFunction` is a `Map`.
+  Exact-enumeration docstrings state the normalizability precondition; "on $E$" corrected to the
+  chordal completion. `VariationalPopulationCode` stays a `DifferentiableVariationalConjugated`
+  (it needs `elbo_divergence`). A level holds one attached harmonium; several (as in
+  `DifferentiableGraphical`) is not done.
 
 ## Open
 
@@ -145,7 +158,7 @@ statistics are now float64. The tests would not notice either way.
   hand-written); a prior with more nodes than its posterior (fill-in across attached harmoniums);
   deriving `pst_prr_emb`; where a variational $\rho$ lives (the fill-in cliques).
 - **Variational.** The posterior variables are read as the leading slice of a prior datapoint
-  (`likelihood_at`), so a `gen_hrm` whose posterior is not the prior's leading node needs per-node
+  (`likelihood_at`), so a `gph_hrm` whose posterior is not the prior's leading node needs per-node
   slices. Residual variances are per level, not per attached harmonium.
 - **Crossings.** One orientation per crossing (root against deep); a conditional that regroups a
   clique's nodes needs a re-matricization `CliqueMap` does not have. A crossing touching a structured
@@ -161,6 +174,51 @@ statistics are now float64. The tests would not notice either way.
 - **Pre-existing.** Diagonal posteriors do not conjugate exactly (residual about 4.5e-2 for
   `NormalLGM`). `NormalCovarianceEmbedding` with `Scale` is an adjoint pair, not `project ∘ embed =
   id`.
+
+## Variational design (open, 2026-10-12)
+
+State: `VariationalLevel(att_hrm, cnj_fun, _dep_man)` in `geometry/exponential_family/variational.py`,
+with `ExactConjugationFunction`; the canonical circuit is a chain of them (`GaussianBoltzmannLevel`
+and `PopulationCodeLevel` are type aliases). `gen_hrm` is renamed `gph_hrm`: it is the undirected
+graphical harmonium, not the generative (directed) model $\tilde p$. Tests and basedpyright pass.
+
+- **What `VariationalLevel` is.** `VariationalConjugated` with its contract turned into fields. It
+  drops two generalities, both unused by every shipped model: several harmoniums in `gph_hrm`, and a
+  non-identity `pst_prr_emb`. Its conjugation function is a `Map`, but `cnj_fun_man` together with
+  `conjugation_parameters(lkl_params, cnj_fun_params)` is already a map in all but name.
+- **Idea to examine first.** State the contract of `VariationalConjugated` itself as one abstract
+  `cnj_fun: Map` (replacing `cnj_fun_man` and `conjugation_parameters`). Then the abstract/concrete
+  split is only is-a versus has-a (a model subclasses the abstract class; a generic chain uses the
+  concrete one), and the concrete class needs a name for that. Unchecked: the effect on
+  `VariationalPopulationCode` and on the variational filter in `dynamical.py`.
+- **Name.** "VariationalLevel" is uninformative. The "attached" terminology (`AttachedHarmonium`, and
+  proposals such as `AttachedVariational`) is unsatisfying and also under reconsideration.
+- **Structure stated twice.** In a nested model `gph_hrm` is already the whole chain of
+  `AttachedHarmonium`s, and the chain of `dep_man`s repeats it (invariant `gph_hrm.pst_man ==
+  dep_man.fst_man`, kept only because `VariationalLevel` builds one from the other).
+- **Rejected: conjugation functions on the harmoniums.** An `ApproximatelyConjugated(hrm, cnj_fun)`
+  harmonium wrapper, with `VariationalConjugated` deriving $\rho$ (summed per attached harmonium),
+  `cnj_fun_man` and the deep models (`VariationalGraphical`) from `gph_hrm` alone. Prototyped and
+  reverted: it moved code without removing any (the module stayed about 780 lines), and needed
+  `isinstance` dispatch between exact and learned harmoniums, a `ConstantMap`, and an untested
+  multi-harmonium sum. The plan is at `~/.claude/plans/imperative-wondering-rabin.md`.
+- **Several harmoniums per level (CCA).** Two parallel levels cannot share one deep model (its
+  parameters would be stored twice, and each prior would see only its own $\rho$). It is one level
+  with several harmoniums on cliques of the deep model and $\rho$ summed, as in
+  `DifferentiableGraphical`. Base harmoniums do not get tuple observables. Deferred.
+- **Organization of `variational.py`** (agreed, not yet applied): order the module as the
+  variational model (`VariationalConjugated`, `DifferentiableVariationalConjugated`), then the
+  deep-model protocol (`DeepModel`, `DifferentiableDeepModel`, `ConjugationTuple`), then the
+  single-harmonium class, then the functions, each group under a `###` header; and group
+  `regress_conjugation_parameters`, `conjugation_metrics`, `reconstruct`, `reconstruction_error`
+  under one header. Open: whether they become methods (changes call sites in `tests/variational.py`
+  and the pendulum, torus_poisson, population_codes and chordal_boltzmann_ppc examples). No new
+  comment headers inside classes. `ExactConjugationFunction` stays in `variational.py`.
+- **Canonical circuit stress test.** The exact enumeration (`exact_log_partition_function`) is
+  finite only where every $z_k$ given the neurons has positive precision (now in its docstring). With
+  perceptron weights about three times larger than at initialization, $|\beta|$ reaches about 47 and
+  $e^{\beta + a(\ell)}$ overflows (NaN log-densities): numerical range of the exponential
+  parametrization, not a bug; keeping training away from it belongs in goal-apps.
 
 ## Deliberately not implemented
 

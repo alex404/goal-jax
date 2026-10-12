@@ -56,7 +56,7 @@ def initialize_from_tuning_curves(
     prior = vm.join_mean_concentration(prior_mean, prior_concentration)
 
     def params_at(lat_params: jax.Array, rho: jax.Array) -> jax.Array:
-        hrm_params = model.gen_hrm.join_coords(baselines, int_params, lat_params)
+        hrm_params = model.gph_hrm.join_coords(baselines, int_params, lat_params)
         return model.join_coords(hrm_params, rho)
 
     rho, _, _, _ = regress_conjugation_parameters(
@@ -93,7 +93,7 @@ def compute_tuning_curves(
 
     def rates_at(z: jax.Array) -> jax.Array:
         mz = model.pst_man.sufficient_statistic(z)
-        lkl_at_z = model.gen_hrm.lkl_fun_man(lkl_params, mz)
+        lkl_at_z = model.gph_hrm.lkl_fun_man(lkl_params, mz)
         return model.obs_man.to_mean(lkl_at_z)
 
     rates = jax.vmap(rates_at)(grid)
@@ -105,7 +105,7 @@ def compute_regression_diagnostics(
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Compute regression fit diagnostics for visualization."""
     lkl_params = model.likelihood_function(params)
-    obs_params, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
+    obs_params, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     vm = model.pst_man.rep_man  # underlying VonMises
 
@@ -165,7 +165,7 @@ def main():
 
     # Extract preferred directions from interaction weights
     lkl_params = model.likelihood_function(params)
-    _, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
+    _, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])
     preferred = jnp.mod(preferred, 2 * jnp.pi)

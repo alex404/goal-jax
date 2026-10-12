@@ -42,6 +42,19 @@ Variational Conjugated
    :undoc-members:
    :show-inheritance:
 
+Levels
+------
+
+.. autoclass:: goal.geometry.exponential_family.variational.VariationalLevel
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.variational.ExactConjugationFunction
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Helpers
 -------
 

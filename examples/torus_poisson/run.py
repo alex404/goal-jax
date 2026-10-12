@@ -46,8 +46,8 @@ def directed_params(
     model: TorusCode, lkl_params: Array, prior: Array, rho: Array
 ) -> Array:
     """Model parameters with the given likelihood, prior and conjugation parameters: the latent bias is the prior minus $\\rho$."""
-    obs_params, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
-    hrm_params = model.gen_hrm.join_coords(obs_params, int_params, prior - rho)
+    obs_params, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
+    hrm_params = model.gph_hrm.join_coords(obs_params, int_params, prior - rho)
     return model.join_coords(hrm_params, rho)
 
 
@@ -201,7 +201,7 @@ def create_ground_truth_model(
 def extract_tuning_params(model: TorusCode, params: Array) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
     lkl_params = model.likelihood_function(params)
-    obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
+    obs_bias, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(model.pop_hrm.obs_man.dim, -1)
 
     cos_1, sin_1 = int_matrix[:, 0], int_matrix[:, 1]
@@ -450,7 +450,7 @@ def train_model(
 
     # Extract learned parameters
     lkl_p = model.likelihood_function(current_params)
-    learned_baselines, learned_int_params = model.gen_hrm.lkl_fun_man.split_coords(
+    learned_baselines, learned_int_params = model.gph_hrm.lkl_fun_man.split_coords(
         lkl_p
     )
     learned_weights = learned_int_params.reshape(model.pop_hrm.obs_man.dim, -1)
@@ -593,7 +593,7 @@ def main():
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
     print(f"  Rho params: {model.cnj_fun_man.dim}")
-    print(f"  Harmonium params: {model.gen_hrm.dim}")
+    print(f"  Harmonium params: {model.gph_hrm.dim}")
 
     # Train all modes
     modes = ["free", "regularized"]

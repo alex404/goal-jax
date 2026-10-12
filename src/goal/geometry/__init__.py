@@ -56,7 +56,9 @@ from .exponential_family.variational import (
     DeepModel,
     DifferentiableDeepModel,
     DifferentiableVariationalConjugated,
+    ExactConjugationFunction,
     VariationalConjugated,
+    VariationalLevel,
 )
 from .manifold.base import (
     Manifold,
@@ -124,6 +126,7 @@ __all__ = [
     "DifferentiableTuple",
     "DifferentiableVariationalConjugated",
     "Embedding",
+    "ExactConjugationFunction",
     "ExponentialFamily",
     "ExponentialFamilyProduct",
     "ExponentialFamilyTuple",
@@ -171,4 +174,5 @@ __all__ = [
     "TupleEmbedding",
     "VariationalConjugated",
     "VariationalLatentProcess",
+    "VariationalLevel",
 ]

@@ -40,7 +40,7 @@ class VariationalPopulationCode[Latent: Differentiable](
 
     @property
     @override
-    def gen_hrm(self) -> AttachedHarmonium[Latent]:
+    def gph_hrm(self) -> AttachedHarmonium[Latent]:
         return AttachedHarmonium(self.pop_hrm, self.pop_hrm.pst_man)
 
     @property

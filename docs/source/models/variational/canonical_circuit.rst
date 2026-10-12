@@ -21,16 +21,6 @@ Core Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.variational.canonical_circuit.GaussianBoltzmannLevel
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.models.variational.canonical_circuit.PopulationCodeLevel
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. autoclass:: goal.models.variational.canonical_circuit.PopulationConjugationFunction
    :members:
    :undoc-members:

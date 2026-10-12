@@ -87,12 +87,12 @@ def initialize(circuit: CanonicalCircuit, use_z: bool, key: Array) -> Array:
     Without $z$, $\\Theta_{NZ}$ is zero.
     """
     (gen_nrn,) = circuit.generative_neuron_mans
-    obs_nrm = circuit.gb_hrm.obs_man
+    obs_nrm = circuit.att_hrm.obs_man
     prc = jnp.eye(N_PIXELS) / 0.2**2
     obs = obs_nrm.join_location_precision(
         jnp.zeros(N_PIXELS), obs_nrm.cov_man.from_matrix(prc)
     )
-    (xn_map,) = circuit.gb_hrm.crs_maps
+    (xn_map,) = circuit.att_hrm.crs_maps
     xn = xn_map.from_matrix(curve(jnp.linspace(0.0, 1.0, N_NEURONS)).T / 0.2**2)
     preferred = jnp.linspace(-2.0, 2.0, N_NEURONS)
     width_prc = (N_NEURONS - 1) ** 2 / 4.0**2
@@ -145,14 +145,15 @@ def penalized_elbo(
 
 def z_marginal(circuit: CanonicalCircuit, dep_params: Array) -> Array:
     """Natural parameters of the marginal over $z$ of a point of the deep model: $\\theta_Z + \\rho_Z$ at its biases."""
-    pop = circuit.deep
+    (_, pop) = circuit.layers[0]
     z_params, _ = pop.dep_man.split_coords(pop.conjugated_prior_params(dep_params))
     return z_params
 
 
 def gaussian_moments(circuit: CanonicalCircuit, z_params: Array) -> tuple[Array, Array]:
     """Mean and variance of the one-dimensional Gaussian over $z$ at natural parameters."""
-    lat = circuit.deep.pop_hrm.pst_man
+    (_, pop) = circuit.layers[0]
+    lat = pop.att_hrm.pst_man
     loc, prc = lat.split_location_precision(z_params)
     var = 1.0 / lat.cov_man.to_matrix(prc)[0, 0]
     return var * loc[0], var
@@ -168,7 +169,7 @@ def variational_bounds(
     population code level on $z$, and $q(n, z \\mid x) = q(z \\mid x) p(n \\mid z, \\beta)$ with $\\beta$
     the recognition biases.
     """
-    pop = circuit.deep
+    (_, pop) = circuit.layers[0]
     dep_prior = circuit.conjugated_prior_params(params)
     dep_post = circuit.recognition_at(params, x)
     mean, var = gaussian_moments(circuit, z_marginal(circuit, dep_post))
@@ -215,7 +216,7 @@ def measure(circuit: CanonicalCircuit, gen: Array, xs: Array) -> dict[str, Array
 
 def tuning(circuit: CanonicalCircuit, gen: Array) -> tuple[Array, Array]:
     """Firing probabilities $p(n_i = 1 \\mid z)$ of the generative model, couplings included, on a grid of $z$."""
-    pop = circuit.deep
+    (_, pop) = circuit.layers[0]
     dep_prior = circuit.conjugated_prior_params(circuit.tie(gen))
     zs = jnp.linspace(-3.0, 3.0, 121)
 

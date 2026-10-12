@@ -418,8 +418,8 @@ class VariationalLatentProcess[
     @property
     @override
     def snd_man(self) -> AffineMap[O, L]:
-        """The emission likelihood manifold (``ems_hrm.gen_hrm.lkl_fun_man``)."""
-        return self.ems_hrm.gen_hrm.lkl_fun_man
+        """The emission likelihood manifold (``ems_hrm.gph_hrm.lkl_fun_man``)."""
+        return self.ems_hrm.gph_hrm.lkl_fun_man
 
     @property
     @override
@@ -439,9 +439,9 @@ class VariationalLatentProcess[
     ) -> Array:
         """Parameters of :attr:`ems_hrm` whose prior is the given belief: its latent bias is the belief minus the conjugation parameters."""
         ems_hrm = self.ems_hrm
-        obs_params, int_params = ems_hrm.gen_hrm.lkl_fun_man.split_coords(ems_lkl)
+        obs_params, int_params = ems_hrm.gph_hrm.lkl_fun_man.split_coords(ems_lkl)
         lat_params = prior - ems_hrm.conjugation_parameters(ems_lkl, cnj_fun_params)
-        hrm_params = ems_hrm.gen_hrm.join_coords(obs_params, int_params, lat_params)
+        hrm_params = ems_hrm.gph_hrm.join_coords(obs_params, int_params, lat_params)
         return ems_hrm.join_coords(hrm_params, cnj_fun_params)
 
     def filter(
