@@ -203,11 +203,18 @@ class Normal[Rep: PositiveDefinite](
         """Initialize from the sample mean and covariance, perturbed by noise scaled to the observed variance.
 
         The mean moves by ``location + shape`` times standard normal noise, in units of the observed
-        standard deviation. The covariance is multiplied entrywise by $\\mathbf 1 \\mathbf 1^T + AA^T / d$, with
-        $A$ standard normal noise times ``shape``: a positive semidefinite matrix with a diagonal of at
-        least one, so by the Schur product theorem the result is positive definite, and the parameters
-        are valid for every ``shape``. A dimension without variance in the sample is
-        given variance $10^{-6}$.
+        standard deviation. The covariance is multiplied entrywise by $M = \\mathbf 1 \\mathbf 1^T +
+        AA^T / d$, with $A$ a $d \\times d$ matrix of standard normal noise times ``shape``; since
+        $\\mathbb E[M] = \\mathbf 1 \\mathbf 1^T + \\text{shape}^2 I$, the variances grow by a factor
+        $1 + \\text{shape}^2$ on average and the covariances are kept on average. A dimension without
+        variance in the sample is given variance $10^{-6}$.
+
+        Mathematically, for ``shape`` $> 0$ the matrix $AA^T$, and so $M$, is almost surely positive
+        definite, and by the Schur product theorem the entrywise product of a positive definite matrix
+        with a positive semidefinite one with a positive diagonal is positive definite. The parameters
+        are therefore valid also when the sample covariance is singular (linearly dependent
+        dimensions, or fewer points than dimensions). At ``shape`` $= 0$ the initialization is the
+        fit to the sample moments, which exists only when the sample covariance is positive definite.
         """
         mean, cov = self.split_mean_covariance(
             self.average_sufficient_statistic(sample)

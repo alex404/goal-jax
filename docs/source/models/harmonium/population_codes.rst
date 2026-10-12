@@ -32,11 +32,6 @@ Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.population_codes.GraphicalPopulationCode
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Factory Functions
 -----------------
 

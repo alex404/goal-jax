@@ -11,8 +11,6 @@ from typing import Any, override
 from ...geometry import (
     CliqueMap,
     CrossTerm,
-    DifferentiableTuple,
-    GraphicalHarmonium,
     IdentityEmbedding,
     LinearEmbedding,
     Rectangular,
@@ -38,8 +36,7 @@ class PopulationCode[Observable: Differentiable, Latent: Differentiable](
     latent model is coupled to those statistics by one crossing over its whole coordinate block, so
     the neurons depend on every sufficient statistic of the latent. On a latent whose cliques are
     its nodes, e.g. a tuple of independent families, each tuning curve is a product over the nodes;
-    a clique of several nodes adds terms that couple them. Subpopulations tuned to different nodes
-    are a :class:`GraphicalPopulationCode`.
+    a clique of several nodes adds terms that couple them.
 
     Mathematically, given $z$ the neurons have natural parameters $\\theta_N + \\iota(\\Theta_{NZ}
     \\cdot \\mathbf s_Z(z))$, with $\\iota$ the embedding :attr:`nrn_emb`, so the shape of each
@@ -49,7 +46,7 @@ class PopulationCode[Observable: Differentiable, Latent: Differentiable](
 
     # Fields
 
-    latent: Latent
+    _pst_man: Latent
 
     # Contract
 
@@ -63,7 +60,7 @@ class PopulationCode[Observable: Differentiable, Latent: Differentiable](
     @property
     @override
     def pst_man(self) -> Latent:
-        return self.latent
+        return self._pst_man
 
     @property
     @override
@@ -111,61 +108,25 @@ class BoltzmannPopulationCode[Shape: ExponentialFamily, Latent: Differentiable](
     """Population code of binary neurons with noise correlations, given by a Boltzmann machine.
 
     The latent modulates the biases of the neurons only, so their couplings, and with them the
-    noise correlations, do not depend on the latent. The neurons are a field because a
+    noise correlations, do not depend on the latent. The population is a field because a
     :class:`~goal.models.base.gaussian.boltzmann.ChordalBoltzmann` carries its junction tree.
     """
 
     # Fields
 
-    neurons: Boltzmann[Shape]
+    pop_man: Boltzmann[Shape]
 
     # Overrides
 
     @property
     @override
     def obs_man(self) -> Boltzmann[Shape]:
-        return self.neurons
+        return self.pop_man
 
     @property
     @override
     def nrn_emb(self) -> GeneralizedGaussianLocationEmbedding[Boltzmann[Shape]]:
-        return GeneralizedGaussianLocationEmbedding(self.neurons)
-
-
-@dataclass(frozen=True)
-class GraphicalPopulationCode[Latent: Differentiable](GraphicalHarmonium[Latent]):
-    """Subpopulations over one latent model, each a :class:`PopulationCode` attached to some of its nodes.
-
-    The observable is the tuple of the subpopulations, and a subpopulation has no coupling to the
-    nodes it is not attached to.
-    """
-
-    # Fields
-
-    latent: Latent
-
-    codes_att_clqs: tuple[tuple[PopulationCode[Any, Any], tuple[int, ...]], ...]
-    """The subpopulations, each with the nodes of the latent model its own latent is attached to."""
-
-    # Overrides
-
-    @property
-    @override
-    def pst_man(self) -> Latent:
-        return self.latent
-
-    @property
-    @override
-    def obs_hrms_att_clqs(
-        self,
-    ) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
-        return self.codes_att_clqs
-
-    @property
-    @override
-    def obs_man(self) -> DifferentiableTuple[Any]:
-        """The populations of the subpopulations, as the elements of a tuple."""
-        return DifferentiableTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
+        return GeneralizedGaussianLocationEmbedding(self.pop_man)
 
 
 # --- COM-Poisson Population ---

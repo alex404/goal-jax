@@ -175,11 +175,11 @@ class TestPopulationCodeProcess:
         lkl = ems.gen_hrm.likelihood_function(
             ems.gen_hrm.initialize(keys[0], shape=0.5)
         )
-        rho = 0.3 * jax.random.normal(keys[1], (ems.cnj_fun_man.dim,))
+        cnj_fun_params = 0.3 * jax.random.normal(keys[1], (ems.cnj_fun_man.dim,))
         params = model.join_coords(
             lat.initialize(keys[2], shape=0.5),
             lkl,
-            rho,
+            cnj_fun_params,
             model.trn_map.glorot_initialize(keys[3]),
         )
         return model, params
@@ -191,10 +191,11 @@ class TestPopulationCodeProcess:
         ems = model.ems_hrm
         zs = (jnp.arange(PCP_N_GRID) / PCP_N_GRID * 2 * jnp.pi).reshape(-1, 1)
         dz = 2 * jnp.pi / PCP_N_GRID
-        belief, lkl, rho, trn = model.split_coords(params)
+        belief, lkl, cnj_fun_params, trn = model.split_coords(params)
         total = jnp.asarray(0.0)
         for x in PCP_OBS:
-            ems_params = model.emission_params(lkl, rho, model.trn_map(trn, belief))
+            predicted = model.trn_map(trn, belief)
+            ems_params = model.emission_params(lkl, cnj_fun_params, predicted)
             q = ems.recognition_at(ems_params, x)
             prior = ems.conjugated_prior_params(ems_params)
 
@@ -208,6 +209,19 @@ class TestPopulationCodeProcess:
             total = total + dz * jnp.sum(jax.vmap(integrand)(zs))
             belief = q
         return total
+
+    def test_emission_prior_is_predicted_belief(self) -> None:
+        """The emission at a predicted belief has that belief as its prior under conjugation, $\\theta_Z + \\rho$."""
+        model, params = self.model_and_params()
+        belief, lkl, cnj_fun_params, trn = model.split_coords(params)
+        predicted = model.trn_map(trn, belief)
+        ems_params = model.emission_params(lkl, cnj_fun_params, predicted)
+        assert jnp.allclose(
+            model.ems_hrm.conjugated_prior_params(ems_params),
+            predicted,
+            rtol=1e-5,
+            atol=1e-7,
+        )
 
     def test_filter_elbo_matches_quadrature(self) -> None:
         model, params = self.model_and_params()

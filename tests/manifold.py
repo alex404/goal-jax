@@ -39,13 +39,11 @@ from goal.models import (
     DiagonalBoltzmann,
     Euclidean,
     FullBoltzmann,
-    GraphicalPopulationCode,
     MixtureOfFactorAnalyzers,
     Normal,
     NormalBoltzmannMachine,
     NormalLGM,
     PoissonPopulationCode,
-    VonMisesProduct,
     analytic_hmog,
     differentiable_hmog,
     factor_analysis,
@@ -109,21 +107,6 @@ MODELS: dict[str, Callable[[], Layout]] = {
     ),
     "poisson_population_edge": lambda: PoissonPopulationCode(
         NormalLGM(1, PositiveDefinite(), 1, PositiveDefinite()), 3
-    ),
-    "poisson_subpopulations": lambda: GraphicalPopulationCode(
-        DifferentiableTuple((VonMisesProduct(1), Normal(1, PositiveDefinite()))),
-        (
-            (
-                PoissonPopulationCode(
-                    DifferentiableTuple(
-                        (VonMisesProduct(1), Normal(1, PositiveDefinite()))
-                    ),
-                    3,
-                ),
-                (0, 1),
-            ),
-            (PoissonPopulationCode(Normal(1, PositiveDefinite()), 2), (1,)),
-        ),
     ),
 }
 """Every shipped model shape with crossings."""

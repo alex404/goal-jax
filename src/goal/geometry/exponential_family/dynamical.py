@@ -424,7 +424,7 @@ class VariationalLatentProcess[
     @property
     @override
     def trd_man(self) -> C:
-        """The conjugation parameter manifold (``ems_hrm.cnj_fun_man``)."""
+        """The conjugation function parameter manifold (``ems_hrm.cnj_fun_man``)."""
         return self.ems_hrm.cnj_fun_man
 
     @property
@@ -455,7 +455,7 @@ class VariationalLatentProcess[
 
         At each step, the transition map predicts the next belief, the emission's variational machinery computes the approximate posterior given the new observation, and the per-step ELBO is accumulated. Differentiable end-to-end --- ``jax.grad`` of ``-total_elbo`` w.r.t. (prior, emission, $\\rho$, transition) flows through the scan. Callers wanting $\\beta$-VAE-style KL warmup wrap this and add $(1-\\beta) \\cdot \\sum_t$ :meth:`ems_hrm.elbo_divergence` externally.
         """
-        prior_params, ems_lkl, rho, trns_params = self.split_coords(params)
+        prior_params, ems_lkl, cnj_fun_params, trns_params = self.split_coords(params)
         ems_hrm = self.ems_hrm
         trn_map = self.trn_map
 
@@ -468,7 +468,7 @@ class VariationalLatentProcess[
             belief, total_elbo = carry
             obs, step_key = step_input
             predicted = trn_map(trns_params, belief)
-            ems_full = self.emission_params(ems_lkl, rho, predicted)
+            ems_full = self.emission_params(ems_lkl, cnj_fun_params, predicted)
             posterior = ems_hrm.recognition_at(ems_full, obs)
             elbo_t = ems_hrm.elbo_at(step_key, ems_full, obs, n_mc_samples)
             return (posterior, total_elbo + elbo_t), posterior

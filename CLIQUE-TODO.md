@@ -53,21 +53,29 @@ statistics are now float64. The tests would not notice either way.
   `@dataclass(frozen=True)`.
 - `base/categorical.py` (+5/−5): `Categorical.sufficient_statistic` now casts its input to int (a
   fix for float-valued indices).
-- `geometry/exponential_family/dynamical.py` (+28/−19): look at `emission_params` (latent bias =
-  belief − $\rho$); the rest is the rename to the new variational API.
-- `variational/population_code_process.py` (+53, new): three one-line overrides, over a
-  `VariationalPopulationCode`.
-- `variational/population_codes.py` (+53, new): `VariationalPopulationCode`, four one-line
-  overrides (constant $\rho$ on the whole latent).
+- `geometry/exponential_family/dynamical.py` (+28/−19): **reviewed 2026-10-12.** `emission_params`
+  sets the latent bias to belief − $\rho$, so the conjugated prior $\theta_Z + \rho$ is the
+  predicted belief; a new test checks exactly that (`test_emission_prior_is_predicted_belief`; the
+  quadrature test could not, since it builds its reference through `emission_params`). The filter's
+  slot is named `cnj_fun_params`.
+- `variational/population_codes.py`: **reviewed 2026-10-12.** `VariationalPopulationCode` (constant
+  $\rho$ on the whole latent) and `PopulationCodeProcess`, merged into one module (the process was
+  `variational/population_code_process.py`). The process takes any population code: its observable
+  type parameter is `Any` (it was `AnalyticTuple[Poissons]`, which did not match `lkl_fun_man`), and
+  its fields are `pop_man` and `_trn_map` (were `population_code` and `transition`).
 
 ### Changes behaviour: review these
 
-- `base/gaussian/normal.py`, `initialize_from_sample` (+20/−25): **initialization behaviour
-  changed.** Previously the noise factor $(I + AA^T/d)$ multiplied the second moment entrywise,
-  which reduced the off-diagonal second moments to noise, followed by a clamp. Now
-  $(\mathbf 1 \mathbf 1^T + AA^T/d)$ multiplies the covariance, so the sample covariance is kept up
-  to noise, and positive definiteness follows from the Schur product theorem. Every model
-  initialized from a sample now starts elsewhere; no test checks initialization.
+- `base/gaussian/normal.py`, `initialize_from_sample`: **reviewed 2026-10-12.** The noise factor
+  $(\mathbf 1 \mathbf 1^T + AA^T/d)$ multiplies the covariance entrywise (previously $(I + AA^T/d)$
+  multiplied the second moment, which reduced the off-diagonal second moments to noise, followed by
+  a clamp), so the sample covariance is kept on average and the variances grow by $1 +
+  \text{shape}^2$. For shape $> 0$ the result is positive definite also for a singular sample
+  covariance ($AA^T$ is almost surely positive definite; Schur product theorem); at shape $= 0$ it
+  is the sample-moment fit, which needs a positive definite sample covariance. The docstring
+  argument was corrected (it assumed a positive definite sample covariance), and
+  `test_initialize_from_sample_is_valid_at_any_noise` now includes a linearly dependent dimension.
+  Every model initialized from a sample starts elsewhere than on `main`.
 - `base/gaussian/boltzmann.py`: **audited and restructured** (2026-10-12, uncommitted). Each
   Boltzmann family runs its own algorithms; the shape manifolds `CouplingMatrix` and
   `ChordalCouplingMatrix` are layouts only (an `ExponentialFamily` with statistics and matrix
@@ -109,13 +117,14 @@ statistics are now float64. The tests would not notice either way.
   generalizes `BoltzmannEmbedding` (diagonal into dense). New tests: a chordal-posterior case in
   `tests/harmonium.py`, a chordal embedding test in `tests/gaussian.py`.
 - `harmonium/population_codes.py` (+99/−180): **the model set changed.**
-  `PopulationCode[Observable, Latent](latent)` couples one population to every clique of its latent
+  `PopulationCode[Observable, Latent](_pst_man)` couples one population to every clique of its latent
   through `nrn_emb`, the neuron statistics the latent modulates: all of them for
-  `PoissonPopulationCode(latent, n_neurons)`, the biases only for `BoltzmannPopulationCode(latent,
-  neurons)`, whose couplings, and so noise correlations, do not depend on the latent. A latent with
-  an edge gives non-separable tuning. `GraphicalPopulationCode(latent, codes_att_clqs)` attaches
-  several codes to one latent as subpopulations; it overrides `obs_man` with a `DifferentiableTuple`,
-  since the variational ELBO needs its log-partition function. Gone: `PoissonVonMisesHarmonium`
+  `PoissonPopulationCode(_pst_man, n_neurons)`, the biases only for `BoltzmannPopulationCode(_pst_man,
+  pop_man)`, whose couplings, and so noise correlations, do not depend on the latent. A latent with
+  an edge gives non-separable tuning. Subpopulations (codes attached to different nodes of one
+  latent) are not shipped: `GraphicalPopulationCode`, a `GraphicalHarmonium` with a
+  `DifferentiableTuple` observable, was written and then removed on 2026-10-12, since nothing outside
+  the tests used it (it is in git history). Gone: `PoissonVonMisesHarmonium`
   (on `main`); `PoissonPopulationHarmonium` and its `tuning` pairs, `BoltzmannNormalHarmonium` (the
   latent also modulated the couplings) and `PopulationCodeHarmonium` (on the branch).
   `initialize_from_tuning_curves` moved to `examples/population_codes/run.py` and

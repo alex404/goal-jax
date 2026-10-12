@@ -65,7 +65,6 @@ from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 from .harmonium.population_codes import (
     BoltzmannPopulationCode,
     CoMPoissonMixture,
-    GraphicalPopulationCode,
     PoissonMixture,
     PoissonPopulationCode,
     PopulationCode,
@@ -79,8 +78,10 @@ from .variational.canonical_circuit import (
     PopulationConjugationFunction,
     canonical_circuit,
 )
-from .variational.population_code_process import PopulationCodeProcess
-from .variational.population_codes import VariationalPopulationCode
+from .variational.population_codes import (
+    PopulationCodeProcess,
+    VariationalPopulationCode,
+)
 
 __all__ = [
     "LGM",
@@ -117,7 +118,6 @@ __all__ = [
     "FullBoltzmann",
     "FullNormal",
     "GaussianBoltzmannLevel",
-    "GraphicalPopulationCode",
     "HiddenMarkovModel",
     "IsotropicNormal",
     "KalmanFilter",

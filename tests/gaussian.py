@@ -157,15 +157,16 @@ class TestNormal:
         )
 
     @pytest.mark.parametrize("rep", REPS, ids=REP_IDS)
-    @pytest.mark.parametrize("shape", [0.1, 2.0, 10.0])
+    @pytest.mark.parametrize("shape", [0.01, 0.1, 2.0, 10.0])
     def test_initialize_from_sample_is_valid_at_any_noise(
         self, rep: Rep, shape: float
     ) -> None:
-        """Initialization from a sample gives valid natural parameters at any noise scale, also for a mean far from zero relative to the spread and for a dimension without variance."""
+        """Initialization from a sample gives valid natural parameters at any positive noise scale, also for a mean far from zero relative to the spread, a dimension without variance and a dimension that is the sum of two others, so that the sample covariance is singular."""
         key_data, key_init = jax.random.split(jax.random.PRNGKey(3))
-        xs = 10.0 + jax.random.normal(key_data, (500, 4))
+        xs = 10.0 + jax.random.normal(key_data, (500, 5))
         xs = xs.at[:, 3].set(5.0)
-        model = Normal(4, rep)
+        xs = xs.at[:, 4].set(xs[:, 0] + xs[:, 1])
+        model = Normal(5, rep)
         for key in jax.random.split(key_init, 5):
             params = model.initialize_from_sample(key, xs, shape=shape)
             assert model.check_natural_parameters(params)

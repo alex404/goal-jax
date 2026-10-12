@@ -56,4 +56,4 @@ Neuroscience applications modeling neural spike data.
 - **torus_poisson** --- Variational inference with non-differentiable von Mises sampler; compares free and regularized conjugation parameter learning.
 - **chordal_boltzmann_ppc** --- A population code of correlated binary neurons on a chordal graph, made near-conjugate to a Gaussian latent and trained on data (:class:`~goal.models.harmonium.population_codes.BoltzmannPopulationCode`, :class:`~goal.models.variational.population_codes.VariationalPopulationCode`).
 - **canonical_circuit** --- The one-layer canonical circuit (:class:`~goal.models.CanonicalCircuit`) on a bump on a retina, without z, partially exact and approximate, by the penalized ELBO, measured exactly by enumeration and quadrature.
-- **pendulum** --- Filtering a stochastic pendulum from a Poisson population tuned to angle and velocity (:class:`~goal.models.variational.population_code_process.PopulationCodeProcess`).
+- **pendulum** --- Filtering a stochastic pendulum from a Poisson population tuned to angle and velocity (:class:`~goal.models.variational.population_codes.PopulationCodeProcess`).

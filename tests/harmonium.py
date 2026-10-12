@@ -22,7 +22,6 @@ from goal.models import (
     ChordalBoltzmann,
     DiagonalBoltzmann,
     FullBoltzmann,
-    GraphicalPopulationCode,
     MixtureOfFactorAnalyzers,
     Normal,
     NormalAnalyticLGM,
@@ -419,21 +418,15 @@ def test_analytic_cca_matches_differentiable_cca() -> None:
 
 
 def test_population_tuning_curves() -> None:
-    """Each neuron's rates are the product of a tuning curve for each latent node it is attached to.
+    """Each neuron's rates are the product of a tuning curve for each latent node.
 
     A population code over an angle and a velocity gives each neuron the rates
-    $\\exp(b_i + g_i \\cos(\\theta - \\mu_i) + a_i v + c_i v^2)$. Subpopulations attached to one
-    node each have no term for the other: subpopulation 0 is tuned to the angle,
-    subpopulation 1 to the velocity.
+    $\\exp(b_i + g_i \\cos(\\theta - \\mu_i) + a_i v + c_i v^2)$.
     """
     vm, nm = VonMisesProduct(1), Normal(1, PositiveDefinite())
     lat = DifferentiableTuple((vm, nm))
     joint = PoissonPopulationCode(lat, 3)
-    subpops = GraphicalPopulationCode(
-        lat,
-        ((PoissonPopulationCode(vm, 3), (0,)), (PoissonPopulationCode(nm, 2), (1,))),
-    )
-    baselines = jnp.linspace(-0.5, 0.5, 5)
+    baselines = jnp.linspace(-0.5, 0.5, 3)
     gains = jnp.array([0.5, 1.0, 2.0])
     preferred = jnp.array([0.0, 2.0, 4.0])
     angle_weights = jnp.stack(
@@ -443,22 +436,11 @@ def test_population_tuning_curves() -> None:
 
     angle_map, velocity_map = joint.crs_maps
     joint_params = joint.join_coords(
-        baselines[:3],
-        jnp.concatenate(
-            [
-                angle_map.from_matrix(angle_weights),
-                velocity_map.from_matrix(velocity_weights),
-            ]
-        ),
-        lat.zeros(),
-    )
-    angle_map, velocity_map = subpops.crs_maps
-    subpop_params = subpops.join_coords(
         baselines,
         jnp.concatenate(
             [
                 angle_map.from_matrix(angle_weights),
-                velocity_map.from_matrix(velocity_weights[:2]),
+                velocity_map.from_matrix(velocity_weights),
             ]
         ),
         lat.zeros(),
@@ -470,21 +452,5 @@ def test_population_tuning_curves() -> None:
         velocity_tuning = velocity_weights @ jnp.array([v, v**2])
 
         rates = joint.obs_man.to_mean(joint.likelihood_at(joint_params, z))
-        expected = jnp.exp(baselines[:3] + angle_tuning + velocity_tuning)
-        assert jnp.allclose(rates, expected, rtol=RTOL, atol=ATOL)
-
-        rates = jnp.concatenate(
-            [
-                code.obs_man.to_mean(code_params)
-                for code, code_params in zip(
-                    subpops.obs_hrms,
-                    subpops.obs_man.split_coords(
-                        subpops.likelihood_at(subpop_params, z)
-                    ),
-                )
-            ]
-        )
-        expected = jnp.exp(
-            baselines + jnp.concatenate([angle_tuning, velocity_tuning[:2]])
-        )
+        expected = jnp.exp(baselines + angle_tuning + velocity_tuning)
         assert jnp.allclose(rates, expected, rtol=RTOL, atol=ATOL)

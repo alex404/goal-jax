@@ -21,6 +21,11 @@ Classes
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.models.variational.population_codes.PopulationCodeProcess
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. seealso::
 
-   :doc:`/examples` --- **population_codes**: Bayesian stimulus decoding from cosine-tuned neural responses; **chordal_boltzmann_ppc**: a chordal Boltzmann PPC that stays conjugate to a Gaussian latent while learning data.
+   :doc:`/examples` --- **population_codes**: Bayesian stimulus decoding from cosine-tuned neural responses; **chordal_boltzmann_ppc**: a chordal Boltzmann PPC that stays conjugate to a Gaussian latent while learning data; **pendulum**: filtering a stochastic pendulum from a Poisson population tuned to angle and velocity.

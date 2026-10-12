@@ -202,7 +202,7 @@ def extract_tuning_params(model: TorusCode, params: Array) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
     lkl_params = model.likelihood_function(params)
     obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
-    int_matrix = int_params.reshape(model.hrm.obs_man.dim, -1)
+    int_matrix = int_params.reshape(model.pop_hrm.obs_man.dim, -1)
 
     cos_1, sin_1 = int_matrix[:, 0], int_matrix[:, 1]
     cos_2, sin_2 = int_matrix[:, 2], int_matrix[:, 3]
@@ -453,7 +453,7 @@ def train_model(
     learned_baselines, learned_int_params = model.gen_hrm.lkl_fun_man.split_coords(
         lkl_p
     )
-    learned_weights = learned_int_params.reshape(model.hrm.obs_man.dim, -1)
+    learned_weights = learned_int_params.reshape(model.pop_hrm.obs_man.dim, -1)
     learned_tuning = extract_tuning_params(model, current_params)
 
     results: ModeResults = {

@@ -260,7 +260,7 @@ def fit_family(
     d_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, False)
     l_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, True)
     model_corr = corr_of(
-        model.sample(k_corr, params, CORR_SAMPLES)[:, : model.hrm.obs_man.data_dim]
+        model.sample(k_corr, params, CORR_SAMPLES)[:, : model.pop_hrm.obs_man.data_dim]
     )
 
     print(
