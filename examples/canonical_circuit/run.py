@@ -96,7 +96,7 @@ def initialize(circuit: CanonicalCircuit, use_z: bool, key: Array) -> Array:
     xn = xn_map.from_matrix(curve(jnp.linspace(0.0, 1.0, N_NEURONS)).T / 0.2**2)
     preferred = jnp.linspace(-2.0, 2.0, N_NEURONS)
     width_prc = (N_NEURONS - 1) ** 2 / 4.0**2
-    n_couplings = len(gen_nrn.junction_tree.chordal_edges)
+    n_couplings = len(gen_nrn.junction_tree.edges)
     neurons = gen_nrn.join_couplings(
         -1.0 - 0.5 * width_prc * preferred**2, jnp.zeros(n_couplings)
     )

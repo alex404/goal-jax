@@ -1,4 +1,4 @@
-"""Tests for ``models/base/gaussian``: ``normal.py``, ``boltzmann.py`` and the junction trees of ``coupling/``.
+"""Tests for ``models/base/gaussian``: ``normal.py`` and ``boltzmann.py``.
 
 Normal distributions are checked across the Scale, Diagonal and PositiveDefinite representations, whose Cholesky, log-determinant and precision-scaling paths differ: fitted moments and log-densities against numpy and scipy, precision against the inverse covariance, relative whitening against a manual Cholesky solve, the closed-form negative entropy, and sampling.
 
@@ -15,17 +15,13 @@ import pytest
 from jax import Array
 from scipy import stats
 
-from goal.geometry import Diagonal, PositiveDefinite, Scale
+from goal.geometry import ChainTree, Diagonal, JunctionTree, PositiveDefinite, Scale
 from goal.models import (
     Boltzmann,
     BoltzmannCouplingEmbedding,
-    ChainBoltzmann,
-    ChainTree,
     ChordalBoltzmann,
     DiagonalBoltzmann,
-    EnumeratedBoltzmann,
     FullBoltzmann,
-    JunctionTree,
     Normal,
 )
 
@@ -281,7 +277,6 @@ class TestBoltzmann:
 
     def test_unit_conditional_is_sigmoid_of_energy_difference(self) -> None:
         model = FullBoltzmann(4)
-        coupling = model.shp_man
         key = jax.random.PRNGKey(42)
         params = jax.random.uniform(key, (model.dim,), minval=-2.0, maxval=2.0)
         for state in binary_states(4)[::3]:
@@ -289,30 +284,35 @@ class TestBoltzmann:
                 on, off = state.at[unit].set(1.0), state.at[unit].set(0.0)
                 delta = jnp.dot(
                     params,
-                    coupling.sufficient_statistic(on)
-                    - coupling.sufficient_statistic(off),
+                    model.sufficient_statistic(on) - model.sufficient_statistic(off),
                 )
                 assert jnp.allclose(
-                    coupling.unit_conditional_prob(state, unit, params),
+                    model.unit_conditional_prob(state, unit, params),
                     jax.nn.sigmoid(delta),
                     rtol=RTOL,
                     atol=ATOL,
                 )
 
-    def test_gibbs_sampling_matches_enumeration(self) -> None:
+    def test_gibbs_chains_match_enumeration(self) -> None:
+        """The end states of independent Gibbs chains from uniform starts have the exact mean parameters."""
         model = FullBoltzmann(3)
         params = jax.random.uniform(
             jax.random.PRNGKey(42), (model.dim,), minval=-1.0, maxval=1.0
         )
-        samples = model.sample(jax.random.PRNGKey(0), params, 50_000)
+        k_init, k_chain = jax.random.split(jax.random.PRNGKey(0))
+        starts = jax.random.bernoulli(k_init, 0.5, (20_000, 3)).astype(jnp.float64)
+        keys = jax.random.split(k_chain, starts.shape[0])
+        samples = jax.vmap(lambda k, x0: model.gibbs_chain(k, params, x0, 50))(
+            keys, starts
+        )
         probs = exact_probabilities(model, params)
         exact = probs @ jax.vmap(model.sufficient_statistic)(binary_states(3))
         assert jnp.allclose(
             model.average_sufficient_statistic(samples), exact, atol=0.05
         )
 
-    def test_enumerated_sampling_matches_joint(self) -> None:
-        model = EnumeratedBoltzmann(4)
+    def test_sampling_matches_joint(self) -> None:
+        model = FullBoltzmann(4)
         params = jax.random.uniform(
             jax.random.PRNGKey(5), (model.dim,), minval=-1.5, maxval=1.5
         )
@@ -350,64 +350,6 @@ class TestBoltzmann:
             rtol=RTOL,
             atol=ATOL,
         )
-
-
-# Junction trees
-
-
-class TestJunctionTree:
-    @pytest.mark.parametrize(
-        ("n", "edges", "treewidth", "n_chordal_edges", "cliques"),
-        [
-            (4, chain(4), 1, 3, {(0, 1), (1, 2), (2, 3)}),
-            (4, CYCLE_4, 2, 5, None),  # either diagonal completes the cycle
-            (4, complete(4), 3, 6, {(0, 1, 2, 3)}),
-            (5, DISCONNECTED, 1, 2, {(0, 1), (2,), (3, 4)}),
-        ],
-        ids=["chain", "4-cycle", "k4", "disconnected"],
-    )
-    def test_is_junction_tree_of_chordal_completion(
-        self,
-        n: int,
-        edges: Edges,
-        treewidth: int,
-        n_chordal_edges: int,
-        cliques: set[tuple[int, ...]] | None,
-    ) -> None:
-        """The chordal edges contain the input; the cliques are complete in the completion and cover it; the clique tree spans every clique (one tree even for a disconnected graph) and has the running intersection property."""
-        jt = JunctionTree.from_edges(n, edges)
-        chordal = set(jt.chordal_edges)
-        assert jt.treewidth == treewidth
-        assert len(chordal) == n_chordal_edges
-        if cliques is not None:
-            assert set(jt.cliques) == cliques
-        assert {tuple(sorted(e)) for e in edges} <= chordal
-        for clique in jt.cliques:
-            assert all((i, j) in chordal for i in clique for j in clique if i < j)
-        assert all(any(i in c and j in c for c in jt.cliques) for i, j in chordal)
-
-        assert len(jt.tree_edges) == jt.n_cliques - 1
-        assert set(jt.pre_order) == set(range(jt.n_cliques))
-        for v in range(n):
-            holders = {k for k, c in enumerate(jt.cliques) if v in c}
-            reached = {min(holders)}
-            for _ in range(len(holders)):
-                reached |= {
-                    b if a in reached else a
-                    for a, b in jt.tree_edges
-                    if (a in reached) != (b in reached) and {a, b} <= holders
-                }
-            assert reached == holders
-
-    def test_max_treewidth_raises(self) -> None:
-        with pytest.raises(ValueError, match="treewidth"):
-            JunctionTree.from_edges(4, complete(4), max_treewidth=2)
-
-    def test_branching_clique_tree_is_not_a_chain(self) -> None:
-        with pytest.raises(ValueError, match="not a path"):
-            ChainTree.from_edges(5, HUB)
-        with pytest.raises(ValueError, match="not a path"):
-            ChainBoltzmann.from_edges(5, HUB)
 
 
 # Chordal and chain Boltzmann machines
@@ -495,10 +437,10 @@ class TestChordalBoltzmann:
         params = jax.random.normal(jax.random.PRNGKey(7), (model.dim,))
         mat = cm.to_matrix(params)
         assert jnp.allclose(jnp.diag(mat), params[:5])
-        for k, (i, j) in enumerate(model.junction_tree.chordal_edges):
+        for k, (i, j) in enumerate(model.junction_tree.edges):
             assert mat[i, j] == params[5 + k] and mat[j, i] == params[5 + k]
         assert jnp.allclose(cm.from_matrix(mat), params, rtol=RTOL, atol=ATOL)
-        assert (0, 4) not in model.junction_tree.chordal_edges
+        assert (0, 4) not in model.junction_tree.edges
         off_pattern = mat.at[0, 4].add(3.0).at[4, 0].add(3.0)
         assert jnp.allclose(cm.from_matrix(off_pattern), params, rtol=RTOL, atol=ATOL)
         skewed = mat.at[0, 1].add(1.0).at[1, 0].add(-1.0)
@@ -529,17 +471,17 @@ class TestChordalBoltzmann:
         )
 
     @pytest.mark.parametrize(
-        ("cls", "n", "edges"),
-        [(ChordalBoltzmann, n, e) for _, n, e in [*SAMPLED_GRAPHS, ("hub", 5, HUB)]]
-        + [(ChainBoltzmann, n, e) for _, n, e in SAMPLED_GRAPHS],
+        ("tree", "n", "edges"),
+        [(JunctionTree, n, e) for _, n, e in [*SAMPLED_GRAPHS, ("hub", 5, HUB)]]
+        + [(ChainTree, n, e) for _, n, e in SAMPLED_GRAPHS],
         ids=[f"chordal-{g}" for g, _, _ in [*SAMPLED_GRAPHS, ("hub", 5, HUB)]]
         + [f"chain-{g}" for g, _, _ in SAMPLED_GRAPHS],
     )
     def test_sampling_matches_joint(
-        self, cls: type[ChordalBoltzmann], n: int, edges: Sequence[tuple[int, int]]
+        self, tree: type[JunctionTree], n: int, edges: Sequence[tuple[int, int]]
     ) -> None:
         """State frequencies match the exact joint over all $2^n$ states, which certifies non-adjacent correlations and higher-order structure that moment checks miss."""
-        model = cls.from_edges(n, edges)
+        model = ChordalBoltzmann(tree.from_edges(n, edges))
         params = jax.random.uniform(
             jax.random.PRNGKey(21), (model.dim,), minval=-1.0, maxval=1.0
         )
@@ -549,7 +491,9 @@ class TestChordalBoltzmann:
         )
 
 
-class TestChainBoltzmann:
+class TestChainKernels:
+    """A :class:`ChordalBoltzmann` over a :class:`ChainTree` runs the chain kernels."""
+
     @pytest.mark.parametrize(
         ("n", "edges"),
         [(12, chain(12)), (8, band(8, 2)), (5, MIXED)],
@@ -557,7 +501,7 @@ class TestChainBoltzmann:
     )
     def test_matches_chordal(self, n: int, edges: Edges) -> None:
         """The associative-scan kernel agrees with the sequential collect in value and gradient; gradients stay finite through the clamped empty separator segments."""
-        chain_model = ChainBoltzmann.from_edges(n, edges)
+        chain_model = ChordalBoltzmann(ChainTree.from_edges(n, edges))
         chordal = ChordalBoltzmann.from_edges(n, edges)
         params = jax.random.uniform(
             jax.random.PRNGKey(11), (chain_model.dim,), minval=-1.5, maxval=1.5
@@ -586,7 +530,7 @@ class TestChainBoltzmann:
         self, n: int, edges: Edges
     ) -> None:
         """Past enumeration reach, full sufficient statistics (pair moments included) of the samples match ``to_mean``; the second graph has separators of sizes 2 and 1."""
-        model = ChainBoltzmann.from_edges(n, edges)
+        model = ChordalBoltzmann(ChainTree.from_edges(n, edges))
         params = jax.random.uniform(
             jax.random.PRNGKey(5), (model.dim,), minval=-0.5, maxval=0.5
         )

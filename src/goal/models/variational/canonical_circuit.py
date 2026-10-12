@@ -11,7 +11,7 @@ The circuit is a :class:`~goal.geometry.exponential_family.variational.Variation
 $2L$ levels, bottom first: a :class:`GaussianBoltzmannLevel` and a :class:`PopulationCodeLevel` per layer, the
 bottom level being the :class:`CanonicalCircuit` itself. It comes in two variants:
 
-- **Partially exact**: the neurons are dense (:class:`~goal.models.EnumeratedBoltzmann`), and the
+- **Partially exact**: the neurons are dense (:class:`~goal.models.FullBoltzmann`, sampled exactly by enumeration), and the
   conjugation parameters of each Gaussian-Boltzmann level are the exact closed form of
   :class:`~goal.models.NormalBoltzmannMachine`, quadratic in $n$ with dense couplings. Only the population
   codes are approximated. Exact computations enumerate the neurons, so the populations must be small.
@@ -57,7 +57,6 @@ from ...geometry.manifold.util import split_by_dims
 from ..base.gaussian.boltzmann import (
     Boltzmann,
     ChordalBoltzmann,
-    EnumeratedBoltzmann,
     FullBoltzmann,
 )
 from ..base.gaussian.generalized import Euclidean
@@ -495,7 +494,7 @@ def canonical_circuit(
     deep: GaussianBoltzmannLevel | None = None
     for k in reversed(range(len(n_neurons))):
         neurons: Boltzmann[Any] = (
-            EnumeratedBoltzmann(n_neurons[k])
+            FullBoltzmann(n_neurons[k])
             if variant == "partially_exact"
             else ChordalBoltzmann.from_edges(n_neurons[k], edgess[k])
         )

@@ -14,8 +14,8 @@ from ...geometry import (
     CliqueMap,
     CrossTerm,
     Diagonal,
-    Differentiable,
     DifferentiableConjugated,
+    ExponentialFamily,
     Identity,
     LinearEmbedding,
     MatrixRep,
@@ -407,7 +407,7 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
 
 @dataclass(frozen=True)
-class NormalBoltzmannMachine[ObsRep: PositiveDefinite, Shape: Differentiable](
+class NormalBoltzmannMachine[ObsRep: PositiveDefinite, Shape: ExponentialFamily](
     LGM[ObsRep, Boltzmann[Shape], FullBoltzmann],
 ):
     """Linear Gaussian model with a Normal observable and Boltzmann (binary) latent variables.

@@ -1,4 +1,5 @@
 from .algebra.clique import Cliques
+from .algebra.junction_tree import ChainTree, JunctionTree
 from .algebra.matrix import (
     Diagonal,
     Identity,
@@ -104,6 +105,7 @@ __all__ = [
     "AnalyticProduct",
     "AnalyticTuple",
     "AttachedHarmonium",
+    "ChainTree",
     "CliqueEmbedding",
     "CliqueMap",
     "Cliques",
@@ -135,6 +137,7 @@ __all__ = [
     "Identity",
     "IdentityEmbedding",
     "InteractionEmbedding",
+    "JunctionTree",
     "LinearCliques",
     "LinearComposedEmbedding",
     "LinearEmbedding",

@@ -1,8 +1,12 @@
-"""Tests for geometry/algebra: ``MatrixRep`` (matrix.py) and ``Cliques`` (clique.py).
+"""Tests for geometry/algebra: ``MatrixRep`` (matrix.py), ``Cliques`` (clique.py) and ``JunctionTree`` (junction_tree.py).
 
 Every structured matrix operation is checked against the same operation on the dense
 matrix, and the dense matrix itself against closed forms. The graph of a ``Cliques`` is
-checked on the cliques of shipped models.
+checked on the cliques of shipped models. A junction tree is checked to be one of the
+chordal completion of its seed graph, and its sum-product against enumeration of all $2^n$
+states, at random clique potentials that are not pairwise, on hand-picked and random graphs:
+the log-partition function, its gradient (the clique marginals) and the joint distribution
+of its samples.
 """
 
 from collections.abc import Callable
@@ -11,13 +15,16 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from jax import Array
 
 from goal.geometry import (
+    ChainTree,
     Diagonal,
     DifferentiableTuple,
     Identity,
+    JunctionTree,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
@@ -25,6 +32,7 @@ from goal.geometry import (
     Square,
     Symmetric,
 )
+from goal.geometry.algebra.junction_tree import binary_states
 from goal.models import (
     CanonicalCorrelationAnalysis,
     MixtureOfFactorAnalyzers,
@@ -313,3 +321,190 @@ class TestGraph:
         cliques = factory()
         assert cliques.graph == graph
         assert cliques.edges == edges
+
+
+### Junction trees ###
+
+type Edges = list[tuple[int, int]]
+
+
+def complete(n: int) -> Edges:
+    return [(i, j) for i in range(n) for j in range(i + 1, n)]
+
+
+def chain(n: int) -> Edges:
+    return [(i, i + 1) for i in range(n - 1)]
+
+
+def band(n: int, width: int) -> Edges:
+    return [(i, i + k) for k in range(1, width + 1) for i in range(n - k)]
+
+
+def random_graph(seed: int) -> tuple[int, Edges]:
+    """A graph on 3 to 8 nodes, each edge present with a probability drawn per graph."""
+    rng = np.random.default_rng(seed)
+    n = int(rng.integers(3, 9))
+    p = rng.uniform(0.15, 0.7)
+    return n, [(i, j) for i in range(n) for j in range(i + 1, n) if rng.random() < p]
+
+
+CYCLE_4 = [(0, 1), (1, 2), (2, 3), (0, 3)]
+MIXED = [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4)]  # separators of sizes 2 and 1
+HUB = [(0, k) for k in range(1, 5)]  # branching clique tree
+DISCONNECTED = [(0, 1), (3, 4)]  # two edges and an isolated node
+
+GRAPHS: list[tuple[str, int, Edges]] = [
+    ("chain", 6, chain(6)),
+    ("4-cycle", 4, CYCLE_4),
+    ("k4", 4, complete(4)),
+    ("disconnected", 5, DISCONNECTED),
+    ("hub", 5, HUB),
+    ("mixed", 5, MIXED),
+    ("band", 8, band(8, 2)),
+    *[(f"random-{seed}", *random_graph(seed)) for seed in range(10)],
+]
+
+
+def _builds_chain(n: int, edges: Edges) -> bool:
+    try:
+        ChainTree.from_edges(n, edges)
+    except ValueError:
+        return False
+    return True
+
+
+TREES = [(JunctionTree, n, e) for _, n, e in GRAPHS] + [
+    (ChainTree, n, e) for _, n, e in GRAPHS if _builds_chain(n, e)
+]
+TREE_IDS = [f"junction-{g}" for g, _, _ in GRAPHS] + [
+    f"chain-{g}" for g, n, e in GRAPHS if _builds_chain(n, e)
+]
+
+
+def random_potentials(jt: JunctionTree, key: Array) -> Array:
+    """Arbitrary clique log-potentials, padded states included, which sum-product must ignore."""
+    return jax.random.normal(key, (jt.n_cliques, 1 << jt.max_clique_size))
+
+
+def clique_codes(jt: JunctionTree) -> np.ndarray:
+    """``(n_cliques, 2^n)``: the state of each clique in each of the $2^n$ states of :func:`binary_states`."""
+    states = binary_states(jt.n_nodes)
+    return np.stack(
+        [sum(states[:, v] << p for p, v in enumerate(clique)) for clique in jt.cliques]
+    )
+
+
+def enumerated_energies(jt: JunctionTree, phi: Array) -> Array:
+    """$\\sum_c \\phi_c(x_C)$ at each of the $2^n$ states, by enumeration."""
+    codes = clique_codes(jt)
+    return jnp.sum(phi[jnp.arange(jt.n_cliques)[:, None], codes], axis=0)
+
+
+class TestJunctionTree:
+    @pytest.mark.parametrize(
+        ("n", "edges", "treewidth", "n_edges", "cliques"),
+        [
+            (4, chain(4), 1, 3, {(0, 1), (1, 2), (2, 3)}),
+            (4, CYCLE_4, 2, 5, None),  # either diagonal completes the cycle
+            (4, complete(4), 3, 6, {(0, 1, 2, 3)}),
+            (5, DISCONNECTED, 1, 2, {(0, 1), (2,), (3, 4)}),
+        ],
+        ids=["chain", "4-cycle", "k4", "disconnected"],
+    )
+    def test_shape_of_chordal_completion(
+        self,
+        n: int,
+        edges: Edges,
+        treewidth: int,
+        n_edges: int,
+        cliques: set[tuple[int, ...]] | None,
+    ) -> None:
+        """Treewidth, edge count and cliques of the completion of small graphs with known completions."""
+        jt = JunctionTree.from_edges(n, edges)
+        assert jt.treewidth == treewidth
+        assert len(jt.edges) == n_edges
+        if cliques is not None:
+            assert set(jt.cliques) == cliques
+
+    @pytest.mark.parametrize(
+        ("n", "edges"), [(n, e) for _, n, e in GRAPHS], ids=[g for g, _, _ in GRAPHS]
+    )
+    def test_is_junction_tree_of_chordal_completion(self, n: int, edges: Edges) -> None:
+        """The edges contain the input and every node is labelled; the cliques are maximal, complete in the completion and cover it; the clique tree spans every clique (one tree even for a disconnected graph) and has the running intersection property."""
+        jt = JunctionTree.from_edges(n, edges)
+        chordal = set(jt.edges)
+        assert jt.nodes == tuple(range(n))
+        assert {tuple(sorted(e)) for e in edges} <= chordal
+        for clique in jt.cliques:
+            assert all((i, j) in chordal for i in clique for j in clique if i < j)
+        assert not any(set(a) < set(b) for a in jt.cliques for b in jt.cliques)
+
+        assert len(jt.tree_edges) == jt.n_cliques - 1
+        assert set(jt.pre_order) == set(range(jt.n_cliques))
+        for v in range(n):
+            holders = {k for k, c in enumerate(jt.cliques) if v in c}
+            reached = {min(holders)}
+            for _ in range(len(holders)):
+                reached |= {
+                    b if a in reached else a
+                    for a, b in jt.tree_edges
+                    if (a in reached) != (b in reached) and {a, b} <= holders
+                }
+            assert reached == holders
+
+    def test_max_treewidth_raises(self) -> None:
+        with pytest.raises(ValueError, match="treewidth"):
+            JunctionTree.from_edges(4, complete(4), max_treewidth=2)
+
+    def test_branching_clique_tree_is_not_a_chain(self) -> None:
+        with pytest.raises(ValueError, match="not a path"):
+            ChainTree.from_edges(5, HUB)
+
+
+class TestSumProduct:
+    @pytest.mark.parametrize(("tree", "n", "edges"), TREES, ids=TREE_IDS)
+    def test_log_partition_matches_enumeration(
+        self, tree: type[JunctionTree], n: int, edges: Edges
+    ) -> None:
+        jt = tree.from_edges(n, edges)
+        phi = random_potentials(jt, jax.random.PRNGKey(n))
+        assert jnp.allclose(
+            jt.log_partition(phi),
+            jax.scipy.special.logsumexp(enumerated_energies(jt, phi)),
+            rtol=RTOL,
+            atol=ATOL,
+        )
+
+    @pytest.mark.parametrize(("tree", "n", "edges"), TREES, ids=TREE_IDS)
+    def test_gradient_is_clique_marginals(
+        self, tree: type[JunctionTree], n: int, edges: Edges
+    ) -> None:
+        """The gradient in $\\phi_c(s)$ is the probability that clique $c$ is in state $s$, and zero at padded states."""
+        jt = tree.from_edges(n, edges)
+        phi = random_potentials(jt, jax.random.PRNGKey(n + 1))
+        probs = jax.nn.softmax(enumerated_energies(jt, phi))
+        codes = clique_codes(jt)
+        marginals = jnp.stack(
+            [
+                jnp.zeros(phi.shape[1]).at[codes[c]].add(probs)
+                for c in range(jt.n_cliques)
+            ]
+        )
+        grad = jax.grad(jt.log_partition)(phi)
+        assert jnp.all(jnp.isfinite(grad))
+        assert jnp.allclose(grad, marginals, rtol=RTOL, atol=ATOL)
+
+    @pytest.mark.parametrize(("tree", "n", "edges"), TREES, ids=TREE_IDS)
+    def test_sampling_matches_joint(
+        self, tree: type[JunctionTree], n: int, edges: Edges
+    ) -> None:
+        """State frequencies of 50k samples match the exact joint over all $2^n$ states."""
+        jt = tree.from_edges(n, edges)
+        phi = random_potentials(jt, jax.random.PRNGKey(n + 2))
+        keys = jax.random.split(jax.random.PRNGKey(n + 3), 50_000)
+        samples = jax.vmap(lambda k: jt.sample(k, phi))(keys)
+        codes = jnp.sum(samples.astype(jnp.int32) << jnp.arange(n), axis=1)
+        freqs = jnp.bincount(codes, length=1 << n) / samples.shape[0]
+        assert jnp.allclose(
+            freqs, jax.nn.softmax(enumerated_energies(jt, phi)), atol=0.01
+        )

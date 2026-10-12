@@ -3,15 +3,11 @@ from .base.categorical import Bernoulli, Bernoullis, Categorical
 from .base.dirichlet import Dirichlet
 from .base.gaussian.boltzmann import (
     Boltzmann,
-    ChainBoltzmann,
-    ChainCouplingMatrix,
     ChordalBoltzmann,
     ChordalCouplingMatrix,
     DiagonalBoltzmann,
-    EnumeratedBoltzmann,
     FullBoltzmann,
 )
-from .base.gaussian.coupling import ChainTree, JunctionTree
 from .base.gaussian.generalized import Euclidean
 from .base.gaussian.normal import (
     Covariance,
@@ -101,9 +97,6 @@ __all__ = [
     "CanonicalCircuit",
     "CanonicalCorrelationAnalysis",
     "Categorical",
-    "ChainBoltzmann",
-    "ChainCouplingMatrix",
-    "ChainTree",
     "ChordalBoltzmann",
     "ChordalCouplingMatrix",
     "CoMPoisson",
@@ -119,7 +112,6 @@ __all__ = [
     "DiagonalNormal",
     "DifferentiableHMoG",
     "Dirichlet",
-    "EnumeratedBoltzmann",
     "Euclidean",
     "FactorAnalysis",
     "FullBoltzmann",
@@ -128,7 +120,6 @@ __all__ = [
     "GraphicalPopulationCode",
     "HiddenMarkovModel",
     "IsotropicNormal",
-    "JunctionTree",
     "KalmanFilter",
     "Mixture",
     "MixtureOfFactorAnalyzers",

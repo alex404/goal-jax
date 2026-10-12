@@ -27,23 +27,22 @@ The changes are mechanical: the removed `from __future__ import annotations`, ru
 target-first type parameters and arguments, and `int_man` → `crs_trms`/`crs_maps`.
 
 - `base/dirichlet.py` (+0/−2), `base/gaussian/generalized.py` (+0/−2): import only.
-- `base/gaussian/coupling/junction_tree.py` (+5/−6), `sum_product.py` (+14/−22), `dense.py`
-  (+2/−4): formatting, `float32` → `float`.
 - `base/binomial.py` (+2/−4), `base/poisson.py` (+2/−4): the same; `PopulationLocationEmbedding`
   has its type parameters flipped.
 - `base/von_mises.py` (+2/−2): docstring note on the conjugation offset, no code.
 - `models/__init__.py` (+33/−19): exports.
 - `graphical/variational.py` (−80): deleted.
+- `harmonium/mixture.py` (+61/−23): the port is a reduction. `cmp_int_map` reads the per-clique
+  crossings of `CompleteMixture.crs_trms` as one matrix, which is the storage order every
+  `LinearCliques` has (coordinate blocks in clique order) together with row-major `Rectangular`
+  storage; exercised by the MFA and mixture-of-conjugated cases in `tests/harmonium.py` and
+  `tests/graphical.py`.
 
 The `float32` → `float` change alters dtypes: under `jax_enable_x64=True` samples and sufficient
 statistics are now float64. The tests would not notice either way.
 
 ### Look at specific lines
 
-- `harmonium/mixture.py` (+61/−23): the port is a reduction. Look at `cmp_int_map` against
-  `CompleteMixture.crs_trms`: with a multi-clique observable, the interaction is one crossing per
-  clique, and `cmp_int_map` reads them as one matrix. This relies on the clique coordinate blocks
-  being consecutive row bands under row-major storage; documented, but an implicit invariant.
 - `graphical/mixture.py` (+106/−182): mostly deletion of `RowEmbedding`, `BlockMap` and the
   composed embeddings. `to_mixture_coords`/`from_mixture_coords` were checked: `concatenate`/`split`
   equals the old reshape/`vstack`/`ravel` under row-major storage. Look at the `pst_man` pair: the
@@ -54,9 +53,6 @@ statistics are now float64. The tests would not notice either way.
   `@dataclass(frozen=True)`.
 - `base/categorical.py` (+5/−5): `Categorical.sufficient_statistic` now casts its input to int (a
   fix for float-valued indices).
-- `base/gaussian/boltzmann.py` (+54/−4): new `EnumeratedBoltzmann` (exact sampling by enumeration;
-  ignores `n_burnin`/`n_thin`, as documented), and the contract `coupled_pairs` (the order of the
-  stored off-diagonal couplings) on every Boltzmann.
 - `geometry/exponential_family/dynamical.py` (+28/−19): look at `emission_params` (latent bias =
   belief − $\rho$); the rest is the rename to the new variational API.
 - `variational/population_code_process.py` (+53, new): three one-line overrides, over a
@@ -72,6 +68,33 @@ statistics are now float64. The tests would not notice either way.
   $(\mathbf 1 \mathbf 1^T + AA^T/d)$ multiplies the covariance, so the sample covariance is kept up
   to noise, and positive definiteness follows from the Schur product theorem. Every model
   initialized from a sample now starts elsewhere; no test checks initialization.
+- `base/gaussian/boltzmann.py`: **audited and restructured** (2026-10-12, uncommitted). Each
+  Boltzmann family runs its own algorithms; the shape manifolds `CouplingMatrix` and
+  `ChordalCouplingMatrix` are layouts only (an `ExponentialFamily` with statistics and matrix
+  packing, like `Covariance` for `Normal`), and the `Shape` bound of `Boltzmann`,
+  `NormalBoltzmannMachine` and `BoltzmannPopulationCode` is `ExponentialFamily`. The `coupling/`
+  package is gone: the dense kernels are methods of `FullBoltzmann` (`energies`, `states`,
+  `unit_conditional_prob`, `gibbs_step`), and the junction trees moved to
+  `geometry/algebra/junction_tree.py` (below). `FullBoltzmann.sample` is exact, by inverse-CDF
+  sampling over the $2^n$ states; Gibbs remains as `gibbs_step`/`gibbs_chain` (the `boltzmann`
+  example runs its chains through `gibbs_chain`). Benchmark (1000 samples per call, after
+  compilation): enumeration takes 0.07/1.3/27 ms on CPU and 0.13/0.34/4.4 ms on GPU at
+  $n = 4/16/20$, against 40/215/265 ms (CPU) and 6/23/29 ms (GPU) for 1000 vmapped Gibbs chains
+  of 100 sweeps. Deleted: `EnumeratedBoltzmann` (the circuit uses `FullBoltzmann`),
+  `ChainBoltzmann`, `ChainCouplingMatrix`. New on the branch: `coupled_pairs` (the order of the
+  stored off-diagonal couplings).
+- `geometry/algebra/junction_tree.py` (moved from `models/base/gaussian/coupling/`,
+  2026-10-12, uncommitted). **Audited**: triangulation, maximal cliques, spanning tree, collect,
+  ancestral sampling and both chain kernels read and checked by argument, and fuzzed against
+  enumeration on 300 random graphs ($n \le 10$; $\log Z$ and its gradient to $2 \cdot
+  10^{-15}$, sample frequencies to $0.005$). `JunctionTree` is a `Cliques` (its `edges` replace
+  `chordal_edges`; `n_nodes` is derived), and inference is `log_partition(phi)` and
+  `sample(key, phi)` on a table of clique log-potentials over binary states, which `ChainTree`
+  overrides with the `associative_scan` kernels. `ChordalCouplingMatrix.clique_potentials` builds
+  that table from biases and couplings, so `ChordalBoltzmann` no longer dispatches on the tree
+  type. New tests in `tests/algebra.py`: sum-product at random, non-pairwise potentials against
+  enumeration (log-partition, gradient as clique marginals, joint of the samples) on hand-picked
+  and random graphs.
 - `harmonium/lgm.py` (+91/−128): `NormalBoltzmannMachine[ObsRep, Shape](obs_dim, obs_rep,
   boltzmann)` replaces `BoltzmannLGM`, `DifferentiableBoltzmannLGM` and `NormalBoltzmannHarmonium`:
   the Boltzmann analogue of `NormalLGM`, any Boltzmann posterior, `FullBoltzmann` prior, exactly

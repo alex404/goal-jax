@@ -17,7 +17,7 @@ from ...geometry import (
     LinearEmbedding,
     Rectangular,
 )
-from ...geometry.exponential_family.base import Differentiable
+from ...geometry.exponential_family.base import Differentiable, ExponentialFamily
 from ...geometry.exponential_family.harmonium import Harmonium
 from ..base.gaussian.boltzmann import Boltzmann
 from ..base.poisson import CoMPoissons, Poissons, PopulationLocationEmbedding
@@ -105,7 +105,7 @@ class PoissonPopulationCode[Latent: Differentiable](PopulationCode[Poissons, Lat
 
 
 @dataclass(frozen=True)
-class BoltzmannPopulationCode[Shape: Differentiable, Latent: Differentiable](
+class BoltzmannPopulationCode[Shape: ExponentialFamily, Latent: Differentiable](
     PopulationCode[Boltzmann[Shape], Latent]
 ):
     """Population code of binary neurons with noise correlations, given by a Boltzmann machine.
