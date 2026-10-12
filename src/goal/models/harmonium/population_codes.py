@@ -1,185 +1,171 @@
-"""Population codes as harmoniums: Poisson populations over any latent family, Boltzmann neurons over a Normal latent, and Poisson mixture models.
+"""Population codes as harmoniums: Poisson or Boltzmann neurons over any latent family, and Poisson mixture models.
 
 The harmoniums here are exact families. The variational models built on them are in
 :mod:`goal.models.variational`.
 """
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override
 
 from ...geometry import (
     CliqueMap,
     CrossTerm,
+    DifferentiableTuple,
+    GraphicalHarmonium,
     IdentityEmbedding,
+    LinearEmbedding,
     Rectangular,
 )
 from ...geometry.exponential_family.base import Differentiable
-from ...geometry.exponential_family.combinators import AnalyticTuple
 from ...geometry.exponential_family.harmonium import Harmonium
 from ..base.gaussian.boltzmann import Boltzmann
-from ..base.gaussian.normal import (
-    DiagonalNormal,
-    FullNormal,
-    diagonal_normal,
-    full_normal,
-)
 from ..base.poisson import CoMPoissons, Poissons, PopulationLocationEmbedding
 from .lgm import GeneralizedGaussianLocationEmbedding
 from .mixture import AnalyticMixture, Mixture
 
-# --- Poisson populations (any latent family) ---
+# --- Population codes ---
 
 
 @dataclass(frozen=True)
-class PoissonPopulationHarmonium[Latent: Differentiable](
-    Harmonium[AnalyticTuple[Poissons], Latent]
+class PopulationCode[Observable: Differentiable, Latent: Differentiable](
+    Harmonium[Observable, Latent], ABC
 ):
-    """Harmonium with subpopulations of Poisson neurons over a latent family, each subpopulation tuned to some nodes of the latent.
+    """Harmonium with a population of neurons as its observable, coupled to every clique of a latent model.
 
-    The observable is a tuple of independent Poisson populations, one node per subpopulation, and
-    ``tuning`` lists the pairs (subpopulation, latent node) that are coupled. Coupling one
-    subpopulation to every node of the latent gives mixed selectivity; coupling subpopulation $k$
-    to node $k$ alone gives a code specific to each node.
+    A subclass declares the population (:attr:`obs_man`), the latent model (:attr:`pst_man`) and
+    the statistics of the neurons that the latent modulates (:attr:`nrn_emb`). Each clique of the
+    latent model is coupled to those statistics by one crossing over its whole coordinate block, so
+    the neurons depend on every sufficient statistic of the latent. On a latent whose cliques are
+    its nodes, e.g. a tuple of independent families, each tuning curve is a product over the nodes;
+    a clique of several nodes adds terms that couple them. Subpopulations tuned to different nodes
+    are a :class:`GraphicalPopulationCode`.
 
-    Mathematically, the log-rate of neuron $i$ in subpopulation $k$ is $\\theta_{X,i} + \\sum_j
-    \\Theta_{X_k Z_j, i} \\cdot \\mathbf s_{Z_j}(z_j)$, summed over the nodes $j$ that $k$ is tuned
-    to, so the shape of each tuning curve is set by the sufficient statistics of those nodes: a
-    von Mises node gives a cosine bump in an angle, a Normal node a Gaussian bump.
+    Mathematically, given $z$ the neurons have natural parameters $\\theta_N + \\iota(\\Theta_{NZ}
+    \\cdot \\mathbf s_Z(z))$, with $\\iota$ the embedding :attr:`nrn_emb`, so the shape of each
+    tuning curve is set by the sufficient statistics of the latent: a von Mises node gives a cosine
+    bump in an angle, a Normal node a Gaussian bump.
     """
 
     # Fields
 
-    pop_sizes: tuple[int, ...]
-    """Number of neurons in each subpopulation."""
-
     latent: Latent
-    """The latent family; every node that a subpopulation is tuned to must be a clique of its own."""
 
-    tuning: tuple[tuple[int, int], ...]
-    """The coupled pairs (subpopulation, latent node)."""
+    # Contract
+
+    @property
+    @abstractmethod
+    def nrn_emb(self) -> LinearEmbedding[Observable, Any]:
+        """The statistics of the neurons that the latent modulates, as a subspace of the population."""
 
     # Overrides
-
-    @property
-    @override
-    def crs_trms(self) -> tuple[CrossTerm, ...]:
-        """One crossing per tuned pair, over the whole coordinate block on each side."""
-        return tuple(
-            CrossTerm(
-                (pop,),
-                (node,),
-                CliqueMap(
-                    Rectangular(),
-                    IdentityEmbedding(self.obs_man.clq_man((pop,))),
-                    IdentityEmbedding(self.pst_man.clq_man((node,))),
-                ),
-            )
-            for pop, node in self.tuning
-        )
-
-    @property
-    @override
-    def obs_man(self) -> AnalyticTuple[Poissons]:
-        return AnalyticTuple(tuple(Poissons(n) for n in self.pop_sizes))
 
     @property
     @override
     def pst_man(self) -> Latent:
         return self.latent
 
-
-# --- Boltzmann neurons (Normal latent) ---
+    @property
+    @override
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """One crossing per clique of the latent, over its whole coordinate block."""
+        return tuple(
+            CrossTerm(
+                (0,),
+                clique,
+                CliqueMap(
+                    Rectangular(),
+                    self.nrn_emb,
+                    IdentityEmbedding(self.pst_man.clq_man(clique)),
+                ),
+            )
+            for clique in self.pst_man.cliques
+        )
 
 
 @dataclass(frozen=True)
-class BoltzmannNormalHarmonium[Shape: Differentiable](
-    Harmonium[Boltzmann[Shape], FullNormal]
-):
-    """Harmonium with a Boltzmann observable and a full-covariance Normal latent.
-
-    The opposite orientation to :class:`~goal.models.harmonium.lgm.NormalBoltzmannMachine`
-    (Normal observable, Boltzmann latent): here a population of correlated
-    binary neurons encodes a continuous Gaussian. The observable is a field because a
-    :class:`~goal.models.base.gaussian.boltzmann.ChordalBoltzmann` carries its
-    junction tree.
-
-    The interaction uses ``IdentityEmbedding`` on both sides, so it carries the
-    latent's full sufficient statistic $\\mathbf s_Z(z) = (z, z z^\\top)$ into the
-    Boltzmann natural parameters --- a genuine second-order coupling: the Gaussian
-    second moments drive the Boltzmann couplings, and the posterior over $z$
-    acquires an observation-dependent precision.
-    """
+class PoissonPopulationCode[Latent: Differentiable](PopulationCode[Poissons, Latent]):
+    """Population code of independent Poisson neurons, whose log-rates the latent modulates."""
 
     # Fields
 
-    boltzmann: Boltzmann[Shape]
-    """The Boltzmann observable (chordal, diagonal, ...)."""
-
-    lat_dim: int
-    """Dimension of the Gaussian latent."""
+    n_neurons: int
 
     # Overrides
 
     @property
     @override
-    def crs_trms(self) -> tuple[CrossTerm, ...]:
-        """The observable and the latent, coupled."""
-        int_map = CliqueMap(
-            Rectangular(),
-            IdentityEmbedding(self.obs_man),
-            IdentityEmbedding(self.pst_man),
-        )
-        return (CrossTerm((0,), (0,), int_map),)
+    def obs_man(self) -> Poissons:
+        return Poissons(self.n_neurons)
+
+    @property
+    @override
+    def nrn_emb(self) -> IdentityEmbedding[Poissons]:
+        return IdentityEmbedding(self.obs_man)
+
+
+@dataclass(frozen=True)
+class BoltzmannPopulationCode[Shape: Differentiable, Latent: Differentiable](
+    PopulationCode[Boltzmann[Shape], Latent]
+):
+    """Population code of binary neurons with noise correlations, given by a Boltzmann machine.
+
+    The latent modulates the biases of the neurons only, so their couplings, and with them the
+    noise correlations, do not depend on the latent. The neurons are a field because a
+    :class:`~goal.models.base.gaussian.boltzmann.ChordalBoltzmann` carries its junction tree.
+    """
+
+    # Fields
+
+    neurons: Boltzmann[Shape]
+
+    # Overrides
 
     @property
     @override
     def obs_man(self) -> Boltzmann[Shape]:
-        return self.boltzmann
+        return self.neurons
 
     @property
     @override
-    def pst_man(self) -> FullNormal:
-        return full_normal(self.lat_dim)
+    def nrn_emb(self) -> GeneralizedGaussianLocationEmbedding[Boltzmann[Shape]]:
+        return GeneralizedGaussianLocationEmbedding(self.neurons)
 
 
 @dataclass(frozen=True)
-class PopulationCodeHarmonium(Harmonium[Boltzmann[Any], DiagonalNormal]):
-    """Harmonium with Boltzmann neurons as its observable and a diagonal Normal latent, coupled through the activities of the neurons only.
+class GraphicalPopulationCode[Latent: Differentiable](GraphicalHarmonium[Latent]):
+    """Subpopulations over one latent model, each a :class:`PopulationCode` attached to some of its nodes.
 
-    Neuron $i$ has the logit $\\theta_{N,i} + \\Theta_{NZ,i} \\cdot \\mathbf s_Z(z)$, so its tuning
-    curve is the exponential of a quadratic in $z$, and the couplings of the neurons do not depend
-    on $z$. Given $n$, $z$ is Gaussian with natural parameters affine in $n$. Unlike
-    :class:`BoltzmannNormalHarmonium`, the pairwise statistics of the neurons are not
-    coupled to $z$.
+    The observable is the tuple of the subpopulations, and a subpopulation has no coupling to the
+    nodes it is not attached to.
     """
 
     # Fields
 
-    neurons: Boltzmann[Any]
-    lat_dim: int
+    latent: Latent
+
+    codes_att_clqs: tuple[tuple[PopulationCode[Any, Any], tuple[int, ...]], ...]
+    """The subpopulations, each with the nodes of the latent model its own latent is attached to."""
 
     # Overrides
 
     @property
     @override
-    def crs_trms(self) -> tuple[CrossTerm, ...]:
-        """The activities of the neurons and the statistics of the latent, coupled."""
-        int_map = CliqueMap(
-            Rectangular(),
-            GeneralizedGaussianLocationEmbedding(self.obs_man),
-            IdentityEmbedding(self.pst_man),
-        )
-        return (CrossTerm((0,), (0,), int_map),)
+    def pst_man(self) -> Latent:
+        return self.latent
 
     @property
     @override
-    def obs_man(self) -> Boltzmann[Any]:
-        return self.neurons
+    def obs_hrms_att_clqs(
+        self,
+    ) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+        return self.codes_att_clqs
 
     @property
     @override
-    def pst_man(self) -> DiagonalNormal:
-        return diagonal_normal(self.lat_dim)
+    def obs_man(self) -> DifferentiableTuple[Any]:
+        """The populations of the subpopulations, as the elements of a tuple."""
+        return DifferentiableTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
 
 
 # --- COM-Poisson Population ---

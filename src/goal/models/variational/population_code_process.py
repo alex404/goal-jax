@@ -1,7 +1,8 @@
 """Latent process population code: a variational filter over a Poisson population code.
 
 The latent state follows a learned (deterministic) map on beliefs, and each observation is a
-vector of spike counts from a :class:`~goal.models.PoissonPopulationCode`. Filtering alternates
+vector of spike counts from a :class:`~goal.models.PoissonPopulationCode`, fit as a
+:class:`~goal.models.VariationalPopulationCode`. Filtering alternates
 the prediction of the transition with the conjugate update of the population code, which is
 exact up to its conjugation residual.
 """
@@ -14,7 +15,7 @@ from ...geometry.exponential_family.combinators import AnalyticTuple
 from ...geometry.exponential_family.dynamical import VariationalLatentProcess
 from ...geometry.manifold.map import Map
 from ..base.poisson import Poissons
-from .population_codes import PoissonPopulationCode
+from .population_codes import VariationalPopulationCode
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,7 @@ class PopulationCodeProcess[Latent: Differentiable, Transition: Map[Any, Any]](
 
     # Fields
 
-    population_code: PoissonPopulationCode[Latent]
+    population_code: VariationalPopulationCode[Latent]
     transition: Transition
 
     # Overrides
@@ -43,7 +44,7 @@ class PopulationCodeProcess[Latent: Differentiable, Transition: Map[Any, Any]](
 
     @property
     @override
-    def ems_hrm(self) -> PoissonPopulationCode[Latent]:
+    def ems_hrm(self) -> VariationalPopulationCode[Latent]:
         return self.population_code
 
     @property

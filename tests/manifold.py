@@ -33,16 +33,18 @@ from goal.geometry import (
     SubMapEmbedding,
 )
 from goal.models import (
-    BoltzmannNormalHarmonium,
+    BoltzmannPopulationCode,
     CanonicalCorrelationAnalysis,
     CompleteMixture,
     DiagonalBoltzmann,
     Euclidean,
     FullBoltzmann,
+    GraphicalPopulationCode,
     MixtureOfFactorAnalyzers,
     Normal,
     NormalBoltzmannMachine,
-    PoissonPopulationHarmonium,
+    NormalLGM,
+    PoissonPopulationCode,
     VonMisesProduct,
     analytic_hmog,
     differentiable_hmog,
@@ -102,11 +104,26 @@ MODELS: dict[str, Callable[[], Layout]] = {
     "boltzmann_lgm": lambda: NormalBoltzmannMachine(
         3, PositiveDefinite(), FullBoltzmann(2)
     ),
-    "boltzmann_normal": lambda: BoltzmannNormalHarmonium(DiagonalBoltzmann(3), 2),
-    "poisson_population": lambda: PoissonPopulationHarmonium(
-        (3, 2),
+    "boltzmann_population": lambda: BoltzmannPopulationCode(
+        Normal(2, PositiveDefinite()), DiagonalBoltzmann(3)
+    ),
+    "poisson_population_edge": lambda: PoissonPopulationCode(
+        NormalLGM(1, PositiveDefinite(), 1, PositiveDefinite()), 3
+    ),
+    "poisson_subpopulations": lambda: GraphicalPopulationCode(
         DifferentiableTuple((VonMisesProduct(1), Normal(1, PositiveDefinite()))),
-        ((0, 0), (0, 1), (1, 1)),
+        (
+            (
+                PoissonPopulationCode(
+                    DifferentiableTuple(
+                        (VonMisesProduct(1), Normal(1, PositiveDefinite()))
+                    ),
+                    3,
+                ),
+                (0, 1),
+            ),
+            (PoissonPopulationCode(Normal(1, PositiveDefinite()), 2), (1,)),
+        ),
     ),
 }
 """Every shipped model shape with crossings."""

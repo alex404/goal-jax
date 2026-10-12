@@ -26,22 +26,20 @@ from goal.geometry.exponential_family.variational import (
 )
 from goal.models import (
     PoissonPopulationCode,
-    PoissonPopulationHarmonium,
+    VariationalPopulationCode,
     VonMisesProduct,
 )
 
 from ..shared import example_paths, jax_cli
 from .types import GroundTruth, GTConjugationMetrics, ModeResults, TuningParams
 
-type TorusHarmonium = PoissonPopulationHarmonium[VonMisesProduct]
-type TorusCode = PoissonPopulationCode[VonMisesProduct]
+type TorusHarmonium = PoissonPopulationCode[VonMisesProduct]
+type TorusCode = VariationalPopulationCode[VonMisesProduct]
 
 
 def torus_harmonium(n_neurons: int, n_latent: int) -> TorusHarmonium:
     """One population of ``n_neurons`` tuned to all ``n_latent`` angles of the torus."""
-    return PoissonPopulationHarmonium(
-        (n_neurons,), VonMisesProduct(n_latent), ((0, 0),)
-    )
+    return PoissonPopulationCode(VonMisesProduct(n_latent), n_neurons)
 
 
 def directed_params(
@@ -204,7 +202,7 @@ def extract_tuning_params(model: TorusCode, params: Array) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
     lkl_params = model.likelihood_function(params)
     obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
-    int_matrix = int_params.reshape(model.hrm.pop_sizes[0], -1)
+    int_matrix = int_params.reshape(model.hrm.obs_man.dim, -1)
 
     cos_1, sin_1 = int_matrix[:, 0], int_matrix[:, 1]
     cos_2, sin_2 = int_matrix[:, 2], int_matrix[:, 3]
@@ -232,7 +230,7 @@ def compute_gt_conjugation(
 ) -> GTConjugationMetrics:
     """Compute conjugation metrics for the ground truth model using library methods."""
     # Wrap GT harmonium in variational model to use library methods
-    var_model = PoissonPopulationCode(gt_model)
+    var_model = VariationalPopulationCode(gt_model)
     zero_rho = jnp.zeros(var_model.cnj_fun_man.dim)
 
     # The GT parameters [obs, int, prior] hold the prior directly
@@ -455,7 +453,7 @@ def train_model(
     learned_baselines, learned_int_params = model.gen_hrm.lkl_fun_man.split_coords(
         lkl_p
     )
-    learned_weights = learned_int_params.reshape(model.hrm.pop_sizes[0], -1)
+    learned_weights = learned_int_params.reshape(model.hrm.obs_man.dim, -1)
     learned_tuning = extract_tuning_params(model, current_params)
 
     results: ModeResults = {
@@ -580,7 +578,7 @@ def main():
 
     # Extract ground truth info
     gt_baselines, gt_int_params, gt_prior = gt_model.split_coords(gt_params)
-    gt_weights = gt_int_params.reshape(gt_model.pop_sizes[0], -1)
+    gt_weights = gt_int_params.reshape(gt_model.obs_man.dim, -1)
 
     ground_truth: GroundTruth = {
         "weight_matrix": gt_weights.tolist(),
@@ -591,7 +589,7 @@ def main():
     }
 
     # Create variational model for training
-    model = PoissonPopulationCode(torus_harmonium(n_neurons, n_latent))
+    model = VariationalPopulationCode(torus_harmonium(n_neurons, n_latent))
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
     print(f"  Rho params: {model.cnj_fun_man.dim}")

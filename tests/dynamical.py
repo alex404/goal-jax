@@ -18,8 +18,8 @@ from goal.models import (
     HiddenMarkovModel,
     KalmanFilter,
     PoissonPopulationCode,
-    PoissonPopulationHarmonium,
     PopulationCodeProcess,
+    VariationalPopulationCode,
     VonMisesProduct,
 )
 
@@ -166,9 +166,8 @@ class TestPopulationCodeProcess:
     def model_and_params(self) -> tuple[PopulationCodeProcess[Any, Any], Array]:
         """One population of four neurons over one VonMises latent, generic parameters."""
         lat = VonMisesProduct(1)
-        hrm = PoissonPopulationHarmonium((4,), lat, ((0, 0),))
         model = PopulationCodeProcess(
-            PoissonPopulationCode(hrm),
+            VariationalPopulationCode(PoissonPopulationCode(lat, 4)),
             MultilayerPerceptron(lat, lat, (4,), jax.nn.tanh),
         )
         keys = jax.random.split(jax.random.PRNGKey(0), 4)

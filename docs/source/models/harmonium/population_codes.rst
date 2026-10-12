@@ -17,17 +17,22 @@ Class Hierarchy
 Classes
 -------
 
-.. autoclass:: goal.models.harmonium.population_codes.PoissonPopulationHarmonium
+.. autoclass:: goal.models.harmonium.population_codes.PopulationCode
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.population_codes.BoltzmannNormalHarmonium
+.. autoclass:: goal.models.harmonium.population_codes.PoissonPopulationCode
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.population_codes.PopulationCodeHarmonium
+.. autoclass:: goal.models.harmonium.population_codes.BoltzmannPopulationCode
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.models.harmonium.population_codes.GraphicalPopulationCode
    :members:
    :undoc-members:
    :show-inheritance:

@@ -3,7 +3,8 @@
 A single level: ground-truth verification of the variational estimators and their
 stop_gradient policy, on a ``PoissonPopulationCode`` with a single VonMises latent, a
 ``BoltzmannPopulationCode`` with a one-dimensional Normal latent, and a
-``PoissonPopulationCode`` with two subpopulations, each tuned to its own VonMises latent.
+``GraphicalPopulationCode`` with two subpopulations, each tuned to its own VonMises latent,
+all fit as a ``VariationalPopulationCode``.
 Every latent expectation is then an integral over a grid: over [0, 2pi) or its square for
 the VonMises latents, where the periodic trapezoid rule is exact to near machine precision
 for smooth integrands, and over a wide interval for the Normal latent. ``jax.grad`` of the quadrature expressions therefore yields exact
@@ -37,12 +38,15 @@ from goal.geometry.exponential_family.variational import (
     regress_conjugation_parameters,
 )
 from goal.models import (
+    BoltzmannPopulationCode,
     CanonicalCircuit,
+    ChordalBoltzmann,
+    GraphicalPopulationCode,
+    Normal,
     PoissonPopulationCode,
-    PoissonPopulationHarmonium,
+    VariationalPopulationCode,
     VonMisesProduct,
     canonical_circuit,
-    chordal_boltzmann_population_code,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -70,27 +74,32 @@ _ANGLES = jnp.arange(N_GRID_2D) / N_GRID_2D * 2 * jnp.pi
 CASES = [
     Case(
         "von_mises",
-        PoissonPopulationCode(
-            PoissonPopulationHarmonium((4,), VonMisesProduct(1), ((0, 0),))
-        ),
+        VariationalPopulationCode(PoissonPopulationCode(VonMisesProduct(1), 4)),
         jnp.array([2.0, 0.0, 1.0, 3.0]),
         (jnp.arange(N_GRID) / N_GRID * 2 * jnp.pi).reshape(-1, 1),
         2 * jnp.pi / N_GRID,
     ),
     Case(
         "boltzmann",
-        chordal_boltzmann_population_code(4, [(0, 1), (1, 2), (2, 3)], 1),
+        VariationalPopulationCode(
+            BoltzmannPopulationCode(
+                Normal(1, PositiveDefinite()),
+                ChordalBoltzmann.from_edges(4, [(0, 1), (1, 2), (2, 3)]),
+            )
+        ),
         jnp.array([1.0, 0.0, 1.0, 1.0]),
         jnp.linspace(-30.0, 30.0, N_GRID).reshape(-1, 1),
         60.0 / (N_GRID - 1),
     ),
     Case(
         "poisson_subpopulations",
-        PoissonPopulationCode(
-            PoissonPopulationHarmonium(
-                (3, 2),
+        VariationalPopulationCode(
+            GraphicalPopulationCode(
                 DifferentiableTuple((VonMisesProduct(1), VonMisesProduct(1))),
-                ((0, 0), (1, 1)),
+                (
+                    (PoissonPopulationCode(VonMisesProduct(1), 3), (0,)),
+                    (PoissonPopulationCode(VonMisesProduct(1), 2), (1,)),
+                ),
             )
         ),
         jnp.array([2.0, 0.0, 1.0, 3.0, 1.0]),

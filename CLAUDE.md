@@ -118,7 +118,8 @@ The library is organized into three main modules under `src/goal/`:
 - **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
 - **Canonical circuit**: `CanonicalCircuit`, built by `canonical_circuit(...)`, the shipped nested `VariationalConjugated`: $L$ layers of Gaussian-Boltzmann and population code levels, partially exact or approximate
 - **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`
-- **Variational filter**: `PopulationCodeProcess` (a variational filter over a `PoissonPopulationCode`, whose subpopulations are each tuned to chosen nodes of the latent)
+- **Population codes**: `PopulationCode[Observable, Latent]`, a population coupled to every clique of its latent (`PoissonPopulationCode`, and `BoltzmannPopulationCode`, whose couplings, and so noise correlations, do not depend on the latent); `GraphicalPopulationCode` attaches several to one latent as subpopulations. `VariationalPopulationCode` fits any of them with constant $\rho$
+- **Variational filter**: `PopulationCodeProcess` (a variational filter over a `VariationalPopulationCode`)
 
 ## Typing Strategy
 
@@ -227,7 +228,7 @@ Test files drop the `test_` prefix (pytest is configured with `python_files = ["
 | `gaussian.py` | `models/base/gaussian/`: `Normal` against scipy, Boltzmann machines against enumeration (junction tree, chordal, chain) |
 | `harmonium.py` | `geometry/exponential_family/harmonium.py` over every conjugated harmonium, including the graphical ones (HMoG, MFA, mixtures of harmoniums): conjugation equation, marginal density against brute force, posterior normalization, round trips, EM |
 | `graphical.py` | `geometry/exponential_family/graphical.py` and `models/graphical/mixture.py`: the mixture view of a mixture of harmoniums, whitening |
-| `variational.py` | `geometry/exponential_family/variational.py`: a single level (`PoissonPopulationCode` with one and with two latent nodes, `BoltzmannPopulationCode`) against quadrature, nested levels (`CanonicalCircuit`) against enumeration and, at depth 1, its exact ELBO by enumeration and quadrature |
+| `variational.py` | `geometry/exponential_family/variational.py`: a single level (`VariationalPopulationCode` of a `PoissonPopulationCode`, a `BoltzmannPopulationCode` and a `GraphicalPopulationCode` over two latent nodes) against quadrature, nested levels (`CanonicalCircuit`) against enumeration and, at depth 1, its exact ELBO by enumeration and quadrature |
 | `dynamical.py` | `geometry/exponential_family/dynamical.py` `models/dynamical/` and `models/variational/population_code_process.py`: Kalman filter against a dense Gaussian, HMM against the forward algorithm, EM; the variational filter (`PopulationCodeProcess`) against its per-step ELBOs by quadrature |
 
 ### What a test is

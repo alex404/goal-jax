@@ -9,7 +9,7 @@ condition holds only approximately, so the variational machinery
 
 The model is :class:`~goal.models.PopulationCodeProcess`: a
 :class:`~goal.models.PoissonPopulationCode` with one population tuned to both the angle and
-the velocity, and an MLP transition on beliefs. The example adds the pendulum's latent family,
+the velocity, fit as a :class:`~goal.models.VariationalPopulationCode`, and an MLP transition on beliefs. The example adds the pendulum's latent family,
 a transition that keeps the velocity precision positive, and the initialization from tuning
 curves.
 
@@ -44,8 +44,8 @@ from goal.geometry.exponential_family.variational import (
 from goal.models import (
     Normal,
     PoissonPopulationCode,
-    PoissonPopulationHarmonium,
     PopulationCodeProcess,
+    VariationalPopulationCode,
     VonMisesProduct,
 )
 
@@ -110,7 +110,6 @@ def pendulum_filter(
 ) -> PendulumFilter:
     """One population of ``n_neurons`` tuned to both the angle and the velocity, and the MLP transition."""
     lat = von_mises_normal_pair()
-    hrm = PoissonPopulationHarmonium((n_neurons,), lat, ((0, 0), (0, 1)))
     transition = PendulumTransition(
         lat,
         lat,
@@ -118,11 +117,13 @@ def pendulum_filter(
         activation=jax.nn.tanh,
         precision_epsilon=precision_epsilon,
     )
-    return PopulationCodeProcess(PoissonPopulationCode(hrm), transition)
+    return PopulationCodeProcess(
+        VariationalPopulationCode(PoissonPopulationCode(lat, n_neurons)), transition
+    )
 
 
 def initialize_from_tuning_curves(
-    code: PoissonPopulationCode[VonMisesNormalPair],
+    code: VariationalPopulationCode[VonMisesNormalPair],
     key: Array,
     preferred_angles: Array,
     preferred_velocities: Array,

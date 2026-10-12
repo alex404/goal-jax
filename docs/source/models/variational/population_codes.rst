@@ -16,22 +16,10 @@ Class Hierarchy
 Classes
 -------
 
-.. autoclass:: goal.models.variational.population_codes.PoissonPopulationCode
+.. autoclass:: goal.models.variational.population_codes.VariationalPopulationCode
    :members:
    :undoc-members:
    :show-inheritance:
-
-.. autoclass:: goal.models.variational.population_codes.BoltzmannPopulationCode
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Factory Functions
------------------
-
-.. autofunction:: goal.models.variational.population_codes.chordal_boltzmann_population_code
-
-.. autofunction:: goal.models.variational.population_codes.diagonal_boltzmann_population_code
 
 .. seealso::
 

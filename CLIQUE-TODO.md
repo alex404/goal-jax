@@ -8,16 +8,18 @@ designs and the full design notes are in git history (this file before 2026-10-0
 ## Before merging
 
 - Every example was run and its plot inspected on 2026-10-11 (pendulum, torus_poisson,
-  chordal_boltzmann_ppc and population_codes included). canonical_circuit is ported onto the core
-  module; its full grid has not been rerun since the port (one condition was, and matches).
+  chordal_boltzmann_ppc and population_codes included). After the population code unification of
+  2026-10-12, population_codes, torus_poisson, pendulum and chordal_boltzmann_ppc were rerun and
+  their plots inspected. canonical_circuit is ported onto the core module; its full grid has not
+  been rerun since the port (one condition was, and matches).
 - Planned follow-up: the conjugation function as a `Map[Prior, Likelihood]` and generic level
   classes. `VariationalHierarchicalMixture` (`models/graphical/variational.py`) is deleted.
 
 ## Review of `models/` and `dynamical.py`
 
 Geometry, including `graphical.py`, is reviewed. What remains against `main`, by how much attention
-it needs. Line counts are added/removed, taken before the reorganization of 2026-10-12 (below), which
-moved the variational models to `models/variational/` and replaced the Boltzmann LGMs.
+it needs. Line counts are added/removed against `main`, taken on 2026-10-12 with the population code
+unification uncommitted on top of `b34c832`.
 
 ### Tick off
 
@@ -30,7 +32,7 @@ target-first type parameters and arguments, and `int_man` → `crs_trms`/`crs_ma
 - `base/binomial.py` (+2/−4), `base/poisson.py` (+2/−4): the same; `PopulationLocationEmbedding`
   has its type parameters flipped.
 - `base/von_mises.py` (+2/−2): docstring note on the conjugation offset, no code.
-- `models/__init__.py` (+27/−7): exports.
+- `models/__init__.py` (+33/−19): exports.
 - `graphical/variational.py` (−80): deleted.
 
 The `float32` → `float` change alters dtypes: under `jax_enable_x64=True` samples and sufficient
@@ -38,8 +40,6 @@ statistics are now float64. The tests would not notice either way.
 
 ### Look at specific lines
 
-- `harmonium/lgm.py` (+90/−42): the port is a reduction. Look at `NormalBoltzmannMachine` and
-  `BoltzmannCouplingEmbedding` (2026-10-12, below).
 - `harmonium/mixture.py` (+61/−23): the port is a reduction. Look at `cmp_int_map` against
   `CompleteMixture.crs_trms`: with a multi-clique observable, the interaction is one crossing per
   clique, and `cmp_int_map` reads them as one matrix. This relies on the clique coordinate blocks
@@ -54,11 +54,15 @@ statistics are now float64. The tests would not notice either way.
   `@dataclass(frozen=True)`.
 - `base/categorical.py` (+5/−5): `Categorical.sufficient_statistic` now casts its input to int (a
   fix for float-valued indices).
-- `base/gaussian/boltzmann.py` (+29/−4): new `EnumeratedBoltzmann` (exact sampling by enumeration;
-  ignores `n_burnin`/`n_thin`, as documented).
+- `base/gaussian/boltzmann.py` (+54/−4): new `EnumeratedBoltzmann` (exact sampling by enumeration;
+  ignores `n_burnin`/`n_thin`, as documented), and the contract `coupled_pairs` (the order of the
+  stored off-diagonal couplings) on every Boltzmann.
 - `geometry/exponential_family/dynamical.py` (+28/−19): look at `emission_params` (latent bias =
   belief − $\rho$); the rest is the rename to the new variational API.
-- `variational/population_code_process.py` (+52, new): three one-line overrides.
+- `variational/population_code_process.py` (+53, new): three one-line overrides, over a
+  `VariationalPopulationCode`.
+- `variational/population_codes.py` (+53, new): `VariationalPopulationCode`, four one-line
+  overrides (constant $\rho$ on the whole latent).
 
 ### Changes behaviour: review these
 
@@ -68,31 +72,31 @@ statistics are now float64. The tests would not notice either way.
   $(\mathbf 1 \mathbf 1^T + AA^T/d)$ multiplies the covariance, so the sample covariance is kept up
   to noise, and positive definiteness follows from the Schur product theorem. Every model
   initialized from a sample now starts elsewhere; no test checks initialization.
-- `harmonium/population_codes.py` and `variational/population_codes.py` (+105/−98): a
-  generalization, not a reduction.
-  `PoissonVonMisesHarmonium` → `PoissonPopulationHarmonium[Latent]` with subpopulations and a
-  `tuning` list of (population, node) pairs. `initialize_from_tuning_curves` moved out of the
-  library into `examples/population_codes/run.py` and `examples/pendulum/run.py`.
-  `BoltzmannPopulationCode` is ported to the new variational API.
+- `harmonium/lgm.py` (+91/−128): `NormalBoltzmannMachine[ObsRep, Shape](obs_dim, obs_rep,
+  boltzmann)` replaces `BoltzmannLGM`, `DifferentiableBoltzmannLGM` and `NormalBoltzmannHarmonium`:
+  the Boltzmann analogue of `NormalLGM`, any Boltzmann posterior, `FullBoltzmann` prior, exactly
+  conjugated. `BoltzmannCouplingEmbedding` (any Boltzmann into dense, a scatter by `coupled_pairs`)
+  generalizes `BoltzmannEmbedding` (diagonal into dense). New tests: a chordal-posterior case in
+  `tests/harmonium.py`, a chordal embedding test in `tests/gaussian.py`.
+- `harmonium/population_codes.py` (+99/−180): **the model set changed.**
+  `PopulationCode[Observable, Latent](latent)` couples one population to every clique of its latent
+  through `nrn_emb`, the neuron statistics the latent modulates: all of them for
+  `PoissonPopulationCode(latent, n_neurons)`, the biases only for `BoltzmannPopulationCode(latent,
+  neurons)`, whose couplings, and so noise correlations, do not depend on the latent. A latent with
+  an edge gives non-separable tuning. `GraphicalPopulationCode(latent, codes_att_clqs)` attaches
+  several codes to one latent as subpopulations; it overrides `obs_man` with a `DifferentiableTuple`,
+  since the variational ELBO needs its log-partition function. Gone: `PoissonVonMisesHarmonium`
+  (on `main`); `PoissonPopulationHarmonium` and its `tuning` pairs, `BoltzmannNormalHarmonium` (the
+  latent also modulated the couplings) and `PopulationCodeHarmonium` (on the branch).
+  `initialize_from_tuning_curves` moved to `examples/population_codes/run.py` and
+  `examples/pendulum/run.py`. On the pendulum, subpopulation and circuit layouts the old and new
+  classes give identical sufficient statistics, likelihoods and posteriors (checked in a scratch
+  script, not in the suite). `chordal_boltzmann_ppc` now fits the bias-only coupling, so its results
+  changed.
 - `harmonium/cca.py` (+166, new).
-- `variational/canonical_circuit.py` (+517, new).
-
-### Reorganization of 2026-10-12 (uncommitted)
-
-- `NormalBoltzmannMachine[ObsRep, Shape](obs_dim, obs_rep, boltzmann)` in `harmonium/lgm.py`
-  replaces `BoltzmannLGM`, `DifferentiableBoltzmannLGM` and `NormalBoltzmannHarmonium`. It is the
-  Boltzmann analogue of `NormalLGM`: any Boltzmann posterior, `FullBoltzmann` prior, exactly
-  conjugated. `BoltzmannEmbedding` (diagonal into dense) is generalized to
-  `BoltzmannCouplingEmbedding` (any Boltzmann into dense), through a new contract
-  `Boltzmann.coupled_pairs`. Look at both; `tests/harmonium.py` gains a chordal-posterior case and
-  `tests/gaussian.py` a chordal embedding test.
-- `models/variational/` holds everything variational: `population_codes.py`
-  (`PoissonPopulationCode`, `BoltzmannPopulationCode` and their factories),
-  `population_code_process.py` and `canonical_circuit.py`. The exact harmoniums stay in
-  `harmonium/population_codes.py`, which gains `PopulationCodeHarmonium` from the circuit.
-- In the circuit, `GaussianBoltzmannLevel` computes exact $\rho_N$ from its own `gb_hrm` instead of
-  a throwaway `BoltzmannLGM`, and `_generative_neuron_params` uses `BoltzmannCouplingEmbedding`
-  instead of its own scatter.
+- `variational/canonical_circuit.py` (+532, new). Its population code level is
+  `BoltzmannPopulationCode[Any, DiagonalNormal]`; `GaussianBoltzmannLevel` computes exact $\rho_N$
+  from its own `gb_hrm`, and `_generative_neuron_params` uses `BoltzmannCouplingEmbedding`.
 
 ## Open
 
@@ -137,7 +141,7 @@ Decided to avoid generalizing before a model needs it.
 | gate | command |
 |---|---|
 | lint | `uvx ruff check src/ tests/` |
-| types | `uvx basedpyright src/ tests/` (known: `mixture.py:468`) |
+| types | `uvx basedpyright src/ tests/ examples/` (0 errors, 2026-10-12) |
 | docs | `uv run sphinx-build -q docs/source docs/build` |
 | suite | `uv run python -m pytest tests/ -q` |
-| variational | `uv run python -m pytest tests/graphical_variational.py tests/variational.py` (85 passed, about 13 min on the laptop, 2026-10-09) |
+| variational | `uv run python -m pytest tests/variational.py` (54 passed, about 2.5 min on the laptop, 2026-10-12) |

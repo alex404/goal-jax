@@ -1,15 +1,18 @@
 """Chordal Boltzmann PPC: conjugacy and data-learning.
 
 A population code of correlated binary neurons --- a Boltzmann machine with
-pairwise couplings on a chordal graph --- encodes a continuous Gaussian latent.
-The model is a ``VariationalConjugated`` population code
-(:class:`~goal.models.variational.population_codes.BoltzmannPopulationCode`), so we
-can ask the two questions that matter together:
+pairwise couplings on a chordal graph --- encodes a continuous Gaussian latent. The
+latent modulates the biases of the neurons, so their couplings, and with them the noise
+correlations, do not depend on it. The model is a
+:class:`~goal.models.BoltzmannPopulationCode` fit as a
+:class:`~goal.models.VariationalPopulationCode`, so we can ask the two questions that
+matter together:
 
 1. **Conjugacy.** Is the Boltzmann log-partition affine in the latent sufficient
-   statistics, ``psi_G(theta_N + Theta . s_X(z)) ~= rho . s_X(z) + chi``? Fitting
-   ``rho`` by least squares drives the conjugation residual to near zero, and a
-   Bayesian-decoding check confirms the code still carries latent information.
+   statistics, ``psi_G(theta_N + Theta . s_X(z)) ~= rho . s_X(z) + chi``? ``rho`` is
+   learned by gradient together with the rest of the model, with the conjugation
+   residual regularized, and a Bayesian-decoding check confirms the code still carries
+   latent information.
 
 2. **Data-learning.** Trained on data from an *independent* Bernoulli mixture
    (not the model itself, so the test isn't circular) by maximizing the ELBO with
@@ -30,8 +33,10 @@ from jax.scipy.special import logsumexp
 from goal.geometry.exponential_family.variational import conjugation_metrics
 from goal.models import (
     BoltzmannPopulationCode,
-    chordal_boltzmann_population_code,
-    diagonal_boltzmann_population_code,
+    ChordalBoltzmann,
+    DiagonalBoltzmann,
+    VariationalPopulationCode,
+    full_normal,
 )
 
 from ..shared import example_paths, jax_cli
@@ -142,7 +147,7 @@ def offdiag_rmse(a: Array, b: Array) -> float:
 
 
 def conjugacy_curves(
-    model: BoltzmannPopulationCode[Any],
+    model: VariationalPopulationCode[Any],
     params0: Array,
     params: Array,
     z_pts: Array,
@@ -160,7 +165,7 @@ def conjugacy_curves(
 
 
 def decode_rmse(
-    model: BoltzmannPopulationCode[Any],
+    model: VariationalPopulationCode[Any],
     params: Array,
     x_stars: Array,
     key: Array,
@@ -189,7 +194,7 @@ def decode_rmse(
 
 
 def fit_family(
-    model: BoltzmannPopulationCode[Any],
+    model: VariationalPopulationCode[Any],
     name: str,
     train: Array,
     test: Array,
@@ -255,7 +260,7 @@ def fit_family(
     d_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, False)
     l_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, True)
     model_corr = corr_of(
-        model.sample(k_corr, params, CORR_SAMPLES)[:, : model.n_neurons]
+        model.sample(k_corr, params, CORR_SAMPLES)[:, : model.hrm.obs_man.data_dim]
     )
 
     print(
@@ -300,9 +305,15 @@ def main() -> None:
     log_prior = -0.5 * jnp.sum(grid**2, axis=1) / LATENT_STD**2
     x_stars = LATENT_STD * jax.random.normal(jax.random.PRNGKey(1), (N_DECODE, LAT_DIM))
 
-    models: dict[str, BoltzmannPopulationCode[Any]] = {
-        "chordal": chordal_boltzmann_population_code(n, edges, LAT_DIM),
-        "diagonal": diagonal_boltzmann_population_code(n, LAT_DIM),
+    models: dict[str, VariationalPopulationCode[Any]] = {
+        "chordal": VariationalPopulationCode(
+            BoltzmannPopulationCode(
+                full_normal(LAT_DIM), ChordalBoltzmann.from_edges(n, edges)
+            )
+        ),
+        "diagonal": VariationalPopulationCode(
+            BoltzmannPopulationCode(full_normal(LAT_DIM), DiagonalBoltzmann(n))
+        ),
     }
     fam_keys = {"chordal": k_chord, "diagonal": k_diag}
 

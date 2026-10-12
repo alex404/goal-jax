@@ -61,9 +61,9 @@ from ..base.gaussian.boltzmann import (
     FullBoltzmann,
 )
 from ..base.gaussian.generalized import Euclidean
-from ..base.gaussian.normal import DiagonalNormal
+from ..base.gaussian.normal import DiagonalNormal, diagonal_normal
 from ..harmonium.lgm import BoltzmannCouplingEmbedding, NormalBoltzmannMachine
-from ..harmonium.population_codes import PopulationCodeHarmonium
+from ..harmonium.population_codes import BoltzmannPopulationCode
 
 type Variant = Literal["partially_exact", "approximate"]
 
@@ -198,7 +198,7 @@ class PopulationCodeLevel(
 
     # Fields
 
-    pop_hrm: PopulationCodeHarmonium
+    pop_hrm: BoltzmannPopulationCode[Any, DiagonalNormal]
     cnj_map: PopulationConjugationFunction
     deep: DeepModel[Any]
 
@@ -313,7 +313,7 @@ class CanonicalCircuit(GaussianBoltzmannLevel):
                 mans.append(gb.gb_hrm.obs_man)
             mans.append(gb.gb_hrm.int_man)
             mans.append(gen_nrn)
-            lat_dim = pop.pop_hrm.lat_dim
+            lat_dim = pop.pop_hrm.pst_man.data_dim
             mans.append(Euclidean(gen_nrn.data_dim * lat_dim))
             mans.append(Euclidean(gen_nrn.data_dim * lat_dim))
         mans.append(GenerativeCoordinates(tuple(self._perceptron_mans)))
@@ -499,7 +499,7 @@ def canonical_circuit(
             if variant == "partially_exact"
             else ChordalBoltzmann.from_edges(n_neurons[k], edgess[k])
         )
-        pop_hrm = PopulationCodeHarmonium(neurons, lat_dims[k])
+        pop_hrm = BoltzmannPopulationCode(diagonal_normal(lat_dims[k]), neurons)
         pop_deep: DeepModel[Any] = (
             DifferentiableDeepModel(pop_hrm.pst_man) if deep is None else deep
         )

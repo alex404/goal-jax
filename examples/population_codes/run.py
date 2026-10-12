@@ -14,7 +14,7 @@ from goal.geometry.exponential_family.variational import (
 )
 from goal.models import (
     PoissonPopulationCode,
-    PoissonPopulationHarmonium,
+    VariationalPopulationCode,
     VonMisesProduct,
 )
 
@@ -31,7 +31,7 @@ baseline_rate = 1.0  # Baseline firing rate
 max_rate = 10.0  # Maximum firing rate at preferred direction
 
 
-type RingCode = PoissonPopulationCode[VonMisesProduct]
+type RingCode = VariationalPopulationCode[VonMisesProduct]
 
 
 def initialize_from_tuning_curves(
@@ -67,8 +67,8 @@ def initialize_from_tuning_curves(
 
 def create_population_code(key: jax.Array) -> tuple[RingCode, jax.Array]:
     """Create a population code with evenly spaced tuning curves."""
-    model = PoissonPopulationCode(
-        PoissonPopulationHarmonium((n_neurons,), VonMisesProduct(1), ((0, 0),))
+    model = VariationalPopulationCode(
+        PoissonPopulationCode(VonMisesProduct(1), n_neurons)
     )
     preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
     params = initialize_from_tuning_curves(

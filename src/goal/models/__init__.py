@@ -67,11 +67,12 @@ from .harmonium.lgm import (
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 from .harmonium.population_codes import (
-    BoltzmannNormalHarmonium,
+    BoltzmannPopulationCode,
     CoMPoissonMixture,
+    GraphicalPopulationCode,
     PoissonMixture,
-    PoissonPopulationHarmonium,
-    PopulationCodeHarmonium,
+    PoissonPopulationCode,
+    PopulationCode,
     com_poisson_mixture,
     poisson_mixture,
 )
@@ -83,12 +84,7 @@ from .variational.canonical_circuit import (
     canonical_circuit,
 )
 from .variational.population_code_process import PopulationCodeProcess
-from .variational.population_codes import (
-    BoltzmannPopulationCode,
-    PoissonPopulationCode,
-    chordal_boltzmann_population_code,
-    diagonal_boltzmann_population_code,
-)
+from .variational.population_codes import VariationalPopulationCode
 
 __all__ = [
     "LGM",
@@ -101,7 +97,6 @@ __all__ = [
     "Binomials",
     "Boltzmann",
     "BoltzmannCouplingEmbedding",
-    "BoltzmannNormalHarmonium",
     "BoltzmannPopulationCode",
     "CanonicalCircuit",
     "CanonicalCorrelationAnalysis",
@@ -130,6 +125,7 @@ __all__ = [
     "FullBoltzmann",
     "FullNormal",
     "GaussianBoltzmannLevel",
+    "GraphicalPopulationCode",
     "HiddenMarkovModel",
     "IsotropicNormal",
     "JunctionTree",
@@ -144,9 +140,8 @@ __all__ = [
     "Poisson",
     "PoissonMixture",
     "PoissonPopulationCode",
-    "PoissonPopulationHarmonium",
     "Poissons",
-    "PopulationCodeHarmonium",
+    "PopulationCode",
     "PopulationCodeLevel",
     "PopulationCodeProcess",
     "PopulationConjugationFunction",
@@ -154,13 +149,12 @@ __all__ = [
     "PrincipalComponentAnalysis",
     "StandardNormal",
     "SymmetricHMoG",
+    "VariationalPopulationCode",
     "VonMises",
     "VonMisesProduct",
     "analytic_hmog",
     "canonical_circuit",
-    "chordal_boltzmann_population_code",
     "com_poisson_mixture",
-    "diagonal_boltzmann_population_code",
     "diagonal_normal",
     "differentiable_hmog",
     "factor_analysis",
