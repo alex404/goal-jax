@@ -92,7 +92,14 @@ statistics are now float64. The tests would not notice either way.
   `sample(key, phi)` on a table of clique log-potentials over binary states, which `ChainTree`
   overrides with the `associative_scan` kernels. `ChordalCouplingMatrix.clique_potentials` builds
   that table from biases and couplings, so `ChordalBoltzmann` no longer dispatches on the tree
-  type. New tests in `tests/algebra.py`: sum-product at random, non-pairwise potentials against
+  type. The topology and the static tables are computed by numpy on the clique × node
+  `incidence` (separator sizes `B @ B.T`, owners by `argmax`, maximal cliques by one containment
+  product); one traversal gives `pre_order` and `parent_of`; a `ChainTree` is rooted at an end of
+  its path, so its path is its pre-order; and both samplers draw clique states and read each node
+  from its first clique. 32 loop statements became 12 (triangulation and Kruskal stay sequential).
+  Compiled kernels run as before (CPU, $n = 1000$ chain, 300-node band and tree); construction
+  takes 107–151 ms instead of about 40 ms at $n = 1000$, from the $O(n^3)$ containment and overlap
+  products. New tests in `tests/algebra.py`: sum-product at random, non-pairwise potentials against
   enumeration (log-partition, gradient as clique marginals, joint of the samples) on hand-picked
   and random graphs.
 - `harmonium/lgm.py` (+91/−128): `NormalBoltzmannMachine[ObsRep, Shape](obs_dim, obs_rep,

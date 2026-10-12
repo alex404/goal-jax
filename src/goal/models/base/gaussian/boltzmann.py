@@ -415,25 +415,24 @@ class ChordalCouplingMatrix(ExponentialFamily):
         """
         jt = self.junction_tree
         diag, off_diag = self._split(params)
-        bits = jnp.asarray(binary_states(jt.max_clique_size))
-        bias_idx, bias_pos, edge_idx, edge_pi, edge_pj = map(
-            jnp.asarray, _ownership_tables(jt)
+        nc, m = jt.n_cliques, jt.max_clique_size
+        local = jt.local_positions
+        node_owner = np.asarray(jt.node_owner, dtype=np.int64)
+        edge_owner = np.asarray(jt.edge_owner, dtype=np.int64)
+        i, j = self._edge_array.T
+        # Each clique's own biases and couplings, at the positions of their nodes in it.
+        biases = (
+            jnp.zeros((nc, m))
+            .at[node_owner, local[node_owner, np.arange(len(diag))]]
+            .set(diag)
         )
-
-        # Leading-zero padding so the sentinel -1 gathers a zero contribution.
-        diag_padded = jnp.concatenate([jnp.zeros(1), diag])
-        off_padded = jnp.concatenate([jnp.zeros(1), off_diag])
-
-        def one_clique(
-            b_idx: Array, b_pos: Array, e_idx: Array, e_i: Array, e_j: Array
-        ) -> Array:
-            phi_b = jnp.sum(bits[:, b_pos] * diag_padded[b_idx + 1][None, :], axis=1)
-            phi_e = jnp.sum(
-                bits[:, e_i] * bits[:, e_j] * off_padded[e_idx + 1][None, :], axis=1
-            )
-            return phi_b + phi_e
-
-        return jax.vmap(one_clique)(bias_idx, bias_pos, edge_idx, edge_pi, edge_pj)
+        couplings = (
+            jnp.zeros((nc, m, m))
+            .at[edge_owner, local[edge_owner, i], local[edge_owner, j]]
+            .set(off_diag)
+        )
+        bits = jnp.asarray(binary_states(m), dtype=biases.dtype)
+        return biases @ bits.T + jnp.einsum("sp,cpq,sq->cs", bits, couplings, bits)
 
     def to_matrix(self, params: Array) -> Array:
         """Scatter the parameters into a dense symmetric $n \\times n$ matrix."""
@@ -459,44 +458,6 @@ class ChordalCouplingMatrix(ExponentialFamily):
         j = jnp.asarray(edges[:, 1])
         off_diag = 0.5 * (matrix[i, j] + matrix[j, i])
         return jnp.concatenate([diag, off_diag])
-
-
-def _ownership_tables(
-    jt: JunctionTree,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Padded per-clique tables of the biases and couplings each clique owns.
-
-    Returns ``(bias_idx, bias_pos, edge_idx, edge_pi, edge_pj)``; the ``*_idx``
-    arrays index into the diagonal and off-diagonal parameters with sentinel ``-1``
-    marking padded slots, and the ``*_pos`` / ``*_p{i,j}`` arrays give clique-local
-    positions.
-    """
-    nc, m = jt.n_cliques, jt.max_clique_size
-    cliques = jt.cliques
-
-    bias_idx = np.full((nc, m), -1, dtype=np.int32)
-    bias_pos = np.zeros((nc, m), dtype=np.int32)
-    slots = [0] * nc
-    for v, c in enumerate(jt.node_owner):
-        bias_idx[c, slots[c]] = v
-        bias_pos[c, slots[c]] = cliques[c].index(v)
-        slots[c] += 1
-
-    owned: list[list[tuple[int, int, int]]] = [[] for _ in range(nc)]
-    edge_owner = jt.edge_owner
-    for k, (vi, vj) in enumerate(jt.edges):
-        c = edge_owner[k]
-        owned[c].append((k, cliques[c].index(vi), cliques[c].index(vj)))
-    width = max((len(o) for o in owned), default=0)
-    edge_idx = np.full((nc, width), -1, dtype=np.int32)
-    edge_pi = np.zeros((nc, width), dtype=np.int32)
-    edge_pj = np.zeros((nc, width), dtype=np.int32)
-    for c, edges_in_c in enumerate(owned):
-        for slot, (k, pi, pj) in enumerate(edges_in_c):
-            edge_idx[c, slot] = k
-            edge_pi[c, slot] = pi
-            edge_pj[c, slot] = pj
-    return bias_idx, bias_pos, edge_idx, edge_pi, edge_pj
 
 
 @dataclass(frozen=True)

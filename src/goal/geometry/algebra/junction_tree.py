@@ -24,8 +24,8 @@ Inference runs on a table of clique log-potentials ``phi`` of shape
 $\\phi_c(x_C)$ for every binary state of clique $C$, and the distribution is
 $p(x) \\propto \\exp \\sum_c \\phi_c(x_C)$. A state is encoded LSB-first: bit $p$ of a
 clique state is the value of the clique's $p$-th node, in ascending node order, as in
-:func:`binary_states`. Entries at states $s \\geq 2^{\\lvert C \\rvert}$ of a smaller clique are
-padding and are ignored. :meth:`JunctionTree.log_partition` and
+:func:`binary_states`. Entries at states $s \\geq 2^{\\lvert C \\rvert}$ of a smaller
+clique are padding and are ignored. :meth:`JunctionTree.log_partition` and
 :meth:`JunctionTree.sample` cost $O(n \\cdot 2^{w+1})$, with $w$ the treewidth;
 a :class:`ChainTree` runs the same computations at $O(\\log n)$ depth.
 
@@ -45,7 +45,6 @@ the clique graph weighted by separator size.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from itertools import pairwise
 from typing import override
 
 import jax
@@ -55,13 +54,21 @@ from jax import Array
 
 from .clique import Cliques
 
-### State tables ###
+### Static tables ###
 
 
 def binary_states(n: int) -> np.ndarray:
     """``(2^n, n)`` table of all binary states: row $s$ is the LSB-first binary expansion of $s$."""
     states = np.arange(1 << n, dtype=np.int64)
     return ((states[:, None] >> np.arange(n)) & 1).astype(np.int32)
+
+
+def _incidence(cliques: tuple[tuple[int, ...], ...], n: int) -> np.ndarray:
+    """``(n_cliques, n)`` bool: True where the clique contains the node."""
+    incidence = np.zeros((len(cliques), n), dtype=bool)
+    for c, clique in enumerate(cliques):
+        incidence[c, list(clique)] = True
+    return incidence
 
 
 def _sep_state_map(
@@ -75,21 +82,40 @@ def _sep_state_map(
     contribution, so segment reductions never see an all-padded segment.
     """
     result = np.zeros(1 << m, dtype=np.int32)
-    if not separator:
-        return result
-    states = np.arange(1 << len(clique), dtype=np.int64)
-    sep_state = np.zeros_like(states)
-    for i, v in enumerate(separator):
-        sep_state |= ((states >> clique.index(v)) & 1) << i
-    result[: 1 << len(clique)] = sep_state.astype(np.int32)
+    positions = np.searchsorted(clique, separator)
+    weights = 1 << np.arange(len(separator))
+    result[: 1 << len(clique)] = binary_states(len(clique))[:, positions] @ weights
     return result
 
 
-def _state_mask(jt: JunctionTree) -> np.ndarray:
-    """``(n_cliques, 2^m)`` bool: True iff the state is a real assignment for the clique."""
-    sizes = np.array([len(c) for c in jt.cliques], dtype=np.int64)
-    states = np.arange(1 << jt.max_clique_size, dtype=np.int64)
-    return states[None, :] < (1 << sizes[:, None])
+def _tree_tables(jt: JunctionTree) -> tuple[Array, Array, Array, int]:
+    """The tree edges in pre-order, parent before child, for a tree of at least two cliques.
+
+    Returns ``(parents, children, sep_maps, n_sep_states)``: ``sep_maps[k]`` stacks the
+    separator-state maps (:func:`_sep_state_map`) of the child and of the parent of edge
+    $k$, over the separator they share, and ``n_sep_states`` is the number of states of
+    the largest separator.
+    """
+    parent_of = jt.parent_of
+    children = jt.pre_order[1:]
+    parents = [parent_of[c] for c in children]
+    seps = [jt.separator(c, p) for c, p in zip(children, parents)]
+    m = jt.max_clique_size
+    sep_maps = np.stack(
+        [
+            [
+                _sep_state_map(jt.cliques[c], sep, m),
+                _sep_state_map(jt.cliques[p], sep, m),
+            ]
+            for c, p, sep in zip(children, parents, seps)
+        ]
+    )
+    return (
+        jnp.asarray(parents, dtype=jnp.int32),
+        jnp.asarray(children, dtype=jnp.int32),
+        jnp.asarray(sep_maps),
+        1 << max(len(s) for s in seps),
+    )
 
 
 ### Traced computations ###
@@ -97,7 +123,9 @@ def _state_mask(jt: JunctionTree) -> np.ndarray:
 
 def _masked(jt: JunctionTree, phi: Array) -> Array:
     """The potentials with padded states set to $-\\infty$, so they fall out of every ``logsumexp``."""
-    return jnp.where(jnp.asarray(_state_mask(jt)), phi, -jnp.inf)
+    sizes = np.array([len(c) for c in jt.cliques])
+    real = np.arange(1 << jt.max_clique_size)[None, :] < (1 << sizes[:, None])
+    return jnp.where(jnp.asarray(real), phi, -jnp.inf)
 
 
 def _segment_logsumexp(values: Array, segment_ids: Array, num_segments: int) -> Array:
@@ -122,41 +150,56 @@ def _collect(jt: JunctionTree, phi: Array) -> Array:
     messages), shape ``(n_cliques, 2^m)``; padded states carry ``-inf``. Each
     step marginalizes the child's total onto the separator, $m_{C \\to P}(x_S)
     = \\log \\sum_{x_{C \\setminus S}} \\exp(\\phi_C(x_C) + \\text{incoming})$,
-    and broadcasts it into the parent.
+    and broadcasts it into the parent. The edges run in reverse pre-order, so every
+    child has received its own messages before it sends.
     """
     totals = _masked(jt, phi)
-    order = jt.collect_order
-    if not order:
+    if jt.n_cliques == 1:
         return totals
+    parents, children, sep_maps, n_sep_states = _tree_tables(jt)
 
-    m = jt.max_clique_size
-    seps = [jt.separator(c, p) for c, p in order]
-    n_sep_states = 1 << max(len(s) for s in seps)
-    child_idx = jnp.asarray(np.array([c for c, _ in order], dtype=np.int32))
-    parent_idx = jnp.asarray(np.array([p for _, p in order], dtype=np.int32))
-    sep_maps = jnp.asarray(
-        np.stack(
-            [
-                np.stack(
-                    [
-                        _sep_state_map(jt.cliques[c], sep, m),
-                        _sep_state_map(jt.cliques[p], sep, m),
-                    ]
-                )
-                for (c, p), sep in zip(order, seps)
-            ]
-        )
+    def step(totals: Array, edge: tuple[Array, Array, Array]) -> tuple[Array, None]:
+        parent, child, maps = edge
+        msg = _segment_logsumexp(totals[child], maps[0], n_sep_states)
+        return totals.at[parent].add(msg[maps[1]]), None
+
+    totals, _ = jax.lax.scan(
+        step, totals, (parents[::-1], children[::-1], sep_maps[::-1])
+    )
+    return totals
+
+
+def _read_nodes(jt: JunctionTree, states: Array) -> Array:
+    """The value of every node, read from the drawn state of the first clique that contains it.
+
+    The cliques agree on the nodes they share, so any containing clique would do.
+    """
+    owner = np.asarray(jt.node_owner)
+    positions = jt.local_positions[owner, np.arange(jt.n_nodes)]
+    bits = jnp.asarray(binary_states(jt.max_clique_size))
+    return bits[states[owner], positions].astype(float)
+
+
+def _logmm(left: Array, right: Array) -> Array:
+    """Batched matrix product ``right @ left`` in the log-semiring."""
+    return jax.scipy.special.logsumexp(
+        right[..., :, :, None] + left[..., None, :, :], axis=-2
     )
 
-    def step(
-        totals: Array, edge_info: tuple[Array, Array, Array]
-    ) -> tuple[Array, None]:
-        child, parent, sep_pair = edge_info
-        msg = _segment_logsumexp(totals[child], sep_pair[0], n_sep_states)
-        return totals.at[parent].add(msg[sep_pair[1]]), None
 
-    totals, _ = jax.lax.scan(step, totals, (child_idx, parent_idx, sep_maps))
-    return totals
+def _transfer_matrices(
+    phi: Array, rows: Array, cols: Array, n_sep_states: int
+) -> Array:
+    """Per-clique transfer matrices $T[t_r, t_c] = \\log \\sum_{s : r(s) = t_r, c(s) = t_c} \\exp \\phi(s)$.
+
+    ``rows`` and ``cols`` map each clique's states to the separator states that index
+    the rows and columns of its matrix.
+    """
+    return jax.vmap(
+        lambda p, i: _segment_logsumexp(p, i, n_sep_states**2).reshape(
+            n_sep_states, n_sep_states
+        )
+    )(phi, rows * n_sep_states + cols)
 
 
 _LOG_ZERO = -1e30
@@ -197,78 +240,73 @@ def _triangulate(
     active = np.ones(n, dtype=bool)
 
     def fill_in(v: int) -> int:
+        """The number of pairs of neighbours of $v$ that are not adjacent."""
         nbrs = np.flatnonzero(adj[v])
         k = nbrs.size
-        return k * (k - 1) // 2 - int(np.count_nonzero(adj[np.ix_(nbrs, nbrs)])) // 2
+        return k * (k - 1) // 2 - int(
+            np.count_nonzero(np.triu(adj[np.ix_(nbrs, nbrs)], 1))
+        )
 
     fill = np.array([fill_in(v) for v in range(n)])
     peo: list[int] = []
     for _ in range(n):
-        cand = np.flatnonzero(active)
         # argmin takes the first minimum --- deterministic lowest-index tie-break.
-        v = int(cand[np.argmin(fill[cand])])
+        v = int(np.argmin(np.where(active, fill, n * n)))
         nbrs = np.flatnonzero(adj[v])
-        # Connect all pairs of v's neighbours. Fill counts change only for
-        # vertices whose neighbourhood gained an internal edge: v's
+        # Fill-in: v's neighbours become pairwise adjacent.
+        fa, fb = np.nonzero(np.triu(~adj[np.ix_(nbrs, nbrs)], 1))
+        adj[np.ix_(nbrs, nbrs)] = True
+        adj[nbrs, nbrs] = False
+        chordal |= adj
+        # Fill counts change only for vertices whose neighbourhood changed: v's
         # neighbours, plus vertices adjacent to both endpoints of a fill-in.
-        missing = ~adj[np.ix_(nbrs, nbrs)]
-        touched = set(nbrs.tolist())
-        for pa, pb in np.argwhere(np.triu(missing, 1)):
-            a, b = int(nbrs[pa]), int(nbrs[pb])
-            adj[a, b] = adj[b, a] = True
-            chordal[a, b] = chordal[b, a] = True
-            touched.update(np.flatnonzero(adj[a] & adj[b]).tolist())
+        touched = np.zeros(n, dtype=bool)
+        touched[nbrs] = True
+        touched |= (adj[nbrs[fa]] & adj[nbrs[fb]]).any(axis=0)
         active[v] = False
         adj[v, :] = adj[:, v] = False
         peo.append(v)
-        for u in touched:
-            if active[u]:
-                fill[u] = fill_in(u)
+        for u in np.flatnonzero(touched & active).tolist():
+            fill[u] = fill_in(u)
     return chordal, peo
 
 
 def _maximal_cliques(
     chordal: np.ndarray, peo: list[int]
-) -> tuple[tuple[tuple[int, ...], ...], list[list[int]]]:
-    """Maximal cliques of the chordal graph, plus the per-node clique index.
+) -> tuple[tuple[int, ...], ...]:
+    """Maximal cliques of the chordal graph, in elimination order.
 
-    The candidate at $v$ is $\\{v\\}$ + later neighbours; a non-maximal
-    candidate is contained in the (kept) candidate of an earlier-eliminated
-    vertex that contains $v$, so containment only needs checking there.
+    Every maximal clique is the candidate $\\{v\\} \\cup$ (later neighbours of $v$) of
+    some $v$, and a candidate is maximal when no other candidate contains it. The
+    candidates are distinct (each contains its own vertex but no earlier one), so
+    containment is strict.
     """
     n = len(peo)
     pos = np.empty(n, dtype=np.int64)
     pos[np.array(peo)] = np.arange(n)
-    kept: list[tuple[int, ...]] = []
-    kept_sets: list[set[int]] = []
-    node_cliques: list[list[int]] = [[] for _ in range(n)]
-    for v in peo:
-        cset = {v, *np.flatnonzero(chordal[v] & (pos > pos[v])).tolist()}
-        if any(cset <= kept_sets[k] for k in node_cliques[v]):
-            continue
-        for u in cset:
-            node_cliques[u].append(len(kept))
-        kept.append(tuple(sorted(cset)))
-        kept_sets.append(cset)
-    return tuple(kept), node_cliques
+    candidates = (chordal & (pos[None, :] > pos[:, None])) | np.eye(n, dtype=bool)
+    # outside[v, u] counts the members of candidate v missing from candidate u.
+    outside = candidates.astype(np.float32) @ (~candidates).T.astype(np.float32)
+    contained = outside == 0
+    np.fill_diagonal(contained, False)
+    return tuple(
+        tuple(np.flatnonzero(candidates[v]).tolist())
+        for v in peo
+        if not contained[v].any()
+    )
 
 
-def _spanning_tree(
-    n_cliques: int, node_cliques: list[list[int]]
-) -> tuple[tuple[int, int], ...]:
+def _spanning_tree(incidence: np.ndarray) -> tuple[tuple[int, int], ...]:
     """Maximum-weight spanning tree of the clique graph, linked across components.
 
-    Separator sizes via co-occurrence counts: each node contributes 1 to the
-    weight of every pair of cliques containing it. Kruskal on the weights,
-    then zero-weight links join any remaining components (a disconnected
+    The weight of two cliques is the size of their intersection. Kruskal on the
+    weights, then zero-weight links join any remaining components (a disconnected
     graph yields a clique forest) into a single tree.
     """
-    weights: dict[tuple[int, int], int] = {}
-    for ids in node_cliques:
-        for x, ci in enumerate(ids):
-            for cj in ids[x + 1 :]:
-                key = (ci, cj) if ci < cj else (cj, ci)
-                weights[key] = weights.get(key, 0) + 1
+    n_cliques = incidence.shape[0]
+    overlap = incidence.astype(np.float32) @ incidence.T.astype(np.float32)
+    rows, cols = np.nonzero(np.triu(overlap, 1))
+    heaviest = np.argsort(-overlap[rows, cols], kind="stable")
 
     parent = list(range(n_cliques))
 
@@ -279,7 +317,7 @@ def _spanning_tree(
         return x
 
     tree: list[tuple[int, int]] = []
-    for (ci, cj), _w in sorted(weights.items(), key=lambda kv: -kv[1]):
+    for ci, cj in zip(rows[heaviest].tolist(), cols[heaviest].tolist()):
         ri, rj = find(ci), find(cj)
         if ri != rj:
             parent[ri] = rj
@@ -348,7 +386,7 @@ class JunctionTree(Cliques):
         if n <= 0:
             raise ValueError(f"n must be positive, got {n}")
         chordal, peo = _triangulate(n, edges)
-        cliques, node_cliques = _maximal_cliques(chordal, peo)
+        cliques = _maximal_cliques(chordal, peo)
 
         max_size = max(len(c) for c in cliques)
         if max_treewidth is not None and max_size - 1 > max_treewidth:
@@ -358,8 +396,7 @@ class JunctionTree(Cliques):
             )
             raise ValueError(msg)
 
-        tree = _spanning_tree(len(cliques), node_cliques)
-        return JunctionTree(cliques, tree, 0)
+        return JunctionTree(cliques, _spanning_tree(_incidence(cliques, n)), 0)
 
     # Overrides
 
@@ -383,62 +420,37 @@ class JunctionTree(Cliques):
         return self.max_clique_size - 1
 
     @property
+    def incidence(self) -> np.ndarray:
+        """``(n_cliques, n_nodes)`` bool: True where the clique contains the node."""
+        return _incidence(self.cliques, self.n_nodes)
+
+    @property
+    def local_positions(self) -> np.ndarray:
+        """``(n_cliques, n_nodes)``: the position of each node within each clique that contains it."""
+        return np.cumsum(self.incidence, axis=1) - 1
+
+    @property
     def pre_order(self) -> tuple[int, ...]:
         """Cliques in depth-first pre-order from the root (parent before children)."""
-        adj: list[list[int]] = [[] for _ in range(self.n_cliques)]
-        for a, b in self.tree_edges:
-            adj[a].append(b)
-            adj[b].append(a)
-        order: list[int] = []
-        seen = {self.root}
-        stack = [self.root]
-        while stack:
-            c = stack.pop()
-            order.append(c)
-            for u in adj[c]:
-                if u not in seen:
-                    seen.add(u)
-                    stack.append(u)
-        return tuple(order)
+        return self._traversal[0]
 
     @property
     def parent_of(self) -> tuple[int, ...]:
         """parent_of[c] = parent clique index in the rooted tree, or -1 for the root."""
-        pos = {c: i for i, c in enumerate(self.pre_order)}
-        parent = [-1] * self.n_cliques
-        for a, b in self.tree_edges:
-            a, b = (a, b) if pos[a] < pos[b] else (b, a)
-            parent[b] = a
-        return tuple(parent)
-
-    @property
-    def collect_order(self) -> tuple[tuple[int, int], ...]:
-        """(child, parent) clique pairs in post-order --- leaves before the root."""
-        parent = self.parent_of
-        return tuple((c, parent[c]) for c in reversed(self.pre_order) if parent[c] >= 0)
+        return self._traversal[1]
 
     @property
     def node_owner(self) -> tuple[int, ...]:
         """For each node, the first clique (in storage order) that contains it."""
-        owner = [-1] * self.n_nodes
-        for ci, c in enumerate(self.cliques):
-            for v in c:
-                if owner[v] < 0:
-                    owner[v] = ci
-        return tuple(owner)
+        return tuple(self.incidence.argmax(axis=0).tolist())
 
     @property
     def edge_owner(self) -> tuple[int, ...]:
         """For each edge, in the order of :attr:`edges`, the first clique that contains it."""
-        index = {e: k for k, e in enumerate(self.edges)}
-        owner = [-1] * len(index)
-        for ci, c in enumerate(self.cliques):
-            for x, vi in enumerate(c):
-                for vj in c[x + 1 :]:
-                    k = index[(vi, vj)]
-                    if owner[k] < 0:
-                        owner[k] = ci
-        return tuple(owner)
+        incidence = self.incidence
+        edges = np.asarray(self.edges, dtype=np.int64).reshape(-1, 2)
+        both = incidence[:, edges[:, 0]] & incidence[:, edges[:, 1]]
+        return tuple(both.argmax(axis=0).tolist())
 
     def separator(self, child: int, parent: int) -> tuple[int, ...]:
         """Sorted tuple of node indices shared by the (child, parent) cliques."""
@@ -453,98 +465,66 @@ class JunctionTree(Cliques):
         """Draw one exact sample of all $n$ nodes at the clique log-potentials ``phi``.
 
         Collect pass for per-clique log-totals, then a pre-order walk down the
-        rooted tree: the root clique is sampled from its full categorical, and each
-        child clique from its total masked to states consistent with the values
-        already drawn for the separator with its parent (the running-intersection
-        property makes that conditioning sufficient).
-
-        The same property makes the write pattern static: when the walk visits a
-        clique, its already-assigned nodes are exactly that parent separator (any
-        node shared with an earlier-visited clique lies on the tree path to it,
-        which passes through the parent). Each step therefore writes the
-        statically known complement, and every node is written exactly once --- by
-        the first pre-order clique that contains it.
+        rooted tree: the root clique is drawn from its total, and each child clique
+        from its total restricted to the states that agree with its parent's drawn
+        state on their separator. Given the separator, a child's subtree is
+        independent of the rest of the tree, so this is the exact conditional, and by
+        the running-intersection property the drawn cliques agree on every node they
+        share.
 
         The collect pass does not depend on ``key``, so under ``vmap`` over keys it
         is computed once across draws.
         """
         totals = _collect(self, phi)
-
-        n, m = self.n_nodes, self.max_clique_size
-        pre = self.pre_order
-        parent = self.parent_of
-        nc = self.n_cliques
-
-        clique_idx = np.zeros(nc, dtype=np.int32)
-        sep_map = np.zeros((nc, 1 << m), dtype=np.int32)
-        sep_vars = np.zeros((nc, m), dtype=np.int32)
-        sep_size = np.zeros(nc, dtype=np.int32)
-        # Nodes this step writes (clique minus parent separator): node index, with
-        # sentinel n for padded slots (dropped after the scan), and the node's
-        # clique-local position for bit extraction.
-        new_vars = np.full((nc, m), n, dtype=np.int32)
-        new_pos = np.zeros((nc, m), dtype=np.int32)
-        for step_i, c in enumerate(pre):
-            cl = self.cliques[c]
-            clique_idx[step_i] = c
-            sep: tuple[int, ...] = ()
-            if parent[c] >= 0:
-                sep = self.separator(c, parent[c])
-                sep_size[step_i] = len(sep)
-                sep_vars[step_i, : len(sep)] = sep
-                sep_map[step_i] = _sep_state_map(cl, sep, m)
-            slot = 0
-            for p, v in enumerate(cl):
-                if v not in sep:
-                    new_vars[step_i, slot] = v
-                    new_pos[step_i, slot] = p
-                    slot += 1
-
-        bits = jnp.asarray(binary_states(m))
-        m_range = jnp.arange(m, dtype=jnp.int32)
+        root_key, key = jax.random.split(key)
+        root_state = jax.random.categorical(root_key, totals[self.root])
+        states = (
+            jnp.zeros(self.n_cliques, dtype=root_state.dtype)
+            .at[self.root]
+            .set(root_state)
+        )
+        if self.n_cliques == 1:
+            return _read_nodes(self, states)
+        parents, children, sep_maps, _ = _tree_tables(self)
 
         def step(
-            carry: tuple[Array, Array],
-            info: tuple[Array, Array, Array, Array, Array, Array],
-        ) -> tuple[tuple[Array, Array], None]:
-            x, key = carry
-            c_idx, smap, svars, ssize, nvars, npos = info
-            # Mask to states consistent with already-sampled separator values
-            # (no-op for the root, where ssize == 0 and target stays 0). Padded
-            # states already carry -inf in the totals.
-            valid_sep = m_range < ssize
-            sep_vals = jnp.where(valid_sep, x[svars].astype(jnp.int32), 0)
-            target = jnp.sum(sep_vals << m_range, dtype=jnp.int32)
-            consistent = (smap == target) | (ssize == 0)
-            logits = jnp.where(consistent, totals[c_idx], -jnp.inf)
+            states: Array, edge: tuple[Array, Array, Array, Array]
+        ) -> tuple[Array, None]:
+            parent, child, maps, k = edge
+            consistent = maps[0] == maps[1][states[parent]]
+            logits = jnp.where(consistent, totals[child], -jnp.inf)
+            return states.at[child].set(jax.random.categorical(k, logits)), None
 
-            key, sub = jax.random.split(key)
-            sampled = bits[jax.random.categorical(sub, logits)]
-            x = x.at[nvars].set(sampled[npos].astype(x.dtype))
-            return (x, key), None
+        keys = jax.random.split(key, children.shape[0])
+        states, _ = jax.lax.scan(step, states, (parents, children, sep_maps, keys))
+        return _read_nodes(self, states)
 
-        init = (jnp.zeros(n + 1, dtype=float), key)
-        (x, _), _ = jax.lax.scan(
-            step,
-            init,
-            (
-                jnp.asarray(clique_idx),
-                jnp.asarray(sep_map),
-                jnp.asarray(sep_vars),
-                jnp.asarray(sep_size),
-                jnp.asarray(new_vars),
-                jnp.asarray(new_pos),
-            ),
-        )
-        return x[:n]
+    @property
+    def _traversal(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """Depth-first traversal from the root: the cliques in pre-order, and the parent of each."""
+        nbrs: list[list[int]] = [[] for _ in range(self.n_cliques)]
+        for a, b in self.tree_edges:
+            nbrs[a].append(b)
+            nbrs[b].append(a)
+        order: list[int] = []
+        parent = [-1] * self.n_cliques
+        stack = [self.root]
+        while stack:
+            c = stack.pop()
+            order.append(c)
+            for u in nbrs[c]:
+                if u != parent[c]:
+                    parent[u] = c
+                    stack.append(u)
+        return tuple(order), tuple(parent)
 
 
 @dataclass(frozen=True)
 class ChainTree(JunctionTree):
-    """Junction tree whose cliques form a path --- a *path decomposition*.
+    """Junction tree whose cliques form a path, rooted at one end --- a *path decomposition*.
 
     Every clique has at most two tree neighbours, so messages compose along a
-    single sequence, and :meth:`log_partition` and :meth:`sample` run at
+    single sequence, the pre-order, and :meth:`log_partition` and :meth:`sample` run at
     $O(\\log n)$ depth through ``associative_scan``: up to two orders of magnitude
     faster on accelerators for long chains with small separators (measured ~100x for
     the gradient of $\\log Z$ at $n \\approx 1000$). The underlying graphs are interval
@@ -563,16 +543,15 @@ class ChainTree(JunctionTree):
         # Assumes the field invariant that tree_edges is a single spanning
         # tree (raw construction is unvalidated, as in the base class); for a
         # tree, max degree <= 2 is equivalent to being a path.
-        degree = [0] * self.n_cliques
-        for a, b in self.tree_edges:
-            degree[a] += 1
-            degree[b] += 1
-        if any(d > 2 for d in degree):
+        degree = _degrees(self.tree_edges, self.n_cliques)
+        if degree.max() > 2:
             msg = (
                 "Clique tree is not a path (a clique has more than two "
                 "neighbours); use a JunctionTree for branching topologies"
             )
             raise ValueError(msg)
+        if degree[self.root] > 1:
+            raise ValueError("The root of a ChainTree must be an end of the path")
 
     # Constructors
 
@@ -585,11 +564,12 @@ class ChainTree(JunctionTree):
     ) -> ChainTree:
         """Build a chain tree from an undirected graph on ``n`` nodes.
 
-        Same construction as :meth:`JunctionTree.from_edges`, plus the
-        path-shape validation.
+        Same construction as :meth:`JunctionTree.from_edges`, rooted at the first end of
+        the path, plus the path-shape validation.
         """
         jt = JunctionTree.from_edges(n, edges, max_treewidth)
-        return ChainTree(jt.cliques, jt.tree_edges, jt.root)
+        end = int(np.argmin(_degrees(jt.tree_edges, jt.n_cliques)))
+        return ChainTree(jt.cliques, jt.tree_edges, end)
 
     # Overrides
 
@@ -611,55 +591,26 @@ class ChainTree(JunctionTree):
         off for separator sizes up to roughly 6; beyond that prefer a
         :class:`JunctionTree`.
         """
-        order = self.clique_path
-        phi = _masked(self, phi)
-        k_total = len(order)
-        if k_total == 1:
-            return jax.scipy.special.logsumexp(phi[order[0]])
+        phi = _masked(self, phi)[jnp.asarray(self.pre_order)]
+        if self.n_cliques == 1:
+            return jax.scipy.special.logsumexp(phi[0])
+        # Separator k joins path cliques k and k + 1; in_maps[k] is clique k + 1's
+        # map onto it and out_maps[k] clique k's.
+        _, _, sep_maps, n_sep_states = _tree_tables(self)
+        in_maps, out_maps = sep_maps[:, 0], sep_maps[:, 1]
 
-        m = self.max_clique_size
-        cliques = self.cliques
-        seps = [self.separator(a, b) for a, b in pairwise(order)]
-        n_sep_states = 1 << max(len(s) for s in seps)
-        out_maps = [
-            _sep_state_map(cliques[order[k]], seps[k], m) for k in range(k_total - 1)
-        ]
-        in_maps = [
-            _sep_state_map(cliques[order[k]], seps[k - 1], m) for k in range(1, k_total)
-        ]
-
-        msg = _segment_logsumexp(phi[order[0]], jnp.asarray(out_maps[0]), n_sep_states)
+        msg = _segment_logsumexp(phi[0], out_maps[0], n_sep_states)
         msg = jnp.maximum(msg, _LOG_ZERO)
-
-        if k_total > 2:
-            # T_k as a 2D segment reduction: segment id = out * S + in.
-            ids = np.stack(
-                [
-                    out_maps[k] * n_sep_states + in_maps[k - 1]
-                    for k in range(1, k_total - 1)
-                ]
+        if self.n_cliques > 2:
+            # T_k[out, in] for the inner cliques k = 1..K-2.
+            transfer = _transfer_matrices(
+                phi[1:-1], out_maps[1:], in_maps[:-1], n_sep_states
             )
-            phi_mid = phi[jnp.asarray(np.array(order[1:-1], dtype=np.int32))]
-            transfer = jax.vmap(
-                lambda p, i: _segment_logsumexp(
-                    p, i, n_sep_states * n_sep_states
-                ).reshape(n_sep_states, n_sep_states)
-            )(phi_mid, jnp.asarray(ids))
             transfer = jnp.maximum(transfer, _LOG_ZERO)
-
-            def logmm(left: Array, right: Array) -> Array:
-                # Earlier matrix `left`, later `right`; composed = right after left.
-                return jax.scipy.special.logsumexp(
-                    right[..., :, :, None] + left[..., None, :, :], axis=-2
-                )
-
-            prod = jax.lax.associative_scan(logmm, transfer)[-1]
+            prod = jax.lax.associative_scan(_logmm, transfer)[-1]
             msg = jax.scipy.special.logsumexp(prod + msg[None, :], axis=-1)
             msg = jnp.maximum(msg, _LOG_ZERO)
-
-        return jax.scipy.special.logsumexp(
-            phi[order[-1]] + msg[jnp.asarray(in_maps[-1])]
-        )
+        return jax.scipy.special.logsumexp(phi[-1] + msg[in_maps[-1]])
 
     @override
     def sample(self, key: Array, phi: Array) -> Array:
@@ -682,67 +633,27 @@ class ChainTree(JunctionTree):
         Only the Gumbels and final gathers depend on ``key``: under ``vmap`` over
         keys the messages and conditional logits are computed once across draws.
         """
-        order = self.clique_path
-        phi = _masked(self, phi)
-        k_total = len(order)
-        m = self.max_clique_size
-        n = self.n_nodes
-        bits = jnp.asarray(binary_states(m))
-
-        # Scatter table: clique-local position -> node index; padded slots hit the
-        # sentinel row n and are dropped. Overlapping writes agree by construction
-        # (shared nodes are separator-consistent), so write order is irrelevant.
-        var_idx = np.full((k_total, m), n, dtype=np.int32)
-        for k, c in enumerate(order):
-            var_idx[k, : len(self.cliques[c])] = self.cliques[c]
-
-        phi_path = phi[jnp.asarray(np.array(order, dtype=np.int32))]  # (K, 2^m)
-
+        path = jnp.asarray(self.pre_order)
+        phi = _masked(self, phi)[path]
+        k_total = self.n_cliques
         if k_total == 1:
-            vals = bits[jax.random.categorical(key, phi_path[0])].astype(float)
-            x = jnp.zeros(n + 1, dtype=float).at[jnp.asarray(var_idx[0])].set(vals)
-            return x[:n]
+            state = jax.random.categorical(key, phi[0])
+            return _read_nodes(self, jnp.atleast_1d(state))
+        _, _, sep_maps, n_sep_states = _tree_tables(self)
+        in_maps, out_maps = sep_maps[:, 0], sep_maps[:, 1]
 
-        cliques = self.cliques
-        seps = [self.separator(a, b) for a, b in pairwise(order)]
-        n_sep_states = 1 << max(len(s) for s in seps)
-        out_maps = np.stack(
-            [_sep_state_map(cliques[order[k]], seps[k], m) for k in range(k_total - 1)]
-        )
-        in_maps = np.stack(
-            [
-                _sep_state_map(cliques[order[k]], seps[k - 1], m)
-                for k in range(1, k_total)
-            ]
-        )
-
-        # Backward messages beta_k (k = 0..K-2) via suffix products of the
-        # transfer matrices M_k[t_in, t_out].
-        last_vec = _segment_logsumexp(
-            phi_path[-1], jnp.asarray(in_maps[-1]), n_sep_states
-        )
+        # Backward messages beta_k on separator k (k = 0..K-2) via suffix products
+        # of the transfer matrices M_k[t_in, t_out] of the inner cliques.
+        last_vec = _segment_logsumexp(phi[-1], in_maps[-1], n_sep_states)
         if k_total > 2:
-            ids = np.stack(
-                [
-                    in_maps[j] * n_sep_states + out_maps[j + 1]
-                    for j in range(k_total - 2)
-                ]
+            transfer = _transfer_matrices(
+                phi[1:-1], in_maps[:-1], out_maps[1:], n_sep_states
             )
-            transfer = jax.vmap(
-                lambda p, i: _segment_logsumexp(
-                    p, i, n_sep_states * n_sep_states
-                ).reshape(n_sep_states, n_sep_states)
-            )(phi_path[1:-1], jnp.asarray(ids))
 
-            def logmm(acc: Array, elem: Array) -> Array:
-                # Log-semiring product elem . acc. Under reverse=True the first
-                # argument accumulates the higher-index product, so this yields
-                # suffix[j] = M_j . M_{j+1} . ... --- lowest index leftmost.
-                return jax.scipy.special.logsumexp(
-                    elem[..., :, :, None] + acc[..., None, :, :], axis=-2
-                )
-
-            suffix = jax.lax.associative_scan(logmm, transfer, reverse=True)
+            # Under reverse=True the first argument accumulates the higher-index
+            # product, so this yields suffix[j] = M_j . M_{j+1} . ... --- lowest
+            # index leftmost.
+            suffix = jax.lax.associative_scan(_logmm, transfer, reverse=True)
             betas_front = jax.scipy.special.logsumexp(
                 suffix + last_vec[None, None, :], axis=-1
             )
@@ -754,25 +665,22 @@ class ChainTree(JunctionTree):
         # t: phi_k(s) + beta_k(out_k(s)), masked to in_k(s) == t. Clique 0 has no
         # incoming separator: its in-map row is zero, so conditioning on t = 0
         # recovers the unconditional draw; the last clique has no beta term.
-        in_ext = jnp.asarray(
-            np.concatenate([np.zeros((1, 1 << m), dtype=np.int32), in_maps])
-        )
-        out_ext = jnp.asarray(
-            np.concatenate([out_maps, np.zeros((1, 1 << m), dtype=np.int32)])
-        )
+        zeros = jnp.zeros((1, phi.shape[1]), dtype=in_maps.dtype)
+        in_ext = jnp.concatenate([zeros, in_maps])
+        out_ext = jnp.concatenate([out_maps, zeros])
         betas_ext = jnp.concatenate([betas, jnp.zeros((1, n_sep_states))])
         beta_term = jnp.take_along_axis(betas_ext, out_ext, axis=1)  # (K, 2^m)
         t_range = jnp.arange(n_sep_states)
         logits = jnp.where(
             in_ext[:, None, :] == t_range[None, :, None],
-            (phi_path + beta_term)[:, None, :],
+            (phi + beta_term)[:, None, :],
             -jnp.inf,
         )  # (K, S, 2^m)
 
         # Shared Gumbels resolve the draw for all hypothetical separator states at
         # once; sampled[k, t] is the clique state drawn given incoming state t, and
         # maps[k, t] the separator state it hands to clique k + 1.
-        gumbels = jax.random.gumbel(key, (k_total, 1 << m))
+        gumbels = jax.random.gumbel(key, (k_total, phi.shape[1]))
         sampled = jnp.argmax(logits + gumbels[:, None, :], axis=-1)  # (K, S)
         maps = jnp.take_along_axis(out_ext, sampled, axis=1)  # (K, S)
 
@@ -784,26 +692,12 @@ class ChainTree(JunctionTree):
         prefix = jax.lax.associative_scan(compose, maps[:-1])  # (K-1, S)
         t_prev = jnp.concatenate([jnp.zeros(1, dtype=prefix.dtype), prefix[:, 0]])
         states = jnp.take_along_axis(sampled, t_prev[:, None], axis=1)[:, 0]  # (K,)
+        return _read_nodes(
+            self, jnp.zeros(k_total, dtype=states.dtype).at[path].set(states)
+        )
 
-        vals = bits[states].astype(float).reshape(-1)
-        x = jnp.zeros(n + 1, dtype=float).at[jnp.asarray(var_idx).reshape(-1)].set(vals)
-        return x[:n]
 
-    # Methods
-
-    @property
-    def clique_path(self) -> tuple[int, ...]:
-        """Cliques ordered leaf-to-leaf along the path."""
-        if self.n_cliques == 1:
-            return (0,)
-        nbrs: list[list[int]] = [[] for _ in range(self.n_cliques)]
-        for a, b in self.tree_edges:
-            nbrs[a].append(b)
-            nbrs[b].append(a)
-        order = [min(c for c in range(self.n_cliques) if len(nbrs[c]) == 1)]
-        prev = -1
-        while len(order) < self.n_cliques:
-            cur = order[-1]
-            order.append(next(u for u in nbrs[cur] if u != prev))
-            prev = cur
-        return tuple(order)
+def _degrees(tree_edges: tuple[tuple[int, int], ...], n_cliques: int) -> np.ndarray:
+    """The number of tree neighbours of each clique."""
+    ends = np.asarray(tree_edges, dtype=np.int64).reshape(-1)
+    return np.bincount(ends, minlength=n_cliques)
