@@ -5,10 +5,16 @@ conjugated: the log-partition function of its observable at the likelihood,
 $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z))$, is affine in $\\mathbf s_Z(z)$, which
 gives its prior, its log-partition function and the marginal density of its observable in
 closed form (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). When
-the attached harmoniums are not conjugated, :class:`VariationalConjugated` wraps the
-graphical harmonium (:attr:`~VariationalConjugated.gph_hrm`) and approximates these
-operations, with conjugation parameters $\\rho$ that are learned, or computed where an
-attached harmonium is conjugated.
+its observable harmoniums are not conjugated, :class:`VariationalConjugated` holds the
+graphical harmonium (:attr:`~VariationalConjugated.gph_hrm`) with a conjugation function for
+each observable harmonium, and approximates these operations with the conjugation parameters
+$\\rho$ they give: learned, or exact where an observable harmonium is conjugated.
+
+A deep model is a chain of levels, bottom first. Each level is a :class:`VariationalConjugated`
+whose deep model (:attr:`~VariationalConjugated.dep_man`), the model of its latent, is the next
+level, and the chain ends at the latent family of the top level, as a
+:class:`DifferentiableDeepModel`. Levels reach their deep models only through
+:class:`DeepModel`, so the recursion needs no special case at its end.
 
 Mathematically, let $\\theta = (\\theta_X, \\Theta_{XZ}, \\theta_Z)$ be the natural parameters of
 the graphical harmonium and $\\rho = \\rho(\\theta_X, \\Theta_{XZ})$ conjugation parameters, a
@@ -46,54 +52,28 @@ from jax import Array
 
 from ..manifold.base import Manifold
 from ..manifold.clique import SubCliquesEmbedding
-from ..manifold.combinators import Pair, Tuple
-from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
+from ..manifold.combinators import ManifoldTuple, Pair
 from ..manifold.map import Map
-from ..manifold.util import split_by_dims
 from .base import Differentiable, Generative
 from .combinators import DifferentiableTuple
-from .graphical import AttachedHarmonium, GraphicalHarmonium
-from .harmonium import Conjugated, Harmonium
+from .graphical import GraphicalHarmonium
+from .harmonium import Conjugated
+
+### Deep models ###
 
 
-@dataclass(frozen=True)
-class ConjugationTuple(Tuple):
-    """The conjugation function parameters of a variational model, one element per level, bottom first: a plain product of the levels' :attr:`~VariationalConjugated.cnj_fun_man`.
+class DeepModel[Prior: Manifold](Pair[Prior, ManifoldTuple], ABC):
+    """The model of the latent of a level, as the level sees it: the operations a level needs from the model above it.
 
-    A level whose conjugation parameters are computed rather than stored has a
-    zero-dimensional element, so element $k$ is always level $k$.
-    """
+    Its purpose is to end the recursion of nested levels without a special case. The deep model
+    of a level is either the next level (:class:`VariationalConjugated`), which does its own part
+    of each operation and passes the rest to its own deep model, or, at the top, the latent family
+    (:class:`DifferentiableDeepModel`), which has no levels and computes each operation exactly. A
+    level calls its deep model only through this contract, and so cannot tell the two apart.
 
-    # Fields
-
-    elm_mans: tuple[Manifold, ...]
-    """The conjugation function parameters of each level, bottom first."""
-
-    # Overrides
-
-    @property
-    @override
-    def dim(self) -> int:
-        return sum(elm.dim for elm in self.elm_mans)
-
-    @override
-    def split_coords(self, coords: Array) -> tuple[Array, ...]:
-        """Split into the conjugation function parameters of each level."""
-        return split_by_dims(coords, tuple(elm.dim for elm in self.elm_mans))
-
-    @override
-    def join_coords(self, *components: Array) -> Array:
-        """Concatenate the conjugation function parameters of each level."""
-        return jnp.concatenate(components)
-
-
-class DeepModel[Prior: Manifold](Pair[Prior, ConjugationTuple], ABC):
-    """A model that can be the deep model of a variational model, the model of the latent above a level.
-
-    Its parameters are ``[prr_params | cnj_fun_tup_params]``: natural parameters of the prior
-    family, and the conjugation function parameters of its levels. It is a variational model
-    (:class:`VariationalConjugated`), or an exponential family with no levels
-    (:class:`DifferentiableDeepModel`).
+    Its parameters are ``[prr_params | cnj_fun_tup_params]``: natural parameters of its prior
+    family, the latent model of the level below, and the conjugation function parameters of its
+    levels, none at the top.
     """
 
     # Contract
@@ -183,7 +163,11 @@ class DeepModel[Prior: Manifold](Pair[Prior, ConjugationTuple], ABC):
 
 @dataclass(frozen=True)
 class DifferentiableDeepModel[Prior: Differentiable](DeepModel[Prior]):
-    """A differentiable exponential family as a deep model. Nothing is attached above it, so it has no levels: no conjugation function parameters and no residuals."""
+    """The end of the recursion: the latent family of the top level as a deep model.
+
+    Nothing is above it, so it has no levels: no conjugation function parameters and no
+    residuals, and $\\tilde\\Psi$, sampling and the log-density are those of the family.
+    """
 
     # Fields
 
@@ -198,8 +182,8 @@ class DifferentiableDeepModel[Prior: Differentiable](DeepModel[Prior]):
 
     @property
     @override
-    def snd_man(self) -> ConjugationTuple:
-        return ConjugationTuple(())
+    def snd_man(self) -> ManifoldTuple:
+        return ManifoldTuple(())
 
     @property
     @override
@@ -229,60 +213,41 @@ class DifferentiableDeepModel[Prior: Differentiable](DeepModel[Prior]):
         return ()
 
 
-class VariationalConjugated[
-    Graphical: GraphicalHarmonium[Any],
-    Conjugation: Manifold,
-](
-    DeepModel[Graphical],
-    ABC,
-):
-    """A graphical harmonium with conjugation parameters, approximating the operations of a conjugated harmonium.
+### Variational models ###
+
+
+@dataclass(frozen=True)
+class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphical]):
+    """A graphical harmonium with conjugation functions, approximating the operations of a conjugated harmonium.
+
+    One level of a deep model. It holds the graphical harmonium (:attr:`gph_hrm`), one
+    conjugation function for each of its observable harmoniums (:attr:`cnj_funs`), and the deep
+    model of its latent (:attr:`dep_man`): the next level, whose graphical harmonium is the latent
+    model of :attr:`gph_hrm`, or at the top a :class:`DifferentiableDeepModel` of the latent
+    family. A variational model is itself a :class:`DeepModel`, so levels nest to any depth.
 
     Its parameters are ``[hrm_params | cnj_fun_tup_params]``: the natural parameters of
-    :attr:`gph_hrm`, and the conjugation function parameters of every level
-    (:class:`ConjugationTuple`), this level's (:attr:`cnj_fun_man`) first and the deep model's
-    after them. It is not an exponential family: the conjugation function parameters parameterize
+    :attr:`gph_hrm`, and the conjugation function parameters of every level, one element per
+    level, bottom first: this level's (:attr:`cnj_fun_man`) first and the deep model's after them. It is not an exponential family: the conjugation function parameters parameterize
     the approximation, not the joint density.
-
-    A subclass declares the graphical harmonium, the conjugation function parameters and how they
-    give $\\rho$ (:meth:`conjugation_parameters`), and the deep model, the model of the
-    latent above this level (:attr:`dep_man`): an exponential family in
-    :class:`DifferentiableVariationalConjugated`, or another variational model, whose graphical
-    harmonium is the prior family. A variational model is itself a :class:`DeepModel`, so
-    levels nest to any depth.
     """
 
-    # Contract
+    # Fields
 
-    @property
-    @abstractmethod
-    def gph_hrm(self) -> Graphical:
-        """The graphical harmonium."""
+    gph_hrm: Graphical
+    """The graphical harmonium."""
 
-    @property
-    @abstractmethod
-    def cnj_fun_man(self) -> Conjugation:
-        """The manifold of the parameters of this level's conjugation function; those of the levels above are the rest of :attr:`snd_man`."""
+    cnj_funs: tuple[Map[Any, Any], ...]
+    """The conjugation function of each observable harmonium of :attr:`gph_hrm`, in order: a map from its likelihood parameters to its $\\rho$, in natural coordinates of its posterior.
 
-    @property
-    @abstractmethod
-    def pst_prr_emb(self) -> LinearEmbedding[Any, Any]:
-        """Embedding of the posterior of :attr:`gph_hrm` into the prior family."""
+    A function of the likelihood alone, so the prior and the recognition model of a nested model
+    use the same one. Its parameters may be none (:class:`ExactConjugationFunction`, where the
+    harmonium is conjugated), $\\rho$ itself (:class:`~goal.geometry.manifold.map.ConstantMap`), or
+    those of a learned approximation.
+    """
 
-    @abstractmethod
-    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
-        """The conjugation function: the conjugation parameters $\\rho$ of the given likelihood natural parameters, in natural coordinates of the prior family.
-
-        A function of the likelihood alone, so the prior and the recognition model of a
-        nested model use the same one. Its parameters may be none (exact conjugation
-        parameters, where an attached harmonium is conjugated), $\\rho$ itself (a constant),
-        or those of a learned approximation.
-        """
-
-    @property
-    @abstractmethod
-    def dep_man(self) -> DeepModel[Any]:
-        """The deep model, whose prior family is the ambient of :attr:`pst_prr_emb`."""
+    dep_man: DeepModel[Any]
+    """The deep model, whose prior family is the latent model of :attr:`gph_hrm`."""
 
     # Overrides
 
@@ -293,8 +258,8 @@ class VariationalConjugated[
 
     @property
     @override
-    def snd_man(self) -> ConjugationTuple:
-        return ConjugationTuple((self.cnj_fun_man, *self.dep_man.snd_man.elm_mans))
+    def snd_man(self) -> ManifoldTuple:
+        return ManifoldTuple((self.cnj_fun_man, *self.dep_man.snd_man.elm_mans))
 
     @property
     @override
@@ -305,21 +270,41 @@ class VariationalConjugated[
     # Methods
 
     @property
+    def cnj_fun_man(self) -> ManifoldTuple:
+        """The parameters of this level's conjugation functions, one element per observable harmonium, zero-dimensional for a function with no parameters; those of the levels above are the rest of :attr:`snd_man`."""
+        return ManifoldTuple(self.cnj_funs)
+
+    @property
     def obs_man(self) -> DifferentiableTuple[Any]:
-        """The observables of the attached harmoniums, as a differentiable tuple: the residual needs $\\psi_X$."""
+        """The observables of the observable harmoniums, as a differentiable tuple: the residual needs $\\psi_X$."""
         return DifferentiableTuple(
             tuple(obs_hrm.obs_man for obs_hrm in self.gph_hrm.obs_hrms)
         )
 
     @property
     def pst_man(self) -> Any:
-        """The posterior family of :attr:`gph_hrm`."""
+        """The latent model of :attr:`gph_hrm`, the prior family of the deep model."""
         return self.gph_hrm.pst_man
 
-    @property
-    def prr_man(self) -> Any:
-        """The prior family."""
-        return self.pst_prr_emb.amb_man
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
+        """The conjugation parameters $\\rho$ of the given likelihood natural parameters, in natural coordinates of :attr:`pst_man`.
+
+        Each observable harmonium's conjugation function is applied to its likelihood, and its
+        $\\rho$ placed on its clique of the latent model; they are summed, as in
+        :class:`~goal.geometry.exponential_family.graphical.DifferentiableGraphical`.
+        """
+        rho = self.pst_man.zeros()
+        for obs_hrm, lat_nods, cnj_fun, hrm_lkl_params, hrm_cnj_fun_params in zip(
+            self.gph_hrm.obs_hrms,
+            self.gph_hrm.lat_nodss,
+            self.cnj_funs,
+            self.gph_hrm.likelihood_functions(lkl_params),
+            self.cnj_fun_man.split_coords(cnj_fun_params),
+            strict=True,
+        ):
+            pst_emb = SubCliquesEmbedding(lat_nods, self.pst_man, obs_hrm.pst_man)
+            rho = rho + pst_emb.embed(cnj_fun(hrm_cnj_fun_params, hrm_lkl_params))
+        return rho
 
     def likelihood_function(self, params: Array) -> Array:
         """The likelihood natural parameters $(\\theta_X, \\Theta_{XZ})$."""
@@ -327,7 +312,7 @@ class VariationalConjugated[
         return self.gph_hrm.likelihood_function(hrm_params)
 
     def likelihood_at(self, params: Array, z: Array) -> Array:
-        """Natural parameters of $p(x \\mid z)$ at a datapoint of the prior family, whose leading slice is the posterior's datapoint."""
+        """Natural parameters of $p(x \\mid z)$ at a datapoint of the latent model."""
         s_z = self.pst_man.sufficient_statistic(z[..., : self.pst_man.data_dim])
         return self.gph_hrm.lkl_fun_man(self.likelihood_function(params), s_z)
 
@@ -344,8 +329,7 @@ class VariationalConjugated[
         lkl_params = self.gph_hrm.lkl_fun_man.join_coords(obs_params, int_params)
         rho = self.conjugation_parameters(lkl_params, cnj_fun_params)
         return self.dep_man.join_coords(
-            self.pst_prr_emb.translate(rho, lat_params),
-            cnj_fun_tup_params[self.cnj_fun_man.dim :],
+            lat_params + rho, cnj_fun_tup_params[self.cnj_fun_man.dim :]
         )
 
     def posterior_at(self, params: Array, x: Array) -> Array:
@@ -357,8 +341,7 @@ class VariationalConjugated[
         """Parameters of the deep model at the posterior: the recognition model $q(z \\mid x)$."""
         _, cnj_fun_tup_params = self.split_coords(params)
         return self.dep_man.join_coords(
-            self.pst_prr_emb.embed(self.posterior_at(params, x)),
-            cnj_fun_tup_params[self.cnj_fun_man.dim :],
+            self.posterior_at(params, x), cnj_fun_tup_params[self.cnj_fun_man.dim :]
         )
 
     @override
@@ -406,7 +389,7 @@ class VariationalConjugated[
         )
 
     @override
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+    def sample(self, key: Array, params: Array, n: int) -> Array:
         """Ancestral samples of $\\tilde p(x, z)$: $z$ from the deep model at the prior, then $x \\sim p(x \\mid z)$."""
         key_z, key_x = jax.random.split(key)
         dep_params = self.conjugated_prior_params(params)
@@ -418,7 +401,7 @@ class VariationalConjugated[
         xs = jax.vmap(sample_x)(jax.random.split(key_x, n), zs)
         return jnp.concatenate([xs, zs], axis=-1)
 
-    def observable_sample(self, key: Array, params: Array, n: int = 1) -> Array:
+    def observable_sample(self, key: Array, params: Array, n: int) -> Array:
         """Samples of $\\tilde p(x)$."""
         return self.sample(key, params, n)[:, : self.obs_man.data_dim]
 
@@ -437,13 +420,13 @@ class VariationalConjugated[
         return self.join_coords(hrm_params, self.snd_man.zeros())
 
     def conjugation_residual(self, params: Array, z: Array) -> Array:
-        """The residual $r(z) = \\rho \\cdot \\mathbf s(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X)$ of this level at the datapoint ``z`` of the prior family, with $\\rho$ in natural coordinates of the prior family."""
+        """The residual $r(z) = \\rho \\cdot \\mathbf s(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X)$ of this level at the datapoint ``z`` of the latent model."""
         hrm_params, _ = self.split_coords(params)
         obs_params, _, lat_params = self.gph_hrm.split_coords(hrm_params)
         prr_params, _ = self.dep_man.split_coords(self.conjugated_prior_params(params))
-        rho = prr_params - self.pst_prr_emb.embed(lat_params)
+        rho = prr_params - lat_params
         return (
-            jnp.dot(rho, self.prr_man.sufficient_statistic(z))
+            jnp.dot(rho, self.pst_man.sufficient_statistic(z))
             - self.obs_man.log_partition_function(self.likelihood_at(params, z))
             + self.obs_man.log_partition_function(obs_params)
         )
@@ -558,45 +541,34 @@ class VariationalConjugated[
         return tuple(jnp.mean(v) for v in vals)
 
 
+@dataclass(frozen=True)
 class DifferentiableVariationalConjugated[
     Graphical: GraphicalHarmonium[Any],
     Prior: Differentiable,
-    Conjugation: Manifold,
-](
-    VariationalConjugated[Graphical, Conjugation],
-    ABC,
-):
-    """A variational model whose prior family is :class:`Differentiable`, used as its deep model as it is."""
+](VariationalConjugated[Graphical]):
+    """A variational model whose latent model is :class:`Differentiable`, used as its deep model as it is: the top level of a nested model."""
 
-    # Contract
+    # Fields
 
-    @property
-    @override
-    @abstractmethod
-    def pst_prr_emb(self) -> LinearEmbedding[Prior, Any]: ...
+    dep_man: DifferentiableDeepModel[Prior]
 
     # Overrides
 
     @property
     @override
-    def prr_man(self) -> Prior:
-        return self.pst_prr_emb.amb_man
-
-    @property
-    @override
-    def dep_man(self) -> DifferentiableDeepModel[Prior]:
-        return DifferentiableDeepModel(self.prr_man)
+    def pst_man(self) -> Prior:
+        return self.dep_man.fst_man
 
     # Methods
 
     def elbo_divergence(self, params: Array, x: Array) -> Array:
         """Closed-form $\\mathrm{KL}(q(z \\mid x) \\Vert \\tilde p(z))$, for $\\beta$-VAE-style warm-up and diagnostics."""
-        return self.prr_man.relative_entropy(
+        return self.pst_man.relative_entropy(
             self.recognition_at(params, x), self.conjugated_prior_params(params)
         )
 
 
-### Levels ###
+### Conjugation functions ###
 
 
 @dataclass(frozen=True)
@@ -629,72 +601,11 @@ class ExactConjugationFunction[Prior: Generative](Map[Prior, Any]):
         return self.cnj_hrm.conjugation_parameters(v_coords)
 
 
-@dataclass(frozen=True)
-class VariationalLevel[Attached: Harmonium[Any, Any], Conjugation: Map[Any, Any]](
-    VariationalConjugated[AttachedHarmonium[Any], Conjugation]
-):
-    """One harmonium on top of a deep model, with the conjugation function of that harmonium: one level of a nested variational model.
-
-    The harmonium ``att_hrm`` models an observable $x$ given a latent $y$. The deep model
-    (:attr:`dep_man`) models $y$ and every variable above it: another level, or a
-    :class:`DifferentiableDeepModel` at the top. So $y$ is the observable of the deep model, or at the
-    top the whole deep model, and the joint model of the level is the harmonium followed by the deep
-    model, its latent identified with that observable (:class:`AttachedHarmonium`). The
-    conjugation function ``cnj_fun`` maps the likelihood parameters $(\\theta_X, \\Theta_{XY})$ of the
-    harmonium to $\\rho$ in natural coordinates of $y$. Its parameters are this level's conjugation
-    function parameters, none for an :class:`ExactConjugationFunction`.
-
-    Mathematically, the prior of the level is the deep model with $\\rho$ added to the natural
-    parameters of $y$, the likelihood is $p(x \\mid y)$ of the harmonium, and the recognition model
-    is the deep model with $\\Theta_{XY}^T \\cdot \\mathbf s_X(x)$ added to the natural parameters of $y$
-    instead.
-    """
-
-    # Fields
-
-    att_hrm: Attached
-    cnj_fun: Conjugation
-    _dep_man: DeepModel[Any]
-
-    def __post_init__(self) -> None:
-        if self.cnj_fun.cod_man != self.att_hrm.pst_man:
-            raise ValueError(
-                "The conjugation function must map to the posterior of the attached harmonium"
-            )
-
-    # Overrides
-
-    @property
-    @override
-    def gph_hrm(self) -> AttachedHarmonium[Any]:
-        return AttachedHarmonium(self.att_hrm, self.dep_man.fst_man)
-
-    @property
-    @override
-    def cnj_fun_man(self) -> Conjugation:
-        return self.cnj_fun
-
-    @property
-    @override
-    def pst_prr_emb(self) -> IdentityEmbedding[Any]:
-        return IdentityEmbedding(self.dep_man.fst_man)
-
-    @property
-    @override
-    def dep_man(self) -> DeepModel[Any]:
-        return self._dep_man
-
-    @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
-        (att_clq,) = self.gph_hrm.att_clqs
-        rho = self.cnj_fun(cnj_fun_params, lkl_params)
-        return SubCliquesEmbedding(att_clq, self.prr_man, self.att_hrm.pst_man).embed(
-            rho
-        )
+### Fitting and diagnostics ###
 
 
 def regress_conjugation_parameters(
-    model: VariationalConjugated[Any, Any],
+    model: VariationalConjugated[Any],
     key: Array,
     params: Array,
     n_samples: int,
@@ -711,7 +622,7 @@ def regress_conjugation_parameters(
     zs = jax.lax.stop_gradient(model.sample(key, params, n_samples)[:, obs_dim:])
 
     def design_and_target(z: Array) -> tuple[Array, Array, Array]:
-        s_z = model.prr_man.sufficient_statistic(z)
+        s_z = model.pst_man.sufficient_statistic(z)
 
         def rho_dot_s(c: Array) -> Array:
             return jnp.dot(model.conjugation_parameters(lkl_params, c), s_z)
@@ -738,10 +649,10 @@ def regress_conjugation_parameters(
 
 
 def conjugation_metrics(
-    model: VariationalConjugated[Any, Any],
+    model: VariationalConjugated[Any],
     key: Array,
     params: Array,
-    n_samples: int = 100,
+    n_samples: int,
 ) -> tuple[Array, Array, Array]:
     """Conjugation quality ``(var_r, std_r, r_squared)`` of this level under the model.
 
@@ -759,18 +670,16 @@ def conjugation_metrics(
 
 
 def reconstruct(
-    model: DifferentiableVariationalConjugated[Any, Any, Any], params: Array, x: Array
+    model: DifferentiableVariationalConjugated[Any, Any], params: Array, x: Array
 ) -> Array:
     """Observable means of the likelihood at the recognition model's mean statistics: a mean-field reconstruction."""
-    z_means = model.pst_prr_emb.project(
-        model.prr_man.to_mean(model.recognition_at(params, x))
-    )
+    z_means = model.pst_man.to_mean(model.recognition_at(params, x))
     lkl_params = model.gph_hrm.lkl_fun_man(model.likelihood_function(params), z_means)
     return model.obs_man.to_mean(lkl_params)
 
 
 def reconstruction_error(
-    model: DifferentiableVariationalConjugated[Any, Any, Any], params: Array, xs: Array
+    model: DifferentiableVariationalConjugated[Any, Any], params: Array, xs: Array
 ) -> Array:
     """Mean squared reconstruction error over a batch."""
     recons = jax.vmap(lambda x: reconstruct(model, params, x))(xs)

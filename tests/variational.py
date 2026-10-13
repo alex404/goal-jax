@@ -43,9 +43,9 @@ from goal.models import (
     ChordalBoltzmann,
     Normal,
     PoissonPopulationCode,
-    VariationalPopulationCode,
     VonMisesProduct,
     canonical_circuit,
+    variational_population_code,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -59,7 +59,7 @@ Z_THRESHOLD = 5.0
 @dataclass(frozen=True)
 class Case:
     name: str
-    model: DifferentiableVariationalConjugated[Any, Any, Any]
+    model: DifferentiableVariationalConjugated[Any, Any]
     x: Array
     z_grid: Array
     """Quadrature points of the latent, on an equally spaced grid."""
@@ -71,14 +71,14 @@ N_GRID = 2048
 CASES = [
     Case(
         "von_mises",
-        VariationalPopulationCode(PoissonPopulationCode(VonMisesProduct(1), 4)),
+        variational_population_code(PoissonPopulationCode(VonMisesProduct(1), 4)),
         jnp.array([2.0, 0.0, 1.0, 3.0]),
         (jnp.arange(N_GRID) / N_GRID * 2 * jnp.pi).reshape(-1, 1),
         2 * jnp.pi / N_GRID,
     ),
     Case(
         "boltzmann",
-        VariationalPopulationCode(
+        variational_population_code(
             BoltzmannPopulationCode(
                 Normal(1, PositiveDefinite()),
                 ChordalBoltzmann.from_edges(4, [(0, 1), (1, 2), (2, 3)]),
@@ -114,7 +114,7 @@ def _recognition_weights(case: Case, params: Array) -> tuple[Array, Array]:
 def _prior_log_density(case: Case, params: Array) -> Array:
     model = case.model
     prior_p = model.conjugated_prior_params(params)
-    return jax.vmap(lambda z: model.prr_man.log_density(prior_p, z))(case.z_grid)
+    return jax.vmap(lambda z: model.pst_man.log_density(prior_p, z))(case.z_grid)
 
 
 def _exact_elbo(case: Case, params: Array) -> Array:
@@ -330,7 +330,8 @@ def _circuit_generative_params(
     """
     man = circuit.generative_man
     blocks = list(man.split_coords(0.5 * jax.random.normal(key, (man.dim,))))
-    obs_man = circuit.att_hrm.obs_man
+    (bottom_hrm,) = circuit.gph_hrm.obs_hrms
+    obs_man = bottom_hrm.obs_man
     blocks[0] = obs_man.join_location_precision(
         jnp.zeros(obs_man.data_dim),
         obs_man.cov_man.from_matrix(jnp.eye(obs_man.data_dim)),
@@ -341,7 +342,7 @@ def _circuit_generative_params(
         if exact:
             blocks[loc_idx] = jnp.zeros_like(blocks[loc_idx])
             blocks[prc_idx] = jnp.zeros_like(blocks[prc_idx])
-            if not isinstance(circuit.cnj_fun, ExactConjugationFunction):
+            if not isinstance(circuit.cnj_funs[0], ExactConjugationFunction):
                 blocks[int_idx] = jnp.zeros_like(blocks[int_idx])
     if exact:
         blocks[-1] = jnp.zeros_like(blocks[-1])

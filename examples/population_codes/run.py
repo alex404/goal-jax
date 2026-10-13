@@ -16,6 +16,7 @@ from goal.models import (
     PoissonPopulationCode,
     VariationalPopulationCode,
     VonMisesProduct,
+    variational_population_code,
 )
 
 from ..shared import example_paths, jax_cli
@@ -67,7 +68,7 @@ def initialize_from_tuning_curves(
 
 def create_population_code(key: jax.Array) -> tuple[RingCode, jax.Array]:
     """Create a population code with evenly spaced tuning curves."""
-    model = VariationalPopulationCode(
+    model = variational_population_code(
         PoissonPopulationCode(VonMisesProduct(1), n_neurons)
     )
     preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)

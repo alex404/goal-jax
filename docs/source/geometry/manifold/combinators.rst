@@ -31,6 +31,11 @@ Product Manifolds
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.manifold.combinators.ManifoldTuple
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: goal.geometry.manifold.combinators.Pair
    :members:
    :undoc-members:
@@ -46,7 +51,7 @@ Product Manifolds
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.combinators.Replicated
+.. autoclass:: goal.geometry.manifold.combinators.ManifoldProduct
    :members:
    :undoc-members:
    :show-inheritance:

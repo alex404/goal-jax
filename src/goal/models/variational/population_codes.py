@@ -10,57 +10,37 @@ of the population code, which is exact up to its conjugation residual.
 from dataclasses import dataclass
 from typing import Any, override
 
-from jax import Array
-
-from ...geometry import AttachedHarmonium, IdentityEmbedding
+from ...geometry import ConstantMap, GraphicalLevel
 from ...geometry.exponential_family.base import Differentiable
 from ...geometry.exponential_family.dynamical import VariationalLatentProcess
 from ...geometry.exponential_family.variational import (
+    DifferentiableDeepModel,
     DifferentiableVariationalConjugated,
 )
 from ...geometry.manifold.map import Map
 from ..harmonium.population_codes import PopulationCode
 
+type VariationalPopulationCode[Latent: Differentiable] = (
+    DifferentiableVariationalConjugated[GraphicalLevel[Latent], Latent]
+)
+"""A population code with constant conjugation parameters (:func:`variational_population_code`)."""
 
-@dataclass(frozen=True)
-class VariationalPopulationCode[Latent: Differentiable](
-    DifferentiableVariationalConjugated[AttachedHarmonium[Latent], Latent, Latent]
-):
-    """A population code with constant conjugation parameters.
 
-    Posterior = prior = conjugation = the latent family, so :meth:`conjugation_parameters`
-    returns the stored $\\rho$.
-    """
-
-    # Fields
-
-    pop_hrm: PopulationCode[Any, Latent]
-
-    # Overrides
-
-    @property
-    @override
-    def gph_hrm(self) -> AttachedHarmonium[Latent]:
-        return AttachedHarmonium(self.pop_hrm, self.pop_hrm.pst_man)
-
-    @property
-    @override
-    def cnj_fun_man(self) -> Latent:
-        return self.pop_hrm.pst_man
-
-    @property
-    @override
-    def pst_prr_emb(self) -> IdentityEmbedding[Latent]:
-        return IdentityEmbedding(self.pop_hrm.pst_man)
-
-    @override
-    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
-        return cnj_fun_params
+def variational_population_code[Latent: Differentiable](
+    pop_hrm: PopulationCode[Any, Latent],
+) -> VariationalPopulationCode[Latent]:
+    """A population code with constant conjugation parameters: its conjugation function is a :class:`~goal.geometry.manifold.map.ConstantMap`, whose parameters are $\\rho$."""
+    lat = pop_hrm.pst_man
+    return DifferentiableVariationalConjugated(
+        GraphicalLevel(((pop_hrm, tuple(range(lat.n_nodes))),), lat),
+        (ConstantMap(lat, pop_hrm.lkl_fun_man),),
+        DifferentiableDeepModel(lat),
+    )
 
 
 @dataclass(frozen=True)
 class PopulationCodeProcess[Latent: Differentiable, Transition: Map[Any, Any]](
-    VariationalLatentProcess[Any, Latent, Latent]
+    VariationalLatentProcess[Any, Latent]
 ):
     """State-space model with a population code emission and a transition map on beliefs.
 
@@ -80,7 +60,7 @@ class PopulationCodeProcess[Latent: Differentiable, Transition: Map[Any, Any]](
     @property
     @override
     def lat_man(self) -> Latent:
-        return self.pop_man.pop_hrm.pst_man
+        return self.pop_man.pst_man
 
     @property
     @override

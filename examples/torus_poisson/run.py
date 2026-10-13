@@ -28,6 +28,7 @@ from goal.models import (
     PoissonPopulationCode,
     VariationalPopulationCode,
     VonMisesProduct,
+    variational_population_code,
 )
 
 from ..shared import example_paths, jax_cli
@@ -202,7 +203,7 @@ def extract_tuning_params(model: TorusCode, params: Array) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
     lkl_params = model.likelihood_function(params)
     obs_bias, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
-    int_matrix = int_params.reshape(model.pop_hrm.obs_man.dim, -1)
+    int_matrix = int_params.reshape(model.obs_man.dim, -1)
 
     cos_1, sin_1 = int_matrix[:, 0], int_matrix[:, 1]
     cos_2, sin_2 = int_matrix[:, 2], int_matrix[:, 3]
@@ -230,7 +231,7 @@ def compute_gt_conjugation(
 ) -> GTConjugationMetrics:
     """Compute conjugation metrics for the ground truth model using library methods."""
     # Wrap GT harmonium in variational model to use library methods
-    var_model = VariationalPopulationCode(gt_model)
+    var_model = variational_population_code(gt_model)
     zero_rho = jnp.zeros(var_model.cnj_fun_man.dim)
 
     # The GT parameters [obs, int, prior] hold the prior directly
@@ -310,7 +311,7 @@ def train_model(
         # non-reparameterizable, so we can't differentiate through sampling)
         p_params = model.conjugated_prior_params(params)
         z_sg = jax.lax.stop_gradient(
-            model.prr_man.sample(conj_key, p_params, n_conj_samples)
+            model.pst_man.sample(conj_key, p_params, n_conj_samples)
         )
         f_vals = jax.vmap(lambda z: model.conjugation_residual(params, z))(z_sg)
         conj_var = jnp.var(f_vals)
@@ -453,7 +454,7 @@ def train_model(
     learned_baselines, learned_int_params = model.gph_hrm.lkl_fun_man.split_coords(
         lkl_p
     )
-    learned_weights = learned_int_params.reshape(model.pop_hrm.obs_man.dim, -1)
+    learned_weights = learned_int_params.reshape(model.obs_man.dim, -1)
     learned_tuning = extract_tuning_params(model, current_params)
 
     results: ModeResults = {
@@ -589,7 +590,7 @@ def main():
     }
 
     # Create variational model for training
-    model = VariationalPopulationCode(torus_harmonium(n_neurons, n_latent))
+    model = variational_population_code(torus_harmonium(n_neurons, n_latent))
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
     print(f"  Rho params: {model.cnj_fun_man.dim}")

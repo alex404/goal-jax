@@ -271,15 +271,6 @@ class TupleEmbedding[TupleMan: Tuple, Component: Manifold](
     def tup_idx(self) -> int:
         """The index of the component in the tuple manifold."""
 
-    def __post_init__(self):
-        """Validate that tup_idx is in range."""
-        zero_tuple = self.amb_man.zeros()
-        components = self.amb_man.split_coords(zero_tuple)
-        if self.tup_idx >= len(components):
-            raise IndexError(
-                f"Component index {self.tup_idx} out of range for {type(self.amb_man)}"
-            )
-
     # Overrides
 
     @override

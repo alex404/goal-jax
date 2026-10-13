@@ -4,7 +4,7 @@ This module contains:
 
 - ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM.
 - ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
-- ``VariationalLatentProcess[O, L, C]`` --- peer of ``LatentProcess`` whose emission is an ``DifferentiableVariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
+- ``VariationalLatentProcess[O, L]`` --- peer of ``LatentProcess`` whose emission is an ``DifferentiableVariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
 """
 
 from abc import ABC, abstractmethod
@@ -15,8 +15,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.base import Manifold
-from ..manifold.combinators import Quadruple, Triple
+from ..manifold.combinators import ManifoldTuple, Quadruple, Triple
 from ..manifold.map import AffineMap, Map
 from .base import Analytic, Differentiable
 from .harmonium import (
@@ -379,9 +378,8 @@ class AnalyticLatentProcess[
 class VariationalLatentProcess[
     O: Differentiable,
     L: Differentiable,
-    C: Manifold,
 ](
-    Quadruple[L, AffineMap[O, L], C, Map[L, L]],
+    Quadruple[L, AffineMap[O, L], ManifoldTuple, Map[L, L]],
     ABC,
 ):
     """State-space model with a ``VariationalConjugated`` emission and a (deterministic) belief-space transition.
@@ -400,8 +398,8 @@ class VariationalLatentProcess[
 
     @property
     @abstractmethod
-    def ems_hrm(self) -> DifferentiableVariationalConjugated[Any, L, C]:
-        """The variational emission $p(x_t \\mid z_t)$ with learned conjugation $\\rho$. Its posterior and prior families must both be ``L`` (an identity ``pst_prr_emb``), because the transition operates on belief natural parameters in ``L``."""
+    def ems_hrm(self) -> DifferentiableVariationalConjugated[Any, L]:
+        """The variational emission $p(x_t \\mid z_t)$ with learned conjugation $\\rho$. Its latent model must be ``L``, because the transition operates on belief natural parameters in ``L``."""
 
     @property
     @abstractmethod
@@ -423,7 +421,7 @@ class VariationalLatentProcess[
 
     @property
     @override
-    def trd_man(self) -> C:
+    def trd_man(self) -> ManifoldTuple:
         """The conjugation function parameter manifold (``ems_hrm.cnj_fun_man``)."""
         return self.ems_hrm.cnj_fun_man
 

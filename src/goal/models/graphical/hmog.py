@@ -70,7 +70,7 @@ class _HMoGBase[
 ):
     """Abstract base for Hierarchical Mixture of Gaussians models.
 
-    A lower harmonium ($x \\to y$) attached to the observable node $y$ of an upper mixture
+    A lower harmonium ($x \\to y$) placed on the observable node $y$ of an upper mixture
     ($y \\to k$), over the three-node chain. The ``pst_upr_hrm`` is bounded by
     ``CompleteMixture``, giving access to ``split_mean_mixture``, ``join_mean_mixture``, and
     ``cmp_man``.
@@ -97,7 +97,7 @@ class _HMoGBase[
 
     @property
     @override
-    def obs_hrms_att_clqs(
+    def obs_hrms_lat_nods(
         self,
     ) -> tuple[tuple[Harmonium[Differentiable, Any], tuple[int, ...]], ...]:
         """The lower harmonium, on the upper mixture's observable node $y$."""

@@ -16,15 +16,15 @@ Class Hierarchy
 Classes
 -------
 
-.. autoclass:: goal.models.variational.population_codes.VariationalPopulationCode
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. autoclass:: goal.models.variational.population_codes.PopulationCodeProcess
    :members:
    :undoc-members:
    :show-inheritance:
+
+Factory Functions
+-----------------
+
+.. autofunction:: goal.models.variational.population_codes.variational_population_code
 
 .. seealso::
 

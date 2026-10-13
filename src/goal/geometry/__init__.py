@@ -33,9 +33,9 @@ from .exponential_family.dynamical import (
 )
 from .exponential_family.graphical import (
     AnalyticGraphical,
-    AttachedHarmonium,
     DifferentiableGraphical,
     GraphicalHarmonium,
+    GraphicalLevel,
 )
 from .exponential_family.harmonium import (
     AnalyticConjugated,
@@ -52,13 +52,11 @@ from .exponential_family.protocols import (
     StatisticalMoments,
 )
 from .exponential_family.variational import (
-    ConjugationTuple,
     DeepModel,
     DifferentiableDeepModel,
     DifferentiableVariationalConjugated,
     ExactConjugationFunction,
     VariationalConjugated,
-    VariationalLevel,
 )
 from .manifold.base import (
     Manifold,
@@ -75,10 +73,11 @@ from .manifold.clique import (
     SubMapEmbedding,
 )
 from .manifold.combinators import (
+    ManifoldProduct,
+    ManifoldTuple,
     Null,
     Pair,
     Quadruple,
-    Replicated,
     Triple,
 )
 from .manifold.embedding import (
@@ -92,6 +91,7 @@ from .manifold.embedding import (
 )
 from .manifold.map import (
     AffineMap,
+    ConstantMap,
     LinearMap,
     Map,
     MatrixMap,
@@ -106,14 +106,13 @@ __all__ = [
     "AnalyticGraphical",
     "AnalyticProduct",
     "AnalyticTuple",
-    "AttachedHarmonium",
     "ChainTree",
     "CliqueEmbedding",
     "CliqueMap",
     "Cliques",
     "ComposedEmbedding",
     "Conjugated",
-    "ConjugationTuple",
+    "ConstantMap",
     "CrossMap",
     "CrossTerm",
     "DeepModel",
@@ -135,6 +134,7 @@ __all__ = [
     "GenerativeTuple",
     "Gibbs",
     "GraphicalHarmonium",
+    "GraphicalLevel",
     "Harmonium",
     "HarmoniumEmbedding",
     "Identity",
@@ -147,6 +147,8 @@ __all__ = [
     "LinearMap",
     "LocationShape",
     "Manifold",
+    "ManifoldProduct",
+    "ManifoldTuple",
     "Map",
     "MatrixMap",
     "MatrixRep",
@@ -159,7 +161,6 @@ __all__ = [
     "Quadruple",
     "Rectangular",
     "RecursiveLinearCliques",
-    "Replicated",
     "RootEmbedding",
     "Scale",
     "Square",
@@ -174,5 +175,4 @@ __all__ = [
     "TupleEmbedding",
     "VariationalConjugated",
     "VariationalLatentProcess",
-    "VariationalLevel",
 ]

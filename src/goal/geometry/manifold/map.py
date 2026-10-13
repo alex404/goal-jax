@@ -268,6 +268,40 @@ class AffineMap[
         return bias + self.snd_man(linear, v_coords)
 
 
+### Constant Maps ###
+
+
+@dataclass(frozen=True)
+class ConstantMap[Codomain: Manifold, Domain: Manifold](Map[Codomain, Domain]):
+    """A map that ignores its input: its parameters are a point of the codomain, which it returns."""
+
+    # Fields
+
+    _cod_man: Codomain
+    _dom_man: Domain
+
+    # Overrides
+
+    @property
+    @override
+    def dom_man(self) -> Domain:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Codomain:
+        return self._cod_man
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.cod_man.dim
+
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        return f_coords
+
+
 ### Multi-Layer Perceptron ###
 
 

@@ -1,6 +1,6 @@
 """Combinators for building complex manifolds from simpler ones.
 
-Provides product manifolds (`Pair`, `Triple`), homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
+Provides product manifolds (`Pair`, `Triple`, and `ManifoldTuple` of any number of elements), homogeneous products (`ManifoldProduct`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
 """
 
 from abc import ABC, abstractmethod
@@ -44,6 +44,30 @@ class Tuple(Manifold, ABC):
         Note: Subclasses implement this with specific numbers of coordinates
         (e.g., Pair takes exactly 2, Triple takes exactly 3).
         """
+
+
+@dataclass(frozen=True)
+class ManifoldTuple(Tuple):
+    """A Cartesian product of any number of manifolds, given by its elements, with no further structure."""
+
+    # Fields
+
+    elm_mans: tuple[Manifold, ...]
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return sum(elm.dim for elm in self.elm_mans)
+
+    @override
+    def split_coords(self, coords: Array) -> tuple[Array, ...]:
+        return split_by_dims(coords, tuple(elm.dim for elm in self.elm_mans))
+
+    @override
+    def join_coords(self, *components: Array) -> Array:
+        return jnp.concatenate(components)
 
 
 @dataclass(frozen=True)
@@ -186,7 +210,7 @@ class Quadruple[First: Manifold, Second: Manifold, Third: Manifold, Fourth: Mani
 
 
 @dataclass(frozen=True)
-class Replicated[M: Manifold](Manifold, ABC):
+class ManifoldProduct[M: Manifold](Manifold, ABC):
     """Homogeneous product of $n$ copies of the same manifold, stored flat as ``[n_reps * rep_man.dim]``.
 
     Used for collections where every element lives on the same manifold (e.g. mixture components, time series states). The ``map`` method applies a function across copies via ``vmap``.

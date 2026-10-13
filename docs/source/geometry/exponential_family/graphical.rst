@@ -21,7 +21,7 @@ Graphical Harmoniums
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.graphical.AttachedHarmonium
+.. autoclass:: goal.geometry.exponential_family.graphical.GraphicalLevel
    :members:
    :undoc-members:
    :show-inheritance:

@@ -47,6 +47,7 @@ from goal.models import (
     PopulationCodeProcess,
     VariationalPopulationCode,
     VonMisesProduct,
+    variational_population_code,
 )
 
 from ..shared import example_paths, jax_cli
@@ -118,7 +119,7 @@ def pendulum_filter(
         precision_epsilon=precision_epsilon,
     )
     return PopulationCodeProcess(
-        VariationalPopulationCode(PoissonPopulationCode(lat, n_neurons)), transition
+        variational_population_code(PoissonPopulationCode(lat, n_neurons)), transition
     )
 
 
@@ -357,7 +358,7 @@ def train_mode(
         ems_hrm = model.ems_hrm
         ems_full = model.emission_params(ems_lkl, rho, prior_params)
         z_sg = jax.lax.stop_gradient(
-            ems_hrm.prr_man.sample(conj_key, prior_params, n_conj_samples)
+            ems_hrm.pst_man.sample(conj_key, prior_params, n_conj_samples)
         )
         r_vals = jax.vmap(lambda z: ems_hrm.conjugation_residual(ems_full, z))(z_sg)
         conj_var = jnp.var(r_vals)

@@ -11,7 +11,7 @@ from jax import Array
 
 from ..algebra.clique import shift_clique
 from ..manifold.base import Manifold
-from ..manifold.combinators import Pair, Replicated, Tuple
+from ..manifold.combinators import ManifoldProduct, Pair, Tuple
 from ..manifold.util import split_by_dims
 from .base import (
     Analytic,
@@ -243,7 +243,7 @@ class AnalyticTuple[M: Analytic](DifferentiableTuple[M], Analytic):
 
 
 class ExponentialFamilyProduct[M: ExponentialFamily](
-    Replicated[M], ExponentialFamily, ABC
+    ManifoldProduct[M], ExponentialFamily, ABC
 ):
     """Product of ``n_reps`` independent copies of the same exponential family.
 
@@ -305,7 +305,7 @@ class ExponentialFamilyProduct[M: ExponentialFamily](
         """
         if not isinstance(self.rep_man, StatisticalMoments):
             raise TypeError(
-                f"Replicated manifold {type(self.rep_man)} does not support statistical moment computation"
+                f"Component manifold {type(self.rep_man)} does not support statistical moment computation"
             )
         return self.map(self.rep_man.statistical_mean, params, flatten=True)
 
@@ -316,7 +316,7 @@ class ExponentialFamilyProduct[M: ExponentialFamily](
         """
         if not isinstance(self.rep_man, StatisticalMoments):
             raise TypeError(
-                f"Replicated manifold {type(self.rep_man)} does not support statistical moment computation"
+                f"Component manifold {type(self.rep_man)} does not support statistical moment computation"
             )
 
         component_covs = self.map(self.rep_man.statistical_covariance, params)

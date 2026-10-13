@@ -299,8 +299,6 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         import jax.numpy as jnp
         from scipy.special import i0 as bessel_i0
 
-        from goal.models import VariationalPopulationCode
-
         from .run import torus_harmonium
 
         config = results["config"]
@@ -318,7 +316,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         else:
             mode_to_use = next(iter(models.keys()))
 
-        var_model = VariationalPopulationCode(torus_harmonium(n_neurons, n_latent))
+        pop_hrm = torus_harmonium(n_neurons, n_latent)
 
         # Get learned parameters
         learned_weights = np.array(models[mode_to_use]["learned_weight_matrix"])
@@ -328,7 +326,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
         int_params = jnp.array(learned_weights.ravel())
         obs_bias = jnp.array(learned_baselines)
         prior_params = jnp.zeros(2 * n_latent)
-        hrm_params = var_model.pop_hrm.join_coords(obs_bias, int_params, prior_params)
+        hrm_params = pop_hrm.join_coords(obs_bias, int_params, prior_params)
 
         # Get rho from ground truth conjugation if available, otherwise use 0
         gt_conj = results.get("ground_truth", {}).get("conjugation", {})
@@ -339,7 +337,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
             # For flat code, rho = 0
             rho = jnp.zeros(2 * n_latent)
 
-        _, _, prior_p = var_model.pop_hrm.split_coords(hrm_params)
+        _, _, prior_p = pop_hrm.split_coords(hrm_params)
 
         def log_bessel_i0(kappa: float) -> float:
             """Numerically stable log I_0(\\kappa)."""
@@ -375,15 +373,15 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
             key, z_key, spike_key = jax.random.split(key, 3)
 
             # Sample true latent z from learned prior
-            z_true = var_model.pst_man.sample(z_key, prior_p, 1)[0]
+            z_true = pop_hrm.pst_man.sample(z_key, prior_p, 1)[0]
 
             # Generate observations from learned model at z_true
             max_obs = max(n_obs_list)
             spike_keys = jax.random.split(spike_key, max_obs)
             observations = []
             for i in range(max_obs):
-                lkl_params = var_model.pop_hrm.likelihood_at(hrm_params, z_true)
-                rates = var_model.pop_hrm.obs_man.to_mean(lkl_params)
+                lkl_params = pop_hrm.likelihood_at(hrm_params, z_true)
+                rates = pop_hrm.obs_man.to_mean(lkl_params)
                 x = jax.random.poisson(spike_keys[i], rates).astype(jnp.float32)
                 observations.append(x)
 
@@ -391,7 +389,7 @@ def compute_evidence_accumulation(results: dict[str, Any]) -> dict[str, Any] | N
                 x_combined = jnp.sum(jnp.stack(observations[:n_obs]), axis=0)
 
                 # Conjugate posterior: prior + W^T @ sum(x) - n * rho
-                post_params_raw = var_model.pop_hrm.posterior_at(hrm_params, x_combined)
+                post_params_raw = pop_hrm.posterior_at(hrm_params, x_combined)
                 post_params = post_params_raw - n_obs * rho
 
                 # Log probability of true z under posterior

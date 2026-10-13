@@ -26,10 +26,6 @@ Core Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.variational.canonical_circuit.GenerativeCoordinates
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 Factory Functions
 -----------------

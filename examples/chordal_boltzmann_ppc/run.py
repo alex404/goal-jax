@@ -37,6 +37,7 @@ from goal.models import (
     DiagonalBoltzmann,
     VariationalPopulationCode,
     full_normal,
+    variational_population_code,
 )
 
 from ..shared import example_paths, jax_cli
@@ -260,7 +261,7 @@ def fit_family(
     d_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, False)
     l_rmse = decode_rmse(model, params, x_stars, k_dec, grid, log_prior, True)
     model_corr = corr_of(
-        model.sample(k_corr, params, CORR_SAMPLES)[:, : model.pop_hrm.obs_man.data_dim]
+        model.sample(k_corr, params, CORR_SAMPLES)[:, : model.obs_man.data_dim]
     )
 
     print(
@@ -306,12 +307,12 @@ def main() -> None:
     x_stars = LATENT_STD * jax.random.normal(jax.random.PRNGKey(1), (N_DECODE, LAT_DIM))
 
     models: dict[str, VariationalPopulationCode[Any]] = {
-        "chordal": VariationalPopulationCode(
+        "chordal": variational_population_code(
             BoltzmannPopulationCode(
                 full_normal(LAT_DIM), ChordalBoltzmann.from_edges(n, edges)
             )
         ),
-        "diagonal": VariationalPopulationCode(
+        "diagonal": variational_population_code(
             BoltzmannPopulationCode(full_normal(LAT_DIM), DiagonalBoltzmann(n))
         ),
     }

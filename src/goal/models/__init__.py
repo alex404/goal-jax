@@ -73,14 +73,13 @@ from .harmonium.population_codes import (
 )
 from .variational.canonical_circuit import (
     CanonicalCircuit,
-    GaussianBoltzmannLevel,
-    PopulationCodeLevel,
     PopulationConjugationFunction,
     canonical_circuit,
 )
 from .variational.population_codes import (
     PopulationCodeProcess,
     VariationalPopulationCode,
+    variational_population_code,
 )
 
 __all__ = [
@@ -117,7 +116,6 @@ __all__ = [
     "FactorAnalysis",
     "FullBoltzmann",
     "FullNormal",
-    "GaussianBoltzmannLevel",
     "HiddenMarkovModel",
     "IsotropicNormal",
     "KalmanFilter",
@@ -133,7 +131,6 @@ __all__ = [
     "PoissonPopulationCode",
     "Poissons",
     "PopulationCode",
-    "PopulationCodeLevel",
     "PopulationCodeProcess",
     "PopulationConjugationFunction",
     "PopulationLocationEmbedding",
@@ -154,4 +151,5 @@ __all__ = [
     "poisson_mixture",
     "principal_component_analysis",
     "standard_normal",
+    "variational_population_code",
 ]

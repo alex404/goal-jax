@@ -54,3 +54,11 @@ Affine Maps
    :members:
    :undoc-members:
    :show-inheritance:
+
+Constant Maps
+-------------
+
+.. autoclass:: goal.geometry.manifold.map.ConstantMap
+   :members:
+   :undoc-members:
+   :show-inheritance:

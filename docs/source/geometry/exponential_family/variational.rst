@@ -27,11 +27,6 @@ Variational Conjugated
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.ConjugationTuple
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. autoclass:: goal.geometry.exponential_family.variational.DeepModel
    :members:
    :undoc-members:
@@ -42,21 +37,16 @@ Variational Conjugated
    :undoc-members:
    :show-inheritance:
 
-Levels
-------
-
-.. autoclass:: goal.geometry.exponential_family.variational.VariationalLevel
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Conjugation Functions
+---------------------
 
 .. autoclass:: goal.geometry.exponential_family.variational.ExactConjugationFunction
    :members:
    :undoc-members:
    :show-inheritance:
 
-Helpers
--------
+Fitting and Diagnostics
+-----------------------
 
 .. autofunction:: goal.geometry.exponential_family.variational.regress_conjugation_parameters
 

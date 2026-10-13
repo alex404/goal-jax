@@ -19,8 +19,8 @@ from goal.models import (
     KalmanFilter,
     PoissonPopulationCode,
     PopulationCodeProcess,
-    VariationalPopulationCode,
     VonMisesProduct,
+    variational_population_code,
 )
 
 jax.config.update("jax_platform_name", "cpu")
@@ -167,7 +167,7 @@ class TestPopulationCodeProcess:
         """One population of four neurons over one VonMises latent, generic parameters."""
         lat = VonMisesProduct(1)
         model = PopulationCodeProcess(
-            VariationalPopulationCode(PoissonPopulationCode(lat, 4)),
+            variational_population_code(PoissonPopulationCode(lat, 4)),
             MultilayerPerceptron(lat, lat, (4,), jax.nn.tanh),
         )
         keys = jax.random.split(jax.random.PRNGKey(0), 4)
@@ -203,7 +203,7 @@ class TestPopulationCodeProcess:
                 log_q = ems.pst_man.log_density(q, z)
                 log_joint = ems.obs_man.log_density(
                     ems.likelihood_at(ems_params, z), x
-                ) + ems.prr_man.log_density(prior, z)
+                ) + ems.pst_man.log_density(prior, z)
                 return jnp.exp(log_q) * (log_joint - log_q)
 
             total = total + dz * jnp.sum(jax.vmap(integrand)(zs))

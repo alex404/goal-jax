@@ -33,7 +33,7 @@ import optax
 from jax import Array
 from jax.scipy.special import logsumexp
 
-from goal.geometry import PositiveDefinite
+from goal.geometry import MultilayerPerceptron, PositiveDefinite
 from goal.models import CanonicalCircuit, canonical_circuit
 
 from ..shared import example_paths, jax_cli
@@ -83,16 +83,18 @@ def initialize(circuit: CanonicalCircuit, use_z: bool, key: Array) -> Array:
     at $c_i$, with pixel noise of s.d. $0.2$: the noise of the data would make the conjugation parameters
     of the $X - N$ level large, far from the zero at which the learned ones start. The tuning curves tile $[-2, 2]$, neighbours overlapping
     by one spacing $s$ (precision $1 / s^2$), and the generative logit peaks at $-1$, with no
-    couplings. Every conjugation function starts at zero: the last layer of each perceptron is zero.
+    couplings. Every conjugation function starts at zero: the last layer of each perceptron is zero,
+    and a constant conjugation function is zero.
     Without $z$, $\\Theta_{NZ}$ is zero.
     """
     (gen_nrn,) = circuit.generative_neuron_mans
-    obs_nrm = circuit.att_hrm.obs_man
+    (gb_hrm,) = circuit.gph_hrm.obs_hrms
+    obs_nrm = gb_hrm.obs_man
     prc = jnp.eye(N_PIXELS) / 0.2**2
     obs = obs_nrm.join_location_precision(
         jnp.zeros(N_PIXELS), obs_nrm.cov_man.from_matrix(prc)
     )
-    (xn_map,) = circuit.att_hrm.crs_maps
+    (xn_map,) = gb_hrm.crs_maps
     xn = xn_map.from_matrix(curve(jnp.linspace(0.0, 1.0, N_NEURONS)).T / 0.2**2)
     preferred = jnp.linspace(-2.0, 2.0, N_NEURONS)
     width_prc = (N_NEURONS - 1) ** 2 / 4.0**2
@@ -106,8 +108,8 @@ def initialize(circuit: CanonicalCircuit, use_z: bool, key: Array) -> Array:
     *_, cnj_man = circuit.generative_man.elm_mans
     cnj = []
     for j, mlp in enumerate(cnj_man.elm_mans):  # pyright: ignore[reportAttributeAccessIssue]
-        if mlp.dim == 0:
-            cnj.append(jnp.zeros(0))
+        if not isinstance(mlp, MultilayerPerceptron):
+            cnj.append(jnp.zeros(mlp.dim))
             continue
         last = mlp.layer_dims[-2] * mlp.layer_dims[-1] + mlp.layer_dims[-1]
         cnj.append(
@@ -153,7 +155,8 @@ def z_marginal(circuit: CanonicalCircuit, dep_params: Array) -> Array:
 def gaussian_moments(circuit: CanonicalCircuit, z_params: Array) -> tuple[Array, Array]:
     """Mean and variance of the one-dimensional Gaussian over $z$ at natural parameters."""
     (_, pop) = circuit.layers[0]
-    lat = pop.att_hrm.pst_man
+    (pop_hrm,) = pop.gph_hrm.obs_hrms
+    lat = pop_hrm.pst_man
     loc, prc = lat.split_location_precision(z_params)
     var = 1.0 / lat.cov_man.to_matrix(prc)[0, 0]
     return var * loc[0], var
