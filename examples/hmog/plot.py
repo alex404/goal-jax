@@ -42,8 +42,10 @@ def main():
     iso_lls = np.array(results["log_likelihoods"]["Isotropic"])
     dia_lls = np.array(results["log_likelihoods"]["Diagonal"])
 
-    fig = plt.figure(figsize=(15, 7.5))
-    gs = fig.add_gridspec(2, 4)
+    test_lls = results["test_log_likelihoods"]
+
+    fig = plt.figure(figsize=(22.5, 7.5))
+    gs = fig.add_gridspec(2, 6)
 
     ax_gt = fig.add_subplot(gs[0, 0])
     ax_iso_init = fig.add_subplot(gs[0, 1])
@@ -72,8 +74,20 @@ def main():
     ax_dia_init.set_title("Diagonal Initial")
 
     # Training history
-    ax_ll.plot(iso_lls, label="Isotropic", color=model_color(0))
-    ax_ll.plot(dia_lls, label="Diagonal", color=model_color(1))
+    ax_ll.plot(
+        iso_lls,
+        label=f"Isotropic (test {test_lls['Isotropic']:.4f})",
+        color=model_color(0),
+    )
+    ax_ll.plot(
+        dia_lls,
+        label=f"Diagonal (test {test_lls['Diagonal']:.4f})",
+        color=model_color(1),
+    )
+    ax_ll.plot(
+        [], [], color="none", label=f"Ground truth test {test_lls['Ground Truth']:.4f}"
+    )
+    ax_ll.set_xscale("log")
     ax_ll.set_xlabel("EM Step")
     ax_ll.set_ylabel("Log Likelihood")
     ax_ll.set_title("Training History")
@@ -107,6 +121,56 @@ def main():
     ax_lat_final.set_ylabel("Density")
     ax_lat_final.set_title("Final Latent Distributions")
     ax_lat_final.legend()
+
+    # Variational fit
+    var = results["variational"]
+    ax_var = fig.add_subplot(gs[0, 4])
+    ax_var.plot(
+        var["steps"],
+        var["log_likelihood"],
+        color=model_color(1),
+        label="Log likelihood",
+    )
+    ax_var.plot(
+        var["steps"], var["elbo"], color=model_color(2), linestyle="--", label="ELBO"
+    )
+    ax_var.axhline(dia_lls[-1], color=colors["ground_truth"], linestyle=":", label="EM")
+    ax_var.set_xlabel("Adam Step")
+    ax_var.set_ylabel("Log Likelihood")
+    ax_var.set_title("Diagonal, Variational")
+    ax_var.legend()
+
+    ax_rho = fig.add_subplot(gs[1, 4])
+    rho = np.array(var["rho"])
+    exact_rho = np.array(var["exact_rho"])
+    for i, name in enumerate((r"$y$", r"$y^2$")):
+        ax_rho.plot(
+            var["steps"],
+            exact_rho[:, i],
+            color=model_color(i),
+            label=f"{name} coefficient, exact",
+        )
+        ax_rho.plot(
+            var["steps"],
+            rho[:, i],
+            color=model_color(i),
+            linestyle="--",
+            label=f"{name} coefficient, learned",
+        )
+    ax_rho.set_xlabel("Adam Step")
+    ax_rho.set_ylabel("Conjugation Parameters")
+    ax_rho.set_title("Learned and Exact $\\rho_Y$")
+    ax_rho.legend()
+
+    ax_rec = fig.add_subplot(gs[:, 5])
+    exact_logits = np.array(var["exact_logits"])
+    rec_logits = np.array(var["recognition_logits"])
+    lim = float(np.max(np.abs(exact_logits)))
+    ax_rec.plot([-lim, lim], [-lim, lim], color=colors["ground_truth"], linestyle=":")
+    ax_rec.scatter(exact_logits, rec_logits, s=8, color=model_color(1))
+    ax_rec.set_xlabel("Exact logit of $k = 1$")
+    ax_rec.set_ylabel("Recognition logit of $k = 1$")
+    ax_rec.set_title("Recognition Model of $k$ ($\\rho_K$)")
 
     paths.save_plot(fig)
 

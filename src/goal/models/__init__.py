@@ -71,13 +71,11 @@ from .harmonium.population_codes import (
     com_poisson_mixture,
     poisson_mixture,
 )
-from .variational.canonical_circuit import (
-    CanonicalCircuit,
-    canonical_circuit,
-)
 from .variational.population_codes import (
+    CanonicalCircuit,
     PopulationCodeProcess,
     VariationalPopulationCode,
+    canonical_circuit,
     variational_population_code,
 )
 

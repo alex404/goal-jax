@@ -10,9 +10,9 @@ of its latent only through :class:`DeepModel`: the next level, or at the top the
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any, overload, override
 
 import jax
 import jax.numpy as jnp
@@ -24,8 +24,8 @@ from ..manifold.combinators import ManifoldTuple, Pair
 from ..manifold.map import AffineMap, Map
 from .base import Differentiable, Generative
 from .combinators import DifferentiableTuple
-from .graphical import GraphicalHarmonium
-from .harmonium import Conjugated
+from .graphical import GraphicalHarmonium, GraphicalLevel
+from .harmonium import Conjugated, Harmonium
 
 ### Deep models ###
 
@@ -264,6 +264,14 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
     def pst_man(self) -> Any:
         """The latent model of :attr:`gph_hrm`, the prior family of the deep model."""
         return self.gph_hrm.pst_man
+
+    @property
+    def lvl_mans(self) -> tuple[VariationalConjugated[Any], ...]:
+        """This level and every variational level above it, bottom first."""
+        levels: list[VariationalConjugated[Any]] = [self]
+        while isinstance(dep_man := levels[-1].dep_man, VariationalConjugated):
+            levels.append(dep_man)
+        return tuple(levels)
 
     def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
         """The conjugation parameters $\\rho$ of the given likelihood natural parameters, in natural coordinates of :attr:`pst_man`.
@@ -545,6 +553,53 @@ class DifferentiableVariationalConjugated[
         return self.pst_man.relative_entropy(
             self.recognition_at(params, x), self.conjugated_prior_params(params)
         )
+
+
+### Construction ###
+
+
+@overload
+def variational_level[Prior: Differentiable](
+    obs_hrms_cnj_funs: Sequence[tuple[Harmonium[Any, Any], Map[Any, Any]]],
+    dep_man: DifferentiableDeepModel[Prior],
+    lat_nodss: Sequence[tuple[int, ...]] | None = None,
+) -> DifferentiableVariationalConjugated[GraphicalLevel[Prior], Prior]: ...
+
+
+@overload
+def variational_level(
+    obs_hrms_cnj_funs: Sequence[tuple[Harmonium[Any, Any], Map[Any, Any]]],
+    dep_man: DeepModel[Any],
+    lat_nodss: Sequence[tuple[int, ...]] | None = None,
+) -> VariationalConjugated[GraphicalLevel[Any]]: ...
+
+
+def variational_level(
+    obs_hrms_cnj_funs: Sequence[tuple[Harmonium[Any, Any], Map[Any, Any]]],
+    dep_man: DeepModel[Any],
+    lat_nodss: Sequence[tuple[int, ...]] | None = None,
+) -> VariationalConjugated[GraphicalLevel[Any]]:
+    """A level of a deep model from its observable harmoniums, each with its conjugation function, over the deep model ``dep_man``.
+
+    The observable harmoniums are placed on the latent model of the level, the prior family of
+    ``dep_man``, at the nodes ``lat_nodss``: one tuple of nodes per harmonium, by default the
+    leading nodes of the latent model, as many as the harmonium's posterior has. Over a
+    :class:`DifferentiableDeepModel` the level is the top level, a
+    :class:`DifferentiableVariationalConjugated`.
+    """
+    if lat_nodss is None:
+        lat_nodss = [tuple(range(hrm.pst_man.n_nodes)) for hrm, _ in obs_hrms_cnj_funs]
+    gph_hrm = GraphicalLevel(
+        tuple(
+            (hrm, tuple(nods))
+            for (hrm, _), nods in zip(obs_hrms_cnj_funs, lat_nodss, strict=True)
+        ),
+        dep_man.fst_man,
+    )
+    cnj_funs = tuple(cnj_fun for _, cnj_fun in obs_hrms_cnj_funs)
+    if isinstance(dep_man, DifferentiableDeepModel):
+        return DifferentiableVariationalConjugated(gph_hrm, cnj_funs, dep_man)
+    return VariationalConjugated(gph_hrm, cnj_funs, dep_man)
 
 
 ### Conjugation functions ###

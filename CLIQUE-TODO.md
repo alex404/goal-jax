@@ -14,9 +14,19 @@ designs and the full design notes are in git history (this file before 2026-10-0
   ELBO, one fit) and its plot inspected.
 - pendulum (2026-10-14): the transition's precision floor (`precision_epsilon`) and the gradient
   clipping are removed; the transition is a perceptron whose velocity precision is a softplus, as
-  in `NonnegativePrecisionMap`. $\rho$ stays constant and unconstrained: over 3000 steps the smallest
+  `NonnegativePrecisionMap` did (since deleted). $\rho$ stays constant and unconstrained: over 3000 steps the smallest
   recognition velocity precision, at a silent observation, was 0.09 at initialization and 1.7 at
   the end, and every velocity-squared interaction stayed negative. Rerun and plot inspected.
+- hmog (2026-10-14): every fit starts from a two-component diagonal Gaussian mixture fit in $x$
+  (`initialize_from_mixture`); from `initialize_from_sample`, EM sat on the one-component plateau
+  (-4.4608) for 10 of 20 seeds at any init scale, from the mixture start it reaches the optimum on
+  20 of 20 in about 10 steps. The isotropic HMoG still misses the modes from the same start (test
+  -4.452 against diagonal -4.407, ground truth -4.389). The diagonal HMoG is also fit as two
+  variational levels (constant $\rho_Y$, perceptron $\rho_K$ of the $y$ bias), by Adam on the ELBO
+  minus the residual variance of each level with the harmonium and samples held fixed, which pins
+  the constant of $\rho_K$. Final -4.4085 against EM -4.4080, $\rho_Y$ exact, $q(k \mid x)$ within
+  0.003 of the exact posterior; the recognition logit is loose only where $|\text{logit}| > 8$.
+  Plot inspected.
 - `VariationalConjugated` is concrete, with one conjugation function per observable harmonium (see
   **Variational design** below). `VariationalHierarchicalMixture` (`models/graphical/variational.py`)
   is deleted.
@@ -179,6 +189,30 @@ statistics are now float64. The tests would not notice either way.
   `NormalLGM`). `NormalCovarianceEmbedding` with `Scale` is an adjoint pair, not `project ∘ embed =
   id`.
 
+## Next (2026-10-14, from the laptop)
+
+1. **`tests/variational.py` for the free $\rho_Z$.** The population code's conjugation function is now
+   `BiasConjugationFunction(MLP)` with no precision constraint; the tests were not updated and
+   `test_recognition_model_normalizes` may fail where $\theta_Z + \rho_Z$ is not negative definite.
+2. **Full suite.** Rerun (desktop); last full run predates the circuit test removals and the free $\rho_Z$.
+3. **Canonical circuit trains to NaN** with the free $\rho_Z$ (lr 1e-2: about step 1150; lr 3e-3: no
+   NaN but prior precision about 0.03, ELBO 6.85; `apply_if_finite` and Gaussian bump positions do
+   not help). `results/canonical_circuit/analysis.json` is from a NaN run, `plot.png` from the 07:38
+   constrained run (12.14, Spearman 0.998). To try, from the HMoG testbed: the $\rho$-only residual
+   variance penalty (harmonium and samples stop-gradient, at the prior and at recognition biases of a
+   minibatch, weight 0.1) with a fresh key per step; a data-driven initialization.
+4. **Diagnostic for a non-conjugated level.** The population code has no exact $\rho_Z$ (a sum of
+   softplus is not in the span of $(z, z^2)$). With 1-D $z$, compare the MLP's $\rho_Z$ against the
+   least-squares projection of $\psi_N(\theta_N + \Theta z)$ on $(z, z^2)$ by quadrature, at the prior
+   and recognition biases, and the ELBO against $\log \tilde p(x)$ by quadrature. The MLP amortizes
+   that projection; the penalty is the same least-squares problem.
+5. **Later.** A harder HMoG testbed (more components, $\dim y > 1$, higher-dimensional $x$) where a
+   mixture in $x$ does not already solve the problem; HMoG findings in the memory note
+   `hmog-variational-testbed`. Whether the gauge freedom of nested $\rho$ (only $\theta_K + \rho_K$
+   enters; the residual variance penalty fixes the constant) belongs in the notes, section 4. Class
+   docstrings over 150 words (LGM, `VariationalConjugated`, `RecursiveLinearCliques`,
+   `Normal.initialize_from_sample`, and 7 others).
+
 ## Variational design (decided 2026-10-13)
 
 - **`VariationalConjugated(gph_hrm, cnj_funs, dep_man)` is concrete**, one level of a deep model:
@@ -213,9 +247,9 @@ statistics are now float64. The tests would not notice either way.
   interactions. Stated in the notes (`scratch/variational-conjugation/article.tex`, sections 3.1 and 4).
 - **Canonical circuit (2026-10-14).** The generative coordinates (`tie`, `gen_man`) and the tied
   $\beta$ are gone: the circuit is the manifold, and the example trains its natural parameters by the
-  ELBO. The population code's conjugation function adds precision (`NonnegativePrecisionMap`), so the
-  prior and the recognition model over $z_k$ are Gaussian wherever $\theta_{Z_k}$ is; $\theta_{Z_k}$
-  itself is unconstrained. The layers are given by `neural_connectivity` (junction trees).
+  ELBO. The population code's conjugation function is a free perceptron of the bias
+  (`BiasConjugationFunction`); `NonnegativePrecisionMap` is deleted, so nothing keeps
+  $\theta_{Z_k} + \rho_{Z_k}$ negative definite, and the example trains to NaN (see **Next**). The layers are given by `neural_connectivity` (junction trees).
   `exact_log_partition_function` and `exact_log_observable_density` are removed: they enumerated the
   undirected graphical harmonium, a different model from the directed $\tilde p$ the circuit is
   (the two agree only when every residual is constant), and their only uses were tests at
@@ -242,4 +276,4 @@ Decided to avoid generalizing before a model needs it.
 | types | `uvx basedpyright src/ tests/ examples/` (0 errors, 2026-10-12) |
 | docs | `uv run sphinx-build -q docs/source docs/build` |
 | suite | `uv run python -m pytest tests/ -q` (609 passed, about 16 min on the laptop, 2026-10-14, before 12 circuit tests were removed the same day; not rerun since) |
-| variational | `uv run python -m pytest tests/variational.py` (28 passed, about 3 min on the laptop, 2026-10-14) |
+| variational | `uv run python -m pytest tests/variational.py` (28 passed, about 3 min on the laptop, 2026-10-14, before the free $\rho_Z$; not rerun since) |

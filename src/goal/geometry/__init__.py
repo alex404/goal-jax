@@ -59,6 +59,7 @@ from .exponential_family.variational import (
     DifferentiableVariationalConjugated,
     ExactConjugationFunction,
     VariationalConjugated,
+    variational_level,
 )
 from .manifold.base import (
     Manifold,
@@ -177,4 +178,5 @@ __all__ = [
     "TupleEmbedding",
     "VariationalConjugated",
     "VariationalLatentProcess",
+    "variational_level",
 ]

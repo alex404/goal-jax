@@ -79,7 +79,8 @@ def tuning(circuit: CanonicalCircuit, params: Array, zs: Array) -> Array:
     """Firing probability of each neuron given $z$ under the generative model, one row per point of ``zs``."""
     pop = circuit.lvl_mans[1]
     dep_prior = circuit.conjugated_prior_params(params)
-    neurons = circuit.hrm_pars[0][1].obs_man
+    (pop_hrm,) = pop.gph_hrm.obs_hrms
+    neurons = pop_hrm.obs_man
 
     def rates(z: Array) -> Array:
         diag, _ = neurons.split_couplings(

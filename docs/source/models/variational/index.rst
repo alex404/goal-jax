@@ -8,4 +8,3 @@ Models fit variationally: each is a :class:`~goal.geometry.exponential_family.va
    :caption: Modules:
 
    population_codes
-   canonical_circuit

@@ -116,7 +116,7 @@ The library is organized into three main modules under `src/goal/`:
 - **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
 - **Canonical correlation analysis**: `CanonicalCorrelationAnalysis` (gradient-based), `AnalyticCanonicalCorrelationAnalysis` (exact EM)
 - **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
-- **Canonical circuit**: `CanonicalCircuit`, built by `canonical_circuit(...)`, the shipped nested `VariationalConjugated`: $L$ layers of Gaussian-Boltzmann and population code levels, partially exact or approximate
+- **Canonical circuit**: `CanonicalCircuit` (in `models/variational/population_codes.py`), built by `canonical_circuit(...)` from `variational_level`, the shipped nested `VariationalConjugated`: $L$ layers of Gaussian-Boltzmann and population code levels, partially exact or approximate
 - **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`
 - **Population codes**: `PopulationCode[Observable, Latent]`, a population coupled to every clique of its latent (`PoissonPopulationCode`, and `BoltzmannPopulationCode`, whose couplings, and so noise correlations, do not depend on the latent). `variational_population_code` fits either with constant $\rho$, as a `VariationalPopulationCode`
 - **Variational filter**: `PopulationCodeProcess` (a variational filter over a `VariationalPopulationCode`)

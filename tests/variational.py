@@ -16,7 +16,7 @@ direct gradient, a spurious sg would drop the score correction, and either
 error shifts the MC gradient mean away from the exact gradient by far more
 than its standard error.
 
-Nested levels: the canonical circuit (models/variational/canonical_circuit.py) in both variants,
+Nested levels: the canonical circuit (models/variational/population_codes.py) in both variants,
 its ELBO decomposition at depths 1 and 2, and at depth 1 its ELBO against enumeration of the neurons
 and quadrature, and its recognition model normalizes at random conjugation functions.
 """
@@ -326,9 +326,10 @@ def _circuit_params(circuit: CanonicalCircuit, key: Array) -> Array:
 
     obs_int_paramss: list[tuple[Array, Array]] = []
     cnj_fun_paramss: list[Array] = []
-    for k, (gb_hrm, pop_hrm) in enumerate(circuit.hrm_pars):
-        gb_fun = circuit.lvl_mans[2 * k].cnj_funs[0]
-        pop_fun = circuit.lvl_mans[2 * k + 1].cnj_funs[0]
+    levels = circuit.lvl_mans
+    for gb_level, pop_level in zip(levels[::2], levels[1::2], strict=True):
+        (gb_hrm,), (gb_fun,) = gb_level.gph_hrm.obs_hrms, gb_level.cnj_funs
+        (pop_hrm,), (pop_fun,) = pop_level.gph_hrm.obs_hrms, pop_level.cnj_funs
         obs_int_paramss.append(
             (_standard_normal_params(gb_hrm.obs_man), draw(gb_hrm.int_man.dim))
         )
@@ -342,9 +343,9 @@ def _circuit_params(circuit: CanonicalCircuit, key: Array) -> Array:
         obs_int_paramss.append((draw(pop_hrm.obs_man.dim), nz_map.from_matrix(rows)))
         cnj_fun_paramss.append(draw(gb_fun.dim))
         cnj_fun_paramss.append(draw(pop_fun.dim))
-    hrm_params = _standard_normal_params(circuit.hrm_pars[-1][1].pst_man)
+    hrm_params = _standard_normal_params(levels[-1].pst_man)
     for level, (obs_params, int_params) in zip(
-        reversed(circuit.lvl_mans), reversed(obs_int_paramss), strict=True
+        reversed(levels), reversed(obs_int_paramss), strict=True
     ):
         hrm_params = level.gph_hrm.join_coords(obs_params, int_params, hrm_params)
     return circuit.join_coords(hrm_params, jnp.concatenate(cnj_fun_paramss))
