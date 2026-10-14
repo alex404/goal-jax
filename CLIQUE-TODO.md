@@ -10,13 +10,17 @@ designs and the full design notes are in git history (this file before 2026-10-0
 - Every example was run and its plot inspected on 2026-10-11 (pendulum, torus_poisson,
   chordal_boltzmann_ppc and population_codes included). After the population code unification of
   2026-10-12, population_codes, torus_poisson, pendulum and chordal_boltzmann_ppc were rerun and
-  their plots inspected. canonical_circuit is ported onto the core module; its full grid has not
-  been rerun since the port (one condition was, and matches).
+  their plots inspected. canonical_circuit was rewritten on 2026-10-14 (natural parameters, plain
+  ELBO, one fit) and its plot inspected.
+- pendulum (2026-10-14): the transition's precision floor (`precision_epsilon`) and the gradient
+  clipping are removed; the transition is a perceptron whose velocity precision is a softplus, as
+  in `NonnegativePrecisionMap`. $\rho$ stays constant and unconstrained: over 3000 steps the smallest
+  recognition velocity precision, at a silent observation, was 0.09 at initialization and 1.7 at
+  the end, and every velocity-squared interaction stayed negative. Rerun and plot inspected.
 - `VariationalConjugated` is concrete, with one conjugation function per observable harmonium (see
   **Variational design** below). `VariationalHierarchicalMixture` (`models/graphical/variational.py`)
   is deleted.
-- Then: full test suite, every example run and plotted (one at a time, `--gpu` allowed), the full
-  canonical_circuit grid (`main` of `examples/canonical_circuit/run.py`, three fits), and the plots
+- Then: full test suite, every example run and plotted (one at a time, `--gpu` allowed), and the plots
   inspected. Results from before 2026-10-12 are in the session scratchpad only, not in the repo.
 
 ## Review of `models/` and `dynamical.py`
@@ -184,14 +188,14 @@ statistics are now float64. The tests would not notice either way.
   gone; $\rho$ is the per-harmonium sum of `DifferentiableGraphical`, so several harmoniums per level
   (CCA) are expressible, untested. `DifferentiableVariationalConjugated` narrows `dep_man` and adds
   `elbo_divergence`. The latent model of each level is its prior family (no prior embedding).
-- **`DeepModel`** exists to end the recursion without a special case (`DifferentiableDeepModel` at the
-  top); now stated in its docstring.
+- **`DeepModel`** is the contract a level needs from the model of its latent, shared by the next level
+  and by the latent family that ends the recursion (`DifferentiableDeepModel`).
 - **`GraphicalLevel(_obs_hrms_lat_nods, _pst_man)`** replaces `AttachedHarmonium`: the concrete
   graphical harmonium, for models assembled from parts. "Attached" is replaced by "placed on" and
   `att_clq(s)` by `lat_nods`/`lat_nodss`.
-- **Constant $\rho$.** `ConstantMap` in `map.py`. `variational_population_code(pop_hrm)` is a factory
+- **Constant $\rho$.** `ConstantConjugationFunction` in `variational.py`. `variational_population_code(pop_hrm)` is a factory
   (`VariationalPopulationCode` is a type alias). The bottom Gaussian-Boltzmann level of the approximate
-  canonical circuit uses a `ConstantMap`: its likelihood does not depend on the observations, so at
+  canonical circuit uses a `ConstantConjugationFunction`: its likelihood does not depend on the observations, so at
   given parameters $\rho_{N_1}$ is one point. This changes the approximate circuit's parameter count
   and results; the partially exact circuit and the population code are unchanged (parameters and ELBO
   equal at the same keys).
@@ -203,13 +207,19 @@ statistics are now float64. The tests would not notice either way.
   `ExponentialFamily` + `Tuple`, `Composed`, `Identity`, `Constant`, `Clique`, `Exact`, ...).
   `SymmetricConjugated` is the documented exception (structural prefix).
 - **Open.** The structure is still stated twice (`gph_hrm.pst_man` and `dep_man.fst_man`), unchecked
-  at run time. The circuit's helpers (`_harmonium`, `_place`, the `Level` alias) are to be reviewed with
-  the circuit. Whether the fitting functions become methods: decided to stay functions.
-- **Canonical circuit stress test.** The exact enumeration (`exact_log_partition_function`) is
-  finite only where every $z_k$ given the neurons has positive precision (now in its docstring). With
-  perceptron weights about three times larger than at initialization, $|\beta|$ reaches about 47 and
-  $e^{\beta + a(\ell)}$ overflows (NaN log-densities): numerical range of the exponential
-  parametrization, not a bug; keeping training away from it belongs in goal-apps.
+  at run time. `_harmonium` and the `Level` alias are gone; `_place` remains. Whether the fitting functions become methods: decided to stay functions.
+- **Bias conjugation functions (2026-10-13).** A learned conjugation function depends on the observable
+  bias alone (`BiasConjugationFunction`): the prior and the recognition model evaluate it at the same
+  interactions. Stated in the notes (`scratch/variational-conjugation/article.tex`, sections 3.1 and 4).
+- **Canonical circuit (2026-10-14).** The generative coordinates (`tie`, `gen_man`) and the tied
+  $\beta$ are gone: the circuit is the manifold, and the example trains its natural parameters by the
+  ELBO. The population code's conjugation function adds precision (`NonnegativePrecisionMap`), so the
+  prior and the recognition model over $z_k$ are Gaussian wherever $\theta_{Z_k}$ is; $\theta_{Z_k}$
+  itself is unconstrained. The layers are given by `neural_connectivity` (junction trees).
+  `exact_log_partition_function` and `exact_log_observable_density` are removed: they enumerated the
+  undirected graphical harmonium, a different model from the directed $\tilde p$ the circuit is
+  (the two agree only when every residual is constant), and their only uses were tests at
+  decoupled parameters, which `tests/harmonium.py` already covers.
 
 ## Deliberately not implemented
 
@@ -231,5 +241,5 @@ Decided to avoid generalizing before a model needs it.
 | lint | `uvx ruff check src/ tests/` |
 | types | `uvx basedpyright src/ tests/ examples/` (0 errors, 2026-10-12) |
 | docs | `uv run sphinx-build -q docs/source docs/build` |
-| suite | `uv run python -m pytest tests/ -q` |
-| variational | `uv run python -m pytest tests/variational.py` (54 passed, about 2.5 min on the laptop, 2026-10-12) |
+| suite | `uv run python -m pytest tests/ -q` (609 passed, about 16 min on the laptop, 2026-10-14, before 12 circuit tests were removed the same day; not rerun since) |
+| variational | `uv run python -m pytest tests/variational.py` (28 passed, about 3 min on the laptop, 2026-10-14) |

@@ -73,7 +73,6 @@ from .harmonium.population_codes import (
 )
 from .variational.canonical_circuit import (
     CanonicalCircuit,
-    PopulationConjugationFunction,
     canonical_circuit,
 )
 from .variational.population_codes import (
@@ -132,7 +131,6 @@ __all__ = [
     "Poissons",
     "PopulationCode",
     "PopulationCodeProcess",
-    "PopulationConjugationFunction",
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
     "StandardNormal",

@@ -45,6 +45,16 @@ Conjugation Functions
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: goal.geometry.exponential_family.variational.ConstantConjugationFunction
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.variational.BiasConjugationFunction
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Fitting and Diagnostics
 -----------------------
 

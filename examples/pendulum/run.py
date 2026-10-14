@@ -25,7 +25,7 @@ Usage::
 """
 
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any, cast, override
 
 import jax
 import jax.numpy as jnp
@@ -34,6 +34,7 @@ from jax import Array
 
 from goal.geometry import (
     DifferentiableTuple,
+    Map,
     MultilayerPerceptron,
     PositiveDefinite,
 )
@@ -83,40 +84,49 @@ def von_mises_normal_pair() -> VonMisesNormalPair:
 
 
 @dataclass(frozen=True)
-class PendulumTransition(MultilayerPerceptron[VonMisesNormalPair, VonMisesNormalPair]):
-    """MLP transition with a soft clamp on the Normal precision parameter.
+class PendulumTransition(Map[VonMisesNormalPair, VonMisesNormalPair]):
+    """A multilayer perceptron on beliefs whose velocity precision is positive: it splits the normal part of the output into a location and a raw precision $a$, and returns the precision $\\log(1 + e^{a})$, so that every predicted belief is a proper distribution."""
 
-    The Normal portion of the latent natural parameters has the constraint $\\theta_2 < 0$ (precision must be positive-definite). An unconstrained MLP can produce arbitrary signs, which makes the downstream ``log_partition_function`` and KL divergence return NaN. We apply $\\theta_2 \\mapsto -\\mathrm{softplus}(-\\theta_2) - \\varepsilon$ which is smooth, near-identity for $\\theta_2 \\ll 0$, and saturates strictly below zero for $\\theta_2 \\geq 0$.
-    """
+    # Fields
 
-    precision_epsilon: float = 1e-2
+    mlp: MultilayerPerceptron[VonMisesNormalPair, VonMisesNormalPair]
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.mlp.dim
+
+    @property
+    @override
+    def dom_man(self) -> VonMisesNormalPair:
+        return self.mlp.dom_man
+
+    @property
+    @override
+    def cod_man(self) -> VonMisesNormalPair:
+        return self.mlp.cod_man
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        raw = super().__call__(f_coords, v_coords)
-        return jnp.concatenate(
-            [
-                raw[:2],
-                raw[2:3],
-                -jax.nn.softplus(-raw[3:4]) - self.precision_epsilon,
-            ]
-        )
+        vm_params, nrm_raw = self.cod_man.split_coords(self.mlp(f_coords, v_coords))
+        nrm = cast(Normal[PositiveDefinite], self.cod_man.elm_mans[1])
+        loc, raw = nrm.split_coords(nrm_raw)
+        nrm_params = nrm.join_location_precision(loc, jax.nn.softplus(raw))
+        return self.cod_man.join_coords(vm_params, nrm_params)
 
 
 type PendulumFilter = PopulationCodeProcess[VonMisesNormalPair, PendulumTransition]
 
 
-def pendulum_filter(
-    n_neurons: int, mlp_hidden_dims: tuple[int, ...], precision_epsilon: float
-) -> PendulumFilter:
+def pendulum_filter(n_neurons: int, mlp_hidden_dims: tuple[int, ...]) -> PendulumFilter:
     """One population of ``n_neurons`` tuned to both the angle and the velocity, and the MLP transition."""
     lat = von_mises_normal_pair()
     transition = PendulumTransition(
-        lat,
-        lat,
-        hidden_dims=mlp_hidden_dims,
-        activation=jax.nn.tanh,
-        precision_epsilon=precision_epsilon,
+        MultilayerPerceptron(
+            lat, lat, hidden_dims=mlp_hidden_dims, activation=jax.nn.tanh
+        )
     )
     return PopulationCodeProcess(
         variational_population_code(PoissonPopulationCode(lat, n_neurons)), transition
@@ -338,10 +348,7 @@ def train_mode(
     print(f"Training [{mode_label}]")
     print(f"{'=' * 60}")
 
-    # Global-norm clipping keeps the transition MLP and likelihood interaction
-    # from overshooting into regions where the recognition Normal becomes
-    # non-PD (\\theta_2 \\geq 0) and downstream log_partition_function NaNs.
-    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(learning_rate))
+    optimizer = optax.adam(learning_rate)
     opt_state = optimizer.init(init_params)
 
     def loss_fn_free(p: Array, lkey: Array, batch: Array) -> tuple[Array, Array]:
@@ -560,7 +567,6 @@ def main(**overrides: Any) -> None:
     model = pendulum_filter(
         train_cfg["n_neurons"],
         tuple(train_cfg["mlp_hidden_dims"]),
-        precision_epsilon=1e-2,
     )
 
     pref_a = jnp.array(gt_tuning["preferred_angles"])
@@ -583,7 +589,7 @@ def main(**overrides: Any) -> None:
     ems_lkl = model.ems_hrm.likelihood_function(ems_full)
     _, rho = model.ems_hrm.split_coords(ems_full)
     prior_part = model.ems_hrm.conjugated_prior_params(ems_full)
-    trns_params = model.trn_map.glorot_initialize(keys[7])
+    trns_params = model.trn_map.mlp.glorot_initialize(keys[7])
 
     init_params = model.join_coords(prior_part, ems_lkl, rho, trns_params)
     dim_msg = (

@@ -1,32 +1,10 @@
-"""Hierarchical Mixture of Gaussians (HMoG) models.
+"""Hierarchical mixtures of Gaussians: a linear Gaussian model over a mixture of Gaussians.
 
-This module provides concrete implementations of hierarchical Gaussian models that combine
-linear Gaussian dimensionality reduction with Gaussian mixture clustering, enabling joint
-learning of latent factor representations and cluster assignments.
-
-**Model structure**: HMoG models have two levels:
-
-- **Lower harmonium**: Maps observations :math:`X \\in \\mathbb{R}^p` to first-level latent factors
-  :math:`Y \\in \\mathbb{R}^d` using a linear Gaussian relationship (factor analysis/PCA)
-- **Upper harmonium**: Models a mixture of Gaussians over the latent space :math:`Y`
-
-The joint distribution factors as:
-
-.. math::
-
-    p(X, Y, Z) = p(Z) \\cdot p(Y | Z) \\cdot p(X | Y)
-
-where :math:`Z \\in \\{1,\\ldots,K\\}` are discrete cluster assignments.
-
-**Variants**:
-
-- **DifferentiableHMoG**: Gradient-based optimization, uses restricted posterior covariance
-  for efficiency (e.g., diagonal)
-- **SymmetricHMoG**: Abstract base for symmetric HMoG variants, provides shared posterior methods
-- **AnalyticHMoG**: Fully analytic, enables closed-form EM and bidirectional parameter conversion
-
-Factory functions (``differentiable_hmog``, ``analytic_hmog``) provide convenient construction
-for common configurations.
+The lower harmonium maps observations $x$ to latent factors $y$, and the upper is a mixture of
+Gaussians over $y$, so $p(x, y, z) = p(z) p(y \\mid z) p(x \\mid y)$ with $z$ the cluster.
+:class:`DifferentiableHMoG` is fit by gradient descent with a restricted posterior covariance, and
+:class:`AnalyticHMoG` by closed-form EM; :class:`SymmetricHMoG` holds what they share. Construct
+them with :func:`differentiable_hmog` and :func:`analytic_hmog`.
 """
 
 from abc import ABC, abstractmethod

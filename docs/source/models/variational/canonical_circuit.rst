@@ -21,11 +21,6 @@ Core Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.variational.canonical_circuit.PopulationConjugationFunction
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 
 Factory Functions
 -----------------

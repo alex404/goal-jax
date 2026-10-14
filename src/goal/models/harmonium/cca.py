@@ -1,32 +1,10 @@
 """Canonical correlation analysis: two observable Gaussians sharing one latent.
 
-The first model in this library over a graph with **more than one root**. Where a linear
-Gaussian model is a chain $x - z$, this is a fork
-
-.. code-block:: text
-
-       z
-      / \\
-     x   y
-
-with $x$ and $y$ conditionally independent given $z$. That independence is what makes the
-model tractable, and it is carried by the structure rather than asserted: the model is a
-:class:`~goal.geometry.exponential_family.graphical.DifferentiableGraphical` with two
-linear Gaussian models placed on the one latent node, and its observable is their
-observables side by side, whose log-partition function is the sum of its components'.
-
-Mathematically, the conjugation equation's left-hand side therefore factorizes,
-
-.. math::
-    \\psi_{XY}(\\theta_{XY} + \\Theta \\cdot \\mathbf s_Z(z))
-      = \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z))
-      + \\psi_Y(\\theta_Y + \\Theta_{YZ} \\cdot \\mathbf s_Z(z)),
-
-and since each branch is a linear Gaussian model with its own conjugation, the joint
-conjugation parameters are their sum, $\\rho = \\rho_X + \\rho_Y$, and likewise the
-offsets. The graphical harmonium computes both sums for any number of observable harmoniums.
-The same independence makes the expected log-likelihood a sum over the branches, so with a
-full-covariance latent the model is analytic and each branch's likelihood is fit on its own.
+The graph is a fork, $x - z - y$, with $x$ and $y$ conditionally independent given $z$. The model is
+a :class:`~goal.geometry.exponential_family.graphical.DifferentiableGraphical` with two linear
+Gaussian models placed on the one latent node, so its conjugation parameters are the sum of theirs.
+With a full-covariance latent the model is analytic and each branch's likelihood is fit on its own
+(:class:`AnalyticCanonicalCorrelationAnalysis`).
 """
 
 from abc import ABC, abstractmethod

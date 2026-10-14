@@ -52,6 +52,8 @@ from .exponential_family.protocols import (
     StatisticalMoments,
 )
 from .exponential_family.variational import (
+    BiasConjugationFunction,
+    ConstantConjugationFunction,
     DeepModel,
     DifferentiableDeepModel,
     DifferentiableVariationalConjugated,
@@ -91,7 +93,6 @@ from .manifold.embedding import (
 )
 from .manifold.map import (
     AffineMap,
-    ConstantMap,
     LinearMap,
     Map,
     MatrixMap,
@@ -106,13 +107,14 @@ __all__ = [
     "AnalyticGraphical",
     "AnalyticProduct",
     "AnalyticTuple",
+    "BiasConjugationFunction",
     "ChainTree",
     "CliqueEmbedding",
     "CliqueMap",
     "Cliques",
     "ComposedEmbedding",
     "Conjugated",
-    "ConstantMap",
+    "ConstantConjugationFunction",
     "CrossMap",
     "CrossTerm",
     "DeepModel",

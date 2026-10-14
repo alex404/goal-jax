@@ -1,10 +1,11 @@
-"""Dynamical exponential families: transition abstractions and latent processes.
+"""Dynamical exponential families: transitions and latent processes.
 
-This module contains:
-
-- ``AnalyticTransition[L]`` --- a ``Map[L, L]`` backed by an ``AnalyticConjugated`` harmonium kernel, so predict is derived analytically and the same parameters support smoothing and exact EM.
-- ``LatentProcess[O, L]`` / ``AnalyticLatentProcess[O, L]`` --- state-space models composing a prior, a conjugated emission, and a transition. The transition slot is any ``Map[L, L]``; a ``MultilayerPerceptron[L, L]`` plugs in directly for hybrid filters.
-- ``VariationalLatentProcess[O, L]`` --- peer of ``LatentProcess`` whose emission is an ``DifferentiableVariationalConjugated`` rather than an exactly-conjugate harmonium. The filter accumulates per-step ELBO contributions instead of an exact log-marginal; smoothing and exact EM are not available.
+- :class:`AnalyticTransition` is a ``Map[L, L]`` backed by a conjugated harmonium kernel, so
+  prediction is analytic and the same parameters support smoothing and exact EM.
+- :class:`LatentProcess` and :class:`AnalyticLatentProcess` compose a prior, a conjugated emission
+  and a transition, which may be any ``Map[L, L]``, e.g. a multilayer perceptron.
+- :class:`VariationalLatentProcess` has a variational emission; its filter accumulates the ELBO of
+  each step, and smoothing and exact EM are not available.
 """
 
 from abc import ABC, abstractmethod

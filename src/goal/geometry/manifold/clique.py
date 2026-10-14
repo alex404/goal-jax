@@ -1,18 +1,11 @@
 """Manifolds whose coordinates are laid out over the cliques of a graph.
 
-Each node of the graph has a space, and each clique stores one coordinate block, a
-subspace of the tensor product of its nodes' spaces. A :class:`LinearCliques` stores one
-coordinate block per clique and numbers its own nodes. A :class:`RecursiveLinearCliques` is stored as
-``[root | cross | deep]``: two :class:`LinearCliques`, and a :class:`CrossMap` with one
-:class:`CrossTerm` per crossing clique. The coordinate block of a crossing clique
-is a :class:`CliqueMap`, a linear map from a subspace of a coordinate block of the deep
-partition to a subspace of a coordinate block of the root partition.
-
-Four embeddings relate these layouts. A :class:`CliqueEmbedding` selects the coordinate block
-of one clique. A :class:`SubCliquesEmbedding` places a smaller layout on some of the cliques of a
-larger one. A :class:`RootEmbedding` relates two layouts that differ only in their root
-partition. A :class:`SubMapEmbedding` selects a subspace of a coordinate block that is itself a
-map.
+Each node of the graph has a space, and each clique stores one coordinate block, a subspace of the
+tensor product of its nodes' spaces. A :class:`LinearCliques` is such a layout. A
+:class:`RecursiveLinearCliques` is stored as ``[root | cross | deep]``: two :class:`LinearCliques`
+and a :class:`CrossMap`, with one :class:`CrossTerm` per crossing clique, whose coordinate block is
+a :class:`CliqueMap`. :class:`CliqueEmbedding`, :class:`SubCliquesEmbedding`,
+:class:`RootEmbedding` and :class:`SubMapEmbedding` relate these layouts.
 """
 
 from abc import ABC, abstractmethod

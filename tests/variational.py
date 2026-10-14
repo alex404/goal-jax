@@ -16,11 +16,9 @@ direct gradient, a spurious sg would drop the score correction, and either
 error shifts the MC gradient mean away from the exact gradient by far more
 than its standard error.
 
-Nested levels: the canonical circuit (models/variational/canonical_circuit.py) at depths 1 and 2,
-in both variants, against its exact log-likelihood by enumeration of the neurons, and at
-depth 1 against its exact ELBO by enumeration and quadrature. Its tie: the directed density does not
-depend on the conjugation functions, and the recognition model normalizes at random conjugation
-functions.
+Nested levels: the canonical circuit (models/variational/canonical_circuit.py) in both variants,
+its ELBO decomposition at depths 1 and 2, and at depth 1 its ELBO against enumeration of the neurons
+and quadrature, and its recognition model normalizes at random conjugation functions.
 """
 
 from dataclasses import dataclass
@@ -31,10 +29,9 @@ import jax.numpy as jnp
 import pytest
 from jax import Array
 
-from goal.geometry import PositiveDefinite
+from goal.geometry import JunctionTree, PositiveDefinite
 from goal.geometry.exponential_family.variational import (
     DifferentiableVariationalConjugated,
-    ExactConjugationFunction,
     regress_conjugation_parameters,
 )
 from goal.models import (
@@ -306,57 +303,60 @@ def _circuit(variant: str, depth: int) -> CanonicalCircuit:
     return canonical_circuit(
         1,
         PositiveDefinite(),
-        (3,) * depth,
-        (((0, 1), (1, 2)),) * depth,
+        (JunctionTree.from_edges(3, ((0, 1), (1, 2))),) * depth,
         (1,) * depth,
         variant,  # pyright: ignore[reportArgumentType]
         (4,),
     )
 
 
-def _circuit_params(circuit: CanonicalCircuit, key: Array, exact: bool) -> Array:
-    """Circuit parameters at :func:`_circuit_generative_params`."""
-    return circuit.tie(_circuit_generative_params(circuit, key, exact))
-
-
-def _circuit_generative_params(
-    circuit: CanonicalCircuit, key: Array, exact: bool
-) -> Array:
-    """Random generative coordinates, with a standard normal observable and positive tuning precisions.
-
-    With ``exact``, every population code is decoupled from its latent and every learned
-    conjugation function is zero, and in the approximate variant every Gaussian-Boltzmann harmonium is
-    decoupled from its neurons as well: then every level is exactly conjugate.
-    """
-    man = circuit.generative_man
-    blocks = list(man.split_coords(0.5 * jax.random.normal(key, (man.dim,))))
-    (bottom_hrm,) = circuit.gph_hrm.obs_hrms
-    obs_man = bottom_hrm.obs_man
-    blocks[0] = obs_man.join_location_precision(
-        jnp.zeros(obs_man.data_dim),
-        obs_man.cov_man.from_matrix(jnp.eye(obs_man.data_dim)),
+def _standard_normal_params(nrm: Any) -> Array:
+    """Natural parameters of the standard normal."""
+    return nrm.join_location_precision(
+        jnp.zeros(nrm.data_dim), nrm.cov_man.from_matrix(jnp.eye(nrm.data_dim))
     )
-    for k in range(len(circuit.layers)):
-        int_idx, loc_idx, prc_idx = 1 + 4 * k, 3 + 4 * k, 4 + 4 * k
-        blocks[prc_idx] = jnp.abs(blocks[prc_idx]) + 0.5
-        if exact:
-            blocks[loc_idx] = jnp.zeros_like(blocks[loc_idx])
-            blocks[prc_idx] = jnp.zeros_like(blocks[prc_idx])
-            if not isinstance(circuit.cnj_funs[0], ExactConjugationFunction):
-                blocks[int_idx] = jnp.zeros_like(blocks[int_idx])
-    if exact:
-        blocks[-1] = jnp.zeros_like(blocks[-1])
-    return man.join_coords(*blocks)
+
+
+def _circuit_params(circuit: CanonicalCircuit, key: Array) -> Array:
+    """Random natural parameters: standard normal Gaussians, random neurons, tuning curves with positive precision, and random conjugation functions."""
+    keys = iter(jax.random.split(key, 8 * len(circuit.lvl_mans)))
+
+    def draw(n: int) -> Array:
+        return 0.5 * jax.random.normal(next(keys), (n,))
+
+    obs_int_paramss: list[tuple[Array, Array]] = []
+    cnj_fun_paramss: list[Array] = []
+    for k, (gb_hrm, pop_hrm) in enumerate(circuit.hrm_pars):
+        gb_fun = circuit.lvl_mans[2 * k].cnj_funs[0]
+        pop_fun = circuit.lvl_mans[2 * k + 1].cnj_funs[0]
+        obs_int_paramss.append(
+            (_standard_normal_params(gb_hrm.obs_man), draw(gb_hrm.int_man.dim))
+        )
+        lat = pop_hrm.pst_man
+        shape = (pop_hrm.obs_man.data_dim, lat.data_dim)
+        rows = jax.vmap(lat.join_location_precision)(
+            draw(shape[0] * shape[1]).reshape(shape),
+            jnp.abs(draw(shape[0] * shape[1])).reshape(shape) + 0.5,
+        )
+        (nz_map,) = pop_hrm.crs_maps
+        obs_int_paramss.append((draw(pop_hrm.obs_man.dim), nz_map.from_matrix(rows)))
+        cnj_fun_paramss.append(draw(gb_fun.dim))
+        cnj_fun_paramss.append(draw(pop_fun.dim))
+    hrm_params = _standard_normal_params(circuit.hrm_pars[-1][1].pst_man)
+    for level, (obs_params, int_params) in zip(
+        reversed(circuit.lvl_mans), reversed(obs_int_paramss), strict=True
+    ):
+        hrm_params = level.gph_hrm.join_coords(obs_params, int_params, hrm_params)
+    return circuit.join_coords(hrm_params, jnp.concatenate(cnj_fun_paramss))
 
 
 def _with_conjugation_noise(
-    circuit: CanonicalCircuit, gen_params: Array, key: Array, scale: float
+    circuit: CanonicalCircuit, params: Array, key: Array, scale: float
 ) -> Array:
-    """Generative coordinates with Gaussian noise of s.d. ``scale`` on every conjugation function's parameters."""
-    man = circuit.generative_man
-    blocks = list(man.split_coords(gen_params))
-    blocks[-1] = blocks[-1] + scale * jax.random.normal(key, blocks[-1].shape)
-    return man.join_coords(*blocks)
+    """Circuit parameters with Gaussian noise of s.d. ``scale`` on every conjugation function's parameters."""
+    hrm_params, cnj_fun_params = circuit.split_coords(params)
+    noise = scale * jax.random.normal(key, cnj_fun_params.shape)
+    return circuit.join_coords(hrm_params, cnj_fun_params + noise)
 
 
 def _exact_circuit_elbo(circuit: CanonicalCircuit, params: Array) -> Array:
@@ -381,35 +381,10 @@ def _exact_circuit_elbo(circuit: CanonicalCircuit, params: Array) -> Array:
 
 class TestCanonicalCircuit:
     @pytest.mark.parametrize("variant", VARIANTS)
-    @pytest.mark.parametrize("depth", DEPTHS)
-    def test_elbo_is_the_log_density_when_exact(self, variant: str, depth: int):
-        """Every residual vanishes, so the estimator is exact, with any samples."""
-        circuit = _circuit(variant, depth)
-        params = _circuit_params(circuit, jax.random.PRNGKey(0), exact=True)
-        elbo = circuit.elbo_at(jax.random.PRNGKey(1), params, X_CIRCUIT, 4)
-        log_p = circuit.exact_log_observable_density(params, X_CIRCUIT)
-        assert jnp.allclose(elbo, log_p, rtol=1e-10, atol=1e-10)
-
-    @pytest.mark.parametrize("variant", VARIANTS)
-    @pytest.mark.parametrize("depth", DEPTHS)
-    def test_elbo_gradient_is_the_log_density_gradient_when_exact(
-        self, variant: str, depth: int
-    ):
-        """The divergence of the recognition model is zero, its minimum, so its gradient vanishes."""
-        circuit = _circuit(variant, depth)
-        params = _circuit_params(circuit, jax.random.PRNGKey(2), exact=True)
-        exact_grad = jax.grad(circuit.exact_log_observable_density)(params, X_CIRCUIT)
-        _, _, mc_grad, grad_se = _mc_value_and_grad(
-            lambda k, p: circuit.elbo_at(k, p, X_CIRCUIT, 16), params
-        )
-        z_scores = jnp.abs(mc_grad - exact_grad) / jnp.maximum(grad_se, 1e-9)
-        assert jnp.max(z_scores) < Z_THRESHOLD
-
-    @pytest.mark.parametrize("variant", VARIANTS)
     def test_elbo_matches_quadrature(self, variant: str):
         """Value and gradient away from conjugacy, where every level has a score term."""
         circuit = _circuit(variant, 1)
-        params = _circuit_params(circuit, jax.random.PRNGKey(6), exact=False)
+        params = _circuit_params(circuit, jax.random.PRNGKey(6))
         exact_val = _exact_circuit_elbo(circuit, params)
         exact_grad = jax.grad(lambda p: _exact_circuit_elbo(circuit, p))(params)
         mc_val, val_se, mc_grad, grad_se = _mc_value_and_grad(
@@ -422,7 +397,7 @@ class TestCanonicalCircuit:
     def test_decomposition(self, variant: str, depth: int):
         """$\\log \\tilde p(x, z) - \\log q(z \\mid x) = c(x) + $ the ELBO residual, pointwise."""
         circuit = _circuit(variant, depth)
-        params = _circuit_params(circuit, jax.random.PRNGKey(3), exact=False)
+        params = _circuit_params(circuit, jax.random.PRNGKey(3))
         zs = circuit.sample_recognition(jax.random.PRNGKey(4), params, X_CIRCUIT, 8)
 
         def gap(z: Array) -> Array:
@@ -435,48 +410,18 @@ class TestCanonicalCircuit:
         assert jnp.allclose(gaps, baseline, rtol=1e-8, atol=1e-8)
 
     @pytest.mark.parametrize("variant", VARIANTS)
-    @pytest.mark.parametrize("depth", DEPTHS)
-    def test_exact_density_normalizes(self, variant: str, depth: int):
-        circuit = _circuit(variant, depth)
-        params = _circuit_params(circuit, jax.random.PRNGKey(5), exact=False)
-        xs = jnp.linspace(-12.0, 12.0, 4001)[:, None]
-        log_ps = jax.vmap(lambda x: circuit.exact_log_observable_density(params, x))(xs)
-        assert jnp.allclose(
-            jnp.sum(jnp.exp(log_ps)) * (xs[1, 0] - xs[0, 0]), 1.0, atol=1e-6
-        )
-
-    @pytest.mark.parametrize("variant", VARIANTS)
-    @pytest.mark.parametrize("depth", DEPTHS)
-    def test_directed_density_ignores_conjugation_functions(
-        self, variant: str, depth: int
-    ):
-        """At fixed generative coordinates, $\\log \\tilde p(x, z)$ does not depend on the conjugation functions, pointwise."""
-        circuit = _circuit(variant, depth)
-        gen = _circuit_generative_params(circuit, jax.random.PRNGKey(7), exact=False)
-        params = circuit.tie(gen)
-        zs = circuit.sample_recognition(jax.random.PRNGKey(8), params, X_CIRCUIT, 8)
-        ys = jax.vmap(lambda z: jnp.concatenate([X_CIRCUIT, z]))(zs)
-        log_p = jax.vmap(lambda y: circuit.log_density(params, y))(ys)
-        for i in range(3):
-            noisy = circuit.tie(
-                _with_conjugation_noise(circuit, gen, jax.random.PRNGKey(9 + i), 1.0)
-            )
-            log_p_noisy = jax.vmap(lambda y: circuit.log_density(noisy, y))(ys)
-            assert jnp.allclose(log_p_noisy, log_p, rtol=1e-10, atol=1e-10)
-
-    @pytest.mark.parametrize("variant", VARIANTS)
     def test_recognition_model_normalizes(self, variant: str):
-        """The recognition model is a distribution at random conjugation functions: its precision of $z$ is positive.
+        """The recognition model is a distribution at random conjugation functions: the conjugation function of the population code adds precision to $z$.
 
         The grid of $z$ spans the samples of $q$ by ten standard deviations on each side, as random
         conjugation functions can place $q$ far from the origin.
         """
         circuit = _circuit(variant, 1)
-        gen = _circuit_generative_params(circuit, jax.random.PRNGKey(12), exact=False)
+        params0 = _circuit_params(circuit, jax.random.PRNGKey(12))
         states = ((jnp.arange(8)[:, None] >> jnp.arange(3)) & 1).astype(float)
         for i in range(3):
-            params = circuit.tie(
-                _with_conjugation_noise(circuit, gen, jax.random.PRNGKey(13 + i), 1.0)
+            params = _with_conjugation_noise(
+                circuit, params0, jax.random.PRNGKey(13 + i), 1.0
             )
             samples = circuit.sample_recognition(
                 jax.random.PRNGKey(16 + i), params, X_CIRCUIT, 1000

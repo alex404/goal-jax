@@ -10,10 +10,11 @@ of the population code, which is exact up to its conjugation residual.
 from dataclasses import dataclass
 from typing import Any, override
 
-from ...geometry import ConstantMap, GraphicalLevel
+from ...geometry import GraphicalLevel
 from ...geometry.exponential_family.base import Differentiable
 from ...geometry.exponential_family.dynamical import VariationalLatentProcess
 from ...geometry.exponential_family.variational import (
+    ConstantConjugationFunction,
     DifferentiableDeepModel,
     DifferentiableVariationalConjugated,
 )
@@ -29,11 +30,11 @@ type VariationalPopulationCode[Latent: Differentiable] = (
 def variational_population_code[Latent: Differentiable](
     pop_hrm: PopulationCode[Any, Latent],
 ) -> VariationalPopulationCode[Latent]:
-    """A population code with constant conjugation parameters: its conjugation function is a :class:`~goal.geometry.manifold.map.ConstantMap`, whose parameters are $\\rho$."""
+    """A population code with constant conjugation parameters: its conjugation function is a :class:`~goal.geometry.exponential_family.variational.ConstantConjugationFunction`, whose parameters are $\\rho$."""
     lat = pop_hrm.pst_man
     return DifferentiableVariationalConjugated(
         GraphicalLevel(((pop_hrm, tuple(range(lat.n_nodes))),), lat),
-        (ConstantMap(lat, pop_hrm.lkl_fun_man),),
+        (ConstantConjugationFunction(lat, pop_hrm.lkl_fun_man),),
         DifferentiableDeepModel(lat),
     )
 

@@ -1,16 +1,11 @@
 """Boltzmann machines: exponential families over binary vectors with pairwise couplings.
 
-The family is organized by coupling sparsity, mirroring the ``Normal`` covariance
-representations: :class:`DiagonalBoltzmann` (independent units, closed form),
-:class:`FullBoltzmann` (dense couplings, exact by enumeration of the $2^n$ states) and
-:class:`ChordalBoltzmann` (couplings on a chordal graph, exact by junction-tree sum-product,
-at logarithmic depth when the junction tree is a :class:`~goal.geometry.ChainTree`). The abstract
-:class:`Boltzmann` base captures everything that follows from binariness alone. Each family
-runs its own algorithms; its shape manifold (:class:`CouplingMatrix`,
-:class:`ChordalCouplingMatrix`) is the layout of its couplings, as the covariance manifold is
-for a ``Normal``. A :class:`ChordalBoltzmann` builds the clique log-potentials of its
-couplings and runs sum-product on its :class:`~goal.geometry.JunctionTree`, as a ``Normal``
-runs the matrix operations of its representation.
+The family is organized by coupling sparsity, as ``Normal`` is by covariance representation:
+:class:`DiagonalBoltzmann` (independent units, closed form), :class:`FullBoltzmann` (dense
+couplings, exact by enumeration of the $2^n$ states) and :class:`ChordalBoltzmann` (couplings on a
+chordal graph, exact by sum-product on its :class:`~goal.geometry.JunctionTree`). :class:`Boltzmann`
+holds what follows from binariness alone, and :class:`CouplingMatrix` and
+:class:`ChordalCouplingMatrix` are the layouts of the couplings.
 """
 
 from abc import ABC, abstractmethod

@@ -1,44 +1,12 @@
-"""Variational conjugation: a graphical harmonium with learned conjugation parameters.
+"""Variational conjugation: graphical harmoniums fit with learned conjugation parameters.
 
-A :class:`~goal.geometry.exponential_family.graphical.DifferentiableGraphical` is
-conjugated: the log-partition function of its observable at the likelihood,
-$\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z))$, is affine in $\\mathbf s_Z(z)$, which
-gives its prior, its log-partition function and the marginal density of its observable in
-closed form (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). When
-its observable harmoniums are not conjugated, :class:`VariationalConjugated` holds the
-graphical harmonium (:attr:`~VariationalConjugated.gph_hrm`) with a conjugation function for
-each observable harmonium, and approximates these operations with the conjugation parameters
-$\\rho$ they give: learned, or exact where an observable harmonium is conjugated.
-
-A deep model is a chain of levels, bottom first. Each level is a :class:`VariationalConjugated`
-whose deep model (:attr:`~VariationalConjugated.dep_man`), the model of its latent, is the next
-level, and the chain ends at the latent family of the top level, as a
-:class:`DifferentiableDeepModel`. Levels reach their deep models only through
-:class:`DeepModel`, so the recursion needs no special case at its end.
-
-Mathematically, let $\\theta = (\\theta_X, \\Theta_{XZ}, \\theta_Z)$ be the natural parameters of
-the graphical harmonium and $\\rho = \\rho(\\theta_X, \\Theta_{XZ})$ conjugation parameters, a
-function of the likelihood alone. The model and its recognition model are
-
-$$\\tilde p(x, z) = \\tilde p_Z(z; \\theta_Z + \\rho) \\, p(x \\mid z; \\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)), \\qquad q(z \\mid x) = \\tilde p_Z(z; \\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}),$$
-
-where the deep model $\\tilde p_Z$ is an exact family or again a variational model. When
-$\\rho$ is exact, $\\tilde p$ is the density of the graphical harmonium. The model is a
-directed variational autoencoder in other coordinates: the directed prior bias of each
-level is $\\theta_Y + \\rho_Y$, with likelihoods and interactions shared.
-
-The central quantity is the **conjugation residual** of each level,
-
-$$r(z) = \\delta \\cdot \\mathbf s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X),$$
-
-with the slope $\\delta = \\rho$ in the model. $r$ is constant, and its variance zero, if and
-only if $\\rho$ is exact. Summed over the levels, it gives
-
-$$\\log \\tilde p(x, z) - \\log q(z \\mid x) = c(x) + r(z) + \\sum r^0(z) - \\sum r^X(z),$$
-
-where $c(x)$ is the log-marginal under exact conjugation
-(:meth:`VariationalConjugated.conjugation_baseline`), $r$ is the residual of this level, and
-$r^0$ and $r^X$ are the residuals of the deep model at the prior and at the posterior.
+A :class:`VariationalConjugated` is one level of a deep model: a graphical harmonium whose
+observable harmoniums need not be conjugated, with a conjugation function for each that gives its
+conjugation parameters $\\rho$ (:class:`ExactConjugationFunction`,
+:class:`ConstantConjugationFunction`, :class:`BiasConjugationFunction`). A level reaches the model
+of its latent only through :class:`DeepModel`: the next level, or at the top the latent family as a
+:class:`DifferentiableDeepModel`. The ELBO is built from the conjugation residual of each level
+(:meth:`VariationalConjugated.conjugation_residual`, :meth:`VariationalConjugated.elbo_at`).
 """
 
 from abc import ABC, abstractmethod
@@ -53,7 +21,7 @@ from jax import Array
 from ..manifold.base import Manifold
 from ..manifold.clique import SubCliquesEmbedding
 from ..manifold.combinators import ManifoldTuple, Pair
-from ..manifold.map import Map
+from ..manifold.map import AffineMap, Map
 from .base import Differentiable, Generative
 from .combinators import DifferentiableTuple
 from .graphical import GraphicalHarmonium
@@ -65,11 +33,12 @@ from .harmonium import Conjugated
 class DeepModel[Prior: Manifold](Pair[Prior, ManifoldTuple], ABC):
     """The model of the latent of a level, as the level sees it: the operations a level needs from the model above it.
 
-    Its purpose is to end the recursion of nested levels without a special case. The deep model
-    of a level is either the next level (:class:`VariationalConjugated`), which does its own part
-    of each operation and passes the rest to its own deep model, or, at the top, the latent family
-    (:class:`DifferentiableDeepModel`), which has no levels and computes each operation exactly. A
-    level calls its deep model only through this contract, and so cannot tell the two apart.
+    It is the contract a level needs from the model of its latent, shared by the next level and by
+    the latent family that ends the recursion. The deep model of a level is either the next level
+    (:class:`VariationalConjugated`), which does its own part of each operation and passes the rest
+    to its own deep model, or, at the top, the latent family (:class:`DifferentiableDeepModel`),
+    which has no levels and computes each operation exactly. A level calls its deep model only
+    through this contract, and so needs no special case for the top.
 
     Its parameters are ``[prr_params | cnj_fun_tup_params]``: natural parameters of its prior
     family, the latent model of the level below, and the conjugation function parameters of its
@@ -230,6 +199,15 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
     :attr:`gph_hrm`, and the conjugation function parameters of every level, one element per
     level, bottom first: this level's (:attr:`cnj_fun_man`) first and the deep model's after them. It is not an exponential family: the conjugation function parameters parameterize
     the approximation, not the joint density.
+
+    Mathematically, with $\\theta = (\\theta_X, \\Theta_{XZ}, \\theta_Z)$ the natural parameters of
+    :attr:`gph_hrm` and $\\rho$ a function of the likelihood alone, the model and its recognition
+    model are
+
+    $$\\tilde p(x, z) = \\tilde p_Z(z; \\theta_Z + \\rho) p(x \\mid z), \\qquad q(z \\mid x) = \\tilde p_Z(z; \\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}),$$
+
+    with $\\tilde p_Z$ the deep model. $\\tilde p$ is the density of :attr:`gph_hrm` only when
+    $\\rho$ is exact.
     """
 
     # Fields
@@ -242,8 +220,9 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
 
     A function of the likelihood alone, so the prior and the recognition model of a nested model
     use the same one. Its parameters may be none (:class:`ExactConjugationFunction`, where the
-    harmonium is conjugated), $\\rho$ itself (:class:`~goal.geometry.manifold.map.ConstantMap`), or
-    those of a learned approximation.
+    harmonium is conjugated), $\\rho$ itself (:class:`ConstantConjugationFunction`), or
+    those of a learned approximation, usually of the observable bias alone
+    (:class:`BiasConjugationFunction`).
     """
 
     dep_man: DeepModel[Any]
@@ -599,6 +578,78 @@ class ExactConjugationFunction[Prior: Generative](Map[Prior, Any]):
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
         return self.cnj_hrm.conjugation_parameters(v_coords)
+
+
+@dataclass(frozen=True)
+class ConstantConjugationFunction[Prior: Manifold](Map[Prior, Any]):
+    """A conjugation function that ignores the likelihood: its parameters are $\\rho$ itself, in natural coordinates of the posterior."""
+
+    # Fields
+
+    _cod_man: Prior
+    _dom_man: Any
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.cod_man.dim
+
+    @property
+    @override
+    def dom_man(self) -> Any:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Prior:
+        return self._cod_man
+
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        return f_coords
+
+
+@dataclass(frozen=True)
+class BiasConjugationFunction[Prior: Manifold](Map[Prior, Any]):
+    """A learned conjugation function of the observable bias alone: it splits the likelihood parameters $(\\theta_X, \\Theta_{XZ})$ and applies :attr:`bia_map` to $\\theta_X$.
+
+    In a nested model the prior and the recognition model evaluate the conjugation function at the
+    same interactions and different biases, $\\theta^*_X$ and $\\hat\\theta_X(x)$, so only the
+    dependence on the bias must be represented; the dependence on the interactions is carried by the
+    parameters, which are trained with them. At the bottom level the bias does not depend on the
+    observations, and :class:`ConstantConjugationFunction` suffices.
+    """
+
+    # Fields
+
+    bia_map: Map[Prior, Any]
+    """A map from natural parameters of the observable to $\\rho$, in natural coordinates of the posterior."""
+
+    _dom_man: AffineMap[Any, Any]
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.bia_map.dim
+
+    @property
+    @override
+    def dom_man(self) -> AffineMap[Any, Any]:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Prior:
+        return self.bia_map.cod_man
+
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        obs_params, _ = self.dom_man.split_coords(v_coords)
+        return self.bia_map(f_coords, obs_params)
 
 
 ### Fitting and diagnostics ###

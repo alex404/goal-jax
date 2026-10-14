@@ -1,36 +1,19 @@
 """Storage-efficient matrix representations for use as strategies in linear maps.
 
-A ``MatrixRep`` defines how to store a matrix as a flat parameter array and how to perform linear algebra (matvec, transpose, inverse, etc.) while respecting structural constraints. ``MatrixMap`` in ``manifold/map.py`` plugs a rep into the manifold system; this module is purely about the matrix operations themselves.
-
-The hierarchy from most to least general is::
+A :class:`MatrixRep` stores a matrix as a flat array and performs linear algebra on it (matvec,
+transpose, inverse, ...) within its structure, and :class:`~goal.geometry.manifold.map.MatrixMap`
+plugs one into the manifold system. From most to least general::
 
     Rectangular > Square > Symmetric > PositiveDefinite > Diagonal > Scale > Identity
 
-Each level exploits additional structure for cheaper storage and operations:
-
-+----------------+---------------+---------------+---------------+
-| Representation | Storage       | Matmul        | Inverse/Det   |
-+================+===============+===============+===============+
-| Rectangular    | $O(n^2)$      | $O(n^2)$      | $O(n^3)$      |
-+----------------+---------------+---------------+---------------+
-| Symmetric      | $O(n^2/2)$    | $O(n^2)$      | $O(n^3)$      |
-+----------------+---------------+---------------+---------------+
-| Pos. Definite  | $O(n^2/2)$    | $O(n^2)$      | $O(n^3)$      |
-|                |               |               | (Cholesky)    |
-+----------------+---------------+---------------+---------------+
-| Diagonal       | $O(n)$        | $O(n)$        | $O(n)$        |
-+----------------+---------------+---------------+---------------+
-| Scale          | $O(1)$        | $O(n)$        | $O(1)$        |
-+----------------+---------------+---------------+---------------+
-| Identity       | $O(1)$        | $O(1)$        | $O(1)$        |
-+----------------+---------------+---------------+---------------+
-
-TODO: A ``Convolutional`` rep could fit naturally here. It would store a kernel and
-implement ``matvec`` via convolution on a flat array (i.e. a compactly-stored Toeplitz
-matrix), with ``shape = (output_len, input_len)`` preserving the existing contract.
-Multi-channel and 2D structure would be handled in ``manifold/map.py`` via a composite map
-(one block per channel pair) or embeddings that reshape between flat and spatial layouts.
+and each exploits more structure for cheaper storage and operations.
 """
+
+# TODO: A ``Convolutional`` rep could fit naturally here. It would store a kernel and
+# implement ``matvec`` via convolution on a flat array (i.e. a compactly-stored Toeplitz
+# matrix), with ``shape = (output_len, input_len)`` preserving the existing contract.
+# Multi-channel and 2D structure would be handled in ``manifold/map.py`` via a composite map
+# (one block per channel pair) or embeddings that reshape between flat and spatial layouts.
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable

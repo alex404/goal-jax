@@ -1,46 +1,11 @@
 """Junction trees: the cliques of a chordal graph arranged in a tree, with exact sum-product over binary variables.
 
-Exact inference on a discrete graphical model --- computing its partition
-function, or sampling from it --- costs $O(2^n)$ in general, but far less when
-the interaction graph is sparse. The classical route to exploiting sparsity is
-the junction tree: group the variables into overlapping clusters (cliques) and
-arrange the clusters in a tree, so that dynamic programming over the tree
-(sum-product message passing) yields exact answers at a cost exponential only
-in the largest cluster size --- the *treewidth* --- rather than in $n$. Chains,
-trees, and band-like topologies have small treewidth, so models built on them
-remain exactly tractable at sizes where brute force is hopeless.
-
-:meth:`JunctionTree.from_edges` builds the structure from an undirected graph on $n$
-nodes: it triangulates the graph via the min-fill heuristic, extracts the maximal
-cliques of the chordal completion, and builds a maximum-weight spanning tree of the
-clique graph. The input graph is a *seed*, not a topology the tree preserves:
-triangulation may add fill-in edges, and the junction tree describes the chordal
-completion with no memory of which edges were original. Seeds that are already chordal
-(chains, trees, band graphs) incur no fill-in, so for them the completion is the input
-graph.
-
-Inference runs on a table of clique log-potentials ``phi`` of shape
-``(n_cliques, 2^m)``, with $m$ the size of the largest clique: row $c$ holds
-$\\phi_c(x_C)$ for every binary state of clique $C$, and the distribution is
-$p(x) \\propto \\exp \\sum_c \\phi_c(x_C)$. A state is encoded LSB-first: bit $p$ of a
-clique state is the value of the clique's $p$-th node, in ascending node order, as in
-:func:`binary_states`. Entries at states $s \\geq 2^{\\lvert C \\rvert}$ of a smaller
-clique are padding and are ignored. :meth:`JunctionTree.log_partition` and
-:meth:`JunctionTree.sample` cost $O(n \\cdot 2^{w+1})$, with $w$ the treewidth;
-a :class:`ChainTree` runs the same computations at $O(\\log n)$ depth.
-
-All static index tables (binary state tables, separator-state maps, traversal
-arrays) are built with numpy at trace time from the topology --- under ``jax.jit``
-this runs once per compilation, so the compilation cache is the only cache. The
-potential-dependent arithmetic runs through ``jax.lax.scan`` or
-``jax.lax.associative_scan`` over those tables, so the staged program is not unrolled
-over cliques.
-
-Mathematically, a junction tree of a chordal graph $G^\\star$ is a tree whose nodes
-are the maximal cliques of $G^\\star$ and which satisfies the running-intersection
-property: for any two cliques $C_i, C_j$, every clique on the path between them
-contains $C_i \\cap C_j$. This is automatic for maximum-weight spanning trees of
-the clique graph weighted by separator size.
+:meth:`JunctionTree.from_edges` builds a junction tree from an undirected graph. The graph is a
+seed: the tree describes its chordal completion, fill-in edges included.
+:meth:`JunctionTree.log_partition` and :meth:`JunctionTree.sample` run sum-product on a table of
+clique log-potentials, at a cost exponential in the treewidth rather than in the number of nodes,
+and a :class:`ChainTree` runs the same computations at logarithmic depth when the cliques form a
+path. The main user is :class:`~goal.models.ChordalBoltzmann`.
 """
 
 from collections.abc import Sequence
@@ -333,6 +298,8 @@ def _spanning_tree(incidence: np.ndarray) -> tuple[tuple[int, int], ...]:
 ### Junction trees ###
 
 
+# The index tables of a tree are built with numpy from its topology at trace time, so under
+# ``jax.jit`` the compilation cache is the only cache.
 @dataclass(frozen=True)
 class JunctionTree(Cliques):
     """The maximal cliques of a chordal graph, arranged in a tree rooted at one of them.
@@ -344,6 +311,16 @@ class JunctionTree(Cliques):
 
     Its edges (:attr:`~goal.geometry.algebra.clique.Cliques.edges`) are those of the
     chordal completion, fill-ins included.
+
+    Inference runs on a table of clique log-potentials ``phi`` of shape ``(n_cliques, 2^m)``,
+    with $m$ the size of the largest clique: row $c$ holds $\\phi_c(x_C)$ at every binary state
+    of clique $C$, encoded LSB-first in ascending node order (:func:`binary_states`), and entries
+    at states $s \\geq 2^{\\lvert C \\rvert}$ are padding. :meth:`log_partition` and
+    :meth:`sample` cost $O(n 2^{w+1})$, with $w$ the treewidth.
+
+    Mathematically, the tree satisfies the running-intersection property: for any two cliques
+    $C_i, C_j$, every clique on the path between them contains $C_i \\cap C_j$. A maximum-weight
+    spanning tree of the clique graph, weighted by separator size, has it.
     """
 
     # Fields

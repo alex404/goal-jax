@@ -1,29 +1,13 @@
 """Graphical harmoniums: harmoniums placed on the cliques of a latent model.
 
-A graphical harmonium is built from a latent model and one or more
-harmoniums, :attr:`GraphicalHarmonium.obs_hrms`. The latent variables of each of these
-harmoniums are the variables of one clique of the latent model, and their observables
-together make up the composite's observable. The composite's interaction is their
-interactions, and its posterior is the latent model. A hierarchical mixture of Gaussians
-places one linear Gaussian model on a mixture; canonical correlation analysis places
-two linear Gaussian models to one normal.
-
-Given the latent model, the observables are independent. So if every harmonium in
-``obs_hrms`` is conjugated, the composite is too, and its conjugation parameters are the
-sum of theirs, each placed on its clique.
-
-Mathematically, let $\\rho_i$ and $\\chi_i$ be the conjugation parameters and offset of the
-$i$-th harmonium in ``obs_hrms``, and $\\iota_i$ the embedding of its prior into the
-composite's prior on its clique. Then the composite has
-
-.. math::
-    \\rho = \\sum_i \\iota_i(\\rho_i), \\qquad \\chi = \\sum_i \\chi_i.
-
-A graphical harmonium makes no assumption of conjugation: it is the joint family and its
-two conditionals. One that is not conjugated can be fit variationally, as the
-``gph_hrm`` of a :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
-A graphical harmonium assembled from its parts, e.g. a plain harmonium given to the variational
-classes, is a :class:`GraphicalLevel`.
+A :class:`GraphicalHarmonium` is a latent model with observable harmoniums, each placed on a clique
+of it; their observables make up its observable and are independent given the latent model. It
+assumes no conjugation. A :class:`DifferentiableGraphical` is conjugated because every observable
+harmonium is, and one that is not can be fit variationally by a
+:class:`~goal.geometry.exponential_family.variational.VariationalConjugated`. A
+:class:`GraphicalLevel` is a graphical harmonium assembled from parts rather than declared as a
+subclass. A hierarchical mixture of Gaussians places one linear Gaussian model on a mixture;
+canonical correlation analysis places two on one normal.
 """
 
 from abc import ABC, abstractmethod
