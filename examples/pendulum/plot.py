@@ -14,8 +14,6 @@ Usage::
     uv run python -m examples.pendulum.plot
 """
 
-from __future__ import annotations
-
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -27,7 +25,8 @@ from .types import Results, TuningParams
 
 
 def _angles_array(t: TuningParams) -> np.ndarray:
-    return np.asarray(t["preferred_angles"])
+    """Preferred angles in $[0, 2\\pi)$, the range of the ground truth."""
+    return np.mod(np.asarray(t["preferred_angles"]), 2 * np.pi)
 
 
 def _velocities_array(t: TuningParams) -> np.ndarray:
@@ -158,7 +157,9 @@ def main() -> None:
     ax_rho = fig.add_subplot(gs[1, 2])
     for i, mode in enumerate(modes):
         rho_norms = np.asarray(results["models"][mode]["history"]["rho_norms"])
-        ax_rho.plot(rho_norms, label=mode, color=model_color(i), marker="o", markersize=3)
+        ax_rho.plot(
+            rho_norms, label=mode, color=model_color(i), marker="o", markersize=3
+        )
     ax_rho.set_xlabel("Logging chunk")
     ax_rho.set_ylabel(r"$\|\rho\|$")
     ax_rho.set_title(r"Conjugation parameter norm")

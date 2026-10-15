@@ -22,25 +22,25 @@ Location-Shape Models
    :undoc-members:
    :show-inheritance:
 
-Pair Models
------------
+Tuple Models
+------------
 
-.. autoclass:: goal.geometry.exponential_family.combinators.ExponentialFamilyPair
+.. autoclass:: goal.geometry.exponential_family.combinators.ExponentialFamilyTuple
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.combinators.GenerativePair
+.. autoclass:: goal.geometry.exponential_family.combinators.GenerativeTuple
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.combinators.DifferentiablePair
+.. autoclass:: goal.geometry.exponential_family.combinators.DifferentiableTuple
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.combinators.AnalyticPair
+.. autoclass:: goal.geometry.exponential_family.combinators.AnalyticTuple
    :members:
    :undoc-members:
    :show-inheritance:

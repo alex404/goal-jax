@@ -4,7 +4,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
 # Type aliases
-Bounds2D: TypeAlias = tuple[float, float, float, float]  # (x_min, x_max, y_min, y_max)
+type Bounds2D = tuple[float, float, float, float]  # (x_min, x_max, y_min, y_max)
 
 # Standard color schemes for consistent plots
 colors = {

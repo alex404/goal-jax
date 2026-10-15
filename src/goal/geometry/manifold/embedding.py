@@ -3,8 +3,6 @@
 An embedding defines how one manifold sits inside another: it provides maps for injecting points into the ambient space (``embed``), and for pulling back cotangent vectors --- i.e. gradients --- from the ambient space to the subspace (``pullback``). Linear embeddings additionally support projection and translation.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import override
@@ -19,7 +17,7 @@ from .combinators import Null, Tuple
 
 
 @dataclass(frozen=True)
-class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
+class Embedding[Ambient: Manifold, Sub: Manifold](ABC):
     """Defines how a smaller model space sits inside a larger one.
 
     Use an embedding when you want to convert parameters from a constrained model to a more general one (``embed``), or transform gradients computed in the general space back to the constrained space (``pullback``). For example, embedding a diagonal-covariance normal into a full-covariance normal.
@@ -75,15 +73,22 @@ class Embedding[Sub: Manifold, Ambient: Manifold](ABC):
 
 
 @dataclass(frozen=True)
-class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient], ABC):
+class LinearEmbedding[Ambient: Manifold, Sub: Manifold](Embedding[Ambient, Sub], ABC):
     """An embedding that additionally supports projection and translation.
 
     Use a linear embedding when you need to move coordinates in both directions: ``embed`` to go from the smaller space to the larger, and ``project`` to extract the relevant components back out. Translation lets you update just the subspace components of an ambient point without touching the rest.
 
     Mathematically, a linear embedding $\\phi: \\mathcal{M} \\to \\mathcal{N}$ comes with:
 
-    - A projection $\\pi: \\mathcal{N} \\to \\mathcal{M}$ satisfying $\\pi \\circ \\phi = \\text{id}_{\\mathcal{M}}$, and
+    - a projection $\\pi: \\mathcal{N} \\to \\mathcal{M}$, and
     - a translation $\\tau(p, q) = p + \\phi(q)$.
+
+    The two directions act on different coordinate systems, so they are not inverses of
+    each other: ``embed`` takes natural parameters and ``project`` takes mean parameters.
+    $\\pi \\circ \\phi = \\text{id}_{\\mathcal{M}}$ therefore holds for coordinate
+    inclusions but not in general --- ``NormalCovarianceEmbedding`` is the standing
+    example, where the ``Scale`` round trip scales the variance coordinate by $1/d$. Both
+    directions have to be supplied; neither can be derived from the other.
 
     For linear embeddings the pullback is location-independent and reduces to projection.
     """
@@ -110,7 +115,7 @@ class LinearEmbedding[Sub: Manifold, Ambient: Manifold](Embedding[Sub, Ambient],
 class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
     """The trivial case where sub and ambient are the same manifold.
 
-    Used as the default embedding when a linear map operates on the full space without restriction (see ``AmbientMap``).
+    Used as the default embedding when a linear map operates on the full space without restriction (see ``MatrixMap``).
     """
 
     man: M
@@ -139,8 +144,8 @@ class IdentityEmbedding[M: Manifold](LinearEmbedding[M, M]):
 
 
 @dataclass(frozen=True)
-class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
-    Embedding[Sub, Ambient], ABC
+class ComposedEmbedding[Ambient: Manifold, Mid: Manifold, Sub: Manifold](
+    Embedding[Ambient, Sub], ABC
 ):
     """Chain two embeddings when a model space is nested two levels deep.
 
@@ -151,8 +156,8 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
 
     # Fields
 
-    sub_emb: Embedding[Sub, Mid]
-    mid_emb: Embedding[Mid, Ambient]
+    mid_emb: Embedding[Ambient, Mid]
+    sub_emb: Embedding[Mid, Sub]
 
     # Overrides
 
@@ -186,10 +191,10 @@ class ComposedEmbedding[Sub: Manifold, Mid: Manifold, Ambient: Manifold](
 
 @dataclass(frozen=True)
 class LinearComposedEmbedding[
-    Sub: Manifold,
-    Mid: Manifold,
     Ambient: Manifold,
-](ComposedEmbedding[Sub, Mid, Ambient], LinearEmbedding[Sub, Ambient]):
+    Mid: Manifold,
+    Sub: Manifold,
+](ComposedEmbedding[Ambient, Mid, Sub], LinearEmbedding[Ambient, Sub]):
     """Linear version of ``ComposedEmbedding``, preserving projection and translation through the chain.
 
     Mathematically, $\\pi = \\pi_1 \\circ \\pi_2$ and $\\tau(p, q) = \\tau_2(p, \\tau_1(0_{\\mathcal{L}}, q))$.
@@ -197,8 +202,8 @@ class LinearComposedEmbedding[
 
     # Fields
 
-    sub_emb: LinearEmbedding[Sub, Mid]
-    mid_emb: LinearEmbedding[Mid, Ambient]
+    mid_emb: LinearEmbedding[Ambient, Mid]
+    sub_emb: LinearEmbedding[Mid, Sub]
 
     # Overrides
 
@@ -215,7 +220,7 @@ class LinearComposedEmbedding[
 
 
 @dataclass(frozen=True)
-class TrivialEmbedding[Ambient: Manifold](LinearEmbedding[Null, Ambient]):
+class TrivialEmbedding[Ambient: Manifold](LinearEmbedding[Ambient, Null]):
     """Embedding from a zero-dimensional manifold, used to mark a component as fixed.
 
     In a mixture or product structure, a trivial embedding on a component means that component carries no free parameters. ``embed`` returns zeros; ``project`` returns an empty array.
@@ -251,8 +256,8 @@ class TrivialEmbedding[Ambient: Manifold](LinearEmbedding[Null, Ambient]):
 
 
 @dataclass(frozen=True)
-class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
-    LinearEmbedding[Component, TupleMan], ABC
+class TupleEmbedding[TupleMan: Tuple, Component: Manifold](
+    LinearEmbedding[TupleMan, Component], ABC
 ):
     """Embeds a single component of a ``Tuple`` manifold, used to isolate one factor of a product space.
 
@@ -265,15 +270,6 @@ class TupleEmbedding[Component: Manifold, TupleMan: Tuple](
     @abstractmethod
     def tup_idx(self) -> int:
         """The index of the component in the tuple manifold."""
-
-    def __post_init__(self):
-        """Validate that tup_idx is in range."""
-        zero_tuple = self.amb_man.zeros()
-        components = self.amb_man.split_coords(zero_tuple)
-        if self.tup_idx >= len(components):
-            raise IndexError(
-                f"Component index {self.tup_idx} out of range for {type(self.amb_man)}"
-            )
 
     # Overrides
 

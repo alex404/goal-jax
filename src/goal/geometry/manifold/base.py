@@ -3,8 +3,6 @@
 A `Manifold` is a stateless object that bundles operations for interpreting and manipulating flat JAX arrays of a fixed dimension. It holds no data itself --- the arrays it operates on are passed in and returned as plain `Array` values. Subclasses add structure (array manipulation, matrix representations, exponential-family operations) while preserving this pattern.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 
 import jax

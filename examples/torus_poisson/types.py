@@ -74,7 +74,6 @@ class TrainingConfig(TypedDict):
     gain: float
     prior_concentration: float
     conj_weight: float
-    analytical_samples_mult: int
     density_kappa1: float  # Von Mises concentration for theta1 density
     density_kappa2: float  # Von Mises concentration for theta2 density
     density_mu1: float  # Center of concentration in theta1

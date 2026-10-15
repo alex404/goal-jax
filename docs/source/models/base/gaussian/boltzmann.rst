@@ -62,20 +62,4 @@ Chordal Boltzmann
    :undoc-members:
    :show-inheritance:
 
-Chain Coupling Matrix
----------------------
-
-.. autoclass:: goal.models.base.gaussian.boltzmann.ChainCouplingMatrix
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Chain Boltzmann
----------------
-
-.. autoclass:: goal.models.base.gaussian.boltzmann.ChainBoltzmann
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-See :doc:`coupling/index` for the kernel functions and junction-tree machinery backing the coupling matrices.
+See :doc:`/geometry/algebra/junction_tree` for the junction trees that chordal Boltzmann machines run sum-product on.

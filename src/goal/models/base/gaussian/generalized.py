@@ -1,7 +1,5 @@
 """Generalized Gaussian abstraction unifying Normal distributions and Boltzmann machines through shared sufficient statistic structure."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import override

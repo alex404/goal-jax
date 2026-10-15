@@ -18,12 +18,16 @@ def main():
     samples = np.array(results["observations"])
     gt_components = np.array(results["ground_truth_components"])
     x_range = np.array(results["plot_range"])
-    X, Y = np.meshgrid(x_range, x_range)
+    grid_x, grid_y = np.meshgrid(x_range, x_range)
 
     # Define colors and line styles for each model (unified across all plots)
     style_gt = {"color": colors["ground_truth"], "linestyle": "--", "linewidth": 2}
     style_fa = {"color": colors["fitted"], "linestyle": "-", "linewidth": 2}
-    style_diag = {"color": "#0096FF", "linestyle": "-.", "linewidth": 2.5}  # Bright blue
+    style_diag = {
+        "color": "#0096FF",
+        "linestyle": "-.",
+        "linewidth": 2.5,
+    }  # Bright blue
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 9))
 
@@ -68,7 +72,8 @@ def main():
 
         # Ground truth contours
         ax.contour(
-            X, Y,
+            grid_x,
+            grid_y,
             np.array(results[dens_key]["Ground Truth"]),
             levels=6,
             colors=style_gt["color"],
@@ -79,7 +84,8 @@ def main():
 
         # FA final contours
         ax.contour(
-            X, Y,
+            grid_x,
+            grid_y,
             np.array(results[dens_key]["FA Final"]),
             levels=6,
             colors=style_fa["color"],
@@ -90,7 +96,8 @@ def main():
 
         # Diag final contours
         ax.contour(
-            X, Y,
+            grid_x,
+            grid_y,
             np.array(results[dens_key]["Diag Final"]),
             levels=6,
             colors=style_diag["color"],

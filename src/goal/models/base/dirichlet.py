@@ -1,7 +1,5 @@
 """Dirichlet distribution as an exponential family over the probability simplex."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import override
 

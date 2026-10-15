@@ -67,9 +67,7 @@ def main() -> None:
     # true_states has length n_steps + 1 (includes z_0); align to obs length
     aligned_states = true_states[1 : n_steps + 1]
 
-    fig, axes = plt.subplots(
-        3, 2, figsize=figure_size("wide"), constrained_layout=True
-    )
+    fig, axes = plt.subplots(3, 2, figsize=figure_size("wide"), constrained_layout=True)
 
     # Top row: training history (left) and observation sequence (right)
     plot_training_history(
@@ -94,8 +92,12 @@ def main() -> None:
     axes[0, 1].set_title("Observation sequence")
 
     # Middle row: oracle filtered / smoothed
-    _heatmap(axes[1, 0], filtered, aligned_states, "Oracle filtered $p(z_t \\mid x_{1:t})$")
-    _heatmap(axes[1, 1], smoothed, aligned_states, "Oracle smoothed $p(z_t \\mid x_{1:T})$")
+    _heatmap(
+        axes[1, 0], filtered, aligned_states, "Oracle filtered $p(z_t \\mid x_{1:t})$"
+    )
+    _heatmap(
+        axes[1, 1], smoothed, aligned_states, "Oracle smoothed $p(z_t \\mid x_{1:T})$"
+    )
 
     # Bottom row: learned smoothed for each method
     method_names = list(learned_smoothed.keys())

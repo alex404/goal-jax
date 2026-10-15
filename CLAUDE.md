@@ -1,272 +1,119 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository: design, conventions and expectations. Detailed documentation lives in the docstrings.
 
-### General Points
+## General Points
 
-1. Ask, don't assume. If something is unclear, ask before writing a single line. Never make silent assumptions about intent, architecture, or requirements. When running unattended, pick the most reasonable interpretation, proceed, and record the assumption rather than blocking.
+1. Ask, don't assume: never make silent assumptions about intent, architecture or requirements. When running unattended, pick the most reasonable interpretation, proceed, and record the assumption. Where it helps, run a small, local, low-risk experiment and bring the hypothesis and results to discuss.
 
-2. Implement the simplest solution for simple problems, better solutions for harder problems. Do not over-engineer or add flexibility that isn't needed yet. 
+2. Implement the simplest solution for simple problems, better solutions for harder problems. Do not over-engineer or add flexibility that isn't needed yet.
 
-3. Don't touch unrelated code but please do surface bad code or design smells you discover with me so we can address them as a separate issue.
-
-4. Flag uncertainty explicitly. If you're unsure about something, see point 1 above. If it makes sense to do so, conduct a small, localised and low-risk experiment and bring the hypothesis and results to me to discuss. Confidence without certainty causes more damage than admitting a gap.
-
-5. I'm always open to ideas on better ways to do things. Please don't hesitate to suggest a better way, or one that has long lasting impact over a tactical change. (as a few examples)
+3. Don't touch unrelated code, but do surface bad code, design smells, and better long-term alternatives to a tactical change, as separate issues.
 
 ## Project Overview
 
-goal-jax is a JAX implementation of information geometric algorithms and exponential families. The library provides geometric optimization tools for statistical models, focusing on manifold-based optimization and exponential family distributions.
+goal-jax is a JAX library of exponential families, harmoniums and information-geometric algorithms. `../goal-apps` is the application layer built on it (CLI training, Hydra configs, W&B).
 
-### Library boundaries (goal-jax vs goal-apps)
+### Library boundaries
+- **Core model classes stay mathematically exact.** A `log_partition_function` computes the actual log-partition. No training-stability policy in core classes: no clamps, floors or clipping set at construction (a `precision_floor` field on `Normal` was rejected for this reason).
+- **Core may expose caller-invoked regularization tools** (e.g. `Normal.regularize_covariance`, `Covariance.add_jitter`); the decision to use them is not core's.
+- **Stability policy lives in the application layer** (goal-apps trainer configs). Examples in this repo may define local overrides that keep parameters valid.
 
-goal-jax is the **core library**; `../goal-apps` is the application layer built on top of it (CLI training framework with plugin-based models/datasets, Hydra configs, W&B integration). The division of responsibility:
+## Development
 
-- **Core model classes stay mathematically exact.** A `log_partition_function` computes the actual log-partition; closed-form duals and autodiff gradients agree everywhere. Do NOT bake training-stability policy into core classes — no clamps, floors, or clipping controlled by construction-time state (a `precision_floor` field on `Normal` was rejected for exactly this reason).
-- **Core may expose explicit, caller-invoked regularization tools** (e.g. `Normal.regularize_covariance(means, jitter, min_var)`, `Covariance.add_jitter`). The tool lives in core; the *decision to use it* does not.
-- **Stability policy lives in the application layer**: goal-apps trainer configs carry `min_var`/`jitter_var`/`grad_clip` and trainers apply bounds at the right points in the loop. Within this repo, examples may define local shims (e.g. a subclass overriding `log_partition_function` with a floor) — see `examples/variational_mnist/model.py::FlooredDiagonalNormal`.
+`uv` manages the environment; run everything through `uv run`, never activate the venv or `uv pip install` into it. `pyproject.toml` lists bare dependencies (no pins), `uv.lock` is committed; add dependencies with `uv add`, use `uvx <tool>` or `uv run --with <pkg>` for one-off tools.
 
-### Experimental code: examples/variational_mnist
+| Task | Command |
+|---|---|
+| Tests | `uv run python -m pytest tests/` (or one file, e.g. `tests/variational.py`) |
+| Lint, format | `uvx ruff check`, `uvx ruff format` |
+| Types | `uvx basedpyright` (zero errors expected) |
+| Docs | `uv run sphinx-build docs/source docs/build` |
+| Example | `uv run python -m examples.<name>.run`, then `.plot` |
+| Sync | `uv sync --all-extras` |
 
-`examples/variational_mnist` is an experimental block slated to be factored out of the library (eventually into goal-apps). Its standards are deliberately looser than core: local model subclasses with stability shims, dataclass-field defaults, extra diagnostic scripts, and CLI surface area are all acceptable there but should not migrate into `src/goal/`.
-
-## Development Environment
-
-This project uses `uv` for Python environment and dependency management. Use `uv run` to execute commands within the project environment — do not manually activate the venv.
-
-### Package management strategy
-
-This is a **library**, not an application. The dependency policy is:
-
-- `pyproject.toml` — the source of truth for what the project needs (bare package names, no version pins)
-- `uv.lock` — committed snapshot for reproducible dev environments; regenerate with `uv sync --all-extras` when deps change
-- Project `.venv` — should always match the lockfile; restore with `uv sync`
-
-**Do not** manually `uv pip install` into the project env — it creates drift from the lockfile. Instead:
-- Add permanent dependencies with `uv add` (updates both `pyproject.toml` and `uv.lock`)
-- Use `uvx <tool>` or `uv run --with <pkg> <cmd>` for one-off tools/packages
-
-## Development Commands
-
-### Testing
-- Run all tests: `uv run python -m pytest tests/`
-- Run specific test files:
-  - `uv run python -m pytest tests/lgm.py`
-  - `uv run python -m pytest tests/normal.py`
-  - `uv run python -m pytest tests/graphical_mixture.py`
-  - `uv run python -m pytest tests/matrix.py`
-
-### Code Quality
-- Type checking: `uvx basedpyright`
-
-### Syncing the environment
-- Sync all extras (recommended after pulling): `uv sync --all-extras`
-- Sync only core deps: `uv sync`
-
-### Examples
-Examples are located in the `examples/` directory and organized by topic:
-- Run example: `uv run python -m examples.multivariate.run`
-- Generate plots: `uv run python -m examples.multivariate.plot`
-- Available examples: boltzmann, boltzmann_lgm, boltzmann_lgm_cd, chordal_boltzmann_ppc, dimensionality_reduction, hmm, hmog, kalman_filter, mfa, mixture_of_gaussians, multivariate, poisson_mixture, population_codes, torus_poisson, univariate_analytic, univariate_differentiable, variational_mnist
-
-### Documentation
-- Build documentation: `uv run sphinx-build docs/source docs/build` or `cd docs/ && make html`
-- Live documentation: https://goal-jax.readthedocs.io/
+CI (`.github/workflows/`) runs the tests, basedpyright, and every example with its plot on a CPU runner.
 
 ## Architecture
 
-### Core Structure
-The library is organized into three main modules under `src/goal/`:
+Module and class docstrings are the detailed reference; this section is a map and the invariants that hold everywhere.
 
-1. **geometry/**: Core geometric abstractions
-   - `manifold/`: Riemannian manifolds, matrix representations, linear maps, embeddings
-   - `exponential_family/`: Exponential family abstractions, harmoniums, hierarchical models
+### Layout of `src/goal/`
+- `geometry/algebra/`: stateless parameter layouts that never reference `Manifold`: matrix representations (`matrix.py`), graphs given by their cliques (`clique.py`), junction trees with exact sum-product over binary variables (`junction_tree.py`).
+- `geometry/manifold/`: manifolds, maps (`Map`, `LinearMap`, `MatrixMap`, `CliqueMap`, `CrossMap`, `AffineMap`, `MultilayerPerceptron`), embeddings, combinators (`Pair`, `Triple`, `ManifoldTuple`, `ManifoldProduct`), and the clique layout (`clique.py`: `LinearCliques`, `RecursiveLinearCliques`).
+- `geometry/exponential_family/`: the capability chain `ExponentialFamily` → `Generative` → `Differentiable` → `Analytic`; harmoniums and their conjugacy variants (`harmonium.py`); graphical harmoniums (`graphical.py`); variational levels (`variational.py`); latent processes (`dynamical.py`).
+- `models/`: concrete models: `base/` (distributions), `harmonium/` (mixtures, linear Gaussian models, CCA, population codes), `graphical/` (HMoG, mixtures of harmoniums), `dynamical/` (Kalman filter, HMM), `variational/` (variational population codes, `PopulationCodeProcess`, the canonical circuit). `harmonium/`, `graphical/` and `dynamical/` hold exact families only.
 
-2. **models/**: Concrete statistical models
-   - `base/`: Fundamental distributions (Normal, Categorical, Poisson, Von Mises)
-   - `harmonium/`: Bipartite models (Mixtures, Linear Gaussian Models)
-   - `graphical/`: Complex graphical models (Hierarchical MoG)
-   - `dynamical/`: State-space and Markov-process models (Kalman filter, HMM, MLP-based hybrid filter, homogeneous Gaussian Markov chain)
+### Invariants
+- **Each node has a space and each clique one coordinate block.** Every `ExponentialFamily` is a `LinearCliques` (by default one node); a harmonium is a `RecursiveLinearCliques` `[root | cross | deep]` whose graph is composed from its parts. A concrete model declares `rot_man`, `dep_man` and one `CrossTerm` per crossing; everything else is derived.
+- **Node numbers are local.** A manifold numbers only its own nodes; an enclosing class translates.
+- **Crossings lie in the coordinate blocks they touch.** This keeps the likelihood and the posterior in their families; it holds by declaration and is checked over every shipped model in `tests/manifold.py`, not at run time.
+- **Conjugation is placed, not derived globally.** A graphical harmonium places each observable harmonium's posterior on nodes of its latent model, and sums their conjugation parameters there. A variational level (`VariationalConjugated(gph_hrm, cnj_funs, dep_man)`) does the same with one learned or exact conjugation function per observable harmonium; $\rho$ lives in the harmonium's posterior family, so its prior family plays no role. Levels nest through `dep_man`, the next level or, at the top, a `DifferentiableDeepModel`.
+- **Capability is in the class.** `Analytic` models give closed forms (EM), `Differentiable` ones the log-partition function and its gradient; a `VariationalConjugated` is not an exponential family.
 
-### Key Abstractions
+## Code Conventions
 
-**Manifold Hierarchy:**
-- `Manifold`: Base class for differentiable manifolds
+Python 3.14+ (PEP 695 generics, no `from __future__ import annotations`). Pragmatic typing: accept type-system limitations rather than fight them when the code is correct; JAX, optax and scipy types are suppressed where incomplete.
 
-**Exponential Family Hierarchy:**
-- `ExponentialFamily`: Base class extending Manifold
-- `Analytic`: Closed-form computations available
-- `Differentiable`: Gradient-based optimization support
+### Abstract versus concrete
+Decided by **is-a versus has-a**:
+- **Abstract, stateless** when the class is a role a model becomes; the model derives its properties from its own fields (`Manifold`, `Pair`/`Triple`, `Map`, `Embedding`, `LinearCliques`, `ExponentialFamily`, `Harmonium` and their chains).
+- **Concrete, with fields** when the class is a value a model builds, occurring with multiplicity and with primitive fields (`MatrixMap`, `AffineMap`, `CliqueMap`, `CrossMap`, `ManifoldTuple`, `MultilayerPerceptron`, the conjugation functions, `GraphicalLevel`, `VariationalConjugated`, the clique embeddings).
+- **Abstract classes may carry fields** only when every subclass shares them and the subclasses differ only in behaviour. Hoist a field to the lowest parent all its holders share.
+- **Embeddings are stored at the level of their ambient.** A class may hold an embedding into itself or into one of its parts, never into a manifold that contains it; locating a component in an enclosing manifold is the enclosing class's job.
+- **A field backing an inherited abstract property is private**, named for the property (`_dom_man`, `_cod_man`); other fields are public.
+- **Derived quantities are properties, not cached fields.** `__post_init__` is for validation only.
+- **No defaults on dataclass fields** for modeling choices (`Binomial.n_trials`, `MultilayerPerceptron.hidden_dims`): defaults hide design decisions. The exception is numerical details callers need not reason about (`CoMPoisson.window_size`).
 
-**Matrix Representations:**
-- `MatrixRep`: Base for matrix-valued manifolds
-- Specialized forms: `Symmetric`, `PositiveDefinite`, `Diagonal`, etc.
-- Automatic constraint handling and optimization
-
-### Key Design Patterns
-1. **Analytic vs Differentiable**: Models can provide exact computations or gradient-based approximations
-2. **Harmoniums**: Conjugate relationship modeling between latent and observed variables
-   - `SymmetricConjugated`: Posterior and prior use the same manifold (`pst_man == prr_man`)
-   - `DifferentiableConjugated[Obs, Pst, Prr]`: Supports asymmetric cases where posterior embeds into prior (`pst_man ⊂ prr_man` via `pst_prr_emb`)
-3. **Maps**: `Map[D, C]` is the generic ABC for parameterized functions between manifolds; `LinearMap[D, C]` (with matrix-rep specializations like `EmbeddedMap`, `SquareMap`, `AffineMap`) and `MultilayerPerceptron[D, C]` are concrete leaves. `StatefulMap[D, C, S]` is a sibling for stateful (RNN-style) maps.
-4. **Transitions and LatentProcess**: `Transition[L]` is a predict map on belief natural parameters used by the BPTT-friendly filter scan. `AnalyticTransition[L]` wraps a `SymmetricConjugated[L, L]` kernel to enable smoothing and exact EM. `LatentProcess[O, L]` composes (prior, conjugated emission, transition) into a Triple; `AnalyticLatentProcess[O, L]` adds joint sampling, smoothing, and EM.
-5. **Combinators**: Composable building blocks for complex models (Product, Pair, Replicated)
-6. **Embeddings**: Flexible transformations between manifolds (e.g., `NormalCovarianceEmbedding` embeds `DiagonalNormal` into `FullNormal`)
-
-### Key Model Classes
-- **Normal distributions**: `Normal[Rep]` parameterized by covariance representation
-- **Linear Gaussian Models**: `NormalLGM[ObsRep, PstRep]`, `FactorAnalysis`, `PrincipalComponentAnalysis`
-- **Mixtures**: `Mixture[Observable]`, `CompleteMixture[Observable]`, `AnalyticMixture[Observable]`
-- **Graphical models**: `CompleteMixtureOfConjugated[Obs, PstLatent, PrrLatent]` for mixture of factor analyzers
-- **Dynamical models**: `KalmanFilter`, `HiddenMarkovModel`
-
-## Typing Strategy
-
-This codebase uses Python 3.12+ modern generic syntax with a pragmatic approach to type safety:
-
-### Philosophy
-- **Pragmatic over purist**: Accept type system limitations rather than fight them when the code is functionally correct
-
-### Dataclass field defaults
-Dataclass fields generally do **not** have default values. Modeling and architectural choices (e.g. `Binomial.n_trials`, `MultilayerPerceptron.hidden_dims`, `MultilayerPerceptron.activation`) must be made explicitly at every call site — defaults silently encode design decisions and tend to mask the degenerate case that callers shouldn't actually want (e.g. `Binomial(n_trials=1) == Bernoulli`). The narrow exception is **numerical/implementation details that callers shouldn't need to reason about** (e.g. `CoMPoisson.window_size = 200`, a truncation bound for an infinite series). When in doubt, omit the default.
-
-### Type Aliases
-The codebase defines convenient type aliases for common parameterized types:
-- `FullNormal = Normal[PositiveDefinite]` - Full covariance normal
-- `DiagonalNormal = Normal[Diagonal]` - Diagonal covariance normal
-- `IsotropicNormal = Normal[Scale]` - Isotropic (scalar variance) normal
-- `StandardNormal = Normal[Identity]` - Standard normal (identity covariance)
-
-### Current State
-- **Core codebase**: Zero type errors, fully functional and well-typed
-- **External library integration**: JAX, optax, and scipy types appropriately suppressed where incomplete
-- **Complex generics**: Some inference limitations remain in deep hierarchical models (expected with current Python typing)
-
-## Documentation Strategy
-
-### Source of truth
-Python docstrings are the single source of truth. Sphinx `.rst` files should be thin scaffolding (title, `automodule`, inheritance diagrams, section headings) --- no duplicated prose. `index.rst` files get a brief orientation paragraph and module listing, nothing more.
-
-### Docstring structure
-Lead with what the class or function *does* in concrete terms (what arrays it operates on, what it returns, when you'd use it). Then, when the underlying mathematics adds clarity, introduce it with a **"Mathematically,"** marker. This signals "here comes the formal version" --- readers who don't need the math can stop. Keep the math precise but brief.
-
-Place mathematical definitions at the highest appropriate level in the class hierarchy. Subclasses should not repeat them --- they inherit the concept and just state their specialization.
+### Target-first order
+Maps and embeddings list their manifolds target first, as a matrix lists rows before columns: `Map[Codomain, Domain]`, `Embedding[Ambient, Sub]`; a harmonium's interaction $\Theta_{XZ}$ is `CrossMap[Observable, Posterior]`. Fields and constructor arguments follow the same order.
 
 ### Coordinate system naming
-Variable names encode the coordinate system that a flat array lives in. This convention replaces what a richer type system would enforce:
-
-- `params` --- natural parameters (the full vector for a model)
-- `*_params` (e.g. `obs_params`, `lat_params`, `int_params`) --- slices of a natural parameter vector
-- `means` --- mean parameters
-- `coords` --- generic, coordinate-system-agnostic (used in the manifold layer)
-
-Docstrings should naturally reiterate which coordinate system their inputs live in --- e.g. "at the given natural parameters", "convert mean parameters to natural parameters" --- so that the coordinate system is always clear without needing explicit Args blocks.
-
-### Args/Returns blocks
-Only document a parameter when its name and type aren't enough to use it correctly. Shape conventions, non-obvious defaults, and semantic constraints the type system can't express earn Args entries. Self-evident parameters (e.g., `coords: Array` on a method called `split_coords`) do not.
-
-### Guards and validation
-Only add runtime checks for errors that might slip through silently. If the operation would crash with a clear error anyway (e.g., wrong-shaped array in `reshape`), don't add a redundant guard.
+Flat arrays are named by coordinate system: `params` (natural parameters of a model), `*_params` (slices of them, e.g. `obs_params`), `means` (mean parameters), `coords` (agnostic, in the manifold layer). Docstrings say which system their inputs are in ("at the given natural parameters").
 
 ### Class body organization
-Within each class, order members as follows:
+Order members as `# Fields`, `# Contract` (abstract members), `# Overrides`, `# Methods`, with these comment headers unless the class is small; properties before methods within a section.
 
-1. **Fields** --- dataclass fields that define the class
-2. **Contract** --- abstract properties and methods that subclasses must implement
-3. **Overrides** --- implementations of parent abstract properties and methods
-4. **Methods** --- new concrete functionality specific to this class
+### Type aliases
+`FullNormal`, `DiagonalNormal`, `IsotropicNormal` and `StandardNormal` are `Normal` with `PositiveDefinite`, `Diagonal`, `Scale` and `Identity` covariance.
 
-Use comment headers (`# Fields`, `# Contract`, `# Overrides`, `# Methods`) to separate sections. Omit headers when the class is small enough that the structure is obvious. Within each section, properties naturally precede methods.
+### Guards
+Only add runtime checks for errors that would otherwise pass silently.
 
-### RST file convention
+## Documentation
 
-RST files live under `docs/source/` and mirror the Python package hierarchy under `src/goal/`:
+- **Docstrings are the single source of truth.** RST files under `docs/source/` are thin scaffolding (title, `automodule` with `:noindex: :no-members:`, inheritance diagram, `autoclass` sections); `index.rst` files get a short orientation and a toctree.
+- **RST mirrors the package:** one RST file per module, same path and filename (`models/base/poisson.py` → `docs/source/models/base/poisson.rst`); each class documented only in its defining module's file. Internal utilities may be skipped.
+- **Docstring structure:** lead with what it does in concrete terms (arrays in, arrays out, when to use it). Mathematics follows after a **"Mathematically,"** marker, precise and brief, at the highest class where it applies; subclasses state only their specialization.
+- **Module docstrings:** a summary line and at most one paragraph (about 100 words) of pointers. Equations, costs and layouts go on the class or method.
+- **Args blocks** only when name and type are not enough (shapes, constraints, non-obvious defaults).
+- **Math notation:** LaTeX, never Unicode, in docstrings and comments; doubled backslashes in docstrings, single in comments; matplotlib labels as raw strings with `$...$`.
 
-- **1:1 mapping**: each source module gets one RST file; RST paths mirror Python package paths (e.g., `models/base/poisson.py` → `docs/source/models/base/poisson.rst`)
-- **RST filenames must match Python module filenames** (e.g., `population_codes.rst` for `population_codes.py`)
-- **Leaf RST template**: title, `automodule` (docstring only, `:noindex: :no-members:`), optional `inheritance-diagram`, `autoclass` sections, optional factory functions
-- **Index RST template**: title, one-line description, `toctree` listing child modules
-- **Each class is documented in the RST of its defining module** --- no cross-module duplication
-- **Internal utilities** (e.g., `manifold/util.py`) may be skipped
+## Tests
 
-### Style
-- No Unicode math in docstrings or comments --- use LaTeX notation throughout (`\\theta`, `\\mathcal M`, etc.)
-- Use `\\\\` (doubled backslash) in docstrings for LaTeX commands (Python string escaping); single `\\` in comments
-- Matplotlib labels use raw strings with `$...$` for LaTeX rendering
+Files drop the `test_` prefix (`python_files = ["*.py"]`). One flat file per geometry module plus one for the Gaussian family; a concrete model is tested where its abstraction lives, by one test parametrized over the models it applies to.
 
-## Test Design
-
-### File naming
-Test files drop the `test_` prefix (pytest is configured with `python_files = ["*.py"]` in `pyproject.toml`). Each file is named after the source module it tests:
-
-| Test file | Source module(s) |
+| File | Covers |
 |---|---|
-| `matrix.py` | `geometry/manifold/matrix.py` |
-| `map.py` | `geometry/manifold/map.py` (LinearMap rename regression + MultilayerPerceptron) |
-| `normal.py` | `models/base/gaussian/normal.py` |
-| `boltzmann.py` | `models/base/gaussian/boltzmann.py` |
-| `categorical.py` | `models/base/categorical.py` (Categorical, Bernoulli, Bernoullis) |
-| `binomial.py` | `models/base/binomial.py` (Binomial, Binomials) |
-| `poisson.py` | `models/base/poisson.py` |
-| `von_mises.py` | `models/base/von_mises.py` |
-| `lgm.py` | `models/harmonium/lgm.py` |
-| `population_codes.py` | `models/harmonium/population_codes.py` |
-| `graphical_mixture.py` | `models/graphical/mixture.py` |
-| `variational.py` | `geometry/exponential_family/variational.py` and `models/graphical/variational.py` (estimator values + gradients vs quadrature ground truth; VariationalHierarchicalMixture conjugation cascade) |
-| `hmog.py` | `models/graphical/hmog.py` (AnalyticHMoG, DifferentiableHMoG) |
-| `dynamical.py` | `geometry/exponential_family/dynamical.py` and `models/dynamical/` (`AnalyticTransition` over both kernel types, `KalmanFilter`, `HiddenMarkovModel`, and `MultilayerPerceptron[L, L]` as a transition map) |
-| `whitening.py` | Cross-cutting: whitening on FA, MFA, HMoG |
+| `algebra.py` | matrix representations, `Cliques`, junction trees (sum-product against enumeration) |
+| `manifold.py` | layout contracts over every shipped model, embedding laws, `CliqueMap`/`CrossMap` against dense matrices, `MultilayerPerceptron` |
+| `exponential_family.py` | every base family: normalization, sampling, round trips, entropy, products, closed forms |
+| `gaussian.py` | `Normal` against scipy, Boltzmann machines against enumeration |
+| `harmonium.py` | every conjugated harmonium, graphical ones included: conjugation, marginals by brute force, round trips, EM |
+| `graphical.py` | mixtures of harmoniums, whitening |
+| `variational.py` | single levels against quadrature, exact levels against their harmonium, the canonical circuit's ELBO |
+| `dynamical.py` | Kalman filter, HMM, EM, the variational filter against quadrature |
 
-### Structure within files
-- Each file starts with both JAX config lines (`jax_platform_name=cpu`, `jax_enable_x64=True`) and a module docstring stating what it tests
-- One test class per model/concept; use `@pytest.mark.parametrize` for variation rather than class-level fixtures
-- Construct models and keys inline (`jax.random.PRNGKey(...)`) rather than through shared fixtures
+- **Tests use shipped classes only**; helpers are plain functions (quadrature, enumeration, references).
+- **Every test checks a contract or an independent ground truth** (closed form, scipy, enumeration, quadrature, dense reference, sampling against exact means). Shape, dimension and `isinstance` checks, and tests that restate the implementation, are not tests.
+- Each file starts with `jax_platform_name=cpu` and `jax_enable_x64=True` and a module docstring; one test class per concept, `@pytest.mark.parametrize` for variation, models and keys built inline (no shared fixtures).
+- **Tolerances:** analytic `rtol=1e-5, atol=1e-7` (`1e-4/1e-6` for less precise models). Sampling uses 50k samples against `to_mean`: `atol=0.01–0.02` for simple families; for `Normal`, `0.03` on the mean and `0.1` on all sufficient statistics.
 
-### Standard test categories for exponential families
-- **Dimensions**: `dim`, `data_dim` match expectations
-- **Sufficient statistic**: correct shape and known values
-- **Density normalization**: pmf sums to 1 (discrete) or density integrates to 1 (continuous)
-- **Parameter conversions**: `to_natural(to_mean(params)) == params` round-trip
-- **Log partition**: matches known closed form (e.g., softplus for Bernoulli)
-- **Sampling**: correct shape, domain constraints, empirical mean close to theoretical
+## Examples
 
-### Tolerances
-- Analytic comparisons: `rtol=1e-5, atol=1e-7` (or `1e-4/1e-6` for less precise models)
-- Sampling comparisons use 50k samples and compare `average_sufficient_statistic(samples)` against `to_mean(params)`:
-  - Simple EFs (Bernoulli, Categorical, Poisson, VonMises): `atol=0.01–0.02`
-  - Normal (includes second moments with higher variance): data-space mean `atol=0.03`, full sufficient stats `atol=0.1`
+Each example is `examples/<name>/` with `run.py` (computes, saves `analysis.json` via `paths.save_analysis()`), `plot.py` (loads it, saves `plot.png` via `paths.save_plot()`), and `types.py` (the typed JSON schema between them).
 
-## Examples Design
-
-Each example lives in `examples/<name>/` with a standard structure:
-
-### File layout
-- `run.py` — computation: generates data, fits models, saves `analysis.json` via `paths.save_analysis()`
-- `plot.py` — visualization: loads `analysis.json`, produces `plot.png` via `paths.save_plot()`
-- `types.py` — typed dataclass(es) defining the JSON schema exchanged between run and plot
-
-### run.py conventions
-- **Entry point**: `main()` with shape `jax_cli()` → `paths = example_paths(__file__)` → `key` → compute → `paths.save_analysis(results)`
-- **No module-level state**: all models, hyperparameters, and configuration live inside `main()` as local variables
-- **JAX-idiomatic loops**: use `jax.lax.scan` for training loops, not Python for-loops. For loops needing periodic expensive metrics, use a chunked pattern (outer Python loop, inner `jax.lax.scan`)
-- **No direct file I/O**: always use `paths.save_analysis()` / `paths.load_analysis()`, never raw `json.dump`
-
-### plot.py conventions
-- **Style**: call `apply_style(paths)` once; do not override `fontsize`, `grid`, or `tight_layout` — `default.mplstyle` handles these
-- **Colors**: use `colors["ground_truth"]`, `model_color(i)`, `metric_color(name)` from `shared.py`
-- **Figure sizes**: use `figure_size("small"|"medium"|"large"|"wide"|"tall")` from `shared.py`
-- **Scatter helpers**: use `scatter_samples()` / `scatter_points()` for consistent styling
-- **GridSpec**: pass `figure=fig` when using `gridspec.GridSpec` (required for `constrained_layout`)
-
-### Shared infrastructure (`examples/shared.py`)
-- `ExamplePaths` — manages result/plot paths and serialization
-- `example_paths(module_path)` — factory from `__file__`
-- `jax_cli()` — parses `--gpu` and `--no-jit` flags
-- Grid, bounds, density contour, and training history plot helpers
-
-## Dependencies
-- **JAX**: Core computation backend for automatic differentiation
-- **Optax**: Optimization algorithms compatible with JAX
-- **pytest**: Testing framework
-- **ruff**: Fast Python linter/formatter
-- **basedpyright**: Static type checker
+- **One-shot:** `main()` is `jax_cli()` → `example_paths(__file__)` → key → compute → save, with every setting a local of `main()`; no module-level state, no CLI flags beyond `jax_cli`'s. Grids and sweeps belong in `scratch/` (gitignored).
+- **Loops** use `jax.lax.scan`; for periodic metrics, an outer Python loop over chunks of an inner scan.
+- **No direct file I/O**; use `paths`.
+- **Plots** use `apply_style(paths)` once, colours and figure sizes from `shared.py` (`colors`, `model_color`, `metric_color`, `figure_size`), short Title-Case titles, no `fontsize`/`grid`/`tight_layout` overrides, and `GridSpec(..., figure=fig)`.

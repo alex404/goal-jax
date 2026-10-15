@@ -11,3 +11,4 @@ Concrete statistical distributions and composed models built on the geometric fo
    harmonium/index
    graphical/index
    dynamical/index
+   variational/index

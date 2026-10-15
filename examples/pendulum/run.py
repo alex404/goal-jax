@@ -7,18 +7,25 @@ responses with joint von Mises x Normal tuning curves. The conjugation
 condition holds only approximately, so the variational machinery
 (``VariationalLatentProcess`` + learned $\\rho$) is essential.
 
-All pendulum-specific composition lives in this file --- the only library
-piece used is ``VariationalLatentProcess`` itself.
+The model is :class:`~goal.models.PopulationCodeProcess`: a
+:class:`~goal.models.PoissonPopulationCode` with one population tuned to both the angle and
+the velocity, fit as a :class:`~goal.models.VariationalPopulationCode`, and an MLP transition on beliefs. The example adds the pendulum's latent family,
+a transition that keeps the velocity precision positive, and the initialization from tuning
+curves.
+
+The velocity tuning curves tile $[-8, 8]$, the range the simulated velocities visit (their
+s.d. is about 2.2). With a tiling of $[-4, 4]$ the total rate of the population fell off at
+large $|v|$, the fitted $\\rho$ carried a velocity precision of about 2, and the update
+$\\theta_{pred} - \\rho + \\Theta^\\top \\mathbf s(x)$ became improper for a broad prediction
+and a silent observation (ELBO = NaN from the first steps).
 
 Usage::
 
     uv run python -m examples.pendulum.run
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any, cast, override
 
 import jax
 import jax.numpy as jnp
@@ -26,21 +33,23 @@ import optax
 from jax import Array
 
 from goal.geometry import (
-    DifferentiablePair,
-    EmbeddedMap,
-    IdentityEmbedding,
+    DifferentiableTuple,
+    Map,
     MultilayerPerceptron,
     PositiveDefinite,
-    Rectangular,
-    VariationalLatentProcess,
 )
-from goal.geometry.exponential_family.harmonium import Harmonium
 from goal.geometry.exponential_family.variational import (
-    VariationalSymmetric,
     conjugation_metrics,
     regress_conjugation_parameters,
 )
-from goal.models import Normal, Poissons, VonMisesProduct
+from goal.models import (
+    Normal,
+    PoissonPopulationCode,
+    PopulationCodeProcess,
+    VariationalPopulationCode,
+    VonMisesProduct,
+    variational_population_code,
+)
 
 from ..shared import example_paths, jax_cli
 from .types import (
@@ -61,170 +70,112 @@ jax.config.update("jax_enable_x64", True)
 # =====================================================================
 
 
-@dataclass(frozen=True)
-class VonMisesNormalPair(DifferentiablePair[VonMisesProduct, Normal[PositiveDefinite]]):
+type VonMisesNormalPair = DifferentiableTuple[
+    VonMisesProduct | Normal[PositiveDefinite]
+]
+
+
+def von_mises_normal_pair() -> VonMisesNormalPair:
     """Heterogeneous exponential family: 1D circular variable (VonMises) x 1D real variable (Normal).
 
     Sufficient statistic is $(\\cos\\theta, \\sin\\theta, x, x^2)$; ``data_dim = 2``, ``dim = 4``.
     """
-
-    @property
-    @override
-    def fst_man(self) -> VonMisesProduct:
-        return VonMisesProduct(1)
-
-    @property
-    @override
-    def snd_man(self) -> Normal[PositiveDefinite]:
-        return Normal(_data_dim=1, rep=PositiveDefinite())
+    return DifferentiableTuple((VonMisesProduct(1), Normal(1, PositiveDefinite())))
 
 
 @dataclass(frozen=True)
-class PoissonPendulumHarmonium(Harmonium[Poissons, VonMisesNormalPair]):
-    """Poisson observation harmonium over the pendulum latent."""
+class PendulumTransition(Map[VonMisesNormalPair, VonMisesNormalPair]):
+    """A multilayer perceptron on beliefs whose velocity precision is positive: it splits the normal part of the output into a location and a raw precision $a$, and returns the precision $\\log(1 + e^{a})$, so that every predicted belief is a proper distribution."""
 
-    n_neurons: int
+    # Fields
 
-    @property
-    @override
-    def int_man(self) -> EmbeddedMap[VonMisesNormalPair, Poissons]:
-        return EmbeddedMap(
-            Rectangular(),
-            IdentityEmbedding(VonMisesNormalPair()),
-            IdentityEmbedding(Poissons(self.n_neurons)),
-        )
+    mlp: MultilayerPerceptron[VonMisesNormalPair, VonMisesNormalPair]
 
-
-@dataclass(frozen=True)
-class PendulumPopulationCode(
-    VariationalSymmetric[Poissons, VonMisesNormalPair, VonMisesNormalPair]
-):
-    """Variational population code with Poisson observations and pendulum-latent posterior."""
-
-    _gen_hrm: PoissonPendulumHarmonium
+    # Overrides
 
     @property
     @override
-    def gen_hrm(self) -> PoissonPendulumHarmonium:
-        return self._gen_hrm
+    def dim(self) -> int:
+        return self.mlp.dim
 
     @property
     @override
-    def lat_man(self) -> VonMisesNormalPair:
-        return self._gen_hrm.pst_man
+    def dom_man(self) -> VonMisesNormalPair:
+        return self.mlp.dom_man
 
     @property
     @override
-    def cnj_man(self) -> VonMisesNormalPair:
-        return self.lat_man
-
-    @override
-    def approximate_posterior_at(self, params: Array, x: Array) -> Array:
-        """Approximate posterior with a soft clamp on the recognition Normal's precision.
-
-        The recognition $q(z\\mid x)$ has natural parameters $\\theta_Z + s_X(x)\\cdot\\Theta_{XZ} - \\rho$. The Normal portion's precision slot $\\theta_2$ must stay strictly negative for downstream :meth:`log_partition_function` / :meth:`to_mean` to be finite. The likelihood interaction column for $v^2$ is initialized at $-1/(2\\sigma_v^2) < 0$ which keeps $s_X\\cdot\\Theta$ non-positive when $s_X \\geq 0$, but free training can flip it positive on individual neurons. Mirror the transition's soft clamp here so a momentary overshoot doesn't NaN the whole loss.
-        """
-        q_params = super().approximate_posterior_at(params, x)
-        vm_part, n_part = self.pst_man.split_coords(q_params)
-        n_clamped = jnp.array(
-            [
-                n_part[0],
-                -jax.nn.softplus(-n_part[1]) - 1e-2,
-            ]
-        )
-        return self.pst_man.join_coords(vm_part, n_clamped)
-
-    def initialize_from_tuning_curves(
-        self,
-        key: Array,
-        preferred_angles: Array,
-        preferred_velocities: Array,
-        angle_concentrations: Array,
-        velocity_variances: Array,
-        log_gains: Array,
-        prior_velocity_variance: float = 5.0,
-        n_regression_samples: int = 4000,
-    ) -> Array:
-        """Construct likelihood + prior parameters from per-neuron tuning curves, then fit $\\rho$.
-
-        Each neuron's log-rate is $\\log\\gamma_i + \\kappa_i\\cos(\\theta - \\theta_i^0) - (v - v_i^0)^2 / (2\\sigma_{v,i}^2)$, expanded into linear coefficients against $(\\cos\\theta, \\sin\\theta, v, v^2)$.
-        """
-        obs_params = log_gains - preferred_velocities**2 / (2.0 * velocity_variances)
-
-        col_cos = angle_concentrations * jnp.cos(preferred_angles)
-        col_sin = angle_concentrations * jnp.sin(preferred_angles)
-        col_v_lin = preferred_velocities / velocity_variances
-        col_v_quad = -1.0 / (2.0 * velocity_variances)
-        int_params = jnp.stack(
-            [col_cos, col_sin, col_v_lin, col_v_quad], axis=1
-        ).ravel()
-        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
-
-        prior_vm = jnp.zeros(2)  # uniform on circle
-        prior_normal = jnp.array([0.0, -1.0 / (2.0 * prior_velocity_variance)])
-        prior_nat = jnp.concatenate([prior_vm, prior_normal])
-
-        zero_rho = jnp.zeros(self.cnj_man.dim)
-        init_params = self.join_coords(prior_nat, lkl_params, zero_rho)
-
-        rho, _, _, _ = regress_conjugation_parameters(
-            self, key, init_params, n_regression_samples
-        )
-        return self.join_coords(prior_nat, lkl_params, rho)
-
-
-@dataclass(frozen=True)
-class PendulumTransition(MultilayerPerceptron[VonMisesNormalPair, VonMisesNormalPair]):
-    """MLP transition with a soft clamp on the Normal precision parameter.
-
-    The Normal portion of the latent natural parameters has the constraint $\\theta_2 < 0$ (precision must be positive-definite). An unconstrained MLP can produce arbitrary signs, which makes the downstream ``log_partition_function`` and KL divergence return NaN. We apply $\\theta_2 \\mapsto -\\mathrm{softplus}(-\\theta_2) - \\varepsilon$ which is smooth, near-identity for $\\theta_2 \\ll 0$, and saturates strictly below zero for $\\theta_2 \\geq 0$.
-    """
-
-    precision_epsilon: float = 1e-2
+    def cod_man(self) -> VonMisesNormalPair:
+        return self.mlp.cod_man
 
     @override
     def __call__(self, f_coords: Array, v_coords: Array) -> Array:
-        raw = super().__call__(f_coords, v_coords)
-        return jnp.concatenate(
-            [
-                raw[:2],
-                raw[2:3],
-                -jax.nn.softplus(-raw[3:4]) - self.precision_epsilon,
-            ]
+        vm_params, nrm_raw = self.cod_man.split_coords(self.mlp(f_coords, v_coords))
+        nrm = cast(Normal[PositiveDefinite], self.cod_man.elm_mans[1])
+        loc, raw = nrm.split_coords(nrm_raw)
+        nrm_params = nrm.join_location_precision(loc, jax.nn.softplus(raw))
+        return self.cod_man.join_coords(vm_params, nrm_params)
+
+
+type PendulumFilter = PopulationCodeProcess[VonMisesNormalPair, PendulumTransition]
+
+
+def pendulum_filter(n_neurons: int, mlp_hidden_dims: tuple[int, ...]) -> PendulumFilter:
+    """One population of ``n_neurons`` tuned to both the angle and the velocity, and the MLP transition."""
+    lat = von_mises_normal_pair()
+    transition = PendulumTransition(
+        MultilayerPerceptron(
+            lat, lat, hidden_dims=mlp_hidden_dims, activation=jax.nn.tanh
         )
+    )
+    return PopulationCodeProcess(
+        variational_population_code(PoissonPopulationCode(lat, n_neurons)), transition
+    )
 
 
-@dataclass(frozen=True)
-class PendulumFilter(
-    VariationalLatentProcess[Poissons, VonMisesNormalPair, VonMisesNormalPair]
-):
-    """Pendulum filter: variational latent process with Poisson population emission and MLP transition."""
+def initialize_from_tuning_curves(
+    code: VariationalPopulationCode[VonMisesNormalPair],
+    key: Array,
+    preferred_angles: Array,
+    preferred_velocities: Array,
+    angle_concentrations: Array,
+    velocity_variances: Array,
+    log_gains: Array,
+    prior_velocity_variance: float,
+    n_regression_samples: int,
+) -> Array:
+    """Construct likelihood + prior parameters from per-neuron tuning curves, then fit $\\rho$.
 
-    n_neurons: int
-    mlp_hidden_dims: tuple[int, ...]
-    precision_epsilon: float = 1e-2
+    Each neuron's log-rate is $\\log\\gamma_i + \\kappa_i\\cos(\\theta - \\theta_i^0) - (v - v_i^0)^2 / (2\\sigma_{v,i}^2)$, expanded into linear coefficients against $(\\cos\\theta, \\sin\\theta, v, v^2)$.
+    """
+    obs_params = log_gains - preferred_velocities**2 / (2.0 * velocity_variances)
 
-    @property
-    @override
-    def lat_man(self) -> VonMisesNormalPair:
-        return VonMisesNormalPair()
+    col_cos = angle_concentrations * jnp.cos(preferred_angles)
+    col_sin = angle_concentrations * jnp.sin(preferred_angles)
+    col_v_lin = preferred_velocities / velocity_variances
+    col_v_quad = -1.0 / (2.0 * velocity_variances)
+    # The interaction is stored term by term: the von Mises block, then the
+    # normal block, each a neurons x 2 matrix
+    int_params = jnp.concatenate(
+        [
+            jnp.stack([col_cos, col_sin], axis=1).ravel(),
+            jnp.stack([col_v_lin, col_v_quad], axis=1).ravel(),
+        ]
+    )
+    prior_vm = jnp.zeros(2)  # uniform on circle
+    prior_normal = jnp.array([0.0, -1.0 / (2.0 * prior_velocity_variance)])
+    prior_nat = jnp.concatenate([prior_vm, prior_normal])
 
-    @property
-    @override
-    def ems_hrm(self) -> PendulumPopulationCode:
-        return PendulumPopulationCode(_gen_hrm=PoissonPendulumHarmonium(self.n_neurons))
+    # Fit rho at zero rho, where the prior is prior_nat, then keep the prior
+    def params_at(lat_params: Array, rho: Array) -> Array:
+        hrm_params = code.gph_hrm.join_coords(obs_params, int_params, lat_params)
+        return code.join_coords(hrm_params, rho)
 
-    @property
-    @override
-    def trn_map(self) -> PendulumTransition:
-        lat = VonMisesNormalPair()
-        return PendulumTransition(
-            lat,
-            lat,
-            hidden_dims=self.mlp_hidden_dims,
-            activation=jax.nn.tanh,
-            precision_epsilon=self.precision_epsilon,
-        )
+    zero_rho = jnp.zeros(code.cnj_fun_man.dim)
+    rho, _, _, _ = regress_conjugation_parameters(
+        code, key, params_at(prior_nat, zero_rho), n_regression_samples
+    )
+    return params_at(prior_nat - rho, rho)
 
 
 # =====================================================================
@@ -323,13 +274,13 @@ def make_ground_truth_tuning(
 def extract_learned_tuning(model: PendulumFilter, params: Array) -> TuningParams:
     """Read tuning parameters back out of trained likelihood parameters."""
     _, ems_lkl, _, _ = model.split_coords(params)
-    obs_params, int_params = model.ems_hrm.gen_hrm.lkl_fun_man.split_coords(ems_lkl)
+    obs_params, int_params = model.ems_hrm.gph_hrm.lkl_fun_man.split_coords(ems_lkl)
 
-    int_mat = int_params.reshape(model.n_neurons, 4)
-    col_cos = int_mat[:, 0]
-    col_sin = int_mat[:, 1]
-    col_v_lin = int_mat[:, 2]
-    col_v_quad = int_mat[:, 3]
+    # The interaction is stored term by term: the von Mises block, then the normal
+    # block, each a neurons x 2 matrix
+    vm_mat, n_mat = int_params.reshape(2, -1, 2)
+    col_cos, col_sin = vm_mat[:, 0], vm_mat[:, 1]
+    col_v_lin, col_v_quad = n_mat[:, 0], n_mat[:, 1]
 
     kappas = jnp.sqrt(col_cos**2 + col_sin**2)
     pref_a = jnp.arctan2(col_sin, col_cos)
@@ -397,10 +348,7 @@ def train_mode(
     print(f"Training [{mode_label}]")
     print(f"{'=' * 60}")
 
-    # Global-norm clipping keeps the transition MLP and likelihood interaction
-    # from overshooting into regions where the recognition Normal becomes
-    # non-PD (\\theta_2 \\geq 0) and downstream log_partition_function NaNs.
-    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(learning_rate))
+    optimizer = optax.adam(learning_rate)
     opt_state = optimizer.init(init_params)
 
     def loss_fn_free(p: Array, lkey: Array, batch: Array) -> tuple[Array, Array]:
@@ -415,7 +363,7 @@ def train_mode(
 
         prior_params, ems_lkl, rho, _ = model.split_coords(p)
         ems_hrm = model.ems_hrm
-        ems_full = ems_hrm.join_coords(prior_params, ems_lkl, rho)
+        ems_full = model.emission_params(ems_lkl, rho, prior_params)
         z_sg = jax.lax.stop_gradient(
             ems_hrm.pst_man.sample(conj_key, prior_params, n_conj_samples)
         )
@@ -481,12 +429,11 @@ def train_mode(
             elbos_hist.extend(out_free.tolist())
 
         train_key, metrics_key = jax.random.split(train_key)
-        prior_params, ems_lkl, rho_stored, _ = model.split_coords(params)
-        ems_full = model.ems_hrm.join_coords(prior_params, ems_lkl, rho_stored)
+        prior_params, ems_lkl, rho, _ = model.split_coords(params)
+        ems_full = model.emission_params(ems_lkl, rho, prior_params)
         var_f, _, r_sq = conjugation_metrics(
             model.ems_hrm, metrics_key, ems_full, n_samples=n_conj_samples
         )
-        rho = model.ems_hrm.conjugation_parameters(ems_full)
         var_cr_hist.append(float(var_f))
         r_sq_hist.append(float(r_sq))
         rho_norm_hist.append(float(jnp.linalg.norm(rho)))
@@ -535,7 +482,7 @@ def main(**overrides: Any) -> None:
     )
 
     train_cfg = TrainingConfig(
-        n_neurons=48,  # 8 angle x 6 velocity — denser velocity tiling for tighter conjugation
+        n_neurons=48,  # 8 angle x 6 velocity bins
         n_train_steps=3000,
         n_test_steps=120,
         trajectory_length=80,
@@ -565,9 +512,9 @@ def main(**overrides: Any) -> None:
     gt_tuning = make_ground_truth_tuning(
         n_angle_bins=n_angle_bins,
         n_velocity_bins=n_velocity_bins,
-        velocity_range=4.0,
+        velocity_range=8.0,
         angle_kappa=1.5,
-        velocity_variance=1.5,  # wider bumps → smoother sum → tighter conjugation
+        velocity_variance=4.0,
         log_gain=float(jnp.log(2.0)),
     )
 
@@ -617,9 +564,9 @@ def main(**overrides: Any) -> None:
 
     # ---- Initialize model from ground-truth tuning curves ----
     print("Initializing PendulumFilter from ground-truth tuning curves...")
-    model = PendulumFilter(
-        n_neurons=train_cfg["n_neurons"],
-        mlp_hidden_dims=tuple(train_cfg["mlp_hidden_dims"]),
+    model = pendulum_filter(
+        train_cfg["n_neurons"],
+        tuple(train_cfg["mlp_hidden_dims"]),
     )
 
     pref_a = jnp.array(gt_tuning["preferred_angles"])
@@ -628,23 +575,28 @@ def main(**overrides: Any) -> None:
     sigmas = jnp.array(gt_tuning["velocity_variances"])
     log_gains = jnp.array(gt_tuning["log_gains"])
 
-    ems_full = model.ems_hrm.initialize_from_tuning_curves(
+    ems_full = initialize_from_tuning_curves(
+        model.ems_hrm,
         keys[6],
         preferred_angles=pref_a,
         preferred_velocities=pref_v,
         angle_concentrations=kappas,
         velocity_variances=sigmas,
         log_gains=log_gains,
+        prior_velocity_variance=5.0,
+        n_regression_samples=4000,
     )
-    prior_part, ems_lkl, rho = model.ems_hrm.split_coords(ems_full)
-    trns_params = model.trn_map.glorot_initialize(keys[7])
+    ems_lkl = model.ems_hrm.likelihood_function(ems_full)
+    _, rho = model.ems_hrm.split_coords(ems_full)
+    prior_part = model.ems_hrm.conjugated_prior_params(ems_full)
+    trns_params = model.trn_map.mlp.glorot_initialize(keys[7])
 
     init_params = model.join_coords(prior_part, ems_lkl, rho, trns_params)
     dim_msg = (
         f"Model dim: {model.dim}"
         + f" (prior={model.lat_man.dim},"
-        + f" ems_lkl={model.ems_hrm.gen_hrm.lkl_fun_man.dim},"
-        + f" rho={model.ems_hrm.cnj_man.dim},"
+        + f" ems_lkl={model.ems_hrm.gph_hrm.lkl_fun_man.dim},"
+        + f" rho={model.ems_hrm.cnj_fun_man.dim},"
         + f" trns={model.trn_map.dim})"
     )
     print(dim_msg)

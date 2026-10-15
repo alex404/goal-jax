@@ -164,9 +164,7 @@ def fit_mfa_gd[Pst: Differentiable, Prr: Differentiable](
     def loss_fn(params: Array) -> Array:
         return -mfa.average_log_observable_density(params, sample)
 
-    def train_step(
-        state: tuple[Any, Any], _: Any
-    ) -> tuple[tuple[Any, Any], Array]:
+    def train_step(state: tuple[Any, Any], _: Any) -> tuple[tuple[Any, Any], Array]:
         opt_state, params = state
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)
@@ -199,9 +197,7 @@ def main():
     diag_lgm = NormalLGM(obs_dim=3, obs_rep=Diagonal(), lat_dim=2, pst_rep=Diagonal())
     mfa_diag = CompleteMixtureOfConjugated(n_categories=3, bas_hrm=diag_lgm)
     print("\nTraining Diag model (GD)...")
-    diag_lls, diag_init, diag_final = fit_mfa_gd(
-        key_diag, mfa_diag, samples, 2000
-    )
+    diag_lls, diag_init, diag_final = fit_mfa_gd(key_diag, mfa_diag, samples, 2000)
 
     # Ground truth marginals (analytic)
     x_range = jnp.linspace(-5.0, 5.0, 50)

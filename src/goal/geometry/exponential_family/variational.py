@@ -1,617 +1,803 @@
-"""Variational conjugation: harmoniums with a learned conjugation correction and a conjugate-form recognition model.
+"""Variational conjugation: graphical harmoniums fit with learned conjugation parameters.
 
-A harmonium is exactly conjugated when the conjugation equation
-
-$$\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\chi$$
-
-holds for some conjugation parameters $\\rho_Z$ and constant $\\chi$. Evaluating at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, the form assumed throughout; :class:`~goal.models.base.von_mises.VonMises` is the one latent family here whose $\\mathbf s_Z$ has no zero. The posterior then stays in the prior family with natural parameters affine in $\\mathbf s_X(x)$ (see :class:`~goal.geometry.exponential_family.harmonium.Conjugated`). When no exact $\\rho_Z$ exists or it cannot be computed, this module keeps the conjugate functional form and learns the correction instead: the recognition model is
-
-$$q(z \\mid x) = p(z; \\hat\\theta_{Z \\mid X}(x)), \\qquad \\hat\\theta_{Z \\mid X}(x) = \\theta_Z - \\rho_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ},$$
-
-with $\\rho_Z$ trained jointly with the generative parameters under the ELBO.
-
-The central object of the module is the **conjugation residual**
-
-$$r(z) = \\rho_Z \\cdot \\mathbf s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X),$$
-
-the pointwise difference between the two sides of the conjugation equation, written with the $\\chi = \\psi_X(\\theta_X)$ convention: $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$, and vanishes when that convention is exact. Every consumer below uses $r$ only through its variance, so the constant never matters. Substituting the exponential-family forms into the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ cancels every term that couples $x$ and $z$, splitting it as
-
-$$f(x, z) = c(x) + r(z), \\qquad \\mathcal{L}(x) = c(x) + \\mathbb{E}_{q(z \\mid x)}[r(Z)],$$
-
-where $c(x)$ collects the $z$-independent terms --- the **standard form** of the ELBO. Every entry point of the module consumes the residual in one of three ways:
-
-- **ELBO** --- :meth:`VariationalDifferentiable.elbo_at` evaluates $c(x)$ analytically and estimates $\\mathbb{E}_q[r]$ by Monte Carlo with a score-function gradient correction.
-- **Regularizers** --- $\\mathrm{Var}_q[r]$ equals the amortization gap, so penalizing the variance of the residual under the prior (:meth:`VariationalConjugated.prior_conjugation_loss`) or the recognition model (:meth:`VariationalDifferentiable.recognition_conjugation_loss_at`) pushes the model toward exact conjugation.
-- **Fitting and diagnostics** --- :func:`regress_conjugation_parameters` minimizes the sampled $\\mathrm{Var}_p[r]$ over $\\rho_Z$ in closed form by least squares, and :func:`conjugation_metrics` reports it as an $R^2$.
-
-The classes ladder by latent capability, mirroring the analytic ``Conjugated`` hierarchy: :class:`VariationalConjugated` requires only :class:`Generative` latents, :class:`VariationalDifferentiable` adds everything closed-form log-partitions unlock, and :class:`VariationalSymmetric` specializes to a shared Posterior/Prior manifold.
-
-$\\beta$-VAE-style KL warmup is the callers' responsibility: add $(1 - \\beta) \\cdot \\mathrm{KL}(q \\Vert p)$ via :meth:`VariationalDifferentiable.elbo_divergence`. The ELBO methods implement only the standard form.
+A :class:`VariationalConjugated` is one level of a deep model: a graphical harmonium whose
+observable harmoniums need not be conjugated, with a conjugation function for each that gives its
+conjugation parameters $\\rho$ (:class:`ExactConjugationFunction`,
+:class:`ConstantConjugationFunction`, :class:`BiasConjugationFunction`). A level reaches the model
+of its latent only through :class:`DeepModel`: the next level, or at the top the latent family as a
+:class:`DifferentiableDeepModel`. The ELBO is built from the conjugation residual of each level
+(:meth:`VariationalConjugated.conjugation_residual`, :meth:`VariationalConjugated.elbo_at`).
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
-from typing import override
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from typing import Any, overload, override
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
-from ..manifold.combinators import Triple
-from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
-from ..manifold.map import AffineMap
+from ..manifold.clique import SubCliquesEmbedding
+from ..manifold.combinators import ManifoldTuple, Pair
+from ..manifold.map import AffineMap, Map
 from .base import Differentiable, Generative
-from .harmonium import Harmonium
+from .combinators import DifferentiableTuple
+from .graphical import GraphicalHarmonium, GraphicalLevel
+from .harmonium import Conjugated, Harmonium
+
+### Deep models ###
 
 
-class VariationalConjugated[
-    Observable: Differentiable,
-    Posterior: Generative,
-    Prior: Generative,
-    Conjugation: Manifold,
-](
-    Generative,
-    Triple[Prior, AffineMap[Posterior, Observable], Conjugation],
-    ABC,
-):
-    """Variational harmonium with parameter layout ``[prior_params, lkl_params, rho]``.
+class DeepModel[Prior: Manifold](Pair[Prior, ManifoldTuple], ABC):
+    """The model of the latent of a level, as the level sees it: the operations a level needs from the model above it.
 
-    Mathematically, the generative model is a directed harmonium
+    It is the contract a level needs from the model of its latent, shared by the next level and by
+    the latent family that ends the recursion. The deep model of a level is either the next level
+    (:class:`VariationalConjugated`), which does its own part of each operation and passes the rest
+    to its own deep model, or, at the top, the latent family (:class:`DifferentiableDeepModel`),
+    which has no levels and computes each operation exactly. A level calls its deep model only
+    through this contract, and so needs no special case for the top.
 
-    $$p(x, z) = p(z; \\theta_Z) \\, p(x \\mid z; \\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)),$$
-
-    and the recognition model retains the conjugate exponential-family form with the learned correction $\\rho_Z$ in place of the analytic conjugation parameters,
-
-    $$q(z \\mid x) = p(z; \\hat\\theta_{Z \\mid X}(x)), \\qquad \\hat\\theta_{Z \\mid X}(x) = \\theta_Z - \\rho_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}.$$
-
-    Training jointly optimizes $(\\theta_Z, \\theta_X, \\Theta_{XZ}, \\rho_Z)$ under the ELBO, moving the model toward a regime in which the conjugate-form posterior is accurate.
-
-    The four type parameters separate four roles:
-
-    - ``Observable`` --- observable family; :class:`Differentiable` because $\\psi_X$ appears in the residual.
-    - ``Posterior`` --- family of $q(z \\mid x)$; the base class needs only :class:`Generative`.
-    - ``Prior`` --- family of $p(z)$; may be a superset of ``Posterior``, connected via :attr:`pst_prr_emb`.
-    - ``Conjugation`` --- storage manifold for the correction. By default a flat Prior-shaped $\\rho_Z$; :meth:`conjugation_parameters` maps the stored coordinates to Prior shape and is the extension point for structural completions and input-dependent corrections $\\rho_Z(x)$.
-
-    The base class requires only sampling on ``Posterior`` and ``Prior``: it provides the model structure, the conjugation residual, joint sampling, and the prior conjugation regularizer. The ELBO and the recognition-side regularizer evaluate latent log-densities, so they live on :class:`VariationalDifferentiable`.
+    Its parameters are ``[prr_params | cnj_fun_tup_params]``: natural parameters of its prior
+    family, the latent model of the level below, and the conjugation function parameters of its
+    levels, none at the top.
     """
 
     # Contract
 
     @property
     @abstractmethod
-    def gen_hrm(self) -> Harmonium[Observable, Posterior]:
-        """The underlying harmonium; supplies the likelihood $p(x \\mid z)$ and the observable/posterior manifolds."""
-
-    @property
-    @abstractmethod
-    def pst_prr_emb(self) -> LinearEmbedding[Posterior, Prior]:
-        """Embedding of the posterior manifold into the prior manifold."""
-
-    @property
-    @abstractmethod
-    def cnj_man(self) -> Conjugation:
-        """The manifold in which $\\rho_Z$ is stored."""
-
-    # Triple slots
-
-    @property
-    @override
-    def fst_man(self) -> Prior:
-        return self.prr_man
-
-    @property
-    @override
-    def snd_man(self) -> AffineMap[Posterior, Observable]:
-        return self.gen_hrm.lkl_fun_man
-
-    @property
-    @override
-    def trd_man(self) -> Conjugation:
-        return self.cnj_man
-
-    # Manifold access
-
-    @property
-    def obs_man(self) -> Observable:
-        """The observable manifold."""
-        return self.gen_hrm.obs_man
-
-    @property
-    def pst_man(self) -> Posterior:
-        """The posterior manifold (family of $q(z \\mid x)$)."""
-        return self.gen_hrm.pst_man
-
-    @property
-    def prr_man(self) -> Prior:
-        """The prior manifold (family of $p(z; \\theta_Z)$)."""
-        return self.pst_prr_emb.amb_man
-
-    # Parameter access
-
-    def prior_params(self, params: Array) -> Array:
-        """Extract the prior natural parameters $\\theta_Z$."""
-        prior, _, _ = self.split_coords(params)
-        return prior
-
-    def likelihood_function(self, params: Array) -> Array:
-        """Extract the affine likelihood parameters $(\\theta_X, \\Theta_{XZ})$."""
-        _, lkl, _ = self.split_coords(params)
-        return lkl
-
-    # Approximate conjugation
-
-    def conjugation_parameters(self, params: Array, x: Array | None = None) -> Array:
-        """Map the stored ``Conjugation`` coordinates to the Prior-shaped correction $\\rho_Z$, optionally as a function of the observation.
-
-        The default treats the stored coordinates as $\\rho_Z$ itself and ignores ``x``. Subclasses override to apply a structural completion (e.g. mixture completion zero-pads the categorical interaction slots) or to evaluate a parametric input-dependent correction $\\rho_Z(x)$.
-        """
-        del x
-        _, _, rho = self.split_coords(params)
-        return rho
-
-    def likelihood_at(self, params: Array, z: Array) -> Array:
-        """Natural parameters of the likelihood $p(x \\mid z)$ at the given latent state."""
-        _, lkl, _ = self.split_coords(params)
-        mz = self.pst_man.sufficient_statistic(z)
-        return self.gen_hrm.lkl_fun_man(lkl, mz)
-
-    def approximate_posterior_at(self, params: Array, x: Array) -> Array:
-        """Natural parameters of the recognition model $q(z \\mid x)$ at the given observation.
-
-        Computes $\\hat\\theta_{Z \\mid X}(x) = \\theta_Z - \\rho_Z(x) + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$ in Prior space and projects into ``Posterior`` via :attr:`pst_prr_emb`; in the symmetric case the projection is the identity and $\\rho_Z$ is input-independent.
-        """
-        prior, lkl, _ = self.split_coords(params)
-        rho_full = self.conjugation_parameters(params, x)
-        lat_eff = self.pst_prr_emb.project(prior - rho_full)
-        obs_params, int_params = self.gen_hrm.lkl_fun_man.split_coords(lkl)
-        hrm_params = self.gen_hrm.join_coords(obs_params, int_params, lat_eff)
-        return self.gen_hrm.posterior_at(hrm_params, x)
-
-    # Conjugation residual
-
-    def conjugation_offset(self, params: Array) -> Array:
-        """Compute the conjugation offset $\\chi$ at the given natural parameters.
-
-        Mirrors :meth:`~goal.geometry.exponential_family.harmonium.Conjugated.conjugation_offset`: evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. It is the constant at which :meth:`conjugation_residual` and :meth:`conjugation_baseline` are split, and it cancels between them, so the ELBO is unaffected by the choice.
-        """
-        _, lkl, _ = self.split_coords(params)
-        obs_params, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
-        return self.obs_man.log_partition_function(obs_params)
-
-    def conjugation_residual(
-        self, params: Array, z: Array, x: Array | None = None
-    ) -> Array:
-        """Evaluate the conjugation residual $r(z) = \\rho_Z \\cdot \\mathbf s_Z(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X)$ at the given natural parameters.
-
-        Mathematically, $r$ is the difference between the two sides of the conjugation equation $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho_Z \\cdot \\mathbf s_Z(z) + \\psi_X(\\theta_X)$, so $r$ is constant iff the likelihood is exactly conjugate with conjugation parameters $\\rho_Z$, and vanishes when $\\chi = \\psi_X(\\theta_X)$. It is the per-sample summand of the standard-form ELBO and the integrand of both conjugation regularizers (see module docstring).
-
-        ``x`` is forwarded to :meth:`conjugation_parameters` for input-dependent corrections and ignored otherwise. In the asymmetric case both $\\rho_Z$ and $\\mathbf s_Z(z)$ are taken in Prior space, via :meth:`conjugation_parameters` and :attr:`pst_prr_emb` respectively.
-        """
-        _, lkl, _ = self.split_coords(params)
-        rho_full = self.conjugation_parameters(params, x)
-        s_z = self.pst_man.sufficient_statistic(z)
-        s_z_in_prior = self.pst_prr_emb.embed(s_z)
-        rho_term = jnp.dot(rho_full, s_z_in_prior)
-        lkl_params_at_z = self.gen_hrm.lkl_fun_man(lkl, s_z)
-        psi_at_z = self.obs_man.log_partition_function(lkl_params_at_z)
-        return rho_term - psi_at_z + self.conjugation_offset(params)
-
-    # Conjugation regularizers
-
-    def prior_conjugation_loss(
-        self, key: Array, params: Array, n_samples: int
-    ) -> Array:
-        """Prior conjugation regularizer $\\mathcal{R}_p = \\mathrm{Var}_{p(z)}[r(Z)]$, estimated over prior samples.
-
-        $x$-independent, matching the intuition that conjugation is a property of the likelihood and prior alone --- though the penalty may therefore act on regions of latent space that inference never visits.
-
-        Gradient note: autodiff flows only through $r$ at fixed samples; no score-function correction is applied. The dropped score term $\\mathbb{E}_{p}[(r - \\bar r)^2 \\nabla \\log p]$ would contribute only to the $\\theta_Z$ gradient (the sampling distribution depends on nothing else, and $r$ itself does not depend on $\\theta_Z$), so omitting it means $\\mathcal{R}_p$ penalizes non-conjugation without pulling the prior around.
-        """
-        prior_p = self.prior_params(params)
-        z_samples = jax.lax.stop_gradient(self.prr_man.sample(key, prior_p, n_samples))
-        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z))(z_samples)
-        return jnp.var(r_vals)
-
-    # Generative / ExponentialFamily contract on the joint $(x, z)$
-
-    @property
-    @override
     def data_dim(self) -> int:
-        """Dimension of a joint $(x, z)$ datapoint --- delegates to the inner harmonium."""
-        return self.gen_hrm.data_dim
+        """Dimension of a datapoint."""
 
-    @override
-    def sufficient_statistic(self, x: Array) -> Array:
-        """Sufficient statistic of a joint $(x, z)$ datapoint --- delegates to the inner harmonium."""
-        return self.gen_hrm.sufficient_statistic(x)
-
-    @override
-    def log_base_measure(self, x: Array) -> Array:
-        """Log base measure of a joint $(x, z)$ datapoint --- delegates to the inner harmonium."""
-        return self.gen_hrm.log_base_measure(x)
-
-    @override
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Sample the joint via ancestral sampling: $z \\sim p(z; \\theta_Z)$ from the explicit prior, then $x \\sim p(x \\mid z)$.
-
-        The conjugation correction $\\rho_Z$ plays no role here: it parameterizes only the recognition model.
-        """
-        key1, key2 = jax.random.split(key)
-        p_params = self.prior_params(params)
-        z_samples = self.prr_man.sample(key1, p_params, n)
-
-        def sample_x_given_z(subkey: Array, z: Array) -> Array:
-            lkl_params = self.likelihood_at(params, z)
-            return self.obs_man.sample(subkey, lkl_params, 1)[0]
-
-        x_keys = jax.random.split(key2, n)
-        x_samples = jax.vmap(sample_x_given_z)(x_keys, z_samples)
-
-        return jnp.concatenate([x_samples, z_samples], axis=-1)
-
-    def log_density(self, params: Array, xz: Array) -> Array:
-        """Compute joint log density $\\log p(x, z) = \\log p(z) + \\log p(x|z)$ for a joint data point."""
-        x = xz[..., : self.obs_man.data_dim]
-        z = xz[..., self.obs_man.data_dim :]
-        prior = self.prior_params(params)
-        log_pz = self.prr_man.log_density(prior, z)  # pyright: ignore[reportAttributeAccessIssue]
-        lkl_params = self.likelihood_at(params, z)
-        log_px_given_z = self.obs_man.log_density(lkl_params, x)
-        return log_pz + log_px_given_z
-
-    # Initialization
-
-    @override
-    def initialize(
-        self, key: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Array:
-        """Initialize full model parameters with zero conjugation correction.
-
-        Initializes the underlying harmonium, takes its observable + interaction
-        as the likelihood and embeds its latent slot into ``Prior`` space to seed
-        ``prior_params``. ``rho`` is zeroed.
-        """
-        rho = jnp.zeros(self.cnj_man.dim)
-        hrm_params = self.gen_hrm.initialize(key, location, shape)
-        obs_params, int_params, lat_params = self.gen_hrm.split_coords(hrm_params)
-        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
-        prior_params = self.pst_prr_emb.embed(lat_params)
-        return self.join_coords(prior_params, lkl_params, rho)
-
-    @override
-    def initialize_from_sample(
-        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
-    ) -> Array:
-        """Initialize parameters using sample data for observable biases."""
-        rho = jnp.zeros(self.cnj_man.dim)
-        hrm_params = self.gen_hrm.initialize_from_sample(key, sample, location, shape)
-        obs_params, int_params, lat_params = self.gen_hrm.split_coords(hrm_params)
-        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
-        prior_params = self.pst_prr_emb.embed(lat_params)
-        return self.join_coords(prior_params, lkl_params, rho)
-
-
-class VariationalDifferentiable[
-    Observable: Differentiable,
-    Posterior: Differentiable,
-    Prior: Differentiable,
-    Conjugation: Manifold,
-](
-    VariationalConjugated[Observable, Posterior, Prior, Conjugation],
-    ABC,
-):
-    """Variational conjugation where ``Posterior`` and ``Prior`` have closed-form log-partition functions, enabling the standard-form ELBO.
-
-    Mathematically, the ELBO integrand splits as $f(x, z) = c(x) + r(z)$ (see module docstring); with $\\psi_Z$ available, the $x$-dependent piece $c(x)$ is computed analytically (:meth:`conjugation_baseline`) and only the residual is left to Monte Carlo (:meth:`elbo_at`). The same machinery yields the closed-form KL between recognition model and prior (:meth:`elbo_divergence`) and the recognition-side conjugation regularizer (:meth:`recognition_conjugation_loss_at`).
-
-    Mirrors :class:`DifferentiableConjugated` on the analytic side.
-    """
-
-    # ELBO
-
-    def conjugation_baseline(self, params: Array, x: Array) -> Array:
-        """The $z$-independent ELBO term $c(x) = \\mathbf s_X(x) \\cdot \\theta_X + \\psi_Z(\\hat\\theta_{Z \\mid X}(x)) - \\psi_Z(\\theta_Z) - \\psi_X(\\theta_X) + \\log h_X(x)$ at the given natural parameters.
-
-        Mathematically, $c(x)$ is what remains of the ELBO integrand $f(x, z) = \\log p(x, z) - \\log q(z \\mid x)$ after the $z$-dependent terms are collected into the residual: substituting the exponential-family forms cancels the shared $\\mathbf s_Z \\cdot \\theta_Z$ and $\\mathbf s_X \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z$ terms, The $\\mp \\psi_X(\\theta_X)$ terms here and in :meth:`VariationalConjugated.conjugation_residual` are a matched pair, so the $\\chi$ convention cancels in $c(x) + r(z)$ and the ELBO does not depend on it.
-
-        $c(x)$ is also the formula of :meth:`DifferentiableConjugated.log_observable_density` with the learned $\\rho_Z$ in place of the analytic conjugation parameters --- the log-marginal the model would have if conjugation were exact. The ELBO $\\mathcal{L}(x) = c(x) + \\mathbb{E}_q[r]$ accordingly collapses to $\\log p(x)$ when the model is exactly conjugated; in general $\\log p(x) = c(x) + \\mathbb{E}_q[r] + \\mathrm{KL}(q \\Vert p(z \\mid x))$.
-        """
-        prior_p, lkl, _ = self.split_coords(params)
-        obs_p, _ = self.gen_hrm.lkl_fun_man.split_coords(lkl)
-        q_params = self.approximate_posterior_at(params, x)
-        q_in_prior = self.pst_prr_emb.embed(q_params)
-        s_x = self.obs_man.sufficient_statistic(x)
-        return (
-            jnp.dot(s_x, obs_p)
-            + self.prr_man.log_partition_function(q_in_prior)
-            - self.prr_man.log_partition_function(prior_p)
-            - self.conjugation_offset(params)
-            + self.obs_man.log_base_measure(x)
-        )
-
-    def elbo_at(
-        self,
-        key: Array,
-        params: Array,
-        x: Array,
-        n_samples: int,
-    ) -> Array:
-        """Estimate the standard-form ELBO $\\mathcal{L}(x) = c(x) + \\mathbb{E}_{q(z \\mid x)}[r(Z)]$: the baseline analytically, the residual term by Monte Carlo.
-
-        The split absorbs $c(x)$ as an exact $x$-dependent baseline, so only the residual is sampled and only it drives the score-function correction,
-
-        $$\\nabla \\mathcal{L}(x) = \\mathbb{E}_q[\\nabla \\log p(x, Z)] + \\mathbb{E}_q[(r - b) \\nabla \\log q],$$
-
-        where the score term accounts for the dependence of the sampling distribution $q$ on the parameters and the sample-mean baseline $b$ reduces finite-sample variance. The surrogate ``c_x + direct + score - sg(score)`` equals $c(x)$ plus the plain MC average of $r$ in value, with three ``stop_gradient`` sites:
-
-        1. **samples** --- the sampler may be non-differentiable (e.g. VonMises rejection); samples are evaluation points, not gradient carriers;
-        2. **$r$ inside the score term** --- its direct gradient is already counted in ``direct``;
-        3. **the final ``- sg(score)``** --- cancels the score term's value contribution, so the value stays a clean MC estimate while the gradient survives.
-        """
-        q_params = self.approximate_posterior_at(params, x)
-        z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
-
-        c_x = self.conjugation_baseline(params, x)
-
-        # E_q[r(Z)] via MC + score-function correction
-        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z, x))(z_samples)
-        log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(
-            z_samples
-        )
-
-        direct = jnp.mean(r_vals)
-        r_sg = jax.lax.stop_gradient(r_vals)
-        b = jnp.mean(r_sg)
-        score = jnp.mean((r_sg - b) * log_q_vals)
-        return c_x + direct + score - jax.lax.stop_gradient(score)
-
-    def mean_elbo(
-        self,
-        key: Array,
-        params: Array,
-        xs: Array,
-        n_samples: int,
-    ) -> Array:
-        """Mean ELBO over a batch of observations."""
-        batch_size = xs.shape[0]
-        keys = jax.random.split(key, batch_size)
-        elbos = jax.vmap(lambda k, x: self.elbo_at(k, params, x, n_samples))(keys, xs)
-        return jnp.mean(elbos)
-
-    def elbo_divergence(self, params: Array, x: Array) -> Array:
-        """Closed-form $\\mathrm{KL}(q(z \\mid x) \\Vert p(z))$ at the given natural parameters, evaluated in Prior space via :attr:`pst_prr_emb`.
-
-        Not used by :meth:`elbo_at` --- the standard form bundles the KL into $c(x)$ and $\\mathbb{E}_q[r]$. Exposed for $\\beta$-VAE-style warmup (callers add $(1 - \\beta) \\cdot \\mathrm{KL}$ to the ELBO) and as a diagnostic in its own right.
-        """
-        q_params = self.approximate_posterior_at(params, x)
-        p_params = self.prior_params(params)
-        q_in_prior = self.pst_prr_emb.embed(q_params)
-        return self.prr_man.relative_entropy(q_in_prior, p_params)
-
-    # Conjugation regularizers
-
-    def recognition_conjugation_loss_at(
-        self, key: Array, params: Array, x: Array, n_samples: int
-    ) -> Array:
-        """Recognition conjugation regularizer $\\mathcal{R}_q(x) = \\mathrm{Var}_{q(z \\mid x)}[r(Z)]$, estimated over recognition samples.
-
-        Mathematically, $\\mathrm{Var}_q[r(Z)] = \\mathrm{Var}_q[\\log (q(Z \\mid x) / p(Z \\mid x))]$, so $\\mathcal{R}_q(x)$ is exactly the amortization gap at $x$: it vanishes iff the recognition model matches the true posterior. It focuses the penalty on the latents inference actually visits, and can reuse the samples drawn for the ELBO.
-
-        Unlike :meth:`VariationalConjugated.prior_conjugation_loss`, the sampling distribution shares parameters with $r$, so the gradient requires both a direct piece through $r$ and a score-function correction through $q$ --- see :func:`_variance_with_score_correction`.
-        """
-        q_params = self.approximate_posterior_at(params, x)
-        z_samples = jax.lax.stop_gradient(self.pst_man.sample(key, q_params, n_samples))
-        r_vals = jax.vmap(lambda z: self.conjugation_residual(params, z, x))(z_samples)
-        log_q_vals = jax.vmap(lambda z: self.pst_man.log_density(q_params, z))(
-            z_samples
-        )
-        return _variance_with_score_correction(r_vals, log_q_vals)
-
-    def mean_recognition_conjugation_loss(
-        self, key: Array, params: Array, xs: Array, n_samples: int
-    ) -> Array:
-        """Mean of :meth:`recognition_conjugation_loss_at` over a batch."""
-        batch_size = xs.shape[0]
-        keys = jax.random.split(key, batch_size)
-        losses = jax.vmap(
-            lambda k, x: self.recognition_conjugation_loss_at(k, params, x, n_samples)
-        )(keys, xs)
-        return jnp.mean(losses)
-
-
-class VariationalSymmetric[
-    Observable: Differentiable,
-    Latent: Differentiable,
-    Conjugation: Manifold,
-](
-    VariationalDifferentiable[Observable, Latent, Latent, Conjugation],
-    ABC,
-):
-    """Variational conjugation in the symmetric case where Posterior and Prior share the same manifold (``pst_man == prr_man``).
-
-    Mirrors :class:`SymmetricConjugated` on the analytic side: extends :class:`VariationalDifferentiable` and provides ``pst_prr_emb`` as an :class:`IdentityEmbedding` so subclasses only need to supply ``gen_hrm``, ``cnj_man``, and ``conjugation_parameters``.
-    """
-
-    # Contract
-
-    @property
     @abstractmethod
-    def lat_man(self) -> Latent:
-        """The shared posterior/prior manifold."""
+    def conjugated_log_partition_function(self, params: Array) -> Array:
+        """$\\tilde\\Psi$: the log-partition function under exact conjugation, the exact one for an exponential family."""
+
+    @abstractmethod
+    def sample(self, key: Array, params: Array, n: int) -> Array:
+        """Ancestral samples."""
+
+    @abstractmethod
+    def log_density(self, params: Array, xz: Array) -> Array:
+        """Log-density of a datapoint."""
+
+    @abstractmethod
+    def conjugation_residuals(self, params: Array, xz: Array) -> tuple[Array, ...]:
+        """The residual of each level at a datapoint, bottom first."""
+
+    @abstractmethod
+    def conjugation_residual_variances(
+        self, key: Array, params: Array, n_samples: int
+    ) -> tuple[Array, ...]:
+        """Monte Carlo estimate of the variance of the residual of each level under the model's own samples, bottom first."""
+
+    # Methods
+
+    def score_mean(
+        self,
+        key: Array,
+        params: Array,
+        f: Callable[[Array], Array],
+        n_samples: int,
+    ) -> Array:
+        """Monte Carlo estimate of $\\mathbb E[f(Z)]$ under the model, with an unbiased gradient.
+
+        ``f`` is a function of a datapoint that may depend on the parameters, e.g. a
+        residual. The samples carry no gradient, since the sampler may be
+        non-differentiable, so a score-function term $\\frac{1}{K} \\sum_k (f_k - b_k) \\nabla
+        \\log p(z_k)$ with the leave-one-out baseline $b_k$ supplies that part of the gradient.
+        """
+        zs = jax.lax.stop_gradient(
+            self.sample(key, jax.lax.stop_gradient(params), n_samples)
+        )
+        vals = jax.vmap(f)(zs)
+        log_dens = jax.vmap(lambda z: self.log_density(params, z))(zs)
+        vals_sg = jax.lax.stop_gradient(vals)
+        centered = (
+            vals_sg
+            if n_samples == 1
+            else n_samples / (n_samples - 1) * (vals_sg - jnp.mean(vals_sg))
+        )
+        score = jnp.mean(centered * log_dens)
+        return jnp.mean(vals) + score - jax.lax.stop_gradient(score)
+
+    def score_variance(
+        self,
+        key: Array,
+        params: Array,
+        f: Callable[[Array], Array],
+        n_samples: int,
+    ) -> Array:
+        """Monte Carlo estimate of $\\mathrm{Var}[f(Z)]$ under the model, with an unbiased gradient; as :meth:`score_mean`, and needs ``n_samples >= 2``.
+
+        Mathematically, $\\mathrm{Var}[f] = \\frac{1}{2} \\mathbb E[(f(Z) - f(Z'))^2]$, estimated by
+        the mean over pairs of samples, with the score term of the pair.
+        """
+        zs = jax.lax.stop_gradient(
+            self.sample(key, jax.lax.stop_gradient(params), n_samples)
+        )
+        vals = jax.vmap(f)(zs)
+        log_dens = jax.vmap(lambda z: self.log_density(params, z))(zs)
+        pairs = 0.5 * (vals[:, None] - vals[None, :]) ** 2
+        score = jnp.sum(
+            jax.lax.stop_gradient(pairs) * (log_dens[:, None] + log_dens[None, :])
+        )
+        return (jnp.sum(pairs) + score - jax.lax.stop_gradient(score)) / (
+            n_samples * (n_samples - 1)
+        )
+
+
+@dataclass(frozen=True)
+class DifferentiableDeepModel[Prior: Differentiable](DeepModel[Prior]):
+    """The end of the recursion: the latent family of the top level as a deep model.
+
+    Nothing is above it, so it has no levels: no conjugation function parameters and no
+    residuals, and $\\tilde\\Psi$, sampling and the log-density are those of the family.
+    """
+
+    # Fields
+
+    _fst_man: Prior
 
     # Overrides
 
     @property
     @override
-    def pst_prr_emb(self) -> IdentityEmbedding[Latent]:
-        return IdentityEmbedding(self.lat_man)
+    def fst_man(self) -> Prior:
+        return self._fst_man
+
+    @property
+    @override
+    def snd_man(self) -> ManifoldTuple:
+        return ManifoldTuple(())
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        return self.fst_man.data_dim
+
+    @override
+    def conjugated_log_partition_function(self, params: Array) -> Array:
+        return self.fst_man.log_partition_function(params)
+
+    @override
+    def sample(self, key: Array, params: Array, n: int) -> Array:
+        return self.fst_man.sample(key, params, n)
+
+    @override
+    def log_density(self, params: Array, xz: Array) -> Array:
+        return self.fst_man.log_density(params, xz)
+
+    @override
+    def conjugation_residuals(self, params: Array, xz: Array) -> tuple[Array, ...]:
+        return ()
+
+    @override
+    def conjugation_residual_variances(
+        self, key: Array, params: Array, n_samples: int
+    ) -> tuple[Array, ...]:
+        return ()
 
 
-def _variance_with_score_correction(r_vals: Array, log_q_vals: Array) -> Array:
-    """Estimate $\\mathrm{Var}_q[r]$ as a loss whose autodiff gradient carries both pieces of $\\nabla \\mathrm{Var}_q[r] = 2\\,\\mathbb{E}_q[(r - \\bar r) \\nabla r] + \\mathbb{E}_q[(r - \\bar r)^2 \\nabla \\log q]$.
+### Variational models ###
 
-    Same ``direct + score - sg(score)`` surrogate as :meth:`VariationalDifferentiable.elbo_at`, with $g = (r - \\bar r)^2$ as the integrand:
 
-    - ``direct = mean((r - mean(r))**2)`` --- biased-variance MC value; autodiff carries the first term.
-    - ``score = mean((g_sg - b) * log_q)`` with sample-mean baseline $b$ --- autodiff carries the second.
-    - ``- sg(score)`` cancels the score's value contribution, leaving the value equal to ``direct``.
+@dataclass(frozen=True)
+class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphical]):
+    """A graphical harmonium with conjugation functions, approximating the operations of a conjugated harmonium.
+
+    One level of a deep model. It holds the graphical harmonium (:attr:`gph_hrm`), one
+    conjugation function for each of its observable harmoniums (:attr:`cnj_funs`), and the deep
+    model of its latent (:attr:`dep_man`): the next level, whose graphical harmonium is the latent
+    model of :attr:`gph_hrm`, or at the top a :class:`DifferentiableDeepModel` of the latent
+    family. A variational model is itself a :class:`DeepModel`, so levels nest to any depth.
+
+    Its parameters are ``[hrm_params | cnj_fun_tup_params]``: the natural parameters of
+    :attr:`gph_hrm`, and the conjugation function parameters of every level, one element per
+    level, bottom first: this level's (:attr:`cnj_fun_man`) first and the deep model's after them. It is not an exponential family: the conjugation function parameters parameterize
+    the approximation, not the joint density.
+
+    Mathematically, with $\\theta = (\\theta_X, \\Theta_{XZ}, \\theta_Z)$ the natural parameters of
+    :attr:`gph_hrm` and $\\rho$ a function of the likelihood alone, the model and its recognition
+    model are
+
+    $$\\tilde p(x, z) = \\tilde p_Z(z; \\theta_Z + \\rho) p(x \\mid z), \\qquad q(z \\mid x) = \\tilde p_Z(z; \\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}),$$
+
+    with $\\tilde p_Z$ the deep model. $\\tilde p$ is the density of :attr:`gph_hrm` only when
+    $\\rho$ is exact.
     """
-    r_sg = jax.lax.stop_gradient(r_vals)
-    bar_r_sg = jnp.mean(r_sg)
-    g_vals = (r_vals - jnp.mean(r_vals)) ** 2
-    g_sg = (r_sg - bar_r_sg) ** 2
-    b = jnp.mean(g_sg)
-    direct = jnp.mean(g_vals)
-    score = jnp.mean((g_sg - b) * log_q_vals)
-    return direct + score - jax.lax.stop_gradient(score)
+
+    # Fields
+
+    gph_hrm: Graphical
+    """The graphical harmonium."""
+
+    cnj_funs: tuple[Map[Any, Any], ...]
+    """The conjugation function of each observable harmonium of :attr:`gph_hrm`, in order: a map from its likelihood parameters to its $\\rho$, in natural coordinates of its posterior.
+
+    $\\rho$ is placed on the latent model at the harmonium's nodes, which is the harmonium's
+    posterior family, so the harmonium's prior family plays no role in a level. A function of the likelihood
+    alone, so the prior and the recognition model of a nested model
+    use the same one. Its parameters may be none (:class:`ExactConjugationFunction`, where the
+    harmonium is conjugated), $\\rho$ itself (:class:`ConstantConjugationFunction`), or
+    those of a learned approximation, usually of the observable bias alone
+    (:class:`BiasConjugationFunction`).
+    """
+
+    dep_man: DeepModel[Any]
+    """The deep model, whose prior family is the latent model of :attr:`gph_hrm`."""
+
+    # Overrides
+
+    @property
+    @override
+    def fst_man(self) -> Graphical:
+        return self.gph_hrm
+
+    @property
+    @override
+    def snd_man(self) -> ManifoldTuple:
+        return ManifoldTuple((self.cnj_fun_man, *self.dep_man.snd_man.elm_mans))
+
+    @property
+    @override
+    def data_dim(self) -> int:
+        """Dimension of a joint datapoint $(x, z)$."""
+        return self.obs_man.data_dim + self.dep_man.data_dim
+
+    @override
+    def conjugated_log_partition_function(self, params: Array) -> Array:
+        """$\\tilde\\Psi(\\theta) = \\tilde\\Psi_Z(\\theta_Z + \\rho) + \\psi_X(\\theta_X)$: the normalizer of $\\tilde p$ against the joint density of :attr:`gph_hrm`.
+
+        That is, $\\log \\tilde p(x, z) = \\theta \\cdot \\mathbf s(x, z) + \\log h(x, z) - \\tilde\\Psi(\\theta) +
+        \\sum r(z)$, with $r$ the residuals of every level (:meth:`conjugation_residuals`). It differs
+        from the log-partition function by $\\psi(\\theta) - \\tilde\\Psi(\\theta) = \\log \\mathbb
+        E_{\\tilde p}[e^{-\\sum r(Z)}]$, and equals it when every residual vanishes. An exact $\\rho$
+        makes each residual constant, and zero when $\\mathbf s_Z$ vanishes at some $z$ (Gaussian and
+        Boltzmann latents), not otherwise (e.g. von Mises latents).
+        """
+        obs_params, _ = self.gph_hrm.lkl_fun_man.split_coords(
+            self.likelihood_function(params)
+        )
+        return self.dep_man.conjugated_log_partition_function(
+            self.conjugated_prior_params(params)
+        ) + self.obs_man.log_partition_function(obs_params)
+
+    @override
+    def log_density(self, params: Array, xz: Array) -> Array:
+        """$\\log \\tilde p(x, z) = \\log \\tilde p_Z(z) + \\log p(x \\mid z)$ of a joint datapoint."""
+        x = xz[..., : self.obs_man.data_dim]
+        z = xz[..., self.obs_man.data_dim :]
+        dep_params = self.conjugated_prior_params(params)
+        return self.dep_man.log_density(dep_params, z) + self.obs_man.log_density(
+            self.likelihood_at(params, z), x
+        )
+
+    @override
+    def sample(self, key: Array, params: Array, n: int) -> Array:
+        """Ancestral samples of $\\tilde p(x, z)$: $z$ from the deep model at the prior, then $x \\sim p(x \\mid z)$."""
+        key_z, key_x = jax.random.split(key)
+        dep_params = self.conjugated_prior_params(params)
+        zs = self.dep_man.sample(key_z, dep_params, n)
+
+        def sample_x(k: Array, z: Array) -> Array:
+            return self.obs_man.sample(k, self.likelihood_at(params, z), 1)[0]
+
+        xs = jax.vmap(sample_x)(jax.random.split(key_x, n), zs)
+        return jnp.concatenate([xs, zs], axis=-1)
+
+    @override
+    def conjugation_residuals(self, params: Array, xz: Array) -> tuple[Array, ...]:
+        """The residual of each level of $\\tilde p$ at a joint datapoint, bottom first."""
+        z = xz[..., self.obs_man.data_dim :]
+        return (
+            self.conjugation_residual(params, z),
+            *self.dep_man.conjugation_residuals(
+                self.conjugated_prior_params(params), z
+            ),
+        )
+
+    @override
+    def conjugation_residual_variances(
+        self, key: Array, params: Array, n_samples: int
+    ) -> tuple[Array, ...]:
+        """The variance under $\\tilde p$ of the residual of each level, bottom first.
+
+        The variance of each level is under samples of its own deep model, with a
+        score-function term for the dependence of their distribution on the parameters
+        (:meth:`DeepModel.score_variance`). Needs ``n_samples >= 2``.
+        """
+        key_own, key_deep = jax.random.split(key)
+        dep_prior = self.conjugated_prior_params(params)
+        var = self.dep_man.score_variance(
+            key_own,
+            dep_prior,
+            lambda z: self.conjugation_residual(params, z),
+            n_samples,
+        )
+        return (
+            var,
+            *self.dep_man.conjugation_residual_variances(
+                key_deep, dep_prior, n_samples
+            ),
+        )
+
+    # Methods
+
+    @property
+    def cnj_fun_man(self) -> ManifoldTuple:
+        """The parameters of this level's conjugation functions, one element per observable harmonium, zero-dimensional for a function with no parameters; those of the levels above are the rest of :attr:`snd_man`."""
+        return ManifoldTuple(self.cnj_funs)
+
+    @property
+    def obs_man(self) -> DifferentiableTuple[Any]:
+        """The observables of the observable harmoniums, as a differentiable tuple: the residual needs $\\psi_X$."""
+        return DifferentiableTuple(
+            tuple(obs_hrm.obs_man for obs_hrm in self.gph_hrm.obs_hrms)
+        )
+
+    @property
+    def pst_man(self) -> Any:
+        """The latent model of :attr:`gph_hrm`, the prior family of the deep model."""
+        return self.gph_hrm.pst_man
+
+    @property
+    def lvl_mans(self) -> tuple[VariationalConjugated[Any], ...]:
+        """This level and every variational level above it, bottom first."""
+        levels: list[VariationalConjugated[Any]] = [self]
+        while isinstance(dep_man := levels[-1].dep_man, VariationalConjugated):
+            levels.append(dep_man)
+        return tuple(levels)
+
+    def conjugation_parameters(self, lkl_params: Array, cnj_fun_params: Array) -> Array:
+        """The conjugation parameters $\\rho$ of the given likelihood natural parameters, in natural coordinates of :attr:`pst_man`.
+
+        Each observable harmonium's conjugation function is applied to its likelihood, and its
+        $\\rho$ placed on its clique of the latent model; they are summed, as in
+        :class:`~goal.geometry.exponential_family.graphical.DifferentiableGraphical`.
+        """
+        rho = self.pst_man.zeros()
+        for obs_hrm, lat_nods, cnj_fun, hrm_lkl_params, hrm_cnj_fun_params in zip(
+            self.gph_hrm.obs_hrms,
+            self.gph_hrm.lat_nodss,
+            self.cnj_funs,
+            self.gph_hrm.likelihood_functions(lkl_params),
+            self.cnj_fun_man.split_coords(cnj_fun_params),
+            strict=True,
+        ):
+            pst_emb = SubCliquesEmbedding(lat_nods, self.pst_man, obs_hrm.pst_man)
+            rho = rho + pst_emb.embed(cnj_fun(hrm_cnj_fun_params, hrm_lkl_params))
+        return rho
+
+    def likelihood_function(self, params: Array) -> Array:
+        """The likelihood natural parameters $(\\theta_X, \\Theta_{XZ})$."""
+        hrm_params, _ = self.split_coords(params)
+        return self.gph_hrm.likelihood_function(hrm_params)
+
+    def likelihood_at(self, params: Array, z: Array) -> Array:
+        """Natural parameters of $p(x \\mid z)$ at a datapoint of the latent model."""
+        s_z = self.pst_man.sufficient_statistic(z[..., : self.pst_man.data_dim])
+        return self.gph_hrm.lkl_fun_man(self.likelihood_function(params), s_z)
+
+    def conjugated_prior_params(self, params: Array) -> Array:
+        """Parameters of the deep model at the prior, whose prior-family part is $\\theta_Z + \\rho$: the prior of :attr:`gph_hrm` under conjugation by $\\rho$, exact only when $\\rho$ is.
+
+        This level's conjugation function is evaluated here, and only here. The deep model
+        evaluates its own, at the parameters it is given: these, or those of
+        :meth:`recognition_at`.
+        """
+        hrm_params, cnj_fun_tup_params = self.split_coords(params)
+        cnj_fun_params, *_ = self.snd_man.split_coords(cnj_fun_tup_params)
+        obs_params, int_params, lat_params = self.gph_hrm.split_coords(hrm_params)
+        lkl_params = self.gph_hrm.lkl_fun_man.join_coords(obs_params, int_params)
+        rho = self.conjugation_parameters(lkl_params, cnj_fun_params)
+        return self.dep_man.join_coords(
+            lat_params + rho, cnj_fun_tup_params[self.cnj_fun_man.dim :]
+        )
+
+    def posterior_at(self, params: Array, x: Array) -> Array:
+        """Posterior natural parameters $\\theta_Z + \\mathbf s_X(x) \\cdot \\Theta_{XZ}$ of :attr:`gph_hrm`."""
+        hrm_params, _ = self.split_coords(params)
+        return self.gph_hrm.posterior_at(hrm_params, x)
+
+    def recognition_at(self, params: Array, x: Array) -> Array:
+        """Parameters of the deep model at the posterior: the recognition model $q(z \\mid x)$."""
+        _, cnj_fun_tup_params = self.split_coords(params)
+        return self.dep_man.join_coords(
+            self.posterior_at(params, x), cnj_fun_tup_params[self.cnj_fun_man.dim :]
+        )
+
+    def conjugation_baseline(self, params: Array, x: Array) -> Array:
+        """The latent-independent ELBO term $c(x) = \\mathbf s_X(x) \\cdot \\theta_X + \\log h_X(x) - \\psi_X(\\theta_X) + \\tilde\\Psi_Z(\\theta^X) - \\tilde\\Psi_Z(\\theta^0)$, with $\\theta^0$ the prior and $\\theta^X$ the posterior.
+
+        It is the formula of
+        :meth:`~goal.geometry.exponential_family.harmonium.DifferentiableConjugated.log_observable_density`
+        with $\\tilde\\Psi_Z$ in place of $\\psi_Z$, and equals $\\log \\tilde p(x)$ when every
+        residual vanishes (:meth:`conjugated_log_partition_function`).
+        """
+        obs_params, _ = self.gph_hrm.lkl_fun_man.split_coords(
+            self.likelihood_function(params)
+        )
+        dep_prior = self.conjugated_prior_params(params)
+        dep_post = self.recognition_at(params, x)
+        return (
+            jnp.dot(self.obs_man.sufficient_statistic(x), obs_params)
+            + self.obs_man.log_base_measure(x)
+            - self.obs_man.log_partition_function(obs_params)
+            + self.dep_man.conjugated_log_partition_function(dep_post)
+            - self.dep_man.conjugated_log_partition_function(dep_prior)
+        )
+
+    def observable_sample(self, key: Array, params: Array, n: int) -> Array:
+        """Samples of $\\tilde p(x)$."""
+        return self.sample(key, params, n)[:, : self.obs_man.data_dim]
+
+    def initialize(
+        self, key: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        """The initialization of :attr:`gph_hrm`, with zero conjugation function parameters at every level."""
+        hrm_params = self.gph_hrm.initialize(key, location, shape)
+        return self.join_coords(hrm_params, self.snd_man.zeros())
+
+    def initialize_from_sample(
+        self, key: Array, sample: Array, location: float = 0.0, shape: float = 0.1
+    ) -> Array:
+        """As :meth:`initialize`, with the observable biases from the sample."""
+        hrm_params = self.gph_hrm.initialize_from_sample(key, sample, location, shape)
+        return self.join_coords(hrm_params, self.snd_man.zeros())
+
+    def conjugation_residual(self, params: Array, z: Array) -> Array:
+        """The residual $r(z) = \\rho \\cdot \\mathbf s(z) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) + \\psi_X(\\theta_X)$ of this level at the datapoint ``z`` of the latent model."""
+        hrm_params, _ = self.split_coords(params)
+        obs_params, _, lat_params = self.gph_hrm.split_coords(hrm_params)
+        prr_params, _ = self.dep_man.split_coords(self.conjugated_prior_params(params))
+        rho = prr_params - lat_params
+        return (
+            jnp.dot(rho, self.pst_man.sufficient_statistic(z))
+            - self.obs_man.log_partition_function(self.likelihood_at(params, z))
+            + self.obs_man.log_partition_function(obs_params)
+        )
+
+    def elbo_residual(self, params: Array, x: Array, z: Array) -> Array:
+        """The ELBO integrand minus :meth:`conjugation_baseline`: $r(z) + \\sum r^0(z) - \\sum r^X(z)$, with $r^0$ and $r^X$ the residuals of the deep model at the prior and at the posterior."""
+        dep_prior = self.conjugated_prior_params(params)
+        dep_post = self.recognition_at(params, x)
+        return (
+            self.conjugation_residual(params, z)
+            + sum(self.dep_man.conjugation_residuals(dep_prior, z), start=jnp.zeros(()))
+            - sum(self.dep_man.conjugation_residuals(dep_post, z), start=jnp.zeros(()))
+        )
+
+    def sample_recognition(self, key: Array, params: Array, x: Array, n: int) -> Array:
+        """Samples of $q(z \\mid x)$, the deep model at the posterior, as rows."""
+        return self.dep_man.sample(key, self.recognition_at(params, x), n)
+
+    def recognition_log_density(self, params: Array, x: Array, z: Array) -> Array:
+        """$\\log q(z \\mid x)$."""
+        return self.dep_man.log_density(self.recognition_at(params, x), z)
+
+    def elbo_at(self, key: Array, params: Array, x: Array, n_samples: int) -> Array:
+        """Estimate the ELBO $\\mathcal L(x) = c(x) + \\mathbb E_q[r + \\sum r^0 - \\sum r^X]$: the baseline in closed form, the residuals by Monte Carlo.
+
+        Only the residuals are sampled, and only they drive the score-function correction:
+        with $r$ the summed residual (:meth:`elbo_residual`),
+
+        $$\\nabla \\mathcal L(x) = \\nabla c(x) + \\mathbb E_q[\\nabla r] + \\mathbb E_q[(r - b) \\nabla \\log q],$$
+
+        with a leave-one-out baseline $b$ (:meth:`DeepModel.score_mean`).
+        """
+        mean = self.dep_man.score_mean(
+            key,
+            self.recognition_at(params, x),
+            lambda z: self.elbo_residual(params, x, z),
+            n_samples,
+        )
+        return self.conjugation_baseline(params, x) + mean
+
+    def mean_elbo(self, key: Array, params: Array, xs: Array, n_samples: int) -> Array:
+        """Mean of :meth:`elbo_at` over a batch."""
+        keys = jax.random.split(key, xs.shape[0])
+        return jnp.mean(
+            jax.vmap(lambda k, x: self.elbo_at(k, params, x, n_samples))(keys, xs)
+        )
+
+    def recognition_residual_variances_at(
+        self, key: Array, params: Array, x: Array, n_samples: int
+    ) -> tuple[Array, ...]:
+        """The variance under $q(z \\mid x)$ of the residual $r$ of this level, then of each residual $r^X$ of the deep model at the posterior.
+
+        For an exact deep model, $\\mathrm{Var}_q[r] = \\mathrm{Var}_q[\\log(q(Z \\mid x) /
+        p(Z \\mid x))]$, which vanishes if and only if the recognition model is the posterior.
+        Gradients include the score-function term (:meth:`DeepModel.score_variance`). Needs
+        ``n_samples >= 2``.
+        """
+        key_own, key_deep = jax.random.split(key)
+        dep_post = self.recognition_at(params, x)
+        var = self.dep_man.score_variance(
+            key_own, dep_post, lambda z: self.conjugation_residual(params, z), n_samples
+        )
+        return (
+            var,
+            *self.dep_man.conjugation_residual_variances(key_deep, dep_post, n_samples),
+        )
+
+    def mean_recognition_residual_variances(
+        self, key: Array, params: Array, xs: Array, n_samples: int
+    ) -> tuple[Array, ...]:
+        """Mean of :meth:`recognition_residual_variances_at` over a batch."""
+        keys = jax.random.split(key, xs.shape[0])
+        vals = jax.vmap(
+            lambda k, x: self.recognition_residual_variances_at(k, params, x, n_samples)
+        )(keys, xs)
+        return tuple(jnp.mean(v) for v in vals)
 
 
-# --- Free functions: diagnostics, fitting helpers, downstream uses ---
+@dataclass(frozen=True)
+class DifferentiableVariationalConjugated[
+    Graphical: GraphicalHarmonium[Any],
+    Prior: Differentiable,
+](VariationalConjugated[Graphical]):
+    """A variational model whose latent model is :class:`Differentiable`, used as its deep model as it is: the top level of a nested model."""
+
+    # Fields
+
+    dep_man: DifferentiableDeepModel[Prior]
+
+    # Overrides
+
+    @property
+    @override
+    def pst_man(self) -> Prior:
+        return self.dep_man.fst_man
+
+    # Methods
+
+    def elbo_divergence(self, params: Array, x: Array) -> Array:
+        """Closed-form $\\mathrm{KL}(q(z \\mid x) \\Vert \\tilde p(z))$, for $\\beta$-VAE-style warm-up and diagnostics."""
+        return self.pst_man.relative_entropy(
+            self.recognition_at(params, x), self.conjugated_prior_params(params)
+        )
 
 
-def regress_conjugation_parameters[
-    Observable: Differentiable,
-    Posterior: Generative,
-    Prior: Generative,
-    Conjugation: Manifold,
-](
-    model: VariationalConjugated[Observable, Posterior, Prior, Conjugation],
+### Construction ###
+
+
+@overload
+def variational_level[Prior: Differentiable](
+    obs_hrms_cnj_funs: Sequence[tuple[Harmonium[Any, Any], Map[Any, Any]]],
+    dep_man: DifferentiableDeepModel[Prior],
+    lat_nodss: Sequence[tuple[int, ...]] | None = None,
+) -> DifferentiableVariationalConjugated[GraphicalLevel[Prior], Prior]: ...
+
+
+@overload
+def variational_level(
+    obs_hrms_cnj_funs: Sequence[tuple[Harmonium[Any, Any], Map[Any, Any]]],
+    dep_man: DeepModel[Any],
+    lat_nodss: Sequence[tuple[int, ...]] | None = None,
+) -> VariationalConjugated[GraphicalLevel[Any]]: ...
+
+
+def variational_level(
+    obs_hrms_cnj_funs: Sequence[tuple[Harmonium[Any, Any], Map[Any, Any]]],
+    dep_man: DeepModel[Any],
+    lat_nodss: Sequence[tuple[int, ...]] | None = None,
+) -> VariationalConjugated[GraphicalLevel[Any]]:
+    """A level of a deep model from its observable harmoniums, each with its conjugation function, over the deep model ``dep_man``.
+
+    The observable harmoniums are placed on the latent model of the level, the prior family of
+    ``dep_man``, at the nodes ``lat_nodss``: one tuple of nodes per harmonium, by default the
+    leading nodes of the latent model, as many as the harmonium's posterior has. Over a
+    :class:`DifferentiableDeepModel` the level is the top level, a
+    :class:`DifferentiableVariationalConjugated`.
+    """
+    if lat_nodss is None:
+        lat_nodss = [tuple(range(hrm.pst_man.n_nodes)) for hrm, _ in obs_hrms_cnj_funs]
+    gph_hrm = GraphicalLevel(
+        tuple(
+            (hrm, tuple(nods))
+            for (hrm, _), nods in zip(obs_hrms_cnj_funs, lat_nodss, strict=True)
+        ),
+        dep_man.fst_man,
+    )
+    cnj_funs = tuple(cnj_fun for _, cnj_fun in obs_hrms_cnj_funs)
+    if isinstance(dep_man, DifferentiableDeepModel):
+        return DifferentiableVariationalConjugated(gph_hrm, cnj_funs, dep_man)
+    return VariationalConjugated(gph_hrm, cnj_funs, dep_man)
+
+
+### Conjugation functions ###
+
+
+@dataclass(frozen=True)
+class ExactConjugationFunction[Prior: Generative](Map[Prior, Any]):
+    """The conjugation function of a conjugated harmonium: its closed-form $\\rho$, with no parameters.
+
+    The closed-form $\\rho$ lies in the harmonium's prior family, and a level places it on the
+    harmonium's posterior family, so the two must be the same family.
+    """
+
+    # Fields
+
+    cnj_hrm: Conjugated[Any, Any, Prior]
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return 0
+
+    @property
+    @override
+    def dom_man(self) -> Any:
+        return self.cnj_hrm.lkl_fun_man
+
+    @property
+    @override
+    def cod_man(self) -> Prior:
+        return self.cnj_hrm.prr_man
+
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        return self.cnj_hrm.conjugation_parameters(v_coords)
+
+
+@dataclass(frozen=True)
+class ConstantConjugationFunction[Prior: Manifold](Map[Prior, Any]):
+    """A conjugation function that ignores the likelihood: its parameters are $\\rho$ itself, in natural coordinates of the posterior."""
+
+    # Fields
+
+    _cod_man: Prior
+    _dom_man: Any
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.cod_man.dim
+
+    @property
+    @override
+    def dom_man(self) -> Any:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Prior:
+        return self._cod_man
+
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        return f_coords
+
+
+@dataclass(frozen=True)
+class BiasConjugationFunction[Prior: Manifold](Map[Prior, Any]):
+    """A learned conjugation function of the observable bias alone: it splits the likelihood parameters $(\\theta_X, \\Theta_{XZ})$ and applies :attr:`bia_map` to $\\theta_X$.
+
+    In a nested model the prior and the recognition model evaluate the conjugation function at the
+    same interactions and different biases, $\\theta^*_X$ and $\\hat\\theta_X(x)$, so only the
+    dependence on the bias must be represented; the dependence on the interactions is carried by the
+    parameters, which are trained with them. At the bottom level the bias does not depend on the
+    observations, and :class:`ConstantConjugationFunction` suffices.
+    """
+
+    # Fields
+
+    bia_map: Map[Prior, Any]
+    """A map from natural parameters of the observable to $\\rho$, in natural coordinates of the posterior."""
+
+    _dom_man: AffineMap[Any, Any]
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return self.bia_map.dim
+
+    @property
+    @override
+    def dom_man(self) -> AffineMap[Any, Any]:
+        return self._dom_man
+
+    @property
+    @override
+    def cod_man(self) -> Prior:
+        return self.bia_map.cod_man
+
+    @override
+    def __call__(self, f_coords: Array, v_coords: Array) -> Array:
+        obs_params, _ = self.dom_man.split_coords(v_coords)
+        return self.bia_map(f_coords, obs_params)
+
+
+### Fitting and diagnostics ###
+
+
+def regress_conjugation_parameters(
+    model: VariationalConjugated[Any],
     key: Array,
     params: Array,
     n_samples: int,
 ) -> tuple[Array, Array, Array, Array]:
-    """Fit $\\rho$ by least squares against prior samples; the returned $\\rho$ minimizes the sampled $\\mathrm{Var}_p[r]$ in closed form.
+    """Fit this level's conjugation function parameters by least squares against samples of the deep model at the prior; they minimize the sampled variance of the residual.
 
-    Solves $\\min_{\\chi, \\rho} \\sum_k (\\chi + \\iota(\\rho) \\cdot \\phi(\\mathbf s_Z(z_k)) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z_k)))^2$ over samples $z_k \\sim p(z)$, where $\\iota$ is :meth:`conjugation_parameters` and $\\phi$ is the embedding :attr:`pst_prr_emb`. Because the intercept $\\chi$ is free and the variance is shift-invariant, the minimum over $\\rho$ is exactly the minimum of the Monte-Carlo $\\mathcal{R}_p = \\mathrm{Var}_p[r]$ --- the regression and the prior regularizer agree on the optimum, and the fit is invariant to the $\\psi_X(\\theta_X)$ convention in :meth:`conjugation_residual`.
+    Solves $\\min_{\\chi, c} \\sum_k (\\chi + \\rho(c) \\cdot \\mathbf s(z_k) - \\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z_k)))^2$ over the conjugation function parameters $c$, with $\\rho$ from :meth:`~VariationalConjugated.conjugation_parameters` linearized at $c = 0$, so it is exact when $\\rho$ is affine in $c$. The intercept is free and the variance is shift-invariant, so the fit minimizes the sampled variance of the residual. The samples are drawn at the given parameters and held fixed, although with $\\rho$ in the prior they depend on $c$. They carry no gradient, since the sampler may be non-differentiable; gradients flow through the targets $\\psi_X$.
 
-    The design matrix linearizes the (affine) dependence of $\\iota(\\rho) \\cdot \\phi(\\mathbf s_Z)$ on the stored $\\rho$ via :func:`jax.grad` at $\\rho = 0$, subtracting the $\\rho$-independent offset from the target; the same code therefore works whether ``conjugation_parameters`` is the identity or a richer analytic completion (e.g. mixture completion). Samples are stop-gradiented because the sampler may be non-differentiable; the gradients callers need flow through the regression targets $\\psi_X$.
-
-    Returns ``(rho, r_squared, chi, residual_var)``: the fitted correction, the regression $R^2$, the intercept, and the sampled $\\mathrm{Var}[r]$ at the fit.
-
-    A fitting/initialization heuristic rather than part of the variational objective, hence a free function.
+    Returns ``(cnj_fun_params, r_squared, chi, residual_var)``. A fitting heuristic, not part of the variational objective.
     """
-    prior_params, lkl, _ = model.split_coords(params)
-    cnj_dim = model.cnj_man.dim
-    zero_rho = jnp.zeros(cnj_dim)
-    params_zero_rho = model.join_coords(prior_params, lkl, zero_rho)
-
-    # The sampler may be non-differentiable (e.g. VonMises uses rejection
-    # sampling via while_loop). The samples are just evaluation points for the
-    # regression; the gradient we need flows through the regression targets
-    # psi_X, which depend smoothly on (theta_X, Theta).
-    z_samples = jax.lax.stop_gradient(
-        model.prr_man.sample(key, prior_params, n_samples)
-    )
+    lkl_params = model.likelihood_function(params)
+    zero_cnj_fun = model.cnj_fun_man.zeros()
+    obs_dim = model.obs_man.data_dim
+    zs = jax.lax.stop_gradient(model.sample(key, params, n_samples)[:, obs_dim:])
 
     def design_and_target(z: Array) -> tuple[Array, Array, Array]:
         s_z = model.pst_man.sufficient_statistic(z)
-        s_z_in_prior = model.pst_prr_emb.embed(s_z)
 
-        def rho_dot_s(r: Array) -> Array:
-            trial_params = model.join_coords(prior_params, lkl, r)
-            return jnp.dot(model.conjugation_parameters(trial_params), s_z_in_prior)
+        def rho_dot_s(c: Array) -> Array:
+            return jnp.dot(model.conjugation_parameters(lkl_params, c), s_z)
 
-        # Linear coefficient: gradient wrt stored rho at zero.
-        s_proj = jax.grad(rho_dot_s)(zero_rho)
-        # Constant offset (rho-independent contribution of iota(0).phi(s_z)).
-        offset = jnp.dot(model.conjugation_parameters(params_zero_rho), s_z_in_prior)
-
-        lkl_params = model.gen_hrm.lkl_fun_man(lkl, s_z)
-        psi_x = model.obs_man.log_partition_function(lkl_params)
-
+        s_proj = jax.grad(rho_dot_s)(zero_cnj_fun)
+        offset = rho_dot_s(zero_cnj_fun)
+        psi_x = model.obs_man.log_partition_function(model.likelihood_at(params, z))
         return s_proj, psi_x, offset
 
-    s_proj_all, psi_all, offset_all = jax.vmap(design_and_target)(z_samples)
+    s_proj_all, psi_all, offset_all = jax.vmap(design_and_target)(zs)
     adj_psi = psi_all - offset_all
 
     design = jnp.concatenate([jnp.ones((n_samples, 1)), s_proj_all], axis=1)
     coeffs = jnp.linalg.lstsq(design, adj_psi, rcond=None)[0]
     chi = coeffs[0]
-    rho = coeffs[1:]
+    cnj_fun_params = coeffs[1:]
 
     residuals = adj_psi - design @ coeffs
     ss_res = jnp.sum(residuals**2)
     ss_tot = jnp.sum((adj_psi - jnp.mean(adj_psi)) ** 2)
-    r_squared = 1.0 - ss_res / jnp.maximum(ss_tot, 1e-8)
+    r_squared = 1.0 - ss_res / ss_tot
 
-    return rho, r_squared, chi, jnp.var(residuals)
+    return cnj_fun_params, r_squared, chi, jnp.var(residuals)
 
 
-def conjugation_metrics[
-    Observable: Differentiable,
-    Posterior: Generative,
-    Prior: Generative,
-    Conjugation: Manifold,
-](
-    model: VariationalConjugated[Observable, Posterior, Prior, Conjugation],
+def conjugation_metrics(
+    model: VariationalConjugated[Any],
     key: Array,
     params: Array,
-    n_samples: int = 100,
+    n_samples: int,
 ) -> tuple[Array, Array, Array]:
-    """Compute conjugation quality metrics ``(var_f, std_f, r_squared)`` under the prior.
+    """Conjugation quality ``(var_r, std_r, r_squared)`` of this level under the model.
 
-    $R^2 = 1 - \\mathrm{Var}_p[r] / \\mathrm{Var}_p[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(Z))]$ measures how much of the variation of the log-partition the affine correction explains: 1 = exact conjugation, 0 = no better than a constant, < 0 = worse. Both variances are shift-invariant, so the $\\psi_X(\\theta_X)$ convention in :meth:`conjugation_residual` does not affect the metric. Returns ``NaN`` for $R^2$ when $\\mathrm{Var}_p[\\psi_X]$ is degenerate.
+    $R^2 = 1 - \\mathrm{Var}[r] / \\mathrm{Var}[\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(Z))]$ measures how much of the variation of the log-partition function the conjugation parameters explain: 1 is exact conjugation, 0 no better than a constant.
     """
     var_key, psi_key = jax.random.split(key)
-    var_f = model.prior_conjugation_loss(var_key, params, n_samples)
-    std_f = jnp.sqrt(var_f)
-
-    prior_params, lkl, _ = model.split_coords(params)
-    z_samples = model.prr_man.sample(psi_key, prior_params, n_samples)
-
-    def psi_at(z: Array) -> Array:
-        s_z = model.pst_man.sufficient_statistic(z)
-        lkl_params = model.gen_hrm.lkl_fun_man(lkl, s_z)
-        return model.obs_man.log_partition_function(lkl_params)
-
-    psi_vals = jax.vmap(psi_at)(z_samples)
-    var_psi = jnp.var(psi_vals)
-
-    variance_threshold = 1e-6
-    raw_r2 = 1.0 - var_f / jnp.maximum(var_psi, variance_threshold)
-    r_squared = jnp.where(
-        var_psi > variance_threshold,
-        jnp.clip(raw_r2, -10.0, 1.0),
-        jnp.nan,
+    var_r = model.conjugation_residual_variances(var_key, params, n_samples)[0]
+    var_psi = model.dep_man.score_variance(
+        psi_key,
+        model.conjugated_prior_params(params),
+        lambda z: model.obs_man.log_partition_function(model.likelihood_at(params, z)),
+        n_samples,
     )
+    return var_r, jnp.sqrt(var_r), 1.0 - var_r / var_psi
 
-    return var_f, std_f, r_squared
 
-
-def reconstruct[
-    Observable: Differentiable,
-    Posterior: Differentiable,
-    Prior: Differentiable,
-    Conjugation: Manifold,
-](
-    model: VariationalDifferentiable[Observable, Posterior, Prior, Conjugation],
-    params: Array,
-    x: Array,
+def reconstruct(
+    model: DifferentiableVariationalConjugated[Any, Any], params: Array, x: Array
 ) -> Array:
-    """Reconstruct observable means via mean-field approximation: posterior mean stats through likelihood.
-
-    Requires ``Posterior: Differentiable`` for the closed-form ``to_mean`` --- defined on :class:`VariationalDifferentiable` only.
-    """
-    q_params = model.approximate_posterior_at(params, x)
-    z_mean_stats = model.pst_man.to_mean(q_params)
-    _, lkl, _ = model.split_coords(params)
-    lkl_natural = model.gen_hrm.lkl_fun_man(lkl, z_mean_stats)
-    return model.obs_man.to_mean(lkl_natural)
+    """Observable means of the likelihood at the recognition model's mean statistics: a mean-field reconstruction."""
+    z_means = model.pst_man.to_mean(model.recognition_at(params, x))
+    lkl_params = model.gph_hrm.lkl_fun_man(model.likelihood_function(params), z_means)
+    return model.obs_man.to_mean(lkl_params)
 
 
-def reconstruction_error[
-    Observable: Differentiable,
-    Posterior: Differentiable,
-    Prior: Differentiable,
-    Conjugation: Manifold,
-](
-    model: VariationalDifferentiable[Observable, Posterior, Prior, Conjugation],
-    params: Array,
-    xs: Array,
+def reconstruction_error(
+    model: DifferentiableVariationalConjugated[Any, Any], params: Array, xs: Array
 ) -> Array:
-    """Compute mean squared reconstruction error over a batch."""
+    """Mean squared reconstruction error over a batch."""
     recons = jax.vmap(lambda x: reconstruct(model, params, x))(xs)
     return jnp.mean((xs - recons) ** 2)

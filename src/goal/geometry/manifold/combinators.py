@@ -1,9 +1,7 @@
 """Combinators for building complex manifolds from simpler ones.
 
-Provides product manifolds (`Pair`, `Triple`), homogeneous products (`Replicated`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
+Provides product manifolds (`Pair`, `Triple`, and `ManifoldTuple` of any number of elements), homogeneous products (`ManifoldProduct`), and the zero-dimensional `Null`. Each combinator stores coordinates as a flat concatenation and provides ``split_coords`` / ``join_coords`` for component access.
 """
-
-from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -15,6 +13,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from .base import Manifold
+from .util import split_by_dims
 
 
 @dataclass(frozen=True)
@@ -48,6 +47,30 @@ class Tuple(Manifold, ABC):
 
 
 @dataclass(frozen=True)
+class ManifoldTuple(Tuple):
+    """A Cartesian product of any number of manifolds, given by its elements, with no further structure."""
+
+    # Fields
+
+    elm_mans: tuple[Manifold, ...]
+
+    # Overrides
+
+    @property
+    @override
+    def dim(self) -> int:
+        return sum(elm.dim for elm in self.elm_mans)
+
+    @override
+    def split_coords(self, coords: Array) -> tuple[Array, ...]:
+        return split_by_dims(coords, tuple(elm.dim for elm in self.elm_mans))
+
+    @override
+    def join_coords(self, *components: Array) -> Array:
+        return jnp.concatenate(components)
+
+
+@dataclass(frozen=True)
 class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
     """Binary Cartesian product, with coordinates stored as ``[fst | snd]``."""
 
@@ -73,9 +96,10 @@ class Pair[First: Manifold, Second: Manifold](Tuple, ABC):
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array]:
         """Split into ``(fst, snd)`` components."""
-        first_coords = coords[: self.fst_man.dim]
-        second_coords = coords[self.fst_man.dim :]
-        return first_coords, second_coords
+        fst_coords, snd_coords = split_by_dims(
+            coords, (self.fst_man.dim, self.snd_man.dim)
+        )
+        return fst_coords, snd_coords
 
     @override
     def join_coords(self, fst_coords: Array, snd_coords: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -115,14 +139,10 @@ class Triple[First: Manifold, Second: Manifold, Third: Manifold](Tuple, ABC):
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array, Array]:
         """Split into ``(fst, snd, trd)`` components."""
-        first_dim = self.fst_man.dim
-        second_dim = self.snd_man.dim
-
-        fst_coords = coords[:first_dim]
-        snd_coords = coords[first_dim : first_dim + second_dim]
-        trd_coords = coords[first_dim + second_dim :]
-
-        return (fst_coords, snd_coords, trd_coords)
+        fst_coords, snd_coords, trd_coords = split_by_dims(
+            coords, (self.fst_man.dim, self.snd_man.dim, self.trd_man.dim)
+        )
+        return fst_coords, snd_coords, trd_coords
 
     @override
     def join_coords(  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -171,16 +191,11 @@ class Quadruple[First: Manifold, Second: Manifold, Third: Manifold, Fourth: Mani
     @override
     def split_coords(self, coords: Array) -> tuple[Array, Array, Array, Array]:
         """Split into ``(fst, snd, trd, fth)`` components."""
-        d1 = self.fst_man.dim
-        d2 = self.snd_man.dim
-        d3 = self.trd_man.dim
-
-        fst_coords = coords[:d1]
-        snd_coords = coords[d1 : d1 + d2]
-        trd_coords = coords[d1 + d2 : d1 + d2 + d3]
-        fth_coords = coords[d1 + d2 + d3 :]
-
-        return (fst_coords, snd_coords, trd_coords, fth_coords)
+        fst_coords, snd_coords, trd_coords, fth_coords = split_by_dims(
+            coords,
+            (self.fst_man.dim, self.snd_man.dim, self.trd_man.dim, self.fth_man.dim),
+        )
+        return fst_coords, snd_coords, trd_coords, fth_coords
 
     @override
     def join_coords(  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -195,7 +210,7 @@ class Quadruple[First: Manifold, Second: Manifold, Third: Manifold, Fourth: Mani
 
 
 @dataclass(frozen=True)
-class Replicated[M: Manifold](Manifold, ABC):
+class ManifoldProduct[M: Manifold](Manifold, ABC):
     """Homogeneous product of $n$ copies of the same manifold, stored flat as ``[n_reps * rep_man.dim]``.
 
     Used for collections where every element lives on the same manifold (e.g. mixture components, time series states). The ``map`` method applies a function across copies via ``vmap``.

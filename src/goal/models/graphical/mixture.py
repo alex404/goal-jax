@@ -1,21 +1,16 @@
-"""Mixture model utilities for conjugated harmoniums.
+"""Mixtures over harmoniums, and the mixture of factor analyzers.
 
-This module provides helper functions for computing conjugation parameters in hierarchical
-mixture models, enabling efficient inference in models where conjugated harmoniums are composed
-into mixture structures.
+A :class:`CompleteMixtureOfHarmoniums` puts a categorical node above a base harmonium, so
+the graph gains a third node $k$ and three crossing cliques: $(x,y)$ from the base
+interaction, $(x,y,k)$ for the component-specific coupling, and $(x,k)$ for per-component
+observable shifts. That fork --- $y$ and $k$ both adjacent to $x$ --- is why the model is not
+a chain.
 
-**Key function**: `harmonium_mixture_conjugation_parameters` decomposes the joint conjugation
-parameters of a mixture of conjugated harmoniums into three components:
-
-1. **Y conjugation biases**: Base conjugation parameters from the first component
-2. **K conjugation biases**: Differences in log partition between components
-3. **K-Y interaction**: Changes in conjugation parameters across components
-
-This decomposition preserves the mixture structure and enables efficient conjugation parameter
-computation for hierarchical models where the upper level is a mixture over harmoniums.
+The same coordinates read two ways. :meth:`to_mixture_coords` reorders them into a
+:class:`~goal.models.harmonium.mixture.CompleteMixture` whose observable is the base
+harmonium; :meth:`from_mixture_coords` inverts it. Conjugation and whitening are written
+against whichever view makes them a one-liner.
 """
-
-from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
@@ -26,26 +21,20 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
-    AmbientMap,
     Analytic,
     AnalyticConjugated,
-    BlockMap,
+    CliqueMap,
+    CrossTerm,
     Diagonal,
     Differentiable,
     DifferentiableConjugated,
-    EmbeddedMap,
     Harmonium,
     IdentityEmbedding,
-    InteractionEmbedding,
-    LinearComposedEmbedding,
     LinearEmbedding,
-    LinearMap,
-    ObservableEmbedding,
-    PosteriorEmbedding,
     Rectangular,
+    SubMapEmbedding,
     SymmetricConjugated,
 )
-from ..base.categorical import Categorical
 from ..base.gaussian.normal import FullNormal, Normal
 from ..harmonium.lgm import NormalAnalyticLGM
 from ..harmonium.mixture import AnalyticMixture, CompleteMixture
@@ -54,67 +43,8 @@ from ..harmonium.mixture import AnalyticMixture, CompleteMixture
 
 
 @dataclass(frozen=True)
-class RowEmbedding[
-    Domain: Differentiable,
-    Sub: Differentiable,
-    Ambient: Differentiable,
-](LinearEmbedding[EmbeddedMap[Domain, Sub], EmbeddedMap[Domain, Ambient]]):
-    """Embedding that applies a base embedding to each 'row' of a linear map.
-
-    Takes a LinearEmbedding[Sub, Amb] and lifts it to LinearEmbedding[LinearMap[Dom, Sub], LinearMap[Dom, Amb]]
-    by applying the base embedding independently to each component (row) of the linear map.
-
-    **Example**: If we have an embedding Sub -> Ambient and n_categories components,
-    we can create a tensorized embedding LinearMap[Categorical, Sub] -> LinearMap[Categorical, Ambient]
-    that applies the base embedding to each of the n_categories components independently.
-    """
-
-    dom_man: Domain
-    """The domain manifold (determines number of rows)."""
-
-    cod_emb: LinearEmbedding[Sub, Ambient]
-    """The base embedding to apply to each row."""
-
-    @property
-    @override
-    def sub_man(self) -> EmbeddedMap[Domain, Sub]:
-        """LinearMap from Dom to Sub manifold."""
-        return AmbientMap(Rectangular(), self.dom_man, self.cod_emb.sub_man)
-
-    @property
-    @override
-    def amb_man(self) -> EmbeddedMap[Domain, Ambient]:
-        """LinearMap from Dom to Amb manifold."""
-        return AmbientMap(Rectangular(), self.dom_man, self.cod_emb.amb_man)
-
-    @override
-    def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed by applying base embedding to each column."""
-        # Reshape to matrix
-        matrix = self.sub_man.to_matrix(params)
-
-        # Apply base embedding to each column using vmap
-        embedded_matrix = jax.vmap(self.cod_emb.embed, in_axes=1, out_axes=1)(matrix)
-
-        # Flatten back
-        return embedded_matrix.ravel()
-
-    @override
-    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Project by applying base projection to each column."""
-        # Reshape to matrix
-        matrix = self.amb_man.to_matrix(means)
-
-        # Apply base projection to each column using vmap
-        projected_matrix = jax.vmap(self.cod_emb.project, in_axes=1, out_axes=1)(matrix)
-
-        # Flatten back
-        return projected_matrix.ravel()
-
-
-@dataclass(frozen=True)
-class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
-    LinearEmbedding[CompleteMixture[Sub], CompleteMixture[Ambient]]
+class CompleteMixtureEmbedding[Ambient: Differentiable, Sub: Differentiable](
+    LinearEmbedding[CompleteMixture[Ambient], CompleteMixture[Sub]]
 ):
     """Embedding that lifts a component embedding to work on CompleteMixture structures.
 
@@ -129,7 +59,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
     n_categories: int
     """Number of mixture components."""
 
-    component_emb: LinearEmbedding[Sub, Ambient]
+    component_emb: LinearEmbedding[Ambient, Sub]
     """The base embedding to apply to each component."""
 
     @property
@@ -155,7 +85,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Embed each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (sub_obs_dim, n_categories-1)
-            int_matrix = self.sub_man.int_man.to_matrix(int_params)
+            int_matrix = self.sub_man.cmp_int_map.to_matrix(int_params)
             # Apply embedding to each column
             emb_int_matrix = jax.vmap(self.component_emb.embed, in_axes=1, out_axes=1)(
                 int_matrix
@@ -179,7 +109,7 @@ class CompleteMixtureEmbedding[Sub: Differentiable, Ambient: Differentiable](
         # Project each column of the interaction matrix
         if self.n_categories > 1:
             # Reshape to matrix: (amb_obs_dim, n_categories-1)
-            int_matrix = self.amb_man.int_man.to_matrix(int_means)
+            int_matrix = self.amb_man.cmp_int_map.to_matrix(int_means)
             # Apply projection to each column
             proj_int_matrix = jax.vmap(
                 self.component_emb.project, in_axes=1, out_axes=1
@@ -209,15 +139,19 @@ class CompleteMixtureOfHarmoniums[
     Harmonium[Observable, CompleteMixture[Posterior]],
     ABC,
 ):
-    """Harmonium with three-block interaction structure X<->Y<->K.
+    """Harmonium over $x$, $y$, and $k$ with a three-clique interaction.
 
-    Given a base harmonium over (Observable, Posterior), this constructs a harmonium
-    where the latent space is CompleteMixture[Posterior] = (Y, K), with a three-block
-    interaction:
+    Given a base harmonium over (Observable, Posterior), this constructs a harmonium whose
+    latent space is ``CompleteMixture[Posterior]`` = $(Y, K)$, which numbers $y$ as $0$ and
+    $k$ as $1$. The interaction is three crossing cliques rather than one:
 
-    - xy: Base harmonium interaction (shared across components)
-    - xyk: Component-specific interaction offsets
-    - xk: Observable bias adjustments per component
+    - $\\theta_{XY}$ on $(x, y)$: the base interaction, shared across components
+    - $\\theta_{XYK}$ on $(x, y, k)$: component-specific interaction offsets
+    - $\\theta_{XK}$ on $(x, k)$: per-component observable bias shifts
+
+    The graph is a **fork, not a chain**: both $y$ and $k$ are adjacent to $x$ through the
+    three-way clique, whose deep part is the mixture's own interaction clique $(y, k)$. The
+    deep partition is stored in the mixture's own order, $(y), (y, k), (k)$.
 
     This class does NOT require conjugation — it provides the pure harmonium
     structure that can be wrapped in either:
@@ -235,57 +169,44 @@ class CompleteMixtureOfHarmoniums[
     bas_hrm: Harmonium[Observable, Posterior]
     """Base harmonium (lower level)."""
 
+    # Overrides
+
+    @property
+    @override
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """$(x, y)$, $(x, y, k)$ and $(x, k)$, with $y$ and $k$ the mixture's nodes $0$ and $1$.
+
+        $\\theta_{XY}$ is the base interaction. $\\theta_{XYK}$ reads the base interaction's
+        subspace of $y$, and all of $k$, from the mixture's $(y, k)$ coordinate block. $\\theta_{XK}$
+        uses all of $x$ and all of $k$.
+        """
+        (bas_map,) = self.bas_hrm.crs_maps
+        (yk_map,) = self.pst_man.crs_maps
+        cat_emb = IdentityEmbedding(self.pst_man.lat_man)
+        xyk_map = CliqueMap(
+            Rectangular(),
+            bas_map.cod_emb,
+            SubMapEmbedding(yk_map, bas_map.dom_emb, cat_emb),
+        )
+        xk_map = CliqueMap(Rectangular(), IdentityEmbedding(self.obs_man), cat_emb)
+        return (
+            CrossTerm((0,), (0,), bas_map),
+            CrossTerm((0,), (0, 1), xyk_map),
+            CrossTerm((0,), (1,), xk_map),
+        )
+
+    # Methods
+
     @property
     def bas_pst_man(self) -> CompleteMixture[Posterior]:
         """Complete mixture over base posterior (avoids circular dependency with pst_man)."""
         return CompleteMixture(self.bas_hrm.pst_man, self.n_categories)
 
     @property
-    def xy_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
-        """Base harmonium interaction embedded into mixture structure."""
-        emb = ObservableEmbedding(self.bas_pst_man)
-        return self.bas_hrm.int_man.prepend_embedding(emb)  # pyright: ignore[reportReturnType]
-
-    @property
-    def xyk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
-        """Component-specific interactions embedded into mixture structure."""
-
-        def tensorize_emb[SubLatent: Differentiable](
-            emb: LinearEmbedding[SubLatent, Posterior],
-        ) -> LinearEmbedding[
-            LinearMap[Categorical, SubLatent], CompleteMixture[Posterior]
-        ]:
-            tns_emb = RowEmbedding(
-                Categorical(self.n_categories),
-                emb,
-            )
-            int_emb = InteractionEmbedding(self.bas_pst_man)
-            return LinearComposedEmbedding(  # pyright: ignore[reportReturnType]
-                tns_emb,
-                int_emb,
-            )
-
-        return self.bas_hrm.int_man.map_domain_embedding(tensorize_emb)  # pyright: ignore[reportArgumentType]
-
-    @property
-    def xk_man(self) -> LinearMap[CompleteMixture[Posterior], Observable]:
-        """Observable bias adjustments per component."""
-        return EmbeddedMap(
-            Rectangular(),
-            PosteriorEmbedding(self.bas_pst_man),
-            IdentityEmbedding(self.bas_hrm.obs_man),
-        )  # pyright: ignore[reportReturnType]
-
-    @property
     @override
-    def int_man(self) -> BlockMap[CompleteMixture[Posterior], Observable]:
-        """Interaction matrix with three blocks (mxy, mxyz, mxz).
-
-        - ``mxy`` --- base harmonium interaction $\\theta_{XY}$
-        - ``mxyk`` --- component-specific interactions $\\theta^0_{XYZ}$
-        - ``mxk`` --- observable bias adjustments per component $\\theta_{XZ}$
-        """
-        return BlockMap([self.xy_man, self.xyk_man, self.xk_man])
+    def obs_man(self) -> Observable:
+        """The base harmonium's observable."""
+        return self.bas_hrm.obs_man
 
     def posterior_categorical(self, params: Array, x: Array) -> Array:
         """Compute posterior categorical distribution p(Z|x) in natural coordinates.
@@ -351,50 +272,33 @@ class CompleteMixtureOfHarmoniums[
         return CompleteMixture(self.bas_hrm, self.n_categories)  # pyright: ignore[reportArgumentType]
 
     def to_mixture_coords(self, coords: Array) -> Array:
-        """Repack coordinates from three-block layout to mix_man layout.
+        """Repack coordinates from this model's layout to ``mix_man``'s.
 
-        Works identically in both natural and mean coordinates: the reorganization
-        is a block permutation of sufficient statistics, which is the same
-        linear operation in both dual spaces.
+        The two layouts hold the same seven coordinate blocks in different orders:
+
+        - this model: $x$ | $xy$, $xyk$, $xk$ | $y$, $yk$, $k$
+        - ``mix_man``: $x$, $xy$, $y$ | $xk$, $xyk$, $yk$ | $k$
+
+        ``mix_man``'s interaction is a matrix with one row per base-harmonium coordinate and
+        one column per non-reference category, stored row-major, so its row bands for $x$,
+        $xy$ and $y$ are the $xk$, $xyk$ and $yk$ coordinate blocks concatenated. A permutation of
+        coordinate blocks
+        is the same linear operation in natural and mean coordinates.
         """
-        x_coords, int_coords, yk_harm_coords = self.split_coords(coords)
-        xy_coords, xyk_coords, xk_coords = self.int_man.coord_blocks(int_coords)
-        y_coords, yk_int_coords, k_coords = self.bas_pst_man.split_coords(
-            yk_harm_coords
-        )
-
-        base_hrm_coords = self.bas_hrm.join_coords(x_coords, xy_coords, y_coords)
-
-        n_cols = self.n_categories - 1
-        xk_matrix = xk_coords.reshape(-1, n_cols)
-        xyk_matrix = xyk_coords.reshape(-1, n_cols)
-        yk_matrix = yk_int_coords.reshape(-1, n_cols)
-        mix_int_coords = jnp.vstack([xk_matrix, xyk_matrix, yk_matrix]).ravel()
-
-        return self.mix_man.join_coords(base_hrm_coords, mix_int_coords, k_coords)
+        x, int_coords, lat_coords = self.split_coords(coords)
+        xy, xyk, xk = self.crs_man.clq_coords(int_coords)
+        y, yk, k = self.dep_man.split_coords(lat_coords)
+        hrm = self.bas_hrm.join_coords(x, xy, y)
+        return self.mix_man.join_coords(hrm, jnp.concatenate([xk, xyk, yk]), k)
 
     def from_mixture_coords(self, mix_coords: Array) -> Array:
-        """Repack coordinates from mix_man layout to three-block layout.
-
-        Works identically in both natural and mean coordinates.
-        """
-        base_hrm_coords, mix_int_coords, k_coords = self.mix_man.split_coords(
-            mix_coords
-        )
-        x_coords, xy_coords, y_coords = self.bas_hrm.split_coords(base_hrm_coords)
-
+        """Repack coordinates from ``mix_man``'s layout back to this model's."""
+        hrm, cross, k = self.mix_man.split_coords(mix_coords)
+        x, xy, y = self.bas_hrm.split_coords(hrm)
         n_cols = self.n_categories - 1
-        hrm_int_matrix = mix_int_coords.reshape(-1, n_cols)
-        obs_dim = self.bas_hrm.obs_man.dim
-        int_dim = self.bas_hrm.int_man.dim
-
-        xk_coords = hrm_int_matrix[:obs_dim, :].ravel()
-        xyk_coords = hrm_int_matrix[obs_dim : obs_dim + int_dim, :].ravel()
-        yk_int_coords = hrm_int_matrix[obs_dim + int_dim :, :].ravel()
-
-        int_coords = jnp.concatenate([xy_coords, xyk_coords, xk_coords])
-        yk_harm_coords = self.bas_pst_man.join_coords(y_coords, yk_int_coords, k_coords)
-        return self.join_coords(x_coords, int_coords, yk_harm_coords)
+        xk, xyk, yk = jnp.split(cross, [x.size * n_cols, (x.size + xy.size) * n_cols])
+        int_coords = jnp.concatenate([xy, xyk, xk])
+        return self.join_coords(x, int_coords, self.dep_man.join_coords(y, yk, k))
 
 
 # Mixture of Conjugated Harmoniums
@@ -437,9 +341,19 @@ class CompleteMixtureOfConjugated[
 
     @property
     @override
+    def pst_man(self) -> CompleteMixture[PstLatent]:
+        """A complete mixture over the base posterior.
+
+        The symmetric subclasses get theirs from ``lat_man`` instead, which is the analytic
+        mixture --- same coordinates, more operations.
+        """
+        return self.bas_pst_man
+
+    @property
+    @override
     def pst_prr_emb(
         self,
-    ) -> CompleteMixtureEmbedding[PstLatent, PrrLatent]:
+    ) -> CompleteMixtureEmbedding[PrrLatent, PstLatent]:
         """Embedding of posterior mixture into prior mixture."""
         return CompleteMixtureEmbedding(self.n_categories, self.bas_hrm.pst_prr_emb)
 
@@ -457,8 +371,8 @@ class CompleteMixtureOfConjugated[
         # Extract base harmonium parameters and interaction matrix
         x_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
 
-        # Section interaction matrix into blocks: xy, xyk, xk
-        xy_params, xyk_params, xk_params = self.int_man.coord_blocks(int_params)
+        # Section interaction matrix into coordinate blocks: xy, xyk, xk
+        xy_params, xyk_params, xk_params = self.crs_man.clq_coords(int_params)
 
         # Compute base conjugation parameters from component 0
         # Note: conjugation_parameters returns params in bas_hrm.prr_man space
@@ -537,9 +451,19 @@ class CompleteMixtureOfSymmetric[
         """The shared latent manifold (posterior == prior)."""
         return CompleteMixture(self.bas_hrm.lat_man, self.n_categories)
 
+    @property
+    @override
+    def pst_man(self) -> CompleteMixture[Latent]:
+        """Symmetric: posterior and prior are one manifold, so this is :attr:`lat_man`.
+
+        Overrides the base's ``bas_pst_man``, which is the same coordinates under a class
+        with fewer operations --- the analytic subclass needs ``to_natural``.
+        """
+        return self.lat_man
+
 
 @dataclass(frozen=True)
-class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues,reportIncompatibleMethodOverride]
+class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues, reportIncompatibleMethodOverride]
     Observable: Differentiable,
     Latent: Analytic,
 ](
@@ -601,7 +525,7 @@ class CompleteMixtureOfAnalytic[  # pyright: ignore[reportGeneralTypeIssues,repo
         # rest_offsets: (n_cols, obs_dim + int_dim)
 
         obs_dim = self.bas_hrm.obs_man.dim
-        # Transpose to (obs_dim, n_cols) before ravel to match xk_man storage
+        # Transpose to (obs_dim, n_cols) before ravel to match the xk clique storage
         xk_coords = rest_offsets[:, :obs_dim].T.ravel()
         xyk_coords = rest_offsets[:, obs_dim:].T.ravel()
 

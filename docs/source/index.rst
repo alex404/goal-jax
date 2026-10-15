@@ -36,7 +36,7 @@ Fit a 3-component Gaussian mixture model via expectation-maximization:
    from goal.models import AnalyticMixture, Normal
 
    # 3-component 2D Gaussian mixture with full covariance
-   model = AnalyticMixture(Normal(2, PositiveDefinite()), n_components=3)
+   model = AnalyticMixture(Normal(2, PositiveDefinite()), n_categories=3)
 
    # Generate synthetic data from a known mixture
    key = jax.random.PRNGKey(0)
@@ -69,7 +69,9 @@ The library is organized in two packages: **geometry** (abstract mathematical ma
 Geometry
 ~~~~~~~~
 
-The :doc:`geometry package <geometry/index>` provides two layers:
+The :doc:`geometry package <geometry/index>` provides three layers:
+
+- :doc:`geometry/algebra/index` --- Stateless parameter layouts: matrix representations, the cliques of a graph, and junction trees for exact sum-product over binary variables.
 
 - :doc:`geometry/manifold/index` --- Geometric primitives: manifolds, matrix representations, embeddings, and linear maps. A manifold is a stateless object that pairs a dimension with operations on flat JAX arrays.
 
@@ -125,6 +127,7 @@ The :doc:`models package <models/index>` builds concrete distributions on this f
 
   - **Mixture models** --- EM-based clustering over any base distribution, with analytic E-steps from conjugate structure
   - **Linear Gaussian models** --- factor analysis and PCA, recovering low-rank covariance structure from high-dimensional observations
+  - **Canonical correlation analysis** --- two views sharing a Gaussian latent
   - **Population codes** --- neural population models for circular stimulus decoding from Poisson spike data
 
 - :doc:`models/graphical/index` --- Hierarchical models that compose multiple harmoniums into deeper structures. A top-level mixture selects among components, each of which is itself a latent-variable model:
@@ -132,6 +135,10 @@ The :doc:`models package <models/index>` builds concrete distributions on this f
   - **Mixture of factor analyzers** --- per-component low-rank structure with shared dimensionality reduction
   - **Hierarchical mixture of Gaussians** --- hierarchical combination of LGMs
     and mixture models
+
+- :doc:`models/dynamical/index` --- State-space models: the Kalman filter, hidden Markov models, and filters with learned transitions.
+
+- :doc:`models/variational/index` --- Models fit variationally with learned conjugation parameters: variational population codes, a filter over one, and the canonical circuit.
 
 .. toctree::
    :maxdepth: 1

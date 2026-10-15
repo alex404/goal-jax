@@ -1,11 +1,10 @@
-"""Internal helpers for batched computation."""
-
-from __future__ import annotations
+"""Internal helpers for batched computation and flat-array slicing."""
 
 from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 
@@ -37,3 +36,8 @@ def batched_mean(f: Callable[[Array], Array], xs: Array, batch_size: int) -> Arr
         total_sum = batch_sums
 
     return total_sum / n_samples
+
+
+def split_by_dims(coords: Array, dims: tuple[int, ...]) -> tuple[Array, ...]:
+    """Split a flat array into consecutive slices of the given sizes."""
+    return tuple(jnp.split(coords, np.cumsum(dims)[:-1]))

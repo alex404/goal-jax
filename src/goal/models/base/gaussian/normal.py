@@ -1,7 +1,5 @@
 """Multivariate normal distributions as exponential families with flexible covariance structure."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import override
 
@@ -202,36 +200,40 @@ class Normal[Rep: PositiveDefinite](
         location: float = 0.0,
         shape: float = 0.1,
     ) -> Array:
-        """Initialize from sample data with regularizing noise scaled relative to observed variance."""
-        # Get average sufficient statistics (mean and second moment)
-        avg_stats = self.average_sufficient_statistic(sample)
-        mean, second_moment = self.split_mean_second_moment(avg_stats)
+        """Initialize from the sample mean and covariance, perturbed by noise scaled to the observed variance.
 
-        # Compute variance for proper scaling: Var(x) = E[x²] - E[x]²
-        second_moment_diag = self.cov_man.get_diagonal(second_moment)
-        variance_diag = jnp.maximum(second_moment_diag - mean**2, 1e-6)
-        observed_scale = jnp.sqrt(variance_diag)
+        The mean moves by ``location + shape`` times standard normal noise, in units of the observed
+        standard deviation. The covariance is multiplied entrywise by $M = \\mathbf 1 \\mathbf 1^T +
+        AA^T / d$, with $A$ a $d \\times d$ matrix of standard normal noise times ``shape``; since
+        $\\mathbb E[M] = \\mathbf 1 \\mathbf 1^T + \\text{shape}^2 I$, the variances grow by a factor
+        $1 + \\text{shape}^2$ on average and the covariances are kept on average. A dimension without
+        variance in the sample is given variance $10^{-6}$.
 
-        # Add noise to mean based on observed standard deviation
+        Mathematically, for ``shape`` $> 0$ the matrix $AA^T$, and so $M$, is almost surely positive
+        definite, and by the Schur product theorem the entrywise product of a positive definite matrix
+        with a positive semidefinite one with a positive diagonal is positive definite. The parameters
+        are therefore valid also when the sample covariance is singular (linearly dependent
+        dimensions, or fewer points than dimensions). At ``shape`` $= 0$ the initialization is the
+        fit to the sample moments, which exists only when the sample covariance is positive definite.
+        """
+        mean, cov = self.split_mean_covariance(
+            self.average_sufficient_statistic(sample)
+        )
+        cov = self.cov_man.map_diagonal(cov, lambda v: jnp.maximum(v, 1e-6))
+
         key_mean, key_cov = jax.random.split(key)
-        mean_noise = observed_scale * (
+        observed_scale = jnp.sqrt(self.cov_man.get_diagonal(cov))
+        mean = mean + observed_scale * (
             location + shape * jax.random.normal(key_mean, mean.shape)
         )
-        mean = mean + mean_noise
 
-        # Add multiplicative noise to second moment
         noise = shape * jax.random.normal(key_cov, (self.data_dim, self.data_dim))
-        noise = jnp.eye(self.data_dim) + noise @ noise.T / self.data_dim
-        noise_matrix = self.cov_man.from_matrix(noise)
-        second_moment = second_moment * noise_matrix
+        noise = (
+            jnp.ones((self.data_dim, self.data_dim)) + noise @ noise.T / self.data_dim
+        )
+        cov = cov * self.cov_man.from_matrix(noise)
 
-        # Ensure second_moment > mean² to maintain positive variance
-        min_second_moment = self.cov_man.from_matrix(jnp.diag(mean**2 + 1e-6))
-        second_moment = jnp.maximum(second_moment, min_second_moment)
-
-        # Join parameters and convert to natural coordinates
-        means = self.join_mean_second_moment(mean, second_moment)
-        return self.to_natural(means)
+        return self.to_natural(self.join_mean_covariance(mean, cov))
 
     @override
     def check_natural_parameters(self, params: Array) -> Array:

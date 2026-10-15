@@ -1,37 +1,13 @@
-"""Hierarchical Mixture of Gaussians (HMoG) models.
+"""Hierarchical mixtures of Gaussians: a linear Gaussian model over a mixture of Gaussians.
 
-This module provides concrete implementations of hierarchical Gaussian models that combine
-linear Gaussian dimensionality reduction with Gaussian mixture clustering, enabling joint
-learning of latent factor representations and cluster assignments.
-
-**Model structure**: HMoG models have two levels:
-
-- **Lower harmonium**: Maps observations :math:`X \\in \\mathbb{R}^p` to first-level latent factors
-  :math:`Y \\in \\mathbb{R}^d` using a linear Gaussian relationship (factor analysis/PCA)
-- **Upper harmonium**: Models a mixture of Gaussians over the latent space :math:`Y`
-
-The joint distribution factors as:
-
-.. math::
-
-    p(X, Y, Z) = p(Z) \\cdot p(Y | Z) \\cdot p(X | Y)
-
-where :math:`Z \\in \\{1,\\ldots,K\\}` are discrete cluster assignments.
-
-**Variants**:
-
-- **DifferentiableHMoG**: Gradient-based optimization, uses restricted posterior covariance
-  for efficiency (e.g., diagonal)
-- **SymmetricHMoG**: Abstract base for symmetric HMoG variants, provides shared posterior methods
-- **AnalyticHMoG**: Fully analytic, enables closed-form EM and bidirectional parameter conversion
-
-Factory functions (``differentiable_hmog``, ``analytic_hmog``) provide convenient construction
-for common configurations.
+The lower harmonium maps observations $x$ to latent factors $y$, and the upper is a mixture of
+Gaussians over $y$, so $p(x, y, z) = p(z) p(y \\mid z) p(x \\mid y)$ with $z$ the cluster.
+:class:`DifferentiableHMoG` is fit by gradient descent with a restricted posterior covariance, and
+:class:`AnalyticHMoG` by closed-form EM; :class:`SymmetricHMoG` holds what they share. Construct
+them with :func:`differentiable_hmog` and :func:`analytic_hmog`.
 """
 
-from __future__ import annotations
-
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -40,11 +16,15 @@ import jax.numpy as jnp
 from jax import Array
 
 from ...geometry import (
-    AnalyticHierarchical,
+    AnalyticGraphical,
+    Differentiable,
     DifferentiableConjugated,
-    DifferentiableHierarchical,
+    DifferentiableGraphical,
+    Harmonium,
+    LinearEmbedding,
     PositiveDefinite,
-    SymmetricHierarchical,
+    RootEmbedding,
+    SymmetricConjugated,
 )
 from ..base.gaussian.normal import FullNormal, Normal, full_normal
 from ..harmonium.lgm import (
@@ -57,20 +37,65 @@ from ..harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 # HMoG Classes
 
 
+@dataclass(frozen=True)
 class _HMoGBase[
     LowerHarmonium: DifferentiableConjugated[Any, Any, Any],
     PstUpperHarmonium: CompleteMixture[Any],
     PrrUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
 ](
-    DifferentiableHierarchical[LowerHarmonium, PstUpperHarmonium, PrrUpperHarmonium],
+    DifferentiableGraphical[PstUpperHarmonium, PrrUpperHarmonium],
     ABC,
 ):
     """Abstract base for Hierarchical Mixture of Gaussians models.
 
-    Provides shared posterior and whitening methods for all HMoG variants.
-    The ``pst_upr_hrm`` is bounded by ``CompleteMixture``, giving access to
-    ``split_mean_mixture``, ``join_mean_mixture``, and ``cmp_man``.
+    A lower harmonium ($x \\to y$) placed on the observable node $y$ of an upper mixture
+    ($y \\to k$), over the three-node chain. The ``pst_upr_hrm`` is bounded by
+    ``CompleteMixture``, giving access to ``split_mean_mixture``, ``join_mean_mixture``, and
+    ``cmp_man``.
     """
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def lwr_hrm(self) -> LowerHarmonium:
+        """Lower harmonium (observable to middle latent)."""
+
+    @property
+    @abstractmethod
+    def pst_upr_hrm(self) -> PstUpperHarmonium:
+        """Posterior upper harmonium (possibly restricted)."""
+
+    @property
+    @abstractmethod
+    def prr_upr_hrm(self) -> PrrUpperHarmonium:
+        """Prior upper harmonium (for conjugation), with the same graph as :attr:`pst_upr_hrm`."""
+
+    # Overrides
+
+    @property
+    @override
+    def obs_hrms_lat_nods(
+        self,
+    ) -> tuple[tuple[Harmonium[Differentiable, Any], tuple[int, ...]], ...]:
+        """The lower harmonium, on the upper mixture's observable node $y$."""
+        return ((self.lwr_hrm, (0,)),)
+
+    @property
+    @override
+    def pst_man(self) -> PstUpperHarmonium:
+        """The posterior is the upper mixture, whose observable node is $y$."""
+        return self.pst_upr_hrm
+
+    @property
+    @override
+    def pst_prr_emb(self) -> LinearEmbedding[PrrUpperHarmonium, PstUpperHarmonium]:
+        """The posterior and prior mixtures differ only at node $y$, i.e. in their root partition."""
+        return RootEmbedding(
+            self.lwr_hrm.pst_prr_emb,
+            self.prr_upr_hrm,
+            self.pst_upr_hrm,
+        )
 
     # Methods
 
@@ -102,13 +127,14 @@ class _HMoGBase[
         new_lat_means = self.pst_upr_hrm.join_mean_mixture(new_comp_means, cat_means)
 
         # Update lower LGM cross-statistics (same transform as LGM whitening)
-        obs_loc, _ = self.obs_man.split_mean_second_moment(obs_means)
-        lwr_int_mat = self.lwr_hrm.int_man.to_matrix(lwr_int_means)  # pyright: ignore[reportAttributeAccessIssue]
+        obs_loc, _ = self.lwr_hrm.obs_man.split_mean_second_moment(obs_means)
+        (lwr_int_map,) = self.lwr_hrm.crs_maps
+        lwr_int_mat = lwr_int_map.to_matrix(lwr_int_means)
         cross_cov = lwr_int_mat - jnp.outer(obs_loc, lat_mean_y)  # W Cov(Y)
         new_lwr_int_mat = jax.scipy.linalg.solve_triangular(
             chol, cross_cov.T, lower=True
         ).T
-        new_lwr_int_means = self.lwr_hrm.int_man.from_matrix(new_lwr_int_mat)  # pyright: ignore[reportAttributeAccessIssue]
+        new_lwr_int_means = lwr_int_map.from_matrix(new_lwr_int_mat)
 
         return self.join_coords(obs_means, new_lwr_int_means, new_lat_means)
 
@@ -172,8 +198,8 @@ class DifferentiableHMoG[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
 
 class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
+    SymmetricConjugated[Any, Upr],
     _HMoGBase[NormalAnalyticLGM[ObsRep], Upr, Upr],
-    SymmetricHierarchical[NormalAnalyticLGM[ObsRep], Upr],
     ABC,
 ):
     """Symmetric HMoG base class.
@@ -185,11 +211,35 @@ class SymmetricHMoG[ObsRep: PositiveDefinite, Upr: CompleteMixture[Any]](
     over the latent space, which can be slower than DifferentiableHMoG.
     """
 
+    # Contract
+
+    @property
+    @abstractmethod
+    def upr_hrm(self) -> Upr:
+        """Upper harmonium (middle latent to top latent)."""
+
+    # Overrides
+
+    @property
+    @override
+    def lat_man(self) -> Upr:
+        return self.upr_hrm
+
+    @property
+    @override
+    def pst_upr_hrm(self) -> Upr:
+        return self.upr_hrm
+
+    @property
+    @override
+    def prr_upr_hrm(self) -> Upr:
+        return self.upr_hrm
+
 
 @dataclass(frozen=True)
 class AnalyticHMoG[ObsRep: PositiveDefinite](
     SymmetricHMoG[ObsRep, AnalyticMixture[FullNormal]],
-    AnalyticHierarchical[NormalAnalyticLGM[ObsRep], AnalyticMixture[FullNormal]],
+    AnalyticGraphical[AnalyticMixture[FullNormal]],
 ):
     """Analytic Hierarchical Mixture of Gaussians.
 
@@ -245,7 +295,7 @@ def differentiable_hmog[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
     pst_y_man = Normal(lat_dim, pst_rep)
     prr_y_man = full_normal(lat_dim)
     lwr_hrm = NormalLGM(obs_dim, obs_rep, lat_dim, pst_rep)
-    mix_sub = NormalCovarianceEmbedding(pst_y_man, prr_y_man)
+    mix_sub = NormalCovarianceEmbedding(prr_y_man, pst_y_man)
     pst_upr_hrm = AnalyticMixture(pst_y_man, n_components)
 
     prr_upr_hrm = Mixture(n_components, mix_sub)

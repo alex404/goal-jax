@@ -71,6 +71,28 @@ def evaluate_model(model: FullBoltzmann, params: Array) -> tuple[Array, Array, A
     return all_states, probs, energies
 
 
+def gibbs_samples(
+    key: Array,
+    model: FullBoltzmann,
+    params: Array,
+    n_samples: int,
+    n_burnin: int,
+    n_thin: int,
+) -> Array:
+    """One Gibbs chain from a uniform start: ``n_burnin`` sweeps, then a sample every ``n_thin`` sweeps."""
+    init_key, chain_key = jax.random.split(key)
+    state = jax.random.bernoulli(init_key, 0.5, (model.n_neurons,)).astype(float)
+    state = model.gibbs_chain(jax.random.fold_in(chain_key, 0), params, state, n_burnin)
+
+    def step(state: Array, i: Array) -> tuple[Array, Array]:
+        k = jax.random.fold_in(chain_key, i + 1)
+        state = model.gibbs_chain(k, params, state, n_thin)
+        return state, state
+
+    _, samples = jax.lax.scan(step, state, jnp.arange(n_samples))
+    return samples
+
+
 def test_sampling_convergence(
     key: Array, model: FullBoltzmann, params: Array
 ) -> tuple[list[int], list[int], list[list[float]]]:
@@ -88,8 +110,8 @@ def test_sampling_convergence(
         sample_errors = []
         for n_thin in thin_levels:
             key, subkey = jax.random.split(key)
-            samples = model.sample(
-                subkey, params, n=n_samples, n_burnin=50, n_thin=n_thin
+            samples = gibbs_samples(
+                subkey, model, params, n_samples, n_burnin=50, n_thin=n_thin
             )
 
             empirical_probs = jnp.zeros(16)

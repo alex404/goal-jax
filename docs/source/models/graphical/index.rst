@@ -11,4 +11,3 @@ These models extend harmoniums by nesting them: a graphical model uses one harmo
 
    hmog
    mixture
-   variational

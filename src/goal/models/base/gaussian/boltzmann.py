@@ -1,16 +1,12 @@
 """Boltzmann machines: exponential families over binary vectors with pairwise couplings.
 
-The family is organized by coupling sparsity, mirroring the ``Normal`` covariance
-representations: :class:`FullBoltzmann` (dense couplings, enumeration + Gibbs),
-:class:`DiagonalBoltzmann` (independent units, closed form),
-:class:`ChordalBoltzmann` (bounded-treewidth couplings, exact junction-tree
-inference), and :class:`ChainBoltzmann` (path-shaped clique trees, exact
-inference at logarithmic depth). The abstract :class:`Boltzmann` base captures
-everything that follows from binariness alone; subclasses supply the coupling
-manifold and its parameter layout.
+The family is organized by coupling sparsity, as ``Normal`` is by covariance representation:
+:class:`DiagonalBoltzmann` (independent units, closed form), :class:`FullBoltzmann` (dense
+couplings, exact by enumeration of the $2^n$ states) and :class:`ChordalBoltzmann` (couplings on a
+chordal graph, exact by sum-product on its :class:`~goal.geometry.JunctionTree`). :class:`Boltzmann`
+holds what follows from binariness alone, and :class:`CouplingMatrix` and
+:class:`ChordalCouplingMatrix` are the layouts of the couplings.
 """
-
-from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -25,27 +21,17 @@ from jax import Array
 from ....geometry import (
     Analytic,
     Differentiable,
+    ExponentialFamily,
+    JunctionTree,
     SquareMap,
     Symmetric,
 )
-from ..categorical import Bernoullis
-from .coupling import (
-    ChainTree,
-    JunctionTree,
-    chain_log_partition,
-    chain_sample,
-    dense_gibbs_step,
-    dense_log_partition,
-    dense_sample,
-    dense_states,
-    dense_unit_conditional_prob,
-    jt_log_partition,
-    jt_sample,
-)
+from ....geometry.algebra.junction_tree import binary_states
+from ..categorical import Bernoulli, Bernoullis
 from .generalized import Euclidean, GeneralizedGaussian
 
 
-class Boltzmann[Shape: Differentiable](
+class Boltzmann[Shape: ExponentialFamily](
     GeneralizedGaussian[Bernoullis, Shape],
     ABC,
 ):
@@ -60,9 +46,10 @@ class Boltzmann[Shape: Differentiable](
     $$p(x) \\propto \\exp(\\mathbf s_{\\text{shp}}(x) \\cdot \\theta),$$
 
     entirely in terms of the shape (coupling) manifold. Subclasses fix the
-    coupling sparsity through :attr:`shp_man` and its parameter layout through
-    :meth:`split_couplings` / :meth:`join_couplings`; the exponential-family
-    structure and the GeneralizedGaussian split/join conversions all follow.
+    coupling sparsity through :attr:`shp_man`, its parameter layout through
+    :meth:`split_couplings` / :meth:`join_couplings`, and the log-partition function
+    and sampling of that sparsity; the GeneralizedGaussian split/join conversions
+    follow.
 
     The precision convention matches the energy $x^T \\Theta x$: natural
     parameters map to the precision slot via $\\theta_{ii} \\mapsto -2
@@ -85,6 +72,15 @@ class Boltzmann[Shape: Differentiable](
     def join_couplings(self, diag: Array, off_diag: Array) -> Array:
         """Inverse of :meth:`split_couplings`."""
 
+    @property
+    @abstractmethod
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        """The coupled pairs $(i, j)$, $i < j$, in the order of the off-diagonal component of :meth:`split_couplings`.
+
+        Every Boltzmann machine stores the coupling of a pair as the coefficient of $x_i x_j$,
+        so two machines on the same neurons differ only in which pairs they couple.
+        """
+
     # Overrides
 
     @property
@@ -104,14 +100,6 @@ class Boltzmann[Shape: Differentiable](
     @override
     def log_base_measure(self, x: Array) -> Array:
         return jnp.array(0.0)
-
-    @override
-    def log_partition_function(self, params: Array) -> Array:
-        return self.shp_man.log_partition_function(params)
-
-    @override
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        return self.shp_man.sample(key, params, n)
 
     @override
     def split_location_precision(self, params: Array) -> tuple[Array, Array]:
@@ -171,6 +159,14 @@ class DiagonalBoltzmann(
         return Bernoullis(self.n_neurons)
 
     @override
+    def log_partition_function(self, params: Array) -> Array:
+        return self.shp_man.log_partition_function(params)
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        return self.shp_man.sample(key, params, n)
+
+    @override
     def negative_entropy(self, means: Array) -> Array:
         return self.shp_man.negative_entropy(means)
 
@@ -182,13 +178,17 @@ class DiagonalBoltzmann(
     def join_couplings(self, diag: Array, off_diag: Array) -> Array:
         return diag
 
+    @property
+    @override
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        return ()
 
-class CouplingMatrix(SquareMap[Euclidean], Differentiable):
-    """Exponential family over moment matrices $x \\otimes x$ with Symmetric storage.
 
-    Distribution: $p(x) \\propto \\exp(\\tr(\\Theta^T(x \\otimes x)))$. The
-    algorithms live in :mod:`~goal.models.base.gaussian.coupling.dense`: exact
-    $\\log Z$ by enumeration, sampling by Gibbs.
+class CouplingMatrix(SquareMap[Euclidean], ExponentialFamily):
+    """Shape component of a :class:`FullBoltzmann`: the couplings as a symmetric matrix over $x \\otimes x$.
+
+    The coordinates are the packed upper triangle of :class:`Symmetric` storage, the layout of
+    the shape of a full-covariance ``Normal``.
     """
 
     def __init__(self, n_neurons: int):
@@ -210,44 +210,12 @@ class CouplingMatrix(SquareMap[Euclidean], Differentiable):
     def log_base_measure(self, x: Array) -> Array:
         return jnp.array(0.0)
 
-    @override
-    def log_partition_function(self, params: Array) -> Array:
-        return dense_log_partition(self.n_neurons, params)
-
-    @override
-    def sample(
-        self,
-        key: Array,
-        params: Array,
-        n: int = 1,
-        n_burnin: int = 1000,
-        n_thin: int = 10,
-    ) -> Array:
-        """Generate samples using Gibbs sampling."""
-        return dense_sample(self.n_neurons, params, key, n, n_burnin, n_thin)
-
-    @override
-    def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
-        """Gibbs step updating all units via conditional distributions."""
-        return dense_gibbs_step(self.n_neurons, params, state, key)
-
     # Methods
 
     @property
     def n_neurons(self) -> int:
         """Number of neurons (dimensions)."""
         return self.matrix_shape[0]
-
-    @property
-    def states(self) -> Array:
-        """All possible binary states."""
-        return dense_states(self.n_neurons)
-
-    def unit_conditional_prob(
-        self, state: Array, unit_idx: Array | int, params: Array
-    ) -> Array:
-        """Compute P(x_unit = 1 | x_other) for a single unit."""
-        return dense_unit_conditional_prob(self.n_neurons, params, state, unit_idx)
 
 
 @dataclass(frozen=True)
@@ -257,8 +225,9 @@ class FullBoltzmann(
 ):
     """Boltzmann machine with dense pairwise couplings.
 
-    Exact computations enumerate all $2^n$ states; sampling is Gibbs. The
-    coupling layout is the packed upper triangle of :class:`Symmetric` storage.
+    Exact computations, sampling included, enumerate all $2^n$ states, so the number of
+    neurons must be small. :meth:`gibbs_step` gives the Gibbs sampler for running a chain.
+    The coupling layout is the packed upper triangle of :class:`Symmetric` storage.
     """
 
     # Fields
@@ -278,19 +247,35 @@ class FullBoltzmann(
         return CouplingMatrix(self.n_neurons)
 
     @override
-    def sample(
-        self,
-        key: Array,
-        params: Array,
-        n: int = 1,
-        n_burnin: int = 1000,
-        n_thin: int = 10,
-    ) -> Array:
-        return self.shp_man.sample(key, params, n, n_burnin, n_thin)
+    def log_partition_function(self, params: Array) -> Array:
+        """Exact $\\log Z$ by enumeration over all $2^n$ states."""
+        return jax.scipy.special.logsumexp(self.energies(params))
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        """Exact samples, drawn from the probabilities of all $2^n$ states.
+
+        Inverse-CDF sampling: one cumulative sum over the state probabilities and a binary
+        search per sample, rather than a categorical draw per sample over all states.
+        """
+        cdf = jnp.cumsum(jax.nn.softmax(self.energies(params)))
+        us = jax.random.uniform(key, (n,)) * cdf[-1]
+        return self.states[jnp.searchsorted(cdf, us)]
 
     @override
     def gibbs_step(self, key: Array, params: Array, state: Array) -> Array:
-        return self.shp_man.gibbs_step(key, params, state)
+        """One Gibbs sweep, updating all units in random order from their conditional distributions."""
+        perm_key, update_key = jax.random.split(key)
+        perm = jax.random.permutation(perm_key, self.n_neurons)
+
+        def update_unit(state: Array, unit_idx: Array) -> tuple[Array, None]:
+            prob = self.unit_conditional_prob(state, unit_idx, params)
+            subkey = jax.random.fold_in(update_key, unit_idx)
+            new_val = jax.random.bernoulli(subkey, prob).astype(state.dtype)
+            return state.at[unit_idx].set(new_val), None
+
+        final_state, _ = jax.lax.scan(update_unit, state, perm)
+        return final_state
 
     @override
     def split_couplings(self, coords: Array) -> tuple[Array, Array]:
@@ -306,26 +291,72 @@ class FullBoltzmann(
         out = out.at[np.flatnonzero(rows == cols)].set(diag)
         return out.at[np.flatnonzero(rows != cols)].set(off_diag)
 
+    @property
+    @override
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        rows, cols = np.triu_indices(self.n_neurons, k=1)
+        return tuple(zip(rows.tolist(), cols.tolist(), strict=True))
+
     # Methods
 
     @property
     def states(self) -> Array:
-        """All possible binary states."""
-        return self.shp_man.states
+        """All $2^n$ binary states, least significant unit first."""
+        return jnp.asarray(binary_states(self.n_neurons), dtype=float)
+
+    def energies(self, params: Array) -> Array:
+        """The energy $\\theta \\cdot \\mathbf s(x)$ of each state, in the order of :attr:`states`.
+
+        Mathematically, scattering the packed parameters into a symmetric matrix $M$ with
+        $M_{ii} = \\theta_{ii}$ and $M_{ij} = M_{ji} = \\theta_{ij} / 2$ gives $x^T M x =
+        \\sum_i \\theta_{ii} x_i + \\sum_{i<j} \\theta_{ij} x_i x_j$ on binary states.
+        """
+        n = self.n_neurons
+        rows, cols = np.triu_indices(n)
+        m = (
+            jnp.zeros((n, n)).at[rows, cols].set(params).at[cols, rows].add(params)
+            / 2.0
+        )
+        states = self.states
+        return jnp.einsum("si,ij,sj->s", states, m, states)
+
+    def unit_conditional_prob(
+        self, state: Array, unit_idx: Array | int, params: Array
+    ) -> Array:
+        """$P(x_k = 1 \\mid x_{\\setminus k})$ for a single unit, in $O(n)$.
+
+        The conditional logit is $\\theta_{kk} + \\sum_{j \\neq k} \\theta_{kj} x_j$, read from the
+        packed upper-triangular storage without building the full sufficient statistics.
+        """
+        n = self.n_neurons
+        k = jnp.asarray(unit_idx)
+
+        # Flat index for (i, j) with i <= j in upper-triangular storage:
+        # i * n - i * (i + 1) / 2 + j.
+        def get_triu_idx(i: Array, j: Array) -> Array:
+            return i * n - i * (i + 1) // 2 + j
+
+        # For each j, the parameter \theta_kj (symmetric: \theta_kj = \theta_jk):
+        # element (k, j) lives in row k when j >= k, in row j otherwise.
+        j = jnp.arange(n)
+        idx = jnp.where(j >= k, get_triu_idx(k, j), get_triu_idx(j, k))
+        theta_k = params[idx]
+
+        # Logit = \theta_kk + sum_{j != k} \theta_kj x_j. The dot term includes
+        # the j = k contribution \theta_kk x_k, and \theta_kk (1 - x_k) tops it
+        # up to the full \theta_kk --- so the result is independent of the
+        # current x_k without masking the state array.
+        energy_diff = theta_k[k] * (1 - state[k]) + jnp.dot(theta_k, state)
+        return Bernoulli().to_mean(jnp.atleast_1d(energy_diff))[0]
 
 
 @dataclass(frozen=True)
-class ChordalCouplingMatrix(Differentiable):
-    """Exponential family over chordal-pattern moment matrices $x \\otimes x$.
+class ChordalCouplingMatrix(ExponentialFamily):
+    """Shape component of a :class:`ChordalBoltzmann`: the couplings on the edges of a chordal graph, given by its junction tree.
 
-    Analog of ``CouplingMatrix`` parametrised only on the chordal sparsity pattern of
-    a ``JunctionTree``: the parameter vector is $[\\theta_{ii}, \\theta_{ij}]$ with
-    diagonal entries first ($n$ values), then off-diagonal couplings for chordal
-    edges in canonical order ($n_\\text{chordal\\_edges}$ values).
-
-    Distribution: $p(x) \\propto \\exp(\\sum_i \\theta_{ii} x_i + \\sum_{(i,j) \\in E^\\star} \\theta_{ij} x_i x_j)$
-    where $E^\\star$ is the chordal completion edge set. Exact $\\log Z$ and exact
-    ancestral sampling via junction-tree sum-product in $O(n \\cdot 2^{w+1})$ time.
+    Analog of :class:`CouplingMatrix`: the parameter vector is $[\\theta_{ii}, \\theta_{ij}]$
+    with diagonal entries first ($n$ values), then the couplings of the edges of the junction
+    tree, in the order of its ``edges``.
     """
 
     # Fields
@@ -337,7 +368,7 @@ class ChordalCouplingMatrix(Differentiable):
     @property
     @override
     def dim(self) -> int:
-        return self.junction_tree.n_params
+        return self.junction_tree.n_nodes + len(self.junction_tree.edges)
 
     @property
     @override
@@ -346,8 +377,8 @@ class ChordalCouplingMatrix(Differentiable):
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        """Diagonal $x_i$ entries followed by $x_i x_j$ for each chordal edge."""
-        edges = self.junction_tree.chordal_edges_arr
+        """Diagonal $x_i$ entries followed by $x_i x_j$ for each edge."""
+        edges = self._edge_array
         if edges.shape[0] == 0:
             return x
         off_diag = x[edges[:, 0]] * x[edges[:, 1]]
@@ -357,43 +388,54 @@ class ChordalCouplingMatrix(Differentiable):
     def log_base_measure(self, x: Array) -> Array:
         return jnp.array(0.0)
 
-    @override
-    def log_partition_function(self, params: Array) -> Array:
-        diag, off_diag = self._split(params)
-        return jt_log_partition(self.junction_tree, diag, off_diag)
-
-    @override
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Draw $n$ exact i.i.d. samples via junction-tree ancestral sampling.
-
-        The collect pass is key-independent, so ``vmap`` batching semantics
-        compute it once across all $n$ draws; only the walk-down repeats.
-        """
-        diag, off_diag = self._split(params)
-        keys = jax.random.split(key, n)
-
-        def sample_one(k: Array) -> Array:
-            return jt_sample(self.junction_tree, diag, off_diag, k)
-
-        return jax.vmap(sample_one)(keys)
-
     # Methods
 
     @property
-    def n_neurons(self) -> int:
-        return self.junction_tree.n_nodes
+    def _edge_array(self) -> np.ndarray:
+        """The edges as an ``(n_edges, 2)`` int array, for vectorized indexing."""
+        edges = self.junction_tree.edges
+        if not edges:
+            return np.zeros((0, 2), dtype=np.int32)
+        return np.asarray(edges, dtype=np.int32)
 
     def _split(self, params: Array) -> tuple[Array, Array]:
         n = self.junction_tree.n_nodes
         return params[:n], params[n:]
 
+    def clique_potentials(self, params: Array) -> Array:
+        """The clique log-potentials of the couplings, in the layout that :class:`~goal.geometry.JunctionTree` runs sum-product on.
+
+        Each bias and each coupling is counted in exactly one clique, the first that contains
+        it, so the potentials sum to the energy $\\theta \\cdot \\mathbf s(x)$.
+        """
+        jt = self.junction_tree
+        diag, off_diag = self._split(params)
+        nc, m = jt.n_cliques, jt.max_clique_size
+        local = jt.local_positions
+        node_owner = np.asarray(jt.node_owner, dtype=np.int64)
+        edge_owner = np.asarray(jt.edge_owner, dtype=np.int64)
+        i, j = self._edge_array.T
+        # Each clique's own biases and couplings, at the positions of their nodes in it.
+        biases = (
+            jnp.zeros((nc, m))
+            .at[node_owner, local[node_owner, np.arange(len(diag))]]
+            .set(diag)
+        )
+        couplings = (
+            jnp.zeros((nc, m, m))
+            .at[edge_owner, local[edge_owner, i], local[edge_owner, j]]
+            .set(off_diag)
+        )
+        bits = jnp.asarray(binary_states(m), dtype=biases.dtype)
+        return biases @ bits.T + jnp.einsum("sp,cpq,sq->cs", bits, couplings, bits)
+
     def to_matrix(self, params: Array) -> Array:
-        """Scatter chordal-pattern parameters into a dense symmetric $n \\times n$ matrix."""
+        """Scatter the parameters into a dense symmetric $n \\times n$ matrix."""
         n = self.junction_tree.n_nodes
         diag, off_diag = self._split(params)
         mat = jnp.zeros((n, n))
         mat = mat.at[jnp.arange(n), jnp.arange(n)].set(diag)
-        edges = self.junction_tree.chordal_edges_arr
+        edges = self._edge_array
         if edges.shape[0] > 0:
             i = jnp.asarray(edges[:, 0])
             j = jnp.asarray(edges[:, 1])
@@ -402,44 +444,15 @@ class ChordalCouplingMatrix(Differentiable):
         return mat
 
     def from_matrix(self, matrix: Array) -> Array:
-        """Gather chordal-pattern parameters from a dense matrix; off-pattern entries are dropped."""
+        """Gather the parameters from a dense matrix; entries off the edges are dropped."""
         diag = jnp.diag(matrix)
-        edges = self.junction_tree.chordal_edges_arr
+        edges = self._edge_array
         if edges.shape[0] == 0:
             return diag
         i = jnp.asarray(edges[:, 0])
         j = jnp.asarray(edges[:, 1])
         off_diag = 0.5 * (matrix[i, j] + matrix[j, i])
         return jnp.concatenate([diag, off_diag])
-
-
-@dataclass(frozen=True)
-class ChainCouplingMatrix(ChordalCouplingMatrix):
-    """Chordal couplings whose clique tree is a path (a :class:`ChainTree`).
-
-    Same parameter layout and distribution as :class:`ChordalCouplingMatrix`;
-    the log-partition runs the $O(\\log n)$-depth transfer-matrix kernel
-    unconditionally --- the topology guarantee is carried by the
-    :class:`ChainTree` field, not checked at evaluation time.
-    """
-
-    junction_tree: ChainTree
-
-    @override
-    def log_partition_function(self, params: Array) -> Array:
-        diag, off_diag = self._split(params)
-        return chain_log_partition(self.junction_tree, diag, off_diag)
-
-    @override
-    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
-        """Draw $n$ exact i.i.d. samples via parallel backward sampling."""
-        diag, off_diag = self._split(params)
-        keys = jax.random.split(key, n)
-
-        def sample_one(k: Array) -> Array:
-            return chain_sample(self.junction_tree, diag, off_diag, k)
-
-        return jax.vmap(sample_one)(keys)
 
 
 @dataclass(frozen=True)
@@ -452,10 +465,13 @@ class ChordalBoltzmann(
     Exact $\\log Z$ and exact i.i.d. sampling via junction-tree sum-product in
     $O(n \\cdot 2^{w+1})$ time, where $w$ is the treewidth of the chordal
     completion. The coupling layout is $[\\theta_{ii}, \\theta_{ij}]$ ---
-    diagonal entries first, then chordal edges in canonical order. Within the
-    sparsity constraint this preserves the pairwise expressiveness of
-    :class:`FullBoltzmann` with the exactness of :class:`DiagonalBoltzmann` ---
-    no Gibbs burn-in, no MC variance.
+    diagonal entries first, then the edges of the junction tree in its order.
+
+    When :attr:`junction_tree` is a :class:`~goal.geometry.ChainTree`, whose cliques form a path
+    (chains, band graphs, triangulated cycles), the log-partition function and sampling run the
+    $O(\\log n)$-depth ``associative_scan`` kernels instead of the sequential collect: faster on
+    accelerators at large $n$, for separators of up to about 6 nodes. Build one with
+    ``ChordalBoltzmann(ChainTree.from_edges(n, edges))``.
     """
 
     # Fields
@@ -502,47 +518,29 @@ class ChordalBoltzmann(
     def join_couplings(self, diag: Array, off_diag: Array) -> Array:
         return jnp.concatenate([diag, off_diag])
 
+    @property
+    @override
+    def coupled_pairs(self) -> tuple[tuple[int, int], ...]:
+        return self.junction_tree.edges
+
+    @override
+    def log_partition_function(self, params: Array) -> Array:
+        return self.junction_tree.log_partition(self.shp_man.clique_potentials(params))
+
+    @override
+    def sample(self, key: Array, params: Array, n: int = 1) -> Array:
+        """Draw $n$ exact i.i.d. samples, by ancestral sampling over the junction tree.
+
+        The collect pass is key-independent, so ``vmap`` batching semantics compute it once
+        across all $n$ draws; only the walk-down repeats.
+        """
+        phi = self.shp_man.clique_potentials(params)
+        return jax.vmap(lambda k: self.junction_tree.sample(k, phi))(
+            jax.random.split(key, n)
+        )
+
     # Methods
 
     @property
     def n_neurons(self) -> int:
         return self.junction_tree.n_nodes
-
-
-@dataclass(frozen=True)
-class ChainBoltzmann(ChordalBoltzmann):
-    """Chordal Boltzmann machine whose clique tree is a path.
-
-    Same distribution family and parameter layout as :class:`ChordalBoltzmann`,
-    restricted to topologies whose triangulation yields a path-shaped clique
-    tree --- chains, band graphs, triangulated cycles (interval graphs of
-    bounded pathwidth). The constraint is validated at construction (via
-    :class:`ChainTree`), in exchange for which the log-partition and its
-    gradients (hence ``to_mean``) run the $O(\\log n)$-depth
-    ``associative_scan`` kernel --- orders of magnitude faster on accelerators
-    than the sequential collect at large $n$.
-    """
-
-    # Fields
-
-    junction_tree: ChainTree
-
-    # Constructors
-
-    @staticmethod
-    @override
-    def from_edges(
-        n_neurons: int,
-        edges: Sequence[tuple[int, int]],
-        max_treewidth: int | None = None,
-    ) -> ChainBoltzmann:
-        """Build a ChainBoltzmann from a graph on ``n_neurons`` nodes; raises
-        ``ValueError`` if the clique tree is not a path."""
-        return ChainBoltzmann(ChainTree.from_edges(n_neurons, edges, max_treewidth))
-
-    # Overrides
-
-    @property
-    @override
-    def shp_man(self) -> ChainCouplingMatrix:
-        return ChainCouplingMatrix(self.junction_tree)

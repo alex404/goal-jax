@@ -1,7 +1,5 @@
 """Count distributions as exponential families: Poisson, Conway-Maxwell-Poisson (CoMPoisson), and their components."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import override
 
@@ -52,7 +50,7 @@ class Poisson(Analytic):
 
     @override
     def log_base_measure(self, x: Array) -> Array:
-        k = jnp.asarray(x, dtype=jnp.float32)
+        k = jnp.asarray(x, dtype=float)
         return -_log_factorial(k)
 
     @override
@@ -423,7 +421,7 @@ class CoMPoissons(
 
 
 @dataclass(frozen=True)
-class PopulationLocationEmbedding(TupleEmbedding[Poissons, CoMPoissons]):
+class PopulationLocationEmbedding(TupleEmbedding[CoMPoissons, Poissons]):
     """Embedding that projects COM-Poisson to Poisson via location parameters."""
 
     n_neurons: int

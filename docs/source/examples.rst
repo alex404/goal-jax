@@ -28,8 +28,7 @@ Boltzmann Machines
 Discrete latent models built on Boltzmann distributions.
 
 - **boltzmann** --- MLE training and Gibbs sampling convergence diagnostics.
-- **boltzmann_lgm** --- Hierarchical model: Boltzmann latent with Gaussian observable (concentric circles), using :class:`~goal.models.harmonium.lgm.BoltzmannLGM`.
-- **boltzmann_lgm_cd** --- Contrastive divergence vs exact gradient comparison.
+- **boltzmann_lgm** --- Hierarchical model: Boltzmann latent with Gaussian observable (concentric circles), using :class:`~goal.models.harmonium.lgm.NormalBoltzmannMachine`.
 
 Mixture & Latent Variable Models
 --------------------------------
@@ -37,15 +36,24 @@ Mixture & Latent Variable Models
 Latent structure discovery with mixtures and factor models.
 
 - **mixture_of_gaussians** --- EM for Gaussian mixtures (:class:`~goal.models.harmonium.mixture.AnalyticMixture`), compared against sklearn.
-- **dimensionality_reduction** --- Factor analysis (``FactorAnalysis``) recovering a latent figure-8 curve from 20D observations.
-- **mfa** --- Mixture of factor analyzers with per-component low-rank structure, using :class:`~goal.models.graphical.hmog.AnalyticHMoG`.
+- **mfa** --- Mixture of factor analyzers with per-component low-rank structure, using :class:`~goal.models.graphical.mixture.CompleteMixtureOfConjugated`.
 - **hmog** --- Hierarchical mixture of Gaussians (:class:`~goal.models.graphical.hmog.AnalyticHMoG`) with nested harmonium structure.
+- **cca** --- Two-view canonical correlation analysis: two 2D views share a 1D latent, fit by gradient ascent and EM (:class:`~goal.models.CanonicalCorrelationAnalysis`, :class:`~goal.models.AnalyticCanonicalCorrelationAnalysis`).
+
+Dynamical Models
+----------------
+
+- **kalman_filter** --- Filtering, smoothing, gradient and EM learning of a damped oscillator (:class:`~goal.models.KalmanFilter`).
+- **hmm** --- Filtering, smoothing, gradient and EM learning of a hidden Markov model with sticky transitions (:class:`~goal.models.HiddenMarkovModel`).
 
 Neural Population Codes
 -----------------------
 
 Neuroscience applications modeling neural spike data.
 
-- **poisson_mixture** --- Poisson vs CoM-Poisson spike count mixtures with Fano factor analysis, using :class:`~goal.models.harmonium.population_codes.PoissonVonMisesHarmonium`.
-- **population_codes** --- Bayesian stimulus decoding from cosine-tuned neural responses (:class:`~goal.models.harmonium.population_codes.VonMisesPopulationCode`).
-- **torus_poisson** --- Variational inference with non-differentiable von Mises sampler; compares free, regularized, and analytical conjugation parameter learning.
+- **poisson_mixture** --- Poisson vs CoM-Poisson spike count mixtures with Fano factor analysis (:func:`~goal.models.harmonium.population_codes.poisson_mixture`, :func:`~goal.models.harmonium.population_codes.com_poisson_mixture`).
+- **population_codes** --- Bayesian stimulus decoding from cosine-tuned neural responses (:class:`~goal.models.harmonium.population_codes.PoissonPopulationCode`, :func:`~goal.models.variational.population_codes.variational_population_code`).
+- **torus_poisson** --- Variational inference with non-differentiable von Mises sampler; compares free and regularized conjugation parameter learning.
+- **chordal_boltzmann_ppc** --- A population code of correlated binary neurons on a chordal graph, made near-conjugate to a Gaussian latent and trained on data (:class:`~goal.models.harmonium.population_codes.BoltzmannPopulationCode`, :func:`~goal.models.variational.population_codes.variational_population_code`).
+- **canonical_circuit** --- The approximate one-layer canonical circuit (:class:`~goal.models.CanonicalCircuit`) fit to images of a bump on a retina by the ELBO, with and without a conjugation penalty; its latent recovers the bump position.
+- **pendulum** --- Filtering a stochastic pendulum from a Poisson population tuned to angle and velocity (:class:`~goal.models.variational.population_codes.PopulationCodeProcess`).

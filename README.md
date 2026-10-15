@@ -31,7 +31,7 @@ from goal.geometry import PositiveDefinite
 from goal.models import AnalyticMixture, Normal
 
 # 3-component 2D Gaussian mixture with full covariance
-model = AnalyticMixture(Normal(2, PositiveDefinite()), n_components=3)
+model = AnalyticMixture(Normal(2, PositiveDefinite()), n_categories=3)
 
 # Generate synthetic data from a known mixture
 key = jax.random.PRNGKey(0)

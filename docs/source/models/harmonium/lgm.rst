@@ -34,15 +34,10 @@ Normal LGM
    :undoc-members:
    :show-inheritance:
 
-Boltzmann LGM
--------------
+Normal Boltzmann Machine
+------------------------
 
-.. autoclass:: goal.models.harmonium.lgm.BoltzmannLGM
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.models.harmonium.lgm.DifferentiableBoltzmannLGM
+.. autoclass:: goal.models.harmonium.lgm.NormalBoltzmannMachine
    :members:
    :undoc-members:
    :show-inheritance:
@@ -60,7 +55,7 @@ Embeddings
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.lgm.BoltzmannEmbedding
+.. autoclass:: goal.models.harmonium.lgm.BoltzmannCouplingEmbedding
    :members:
    :undoc-members:
    :show-inheritance:
@@ -82,5 +77,5 @@ Specializations
 
 .. seealso::
 
-   :doc:`/examples` --- **dimensionality_reduction**: Factor analysis recovering a latent curve from 20D observations; **mfa**: Mixture of factor analyzers.
+   :doc:`/examples` --- **mfa**: Mixture of factor analyzers.
 

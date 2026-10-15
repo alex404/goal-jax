@@ -1,13 +1,12 @@
-"""Training script for Poisson-VonMises variational harmonium.
+"""Training script for a Poisson population code of a torus.
 
 Demonstrates variational inference for recovering toroidal latent structure
 from Poisson spike counts. Generates synthetic data from a known ground-truth
 model and trains to recover the parameters.
 
-Supports three training modes:
+Supports two training modes:
 1. free: Learnable rho via gradient descent
 2. regularized: Learnable rho with conjugation variance penalty
-3. analytical: Least-squares rho computation each step
 
 Usage:
     python -m examples.torus_poisson.run
@@ -26,12 +25,37 @@ from goal.geometry.exponential_family.variational import (
     regress_conjugation_parameters,
 )
 from goal.models import (
-    PoissonVonMisesHarmonium,
-    VonMisesPopulationCode,
+    PoissonPopulationCode,
+    VariationalPopulationCode,
+    VonMisesProduct,
+    variational_population_code,
 )
 
 from ..shared import example_paths, jax_cli
 from .types import GroundTruth, GTConjugationMetrics, ModeResults, TuningParams
+
+type TorusHarmonium = PoissonPopulationCode[VonMisesProduct]
+type TorusCode = VariationalPopulationCode[VonMisesProduct]
+
+
+def torus_harmonium(n_neurons: int, n_latent: int) -> TorusHarmonium:
+    """One population of ``n_neurons`` tuned to all ``n_latent`` angles of the torus."""
+    return PoissonPopulationCode(VonMisesProduct(n_latent), n_neurons)
+
+
+def directed_params(
+    model: TorusCode, lkl_params: Array, prior: Array, rho: Array
+) -> Array:
+    """Model parameters with the given likelihood, prior and conjugation parameters: the latent bias is the prior minus $\\rho$."""
+    obs_params, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
+    hrm_params = model.gph_hrm.join_coords(obs_params, int_params, prior - rho)
+    return model.join_coords(hrm_params, rho)
+
+
+def directed_parts(model: TorusCode, params: Array) -> tuple[Array, Array, Array]:
+    """The likelihood, the prior and the conjugation parameters of the model."""
+    _, rho = model.split_coords(params)
+    return model.likelihood_function(params), model.conjugated_prior_params(params), rho
 
 
 def von_mises_inverse_cdf(u: Array, kappa: float, mu: float = 0.0) -> Array:
@@ -91,16 +115,16 @@ def create_ground_truth_model(
     key: Array,
     baseline_rate: float,
     gain: float,
-    prior_concentration: float,  # pyright: ignore[reportUnusedParameter]
+    prior_concentration: float,  # noqa: ARG001  # pyright: ignore[reportUnusedParameter]
     distortion: float,
     coverage: float,
     density_kappa1: float,
     density_kappa2: float,
     density_mu1: float,
     density_mu2: float,
-) -> tuple[PoissonVonMisesHarmonium, Array, TuningParams]:
+) -> tuple[TorusHarmonium, Array, TuningParams]:
     """Create ground truth population code on n-torus."""
-    model = PoissonVonMisesHarmonium(n_neurons, n_latent)
+    model = torus_harmonium(n_neurons, n_latent)
 
     # For 2D torus: arrange neurons on a grid (possibly non-uniform)
     if n_latent == 2:
@@ -111,13 +135,17 @@ def create_ground_truth_model(
         quantiles_1d = jnp.linspace(0, 1, n_per_dim, endpoint=False) + 0.5 / n_per_dim
 
         if density_kappa1 > 0:
-            angles_1d_1 = von_mises_inverse_cdf(quantiles_1d, density_kappa1, density_mu1)
+            angles_1d_1 = von_mises_inverse_cdf(
+                quantiles_1d, density_kappa1, density_mu1
+            )
         else:
             max_angle_1 = 2 * jnp.pi * coverage
             angles_1d_1 = jnp.linspace(0, max_angle_1, n_per_dim, endpoint=False)
 
         if density_kappa2 > 0:
-            angles_1d_2 = von_mises_inverse_cdf(quantiles_1d, density_kappa2, density_mu2)
+            angles_1d_2 = von_mises_inverse_cdf(
+                quantiles_1d, density_kappa2, density_mu2
+            )
         else:
             angles_1d_2 = jnp.linspace(0, 2 * jnp.pi, n_per_dim, endpoint=False)
 
@@ -171,13 +199,11 @@ def create_ground_truth_model(
     return model, params, tuning
 
 
-def extract_tuning_params(
-    model: VonMisesPopulationCode, params: Array
-) -> TuningParams:
+def extract_tuning_params(model: TorusCode, params: Array) -> TuningParams:
     """Extract tuning curve parameters from learned model."""
-    _, lkl_params, _ = model.split_coords(params)
-    obs_bias, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
-    int_matrix = int_params.reshape(model.n_neurons, 2 * model.n_latent)
+    lkl_params = model.likelihood_function(params)
+    obs_bias, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
+    int_matrix = int_params.reshape(model.obs_man.dim, -1)
 
     cos_1, sin_1 = int_matrix[:, 0], int_matrix[:, 1]
     cos_2, sin_2 = int_matrix[:, 2], int_matrix[:, 3]
@@ -198,20 +224,20 @@ def extract_tuning_params(
 
 
 def compute_gt_conjugation(
-    gt_model: PoissonVonMisesHarmonium,
+    gt_model: TorusHarmonium,
     gt_params: Array,
     key: Array,
     n_samples: int = 10000,
 ) -> GTConjugationMetrics:
     """Compute conjugation metrics for the ground truth model using library methods."""
     # Wrap GT harmonium in variational model to use library methods
-    var_model = VonMisesPopulationCode(_gen_hrm=gt_model)
-    zero_rho = jnp.zeros(var_model.cnj_man.dim)
+    var_model = variational_population_code(gt_model)
+    zero_rho = jnp.zeros(var_model.cnj_fun_man.dim)
 
-    # Reformat GT harmonium params [obs, int, prior] into variational [prior, lkl, rho]
+    # The GT parameters [obs, int, prior] hold the prior directly
     gt_obs, gt_int, gt_prior = gt_model.split_coords(gt_params)
     gt_lkl = gt_model.lkl_fun_man.join_coords(gt_obs, gt_int)
-    var_params = var_model.join_coords(gt_prior, gt_lkl, zero_rho)
+    var_params = directed_params(var_model, gt_lkl, gt_prior, zero_rho)
 
     # Compute optimal rho via regression
     key, reg_key = jax.random.split(key)
@@ -224,7 +250,7 @@ def compute_gt_conjugation(
     var_psi, _, _ = conjugation_metrics(var_model, m0_key, var_params, n_samples)
 
     # Var[CR] with optimal rho
-    optimal_params = var_model.join_coords(gt_prior, gt_lkl, rho_star)
+    optimal_params = directed_params(var_model, gt_lkl, gt_prior, rho_star)
     key, m1_key = jax.random.split(key)
     var_cr, _, _ = conjugation_metrics(var_model, m1_key, optimal_params, n_samples)
 
@@ -239,7 +265,7 @@ def compute_gt_conjugation(
 
 def train_model(
     key: Array,
-    model: VonMisesPopulationCode,
+    model: TorusCode,
     train_data: Array,
     mode: str,
     n_steps: int,
@@ -248,21 +274,17 @@ def train_model(
     n_mc_samples: int,
     init_params: Array,
     conj_weight: float,
-    analytical_samples_mult: int,
     n_conj_samples: int,
     log_interval: int,
 ) -> tuple[Array, ModeResults]:
     """Train a model with specified mode."""
-    use_analytical_rho = mode == "analytical"
     use_conj_penalty = mode == "regularized"
 
-    n_analytical_samples = analytical_samples_mult * model.pst_man.dim
     n_samples = train_data.shape[0]
 
     mode_str = {
         "free": "LEARNABLE rho",
         "regularized": f"REGULARIZED (weight={conj_weight})",
-        "analytical": f"ANALYTICAL rho ({n_analytical_samples} samples)",
     }[mode]
 
     print(f"\n{'=' * 60}")
@@ -270,26 +292,12 @@ def train_model(
     print(f"{'=' * 60}")
 
     params = init_params
-    prior_dim = model.prr_man.dim
-    init_prior_p, init_lkl_p, _ = model.split_coords(params)
-    gen_params = jnp.concatenate([init_prior_p, init_lkl_p])
-    zero_rho = jnp.zeros(model.cnj_man.dim)
-
-    # Optimizer setup
-    if use_analytical_rho:
-        # Gradient clipping stabilizes the implicit gradient through lstsq,
-        # which can amplify noise early in training.
-        optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(learning_rate))
-        opt_state = optimizer.init(gen_params)
-    else:
-        optimizer = optax.adam(learning_rate)
-        opt_state = optimizer.init(params)
+    optimizer = optax.adam(learning_rate)
+    opt_state = optimizer.init(params)
 
     # --- Loss functions (close over train_data) ---
 
-    def loss_fn_free(
-        params: Array, key: Array, batch: Array
-    ) -> tuple[Array, Array]:
+    def loss_fn_free(params: Array, key: Array, batch: Array) -> tuple[Array, Array]:
         elbo = model.mean_elbo(key, params, batch, n_mc_samples)
         return -elbo, elbo
 
@@ -301,7 +309,7 @@ def train_model(
 
         # Conjugation penalty with stop_gradient on samples (VonMises is
         # non-reparameterizable, so we can't differentiate through sampling)
-        p_params = model.prior_params(params)
+        p_params = model.conjugated_prior_params(params)
         z_sg = jax.lax.stop_gradient(
             model.pst_man.sample(conj_key, p_params, n_conj_samples)
         )
@@ -311,61 +319,9 @@ def train_model(
         loss = -elbo + conj_weight * conj_var
         return loss, (elbo, conj_var)
 
-    def loss_fn_analytical(
-        gen_params: Array, key: Array, batch: Array
-    ) -> tuple[Array, tuple[Array, Array]]:
-        rho_key, elbo_key, conj_key = jax.random.split(key, 3)
-
-        prior_p = gen_params[:prior_dim]
-        lkl_p = gen_params[prior_dim:]
-
-        # Compute analytical rho via library regression
-        dummy_params = model.join_coords(prior_p, lkl_p, zero_rho)
-        rho_star, _, _, _ = regress_conjugation_parameters(
-            model, rho_key, dummy_params, n_analytical_samples
-        )
-
-        # Let implicit gradient flow through lstsq for proper rho coupling
-        params_with_rho = model.join_coords(prior_p, lkl_p, rho_star)
-        elbo = model.mean_elbo(elbo_key, params_with_rho, batch, n_mc_samples)
-
-        # Conjugation penalty: explicitly discourage nonlinear \psi_X
-        p_params = model.prior_params(params_with_rho)
-        z_sg = jax.lax.stop_gradient(
-            model.pst_man.sample(conj_key, p_params, n_conj_samples)
-        )
-        f_vals = jax.vmap(lambda z: model.conjugation_residual(params_with_rho, z))(
-            z_sg
-        )
-        conj_var = jnp.var(f_vals)
-
-        loss = -elbo + conj_weight * conj_var
-        return loss, (elbo, rho_star)
-
     # --- Training step functions (close over train_data, no @jax.jit - scan handles compilation) ---
 
-    def train_step_analytical(
-        carry: Any, _: None
-    ) -> tuple[Any, tuple[Array, Array]]:
-        gen_params, opt_state, step_key = carry
-        step_key, next_key, batch_key = jax.random.split(step_key, 3)
-        batch = train_data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
-
-        (_, (elbo, rho_star)), grads = jax.value_and_grad(
-            loss_fn_analytical, has_aux=True
-        )(gen_params, next_key, batch)
-
-        updates, new_opt_state = optimizer.update(grads, opt_state, gen_params)
-        new_gen_params = optax.apply_updates(gen_params, updates)
-
-        return (new_gen_params, new_opt_state, step_key), (
-            elbo,
-            rho_star,
-        )
-
-    def train_step_regularized(
-        carry: Any, _: None
-    ) -> tuple[Any, tuple[Array, Array]]:
+    def train_step_regularized(carry: Any, _: None) -> tuple[Any, tuple[Array, Array]]:
         params, opt_state, step_key = carry
         step_key, next_key, batch_key = jax.random.split(step_key, 3)
         batch = train_data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
@@ -379,9 +335,7 @@ def train_model(
 
         return (new_params, new_opt_state, step_key), (elbo, conj_var)
 
-    def train_step_free(
-        carry: Any, _: None
-    ) -> tuple[Any, Array]:
+    def train_step_free(carry: Any, _: None) -> tuple[Any, Array]:
         params, opt_state, step_key = carry
         step_key, next_key, batch_key = jax.random.split(step_key, 3)
         batch = train_data[jax.random.choice(batch_key, n_samples, shape=(batch_size,))]
@@ -405,7 +359,6 @@ def train_model(
 
     key, train_key = jax.random.split(key)
     current_params = params
-    current_gen_params = gen_params
     current_opt_state = opt_state
 
     n_chunks = n_steps // log_interval
@@ -414,20 +367,7 @@ def train_model(
     print(f"Training for {n_steps} steps ({n_chunks} chunks of {log_interval})...")
 
     for chunk in range(n_chunks):
-        if use_analytical_rho:
-            carry = (current_gen_params, current_opt_state, train_key)
-            carry, (elbos_chunk, rho_stars_chunk) = jax.lax.scan(
-                train_step_analytical, carry, None, length=log_interval
-            )
-            current_gen_params, current_opt_state, train_key = carry
-            current_params = model.join_coords(
-                current_gen_params[:prior_dim],
-                current_gen_params[prior_dim:],
-                rho_stars_chunk[-1],
-            )
-            all_elbos.append(elbos_chunk)
-            all_conj_errors.append(jnp.zeros(log_interval))
-        elif use_conj_penalty:
+        if use_conj_penalty:
             carry = (current_params, current_opt_state, train_key)
             carry, (elbos_chunk, conj_vars_chunk) = jax.lax.scan(
                 train_step_regularized, carry, None, length=log_interval
@@ -445,7 +385,7 @@ def train_model(
             all_conj_errors.append(jnp.zeros(log_interval))
 
         # Collect per-chunk rho norm
-        rho_current = model.conjugation_parameters(current_params)
+        _, _, rho_current = directed_parts(model, current_params)
         rho_norm = float(jnp.linalg.norm(rho_current))
         rho_norms.append(rho_norm)
 
@@ -470,20 +410,7 @@ def train_model(
 
     # Handle remainder steps
     if remainder > 0:
-        if use_analytical_rho:
-            carry = (current_gen_params, current_opt_state, train_key)
-            carry, (elbos_chunk, rho_stars_chunk) = jax.lax.scan(
-                train_step_analytical, carry, None, length=remainder
-            )
-            current_gen_params, current_opt_state, train_key = carry
-            current_params = model.join_coords(
-                current_gen_params[:prior_dim],
-                current_gen_params[prior_dim:],
-                rho_stars_chunk[-1],
-            )
-            all_elbos.append(elbos_chunk)
-            all_conj_errors.append(jnp.zeros(remainder))
-        elif use_conj_penalty:
+        if use_conj_penalty:
             carry = (current_params, current_opt_state, train_key)
             carry, (elbos_chunk, conj_vars_chunk) = jax.lax.scan(
                 train_step_regularized, carry, None, length=remainder
@@ -507,25 +434,13 @@ def train_model(
     # Final evaluation
     print("\nFinal evaluation...")
 
-    # For analytical mode, recompute rho with many samples for stable evaluation
-    if use_analytical_rho:
-        key, rho_eval_key = jax.random.split(key)
-        zero_rho = jnp.zeros(model.cnj_man.dim)
-        cur_prior_p = current_gen_params[:prior_dim]
-        cur_lkl_p = current_gen_params[prior_dim:]
-        eval_params = model.join_coords(cur_prior_p, cur_lkl_p, zero_rho)
-        rho_final, _, _, _ = regress_conjugation_parameters(
-            model, rho_eval_key, eval_params, n_conj_samples * 2
-        )
-        current_params = model.join_coords(cur_prior_p, cur_lkl_p, rho_final)
-
     key, eval_key = jax.random.split(key)
 
     final_recon_error = float(reconstruction_error(model, current_params, train_data))
     final_var_cr, _, final_r2 = conjugation_metrics(
         model, eval_key, current_params, n_conj_samples
     )
-    final_rho = model.conjugation_parameters(current_params)
+    _, _, final_rho = directed_parts(model, current_params)
     final_rho_norm = float(jnp.linalg.norm(final_rho))
 
     print(f"  Final ELBO: {elbos[-1]:.4f}")
@@ -535,9 +450,11 @@ def train_model(
     print(f"  Reconstruction error: {final_recon_error:.4f}")
 
     # Extract learned parameters
-    _, lkl_p, _ = model.split_coords(current_params)
-    learned_baselines, learned_int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_p)
-    learned_weights = learned_int_params.reshape(model.n_neurons, 2 * model.n_latent)
+    lkl_p = model.likelihood_function(current_params)
+    learned_baselines, learned_int_params = model.gph_hrm.lkl_fun_man.split_coords(
+        lkl_p
+    )
+    learned_weights = learned_int_params.reshape(model.obs_man.dim, -1)
     learned_tuning = extract_tuning_params(model, current_params)
 
     results: ModeResults = {
@@ -591,7 +508,6 @@ def main():
 
     # Training mode parameters
     conj_weight = 1.0  # Weight for var[CR] penalty in regularized mode
-    analytical_rho_samples_multiplier = 500  # Enough samples for stable lstsq regression
 
     # Logging
     log_interval = 200
@@ -663,7 +579,7 @@ def main():
 
     # Extract ground truth info
     gt_baselines, gt_int_params, gt_prior = gt_model.split_coords(gt_params)
-    gt_weights = gt_int_params.reshape(gt_model.n_neurons, 2 * gt_model.n_latent)
+    gt_weights = gt_int_params.reshape(gt_model.obs_man.dim, -1)
 
     ground_truth: GroundTruth = {
         "weight_matrix": gt_weights.tolist(),
@@ -674,14 +590,14 @@ def main():
     }
 
     # Create variational model for training
-    model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, n_latent))
+    model = variational_population_code(torus_harmonium(n_neurons, n_latent))
     print("\nVariational model created:")
     print(f"  Total params: {model.dim}")
-    print(f"  Rho params: {model.cnj_man.dim}")
-    print(f"  Harmonium params: {model.gen_hrm.dim}")
+    print(f"  Rho params: {model.cnj_fun_man.dim}")
+    print(f"  Harmonium params: {model.gph_hrm.dim}")
 
     # Train all modes
-    modes = ["free", "regularized", "analytical"]
+    modes = ["free", "regularized"]
     all_results: dict[str, ModeResults] = {}
     all_params: dict[str, Array] = {}
 
@@ -704,7 +620,6 @@ def main():
             n_mc_samples=n_mc_samples,
             init_params=shared_init_params,
             conj_weight=conj_weight,
-            analytical_samples_mult=analytical_rho_samples_multiplier,
             n_conj_samples=n_conj_samples,
             log_interval=log_interval,
         )
@@ -735,7 +650,6 @@ def main():
             "gain": gain,
             "prior_concentration": prior_concentration,
             "conj_weight": conj_weight,
-            "analytical_samples_mult": analytical_rho_samples_multiplier,
             "density_kappa1": density_kappa1,
             "density_kappa2": density_kappa2,
             "density_mu1": density_mu1,

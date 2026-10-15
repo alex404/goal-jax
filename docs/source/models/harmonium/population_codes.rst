@@ -17,17 +17,12 @@ Class Hierarchy
 Classes
 -------
 
-.. autoclass:: goal.models.harmonium.population_codes.PoissonVonMisesHarmonium
+.. autoclass:: goal.models.harmonium.population_codes.PopulationCode
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.models.harmonium.population_codes.VonMisesPopulationCode
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.models.harmonium.population_codes.BoltzmannNormalHarmonium
+.. autoclass:: goal.models.harmonium.population_codes.PoissonPopulationCode
    :members:
    :undoc-members:
    :show-inheritance:
@@ -44,10 +39,6 @@ Factory Functions
 
 .. autofunction:: goal.models.harmonium.population_codes.com_poisson_mixture
 
-.. autofunction:: goal.models.harmonium.population_codes.chordal_boltzmann_population_code
-
-.. autofunction:: goal.models.harmonium.population_codes.diagonal_boltzmann_population_code
-
 .. seealso::
 
-   :doc:`/examples` --- **population_codes**: Bayesian stimulus decoding from cosine-tuned neural responses; **poisson_mixture**: Poisson vs CoM-Poisson spike count mixtures; **chordal_boltzmann_ppc**: a chordal Boltzmann PPC that stays conjugate to a Gaussian latent while learning data.
+   :doc:`/examples` --- **poisson_mixture**: Poisson vs CoM-Poisson spike count mixtures. The variational population codes are in :doc:`/models/variational/population_codes`.

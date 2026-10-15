@@ -10,7 +10,7 @@ Class Hierarchy
 
 .. inheritance-diagram:: goal.geometry.exponential_family.variational
    :parts: 2
-   :top-classes: goal.geometry.exponential_family.base.ExponentialFamily
+   :top-classes: goal.geometry.manifold.combinators.Pair, goal.geometry.manifold.map.Map
 
 \
 
@@ -22,18 +22,43 @@ Variational Conjugated
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.VariationalDifferentiable
+.. autoclass:: goal.geometry.exponential_family.variational.DifferentiableVariationalConjugated
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.variational.VariationalSymmetric
+.. autoclass:: goal.geometry.exponential_family.variational.DeepModel
    :members:
    :undoc-members:
    :show-inheritance:
 
-Helpers
--------
+.. autoclass:: goal.geometry.exponential_family.variational.DifferentiableDeepModel
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autofunction:: goal.geometry.exponential_family.variational.variational_level
+
+Conjugation Functions
+---------------------
+
+.. autoclass:: goal.geometry.exponential_family.variational.ExactConjugationFunction
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.variational.ConstantConjugationFunction
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: goal.geometry.exponential_family.variational.BiasConjugationFunction
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Fitting and Diagnostics
+-----------------------
 
 .. autofunction:: goal.geometry.exponential_family.variational.regress_conjugation_parameters
 

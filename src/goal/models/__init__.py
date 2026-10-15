@@ -3,14 +3,11 @@ from .base.categorical import Bernoulli, Bernoullis, Categorical
 from .base.dirichlet import Dirichlet
 from .base.gaussian.boltzmann import (
     Boltzmann,
-    ChainBoltzmann,
-    ChainCouplingMatrix,
     ChordalBoltzmann,
     ChordalCouplingMatrix,
     DiagonalBoltzmann,
     FullBoltzmann,
 )
-from .base.gaussian.coupling import ChainTree, JunctionTree
 from .base.gaussian.generalized import Euclidean
 from .base.gaussian.normal import (
     Covariance,
@@ -48,16 +45,16 @@ from .graphical.mixture import (
     CompleteMixtureOfSymmetric,
     MixtureOfFactorAnalyzers,
 )
-from .graphical.variational import (
-    VariationalHierarchicalMixture,
+from .harmonium.cca import (
+    AnalyticCanonicalCorrelationAnalysis,
+    CanonicalCorrelationAnalysis,
 )
 from .harmonium.lgm import (
     LGM,
-    BoltzmannEmbedding,
-    BoltzmannLGM,
-    DifferentiableBoltzmannLGM,
+    BoltzmannCouplingEmbedding,
     FactorAnalysis,
     NormalAnalyticLGM,
+    NormalBoltzmannMachine,
     NormalCovarianceEmbedding,
     NormalLGM,
     PrincipalComponentAnalysis,
@@ -66,20 +63,25 @@ from .harmonium.lgm import (
 )
 from .harmonium.mixture import AnalyticMixture, CompleteMixture, Mixture
 from .harmonium.population_codes import (
-    BoltzmannNormalHarmonium,
     BoltzmannPopulationCode,
     CoMPoissonMixture,
     PoissonMixture,
-    PoissonVonMisesHarmonium,
-    VonMisesPopulationCode,
-    chordal_boltzmann_population_code,
+    PoissonPopulationCode,
+    PopulationCode,
     com_poisson_mixture,
-    diagonal_boltzmann_population_code,
     poisson_mixture,
+)
+from .variational.population_codes import (
+    CanonicalCircuit,
+    PopulationCodeProcess,
+    VariationalPopulationCode,
+    canonical_circuit,
+    variational_population_code,
 )
 
 __all__ = [
     "LGM",
+    "AnalyticCanonicalCorrelationAnalysis",
     "AnalyticHMoG",
     "AnalyticMixture",
     "Bernoulli",
@@ -87,14 +89,11 @@ __all__ = [
     "Binomial",
     "Binomials",
     "Boltzmann",
-    "BoltzmannEmbedding",
-    "BoltzmannLGM",
-    "BoltzmannNormalHarmonium",
+    "BoltzmannCouplingEmbedding",
     "BoltzmannPopulationCode",
+    "CanonicalCircuit",
+    "CanonicalCorrelationAnalysis",
     "Categorical",
-    "ChainBoltzmann",
-    "ChainCouplingMatrix",
-    "ChainTree",
     "ChordalBoltzmann",
     "ChordalCouplingMatrix",
     "CoMPoisson",
@@ -108,7 +107,6 @@ __all__ = [
     "Covariance",
     "DiagonalBoltzmann",
     "DiagonalNormal",
-    "DifferentiableBoltzmannLGM",
     "DifferentiableHMoG",
     "Dirichlet",
     "Euclidean",
@@ -117,30 +115,30 @@ __all__ = [
     "FullNormal",
     "HiddenMarkovModel",
     "IsotropicNormal",
-    "JunctionTree",
     "KalmanFilter",
     "Mixture",
     "MixtureOfFactorAnalyzers",
     "Normal",
     "NormalAnalyticLGM",
+    "NormalBoltzmannMachine",
     "NormalCovarianceEmbedding",
     "NormalLGM",
     "Poisson",
     "PoissonMixture",
-    "PoissonVonMisesHarmonium",
+    "PoissonPopulationCode",
     "Poissons",
+    "PopulationCode",
+    "PopulationCodeProcess",
     "PopulationLocationEmbedding",
     "PrincipalComponentAnalysis",
     "StandardNormal",
     "SymmetricHMoG",
-    "VariationalHierarchicalMixture",
+    "VariationalPopulationCode",
     "VonMises",
-    "VonMisesPopulationCode",
     "VonMisesProduct",
     "analytic_hmog",
-    "chordal_boltzmann_population_code",
+    "canonical_circuit",
     "com_poisson_mixture",
-    "diagonal_boltzmann_population_code",
     "diagonal_normal",
     "differentiable_hmog",
     "factor_analysis",
@@ -149,4 +147,5 @@ __all__ = [
     "poisson_mixture",
     "principal_component_analysis",
     "standard_normal",
+    "variational_population_code",
 ]

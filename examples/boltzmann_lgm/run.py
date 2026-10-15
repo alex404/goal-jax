@@ -8,10 +8,11 @@ import optax
 from jax import Array
 
 from goal.geometry import PositiveDefinite
-from goal.models import BoltzmannLGM
+from goal.models import FullBoltzmann, NormalBoltzmannMachine
 
 from ..shared import example_paths, jax_cli
 from .types import GaussianBoltzmannResults
+
 
 def generate_data(
     key: Array,
@@ -33,7 +34,7 @@ def generate_data(
 
 def train_model(
     key: Array,
-    model: BoltzmannLGM[PositiveDefinite],
+    model: NormalBoltzmannMachine[PositiveDefinite, Any],
     data: Array,
     learning_rate: float,
     n_epochs: int,
@@ -64,12 +65,14 @@ def train_model(
     return final_params, epoch_lls
 
 
-def compute_boltzmann_moments(model: BoltzmannLGM[PositiveDefinite], params: Array) -> Array:
+def compute_boltzmann_moments(
+    model: NormalBoltzmannMachine[PositiveDefinite, Any], params: Array
+) -> Array:
     """Compute E[zz^T] for Boltzmann prior."""
-    states = model.lat_man.states
+    states = model.prr_man.states
 
     def log_prob(z: Array) -> Array:
-        return jnp.dot(params, model.lat_man.sufficient_statistic(z))
+        return jnp.dot(params, model.prr_man.sufficient_statistic(z))
 
     log_probs = jax.vmap(log_prob)(states)
     log_probs = log_probs - jax.nn.logsumexp(log_probs)
@@ -79,13 +82,14 @@ def compute_boltzmann_moments(model: BoltzmannLGM[PositiveDefinite], params: Arr
 
 
 def compute_ellipse(
-    model: BoltzmannLGM[PositiveDefinite],
+    model: NormalBoltzmannMachine[PositiveDefinite, Any],
     lkl_params: Array,
     latent_state: Array,
     n_points: int = 1000,
 ) -> Array:
     """Compute confidence ellipse for p(x|z)."""
-    cond_params = model.lkl_fun_man(lkl_params, latent_state)
+    s_z = model.pst_man.sufficient_statistic(latent_state)
+    cond_params = model.lkl_fun_man(lkl_params, s_z)
     means = model.obs_man.to_mean(cond_params)
     mean, cov = model.obs_man.split_mean_covariance(means)
     cov_mat = model.obs_man.cov_man.to_matrix(cov)
@@ -119,7 +123,9 @@ def main():
 
     n_per_circle = [int(ratio * n_obs) for ratio in ratios]
     data = generate_data(key_data, obs_dim, radii, noise_stds, n_per_circle)
-    model = BoltzmannLGM(obs_dim=obs_dim, obs_rep=PositiveDefinite(), lat_dim=n_latents)
+    model = NormalBoltzmannMachine(
+        obs_dim=obs_dim, obs_rep=PositiveDefinite(), boltzmann=FullBoltzmann(n_latents)
+    )
 
     final_params, lls = train_model(
         key_train, model, data, learning_rate, n_epochs, n_steps_per_epoch
@@ -144,7 +150,7 @@ def main():
 
     # Posterior moments for representative observations
     n_per_circle = [int(ratio * n_obs) for ratio in ratios]
-    cumsum = jnp.cumsum(jnp.array([0] + n_per_circle))
+    cumsum = jnp.cumsum(jnp.array([0, *n_per_circle]))
     indices = [
         cumsum[0] + n_per_circle[0] // 2,
         cumsum[1],

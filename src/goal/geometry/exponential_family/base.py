@@ -5,8 +5,6 @@ Each level adds capabilities --- sufficient statistics, Gibbs sampling, i.i.d. s
 Variable names encode the coordinate system throughout: ``params`` for natural parameters (with prefixed variants like ``obs_params`` for slices), ``means`` for mean parameters, and ``coords`` for coordinate-system-agnostic arrays in the manifold layer.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import override
 
@@ -15,15 +13,18 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..manifold.base import Manifold
+from ..manifold.clique import LinearCliques
 from ..manifold.util import batched_mean
 
 ### Exponential Families ###
 
 
-class ExponentialFamily(Manifold, ABC):
+class ExponentialFamily(LinearCliques, ABC):
     """A statistical manifold whose points are probability distributions in an exponential family.
 
     Subclasses define the sufficient statistic $\\mathbf{s}(x)$ and base measure $\\mu(x)$; higher levels of the hierarchy add the normalizing constant and its dual.
+
+    Its parameters are laid out over the cliques of its graph (:class:`~goal.geometry.manifold.clique.LinearCliques`). By default the family is one node, whose one clique holds all its parameters as a bias; families over several nodes (pairs, harmoniums) override :attr:`cliques`, :attr:`nod_mans` and :attr:`clq_mans`.
 
     Mathematically, an exponential family is a set of distributions whose densities share the form $p(x; \\theta) \\propto \\mu(x)\\exp(\\theta \\cdot \\mathbf{s}(x))$, where $\\theta \\in \\mathbb{R}^n$ are the natural parameters, $\\mathbf{s}(x)$ is the sufficient statistic --- a fixed mapping from data to $\\mathbb{R}^n$ that captures all information the data carries about $\\theta$ --- and $\\mu(x)$ is the base measure, a fixed reference density independent of $\\theta$.
     """
@@ -42,6 +43,26 @@ class ExponentialFamily(Manifold, ABC):
     @abstractmethod
     def log_base_measure(self, x: Array) -> Array:
         """Compute $\\log \\mu(x)$ for an observation."""
+
+    # Overrides
+
+    @property
+    @override
+    def cliques(self) -> tuple[tuple[int, ...], ...]:
+        """One node."""
+        return ((0,),)
+
+    @property
+    @override
+    def nod_mans(self) -> tuple[Manifold, ...]:
+        """The family itself."""
+        return (self,)
+
+    @property
+    @override
+    def clq_mans(self) -> tuple[Manifold, ...]:
+        """The bias over the whole family."""
+        return (self,)
 
     # Methods
 

@@ -23,8 +23,12 @@ def main():
     x = np.arange(len(results["state_labels"]))
     width = 0.35
 
-    axes[0, 0].bar(x - width / 2, true_probs, width, label="True", color=colors["ground_truth"])
-    axes[0, 0].bar(x + width / 2, learned_probs, width, label="Fitted", color=colors["fitted"])
+    axes[0, 0].bar(
+        x - width / 2, true_probs, width, label="True", color=colors["ground_truth"]
+    )
+    axes[0, 0].bar(
+        x + width / 2, learned_probs, width, label="Fitted", color=colors["fitted"]
+    )
     axes[0, 0].set_xlabel("Binary States")
     axes[0, 0].set_ylabel("Probability")
     axes[0, 0].set_title("True vs Fitted Probabilities")
@@ -45,12 +49,20 @@ def main():
 
     for j, thin in enumerate(thin_levels):
         errors_for_thin = [errors[i][j] for i in range(len(sample_sizes))]
-        axes[1, 0].loglog(sample_sizes, errors_for_thin, "o-", color=model_color(j), label=f"thin={thin}")
+        axes[1, 0].loglog(
+            sample_sizes,
+            errors_for_thin,
+            "o-",
+            color=model_color(j),
+            label=f"thin={thin}",
+        )
 
     # Theoretical 1/sqrt(n) line
     theoretical = np.array(sample_sizes) ** (-0.5)
     theoretical = theoretical * errors[0][0] / theoretical[0]
-    axes[1, 0].loglog(sample_sizes, theoretical, "k--", alpha=0.5, label=r"$1/\sqrt{n}$")
+    axes[1, 0].loglog(
+        sample_sizes, theoretical, "k--", alpha=0.5, label=r"$1/\sqrt{n}$"
+    )
     axes[1, 0].set_xlabel("Number of Samples")
     axes[1, 0].set_ylabel("L2 Error")
     axes[1, 0].set_title("Convergence vs Samples")
@@ -61,7 +73,13 @@ def main():
     for j, thin in enumerate(thin_levels):
         errors_for_thin = [errors[i][j] for i in range(len(sample_sizes))]
         total_steps = [n_burnin + (n * thin) for n in sample_sizes]
-        axes[1, 1].loglog(total_steps, errors_for_thin, "o-", color=model_color(j), label=f"thin={thin}")
+        axes[1, 1].loglog(
+            total_steps,
+            errors_for_thin,
+            "o-",
+            color=model_color(j),
+            label=f"thin={thin}",
+        )
 
     axes[1, 1].set_xlabel("Total Gibbs Steps")
     axes[1, 1].set_ylabel("L2 Error")

@@ -1,7 +1,5 @@
 """Binomial distribution as an exponential family."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import override
 
@@ -46,7 +44,7 @@ class Binomial(Analytic):
 
     @override
     def sufficient_statistic(self, x: Array) -> Array:
-        return jnp.atleast_1d(x).astype(jnp.float32)
+        return jnp.atleast_1d(x).astype(float)
 
     @override
     def log_base_measure(self, x: Array) -> Array:
@@ -75,7 +73,7 @@ class Binomial(Analytic):
     def sample(self, key: Array, params: Array, n: int = 1) -> Array:
         prob = jax.nn.sigmoid(params[0])
         samples = jax.random.binomial(key, self.n_trials, prob, shape=(n,))
-        return samples.astype(jnp.float32).reshape(n, 1)
+        return samples.astype(float).reshape(n, 1)
 
     @override
     def initialize_from_sample(

@@ -1,300 +1,254 @@
-"""Hierarchical harmoniums: stacked conjugated harmoniums for multi-level latent variable models.
+"""Graphical harmoniums: harmoniums placed on the cliques of a latent model.
 
-A hierarchical harmonium composes a lower harmonium (observable \\to middle latent) with an upper harmonium (middle latent \\to top latent), forming a joint distribution \\(p(x,y,z) = p(x|y)p(y|z)p(z)\\). Conjugation, natural parameters, and sampling are implemented recursively through the hierarchy.
+A :class:`GraphicalHarmonium` is a latent model with observable harmoniums, each placed on a clique
+of it; their observables make up its observable and are independent given the latent model. It
+assumes no conjugation. A :class:`DifferentiableGraphical` is conjugated because every observable
+harmonium is, and one that is not can be fit variationally by a
+:class:`~goal.geometry.exponential_family.variational.VariationalConjugated`. A
+:class:`GraphicalLevel` is a graphical harmonium assembled from parts rather than declared as a
+subclass. A hierarchical mixture of Gaussians places one linear Gaussian model on a mixture;
+canonical correlation analysis places two on one normal.
 """
-
-from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any, cast, override
 
+import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.embedding import LinearEmbedding, TupleEmbedding
-from ..manifold.map import LinearMap
-from .base import Gibbs
+from ..algebra.clique import shift_clique
+from ..manifold.clique import CrossTerm, SubCliquesEmbedding
+from ..manifold.util import split_by_dims
+from .base import Analytic, Differentiable, Gibbs
+from .combinators import AnalyticTuple, DifferentiableTuple, GenerativeTuple
 from .harmonium import (
     AnalyticConjugated,
+    Conjugated,
     DifferentiableConjugated,
     Harmonium,
-    SymmetricConjugated,
 )
 
-### Helper Classes ###
+### Graphical Harmoniums ###
 
 
 @dataclass(frozen=True)
-class ObservableEmbedding[
-    Observable: Gibbs,
-    Posterior: Gibbs,
-](TupleEmbedding[Observable, Harmonium[Observable, Posterior]]):
-    """Embeds the observable manifold of a harmonium into the full harmonium space (index 0).
+class GraphicalHarmonium[Deep: Gibbs](Harmonium[Any, Deep], ABC):
+    """A harmonium whose posterior is a latent model, with harmoniums placed on its cliques.
 
-    Projection extracts observable parameters from harmonium coordinates; embedding sets interaction and latent parameters to zero.
-    """
-
-    # Fields
-
-    hrm_man: Harmonium[Observable, Posterior]
-
-    # Overrides
-
-    @property
-    @override
-    def tup_idx(self) -> int:
-        return 0
-
-    @property
-    @override
-    def amb_man(self) -> Harmonium[Observable, Posterior]:
-        return self.hrm_man
-
-    @property
-    @override
-    def sub_man(self) -> Observable:
-        return self.hrm_man.obs_man
-
-
-@dataclass(frozen=True)
-class InteractionEmbedding[
-    Observable: Gibbs,
-    Posterior: Gibbs,
-](TupleEmbedding[LinearMap[Posterior, Observable], Harmonium[Observable, Posterior]]):
-    """Embeds the interaction manifold of a harmonium into the full harmonium space (index 1).
-
-    Projection extracts interaction parameters from harmonium coordinates; embedding sets observable and latent parameters to zero.
-    """
-
-    # Fields
-
-    hrm_man: Harmonium[Observable, Posterior]
-
-    # Overrides
-
-    @property
-    @override
-    def tup_idx(self) -> int:
-        return 1
-
-    @property
-    @override
-    def amb_man(self) -> Harmonium[Observable, Posterior]:
-        return self.hrm_man
-
-    @property
-    @override
-    def sub_man(self) -> LinearMap[Posterior, Observable]:
-        return self.hrm_man.int_man
-
-
-@dataclass(frozen=True)
-class PosteriorEmbedding[
-    Observable: Gibbs,
-    Posterior: Gibbs,
-](TupleEmbedding[Posterior, Harmonium[Observable, Posterior]]):
-    """Embeds the posterior manifold of a harmonium into the full harmonium space (index 2).
-
-    Projection extracts posterior parameters from harmonium coordinates; embedding sets observable and interaction parameters to zero.
-    """
-
-    # Fields
-
-    hrm_man: Harmonium[Observable, Posterior]
-
-    # Overrides
-
-    @property
-    @override
-    def tup_idx(self) -> int:
-        return 2
-
-    @property
-    @override
-    def amb_man(self) -> Harmonium[Observable, Posterior]:
-        return self.hrm_man
-
-    @property
-    @override
-    def sub_man(self) -> Posterior:
-        return self.hrm_man.pst_man
-
-
-@dataclass(frozen=True)
-class LatentHarmoniumEmbedding[
-    PostHarmonium: Harmonium[Any, Any],
-    PriorHarmonium: Harmonium[Any, Any],
-](LinearEmbedding[PostHarmonium, PriorHarmonium]):
-    """Embeds one harmonium into another by embedding only the observable component.
-
-    Used in hierarchical models where the posterior uses a restricted observable representation (e.g., diagonal covariance) while the prior uses a fuller one. Interaction and latent components pass through unchanged.
-
-    Mathematically, for harmonium points \\((o, i, l)\\): embedding maps \\((o_1, i, l) \\mapsto (e(o_1), i, l)\\) and projection maps \\((o_2, i, l) \\mapsto (e^{-1}(o_2), i, l)\\).
-    """
-
-    # Fields
-
-    pst_obs_emb: LinearEmbedding[Any, Any]
-    """Embedding of the restricted observable manifold into the full observable manifold."""
-
-    pst_hrm: PostHarmonium
-    """Harmonium with the restricted observable manifold."""
-
-    prr_hrm: PriorHarmonium
-    """Harmonium with the full observable manifold."""
-
-    # Overrides
-
-    @property
-    @override
-    def sub_man(self) -> PostHarmonium:
-        return self.pst_hrm
-
-    @property
-    @override
-    def amb_man(self) -> PriorHarmonium:
-        return self.prr_hrm
-
-    @override
-    def project(self, coords: Array) -> Array:
-        obs_params, int_params, lat_params = self.amb_man.split_coords(coords)
-        prj_obs_params = self.pst_obs_emb.project(obs_params)
-        return self.sub_man.join_coords(prj_obs_params, int_params, lat_params)
-
-    @override
-    def embed(self, coords: Array) -> Array:
-        obs_params, int_params, lat_params = self.sub_man.split_coords(coords)
-        emb_obs_params = self.pst_obs_emb.embed(obs_params)
-        return self.amb_man.join_coords(emb_obs_params, int_params, lat_params)
-
-
-# Hierarchical Harmonium Classes
-
-
-class DifferentiableHierarchical[
-    LowerHarmonium: DifferentiableConjugated[Any, Any, Any],
-    PstUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
-    PrrUpperHarmonium: DifferentiableConjugated[Any, Any, Any],
-](
-    DifferentiableConjugated[Any, PstUpperHarmonium, PrrUpperHarmonium],
-    ABC,
-):
-    """Differentiable hierarchical harmonium with asymmetric posterior/prior structure.
-
-    Composes a lower harmonium (observable \\to middle latent) with an upper harmonium
-    (middle latent \\to top latent). The prior may use a fuller parameterization than
-    the posterior for conjugation.
+    A subclass declares the latent model (:attr:`pst_man`), the observable harmoniums
+    and the nodes each one is placed on (:attr:`obs_hrms_lat_nods`). The
+    observable and the interaction are derived from the observable harmoniums, whose
+    observables must be differentiable.
     """
 
     # Contract
 
     @property
     @abstractmethod
-    def lwr_hrm(self) -> LowerHarmonium:
-        """Lower harmonium (observable to middle latent)."""
-        ...
+    def obs_hrms_lat_nods(
+        self,
+    ) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+        """The observable harmoniums, in order, each with the nodes of the latent model its posterior is placed on.
 
-    @property
-    @abstractmethod
-    def pst_upr_hrm(self) -> PstUpperHarmonium:
-        """Posterior upper harmonium (possibly restricted)."""
-        ...
-
-    @property
-    @abstractmethod
-    def prr_upr_hrm(self) -> PrrUpperHarmonium:
-        """Prior upper harmonium (for conjugation)."""
-        ...
+        Node $j$ of the posterior is node ``lat_nods[j]`` of the latent model. The observables of
+        the harmoniums make up the composite's observable, in the same order.
+        """
 
     # Overrides
 
     @property
     @override
-    def int_man(self) -> Any:
-        return self.lwr_hrm.int_man.prepend_embedding(
-            ObservableEmbedding(self.pst_upr_hrm)
-        )
+    def obs_man(self) -> GenerativeTuple[Any]:
+        """The observables of the harmoniums in :attr:`obs_hrms`, as the elements of a tuple, also when there is only one."""
+        return GenerativeTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
 
     @property
     @override
-    def pst_prr_emb(
-        self,
-    ) -> LinearEmbedding[PstUpperHarmonium, PrrUpperHarmonium]:
-        return LatentHarmoniumEmbedding(
-            self.lwr_hrm.pst_prr_emb,
-            self.pst_upr_hrm,
-            self.prr_upr_hrm,
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """The crossings of every observable harmonium, renumbered into the composite, with their coordinate blocks.
+
+        Observable nodes are offset as in :attr:`obs_man`, and latent nodes are mapped
+        through that harmonium's clique. The coordinate blocks are used as they are: the
+        posterior of an observable harmonium has the same coordinate blocks as its clique of the
+        latent model.
+        """
+        trms: list[CrossTerm] = []
+        for (obs_hrm, lat_nods), nod_offset in zip(
+            self.obs_hrms_lat_nods, self.obs_man.elm_nod_offsets
+        ):
+            for trm in obs_hrm.crs_trms:
+                cod_clq = shift_clique(trm.cod_clq, nod_offset)
+                dom_clq = tuple(lat_nods[j] for j in trm.dom_clq)
+                trms.append(CrossTerm(cod_clq, dom_clq, trm.clq_map))
+        return tuple(trms)
+
+    # Methods
+
+    @property
+    def obs_hrms(self) -> tuple[Harmonium[Any, Any], ...]:
+        """The observable harmoniums of :attr:`obs_hrms_lat_nods`."""
+        return tuple(obs_hrm for obs_hrm, _ in self.obs_hrms_lat_nods)
+
+    @property
+    def lat_nodss(self) -> tuple[tuple[int, ...], ...]:
+        """The nodes of the latent model that each harmonium in :attr:`obs_hrms` is placed on."""
+        return tuple(lat_nods for _, lat_nods in self.obs_hrms_lat_nods)
+
+    def likelihood_functions(self, lkl_params: Array) -> tuple[Array, ...]:
+        """Split the likelihood parameters into those of each harmonium in :attr:`obs_hrms`.
+
+        The observable biases are split into the elements of :attr:`obs_man`, and the
+        interaction into those of each harmonium. They are contiguous because a
+        :class:`~goal.geometry.manifold.clique.CrossMap` stores its coordinates term by
+        term and :attr:`crs_trms` lists the terms harmonium by harmonium.
+        """
+        obs_params, int_params = self.lkl_fun_man.split_coords(lkl_params)
+        obs_paramss = self.obs_man.split_coords(obs_params)
+        int_dims = tuple(obs_hrm.int_man.dim for obs_hrm in self.obs_hrms)
+        int_paramss = split_by_dims(int_params, int_dims)
+        return tuple(
+            obs_hrm.lkl_fun_man.join_coords(hrm_obs_params, hrm_int_params)
+            for obs_hrm, hrm_obs_params, hrm_int_params in zip(
+                self.obs_hrms, obs_paramss, int_paramss
+            )
         )
 
+
+@dataclass(frozen=True)
+class GraphicalLevel[Deep: Gibbs](GraphicalHarmonium[Deep]):
+    """A graphical harmonium given by its parts: harmoniums placed on cliques of a latent model.
+
+    It is the generic form of a graphical harmonium, for models assembled from their parts rather
+    than declared as a subclass. The latent model may be a harmonium's own posterior, which makes a
+    plain harmonium a graphical one, or a larger model, e.g. the joint model of the next level of a
+    deep model, whose nodes carry the posteriors' cliques. It lets harmoniums be used where a
+    graphical harmonium is expected, e.g. as the ``gph_hrm`` of a
+    :class:`~goal.geometry.exponential_family.variational.VariationalConjugated`.
+    """
+
+    # Fields
+
+    _obs_hrms_lat_nods: tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]
+    _pst_man: Deep
+
+    # Overrides
+
+    @property
     @override
-    def extract_likelihood_input(self, prr_sample: Array) -> Array:
-        return prr_sample[:, : self.lwr_hrm.prr_man.data_dim]
+    def pst_man(self) -> Deep:
+        return self._pst_man
+
+    @property
+    @override
+    def obs_hrms_lat_nods(
+        self,
+    ) -> tuple[tuple[Harmonium[Any, Any], tuple[int, ...]], ...]:
+        return self._obs_hrms_lat_nods
+
+
+class DifferentiableGraphical[Deep: Differentiable, PriorDeep: Differentiable](
+    GraphicalHarmonium[Deep],
+    DifferentiableConjugated[Any, Deep, PriorDeep],
+    ABC,
+):
+    """A graphical harmonium whose observable harmoniums are all conjugated, which makes it conjugated.
+
+    Its conjugation parameters are the sum of the observable harmoniums', each placed on its
+    clique of the prior, and its offset is the sum of theirs.
+    The prior must contain each observable harmonium's prior on its clique.
+    """
+
+    # Overrides
+
+    @property
+    @override
+    def obs_hrms(self) -> tuple[Conjugated[Any, Any, Any], ...]:
+        """The observable harmoniums, typed as conjugated."""
+        return cast(tuple[Conjugated[Any, Any, Any], ...], super().obs_hrms)
+
+    @property
+    @override
+    def obs_man(self) -> DifferentiableTuple[Any]:
+        """The observables of the observable harmoniums, as the elements of a differentiable tuple."""
+        return DifferentiableTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
 
     @override
     def conjugation_parameters(self, lkl_params: Array) -> Array:
-        """Embeds the lower harmonium's conjugation parameters into the upper harmonium's observable space."""
-        upr_obs_emb = ObservableEmbedding(self.prr_upr_hrm)
-        return upr_obs_emb.embed(self.lwr_hrm.conjugation_parameters(lkl_params))
+        """Sum the observable harmoniums' conjugation parameters, each embedded into the prior on its clique."""
+        lkl_paramss = self.likelihood_functions(lkl_params)
+        rho = self.prr_man.zeros()
+        for obs_hrm, lat_nods, hrm_lkl_params in zip(
+            self.obs_hrms, self.lat_nodss, lkl_paramss
+        ):
+            prr_emb = SubCliquesEmbedding(lat_nods, self.prr_man, obs_hrm.prr_man)
+            rho = rho + prr_emb.embed(obs_hrm.conjugation_parameters(hrm_lkl_params))
+        return rho
+
+    @override
+    def conjugation_offset(self, lkl_params: Array) -> Array:
+        """Sum the observable harmoniums' conjugation offsets."""
+        lkl_paramss = self.likelihood_functions(lkl_params)
+        return sum(
+            (
+                obs_hrm.conjugation_offset(hrm_lkl_params)
+                for obs_hrm, hrm_lkl_params in zip(self.obs_hrms, lkl_paramss)
+            ),
+            start=jnp.asarray(0.0),
+        )
 
 
-class SymmetricHierarchical[
-    LowerHarmonium: SymmetricConjugated[Any, Any],
-    UpperHarmonium: DifferentiableConjugated[Any, Any, Any],
-](
-    SymmetricConjugated[Any, UpperHarmonium],
-    DifferentiableHierarchical[LowerHarmonium, UpperHarmonium, UpperHarmonium],
+class AnalyticGraphical[Deep: Analytic](
+    AnalyticConjugated[Any, Deep],
+    DifferentiableGraphical[Deep, Deep],
     ABC,
 ):
-    """Symmetric hierarchical harmonium where the lower harmonium has matching posterior and prior manifolds.
-
-    Mirrors ``SymmetricConjugated`` at the hierarchical level: collapses the posterior
-    and prior upper harmoniums into a single ``upr_hrm``, providing
-    ``pst_upr_hrm = prr_upr_hrm = upr_hrm``.
-    """
-
-    # Contract
-
-    @property
-    @abstractmethod
-    def upr_hrm(self) -> UpperHarmonium:
-        """Upper harmonium (middle latent to top latent)."""
-        ...
+    """A graphical harmonium with analytic observable harmoniums and an analytic latent model, whose posterior and prior coincide."""
 
     # Overrides
 
     @property
     @override
-    def lat_man(self) -> UpperHarmonium:
-        return self.upr_hrm
+    def obs_hrms(self) -> tuple[AnalyticConjugated[Any, Any], ...]:
+        """The observable harmoniums, typed as analytic."""
+        return cast(tuple[AnalyticConjugated[Any, Any], ...], super().obs_hrms)
 
     @property
     @override
-    def pst_upr_hrm(self) -> UpperHarmonium:
-        return self.upr_hrm
-
-    @property
-    @override
-    def prr_upr_hrm(self) -> UpperHarmonium:
-        return self.upr_hrm
-
-
-class AnalyticHierarchical[
-    LowerHarmonium: AnalyticConjugated[Any, Any],
-    UpperHarmonium: AnalyticConjugated[Any, Any],
-](
-    SymmetricHierarchical[LowerHarmonium, UpperHarmonium],
-    AnalyticConjugated[Any, UpperHarmonium],
-    ABC,
-):
-    """Analytic hierarchical harmonium enabling closed-form EM and bidirectional parameter conversion."""
-
-    # Overrides
+    def obs_man(self) -> AnalyticTuple[Any]:
+        """The observables of the observable harmoniums, as the elements of an analytic tuple."""
+        return AnalyticTuple(tuple(obs_hrm.obs_man for obs_hrm in self.obs_hrms))
 
     @override
     def to_natural_likelihood(self, means: Array) -> Array:
-        """Projects hierarchical mean parameters down to the lower harmonium's space and converts to natural likelihood parameters."""
-        obs_means, lwr_int_means, lat_means = self.split_coords(means)
-        upr_obs_emb = ObservableEmbedding(self.upr_hrm)
-        lwr_lat_means = upr_obs_emb.project(lat_means)
-        lwr_means = self.lwr_hrm.join_coords(obs_means, lwr_int_means, lwr_lat_means)
-        return self.lwr_hrm.to_natural_likelihood(lwr_means)
+        """Convert mean parameters to likelihood natural parameters, harmonium by harmonium.
+
+        Given the latent model the observables are independent, so the expected
+        log-likelihood is a sum over the observable harmoniums, and each harmonium's
+        likelihood is computed from its own observable and interaction coordinates and the
+        latent mean parameters on its clique. Projecting the latent mean parameters onto a
+        clique is valid only in mean coordinates, where the coordinates of a clique are the
+        expected sufficient statistics of that clique, and so the mean parameters of the
+        observable harmonium's posterior.
+        """
+        obs_means, int_means, lat_means = self.split_coords(means)
+        obs_meanss = self.obs_man.split_coords(obs_means)
+        int_dims = tuple(obs_hrm.int_man.dim for obs_hrm in self.obs_hrms)
+        int_meanss = split_by_dims(int_means, int_dims)
+        obs_paramss: list[Array] = []
+        int_paramss: list[Array] = []
+        for obs_hrm, lat_nods, hrm_obs_means, hrm_int_means in zip(
+            self.obs_hrms, self.lat_nodss, obs_meanss, int_meanss
+        ):
+            pst_emb = SubCliquesEmbedding(lat_nods, self.pst_man, obs_hrm.pst_man)
+            pst_means = pst_emb.project(lat_means)
+            hrm_means = obs_hrm.join_coords(hrm_obs_means, hrm_int_means, pst_means)
+            hrm_lkl_params = obs_hrm.to_natural_likelihood(hrm_means)
+            hrm_obs_params, hrm_int_params = obs_hrm.lkl_fun_man.split_coords(
+                hrm_lkl_params
+            )
+            obs_paramss.append(hrm_obs_params)
+            int_paramss.append(hrm_int_params)
+        return self.lkl_fun_man.join_coords(
+            self.obs_man.join_coords(*obs_paramss), jnp.concatenate(int_paramss)
+        )

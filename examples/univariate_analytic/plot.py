@@ -26,8 +26,12 @@ def main():
 
     axes[0].hist(sample, bins=10, density=True, alpha=0.3, label="Sample")
     axes[0].plot(x, g["true_densities"], color=colors["ground_truth"], label="True")
-    axes[0].plot(x, g["estimated_densities"], color=colors["fitted"], ls="--", label="MLE")
-    axes[0].plot(x, stats.norm.pdf(x, mu, sigma), color=colors["tertiary"], ls=":", label="Scipy")
+    axes[0].plot(
+        x, g["estimated_densities"], color=colors["fitted"], ls="--", label="MLE"
+    )
+    axes[0].plot(
+        x, stats.norm.pdf(x, mu, sigma), color=colors["tertiary"], ls=":", label="Scipy"
+    )
     axes[0].set_title("Normal")
     axes[0].set_xlabel("x")
     axes[0].set_ylabel("Density")
@@ -42,8 +46,22 @@ def main():
 
     sample_freqs = np.bincount(sample, minlength=n_categories) / len(sample)
     axes[1].bar(categories, sample_freqs, width=1.0, alpha=0.2, label="Sample")
-    axes[1].bar(categories - width/2, c["true_probs"], width, color=model_color(0), alpha=0.6, label="True")
-    axes[1].bar(categories + width/2, c["estimated_probs"], width, color=model_color(1), alpha=0.6, label="MLE")
+    axes[1].bar(
+        categories - width / 2,
+        c["true_probs"],
+        width,
+        color=model_color(0),
+        alpha=0.6,
+        label="True",
+    )
+    axes[1].bar(
+        categories + width / 2,
+        c["estimated_probs"],
+        width,
+        color=model_color(1),
+        alpha=0.6,
+        label="MLE",
+    )
     axes[1].set_title("Categorical")
     axes[1].set_xlabel("Category")
     axes[1].set_ylabel("Probability")
@@ -58,7 +76,13 @@ def main():
     axes[2].hist(sample, bins=range(22), density=True, alpha=0.3, label="Sample")
     axes[2].plot(k, p["true_pmf"], color=colors["ground_truth"], label="True")
     axes[2].plot(k, p["estimated_pmf"], color=colors["fitted"], ls="--", label="MLE")
-    axes[2].plot(k, rate**k * np.exp(-rate) / factorial(k), color=colors["tertiary"], ls=":", label="Theory")
+    axes[2].plot(
+        k,
+        rate**k * np.exp(-rate) / factorial(k),
+        color=colors["tertiary"],
+        ls=":",
+        label="Theory",
+    )
     axes[2].set_title(rf"Poisson ($\lambda$={rate})")
     axes[2].set_xlabel("k")
     axes[2].set_ylabel("Probability")

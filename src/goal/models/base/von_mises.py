@@ -1,7 +1,5 @@
 """Von Mises distribution on the circle as an exponential family, with product manifold for multiple independent circular variables."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import override
 

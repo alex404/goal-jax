@@ -9,7 +9,15 @@ This example demonstrates:
 import jax
 import jax.numpy as jnp
 
-from goal.models import PoissonVonMisesHarmonium, VonMisesPopulationCode
+from goal.geometry.exponential_family.variational import (
+    regress_conjugation_parameters,
+)
+from goal.models import (
+    PoissonPopulationCode,
+    VariationalPopulationCode,
+    VonMisesProduct,
+    variational_population_code,
+)
 
 from ..shared import example_paths, jax_cli
 from .types import PopulationCodeResults
@@ -24,31 +32,69 @@ baseline_rate = 1.0  # Baseline firing rate
 max_rate = 10.0  # Maximum firing rate at preferred direction
 
 
-def create_population_code(key: jax.Array) -> tuple[VonMisesPopulationCode, jax.Array]:
+type RingCode = VariationalPopulationCode[VonMisesProduct]
+
+
+def initialize_from_tuning_curves(
+    model: RingCode,
+    key: jax.Array,
+    gains: jax.Array,
+    preferred: jax.Array,
+    baselines: jax.Array,
+    prior_mean: float,
+    prior_concentration: float,
+    n_regression_samples: int,
+) -> jax.Array:
+    """Parameters with cosine tuning curves of the given gains, preferred stimuli and baselines.
+
+    The likelihood is built from the tuning curves, then the conjugation parameters $\\rho$ are fit by
+    least squares against samples of the prior, and the latent bias is set to the prior minus $\\rho$.
+    """
+    vm = model.pst_man.rep_man
+    int_params = jnp.stack(
+        [gains * jnp.cos(preferred), gains * jnp.sin(preferred)], axis=1
+    ).ravel()
+    prior = vm.join_mean_concentration(prior_mean, prior_concentration)
+
+    def params_at(lat_params: jax.Array, rho: jax.Array) -> jax.Array:
+        hrm_params = model.gph_hrm.join_coords(baselines, int_params, lat_params)
+        return model.join_coords(hrm_params, rho)
+
+    rho, _, _, _ = regress_conjugation_parameters(
+        model, key, params_at(prior, model.cnj_fun_man.zeros()), n_regression_samples
+    )
+    return params_at(prior - rho, rho)
+
+
+def create_population_code(key: jax.Array) -> tuple[RingCode, jax.Array]:
     """Create a population code with evenly spaced tuning curves."""
-    model = VonMisesPopulationCode(_gen_hrm=PoissonVonMisesHarmonium(n_neurons, 1))
+    model = variational_population_code(
+        PoissonPopulationCode(VonMisesProduct(1), n_neurons)
+    )
     preferred = jnp.linspace(0, 2 * jnp.pi, n_neurons, endpoint=False)
-    params = model.initialize_from_tuning_curves(
+    params = initialize_from_tuning_curves(
+        model,
         key=key,
         gains=jnp.ones(n_neurons) * (jnp.log(max_rate) - jnp.log(baseline_rate)),
         preferred=preferred,
         baselines=jnp.ones(n_neurons) * jnp.log(baseline_rate),
         prior_mean=0.0,
         prior_concentration=0.1,
+        n_regression_samples=5000,
     )
     return model, params
 
 
 def compute_tuning_curves(
-    model: VonMisesPopulationCode, params: jax.Array
+    model: RingCode, params: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
     """Compute tuning curves over a grid of stimuli."""
     grid = jnp.linspace(0, 2 * jnp.pi, n_grid_points, endpoint=False)
-    _, lkl_params, _ = model.split_coords(params)
+    lkl_params = model.likelihood_function(params)
 
     def rates_at(z: jax.Array) -> jax.Array:
         mz = model.pst_man.sufficient_statistic(z)
-        lkl_at_z = model.gen_hrm.lkl_fun_man(lkl_params, mz)
+        lkl_at_z = model.gph_hrm.lkl_fun_man(lkl_params, mz)
         return model.obs_man.to_mean(lkl_at_z)
 
     rates = jax.vmap(rates_at)(grid)
@@ -56,11 +102,11 @@ def compute_tuning_curves(
 
 
 def compute_regression_diagnostics(
-    model: VonMisesPopulationCode, params: jax.Array
+    model: RingCode, params: jax.Array
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Compute regression fit diagnostics for visualization."""
-    _, lkl_params, _ = model.split_coords(params)
-    obs_params, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
+    lkl_params = model.likelihood_function(params)
+    obs_params, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     vm = model.pst_man.rep_man  # underlying VonMises
 
@@ -80,7 +126,7 @@ def compute_regression_diagnostics(
 
 
 def run_inference(
-    model: VonMisesPopulationCode, params: jax.Array, key: jax.Array
+    model: RingCode, params: jax.Array, key: jax.Array
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """Sample from generative model and infer posterior."""
     vm = model.pst_man.rep_man  # underlying VonMises
@@ -93,7 +139,7 @@ def run_inference(
 
     # Compute approximate posterior for each observation
     def posterior_stats(x: jax.Array) -> tuple[jax.Array, jax.Array]:
-        q_params = model.approximate_posterior_at(params, x)
+        q_params = model.recognition_at(params, x)
         # VonMisesProduct(1) has 2 natural params; extract mean/concentration from underlying VonMises
         mu, kappa = vm.split_mean_concentration(q_params)
         return mu, kappa
@@ -119,8 +165,8 @@ def main():
     model, params = create_population_code(init_key)
 
     # Extract preferred directions from interaction weights
-    _, lkl_params, _ = model.split_coords(params)
-    _, int_params = model.gen_hrm.lkl_fun_man.split_coords(lkl_params)
+    lkl_params = model.likelihood_function(params)
+    _, int_params = model.gph_hrm.lkl_fun_man.split_coords(lkl_params)
     int_matrix = int_params.reshape(n_neurons, 2)
     preferred = jnp.arctan2(int_matrix[:, 1], int_matrix[:, 0])
     preferred = jnp.mod(preferred, 2 * jnp.pi)

@@ -1,30 +1,29 @@
 """This module provides implementations of linear Gaussian models (LGMs), including factor analysis and principal component analysis. LGMs model linear, Gaussian relationships between observable and latent variables. The conjugacy of LGMs enables exact inference and EM."""
 
-from __future__ import annotations
-
 from abc import ABC
 from dataclasses import dataclass
 from typing import Any, override
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ...geometry import (
     AnalyticConjugated,
+    CliqueMap,
+    CrossTerm,
     Diagonal,
     DifferentiableConjugated,
-    EmbeddedMap,
+    ExponentialFamily,
     Identity,
-    IdentityEmbedding,
     LinearEmbedding,
     MatrixRep,
     PositiveDefinite,
     Rectangular,
     Scale,
-    SymmetricConjugated,
 )
-from ..base.gaussian.boltzmann import DiagonalBoltzmann, FullBoltzmann
+from ..base.gaussian.boltzmann import Boltzmann, FullBoltzmann
 from ..base.gaussian.generalized import Euclidean, GeneralizedGaussian
 from ..base.gaussian.normal import (
     Covariance,
@@ -38,7 +37,7 @@ from ..base.gaussian.normal import (
 
 @dataclass(frozen=True)
 class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
-    LinearEmbedding[Euclidean, G],
+    LinearEmbedding[G, Euclidean],
 ):
     """Embedding of the Euclidean location component into a GeneralizedGaussian distribution.
 
@@ -89,18 +88,18 @@ class GeneralizedGaussianLocationEmbedding[G: GeneralizedGaussian[Any, Any]](
 
 
 @dataclass(frozen=True)
-class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefinite](
-    LinearEmbedding[Normal[SubRep], Normal[AmbRep]]
+class NormalCovarianceEmbedding[AmbRep: PositiveDefinite, SubRep: PositiveDefinite](
+    LinearEmbedding[Normal[AmbRep], Normal[SubRep]]
 ):
     """Embedding of a normal distribution with a simpler covariance structure into a more complex one."""
 
     # Fields
 
-    _sub_man: Normal[SubRep]
-    """The sub-manifold with the simpler covariance structure."""
-
     _amb_man: Normal[AmbRep]
     """The super-manifold with the more complex covariance structure."""
+
+    _sub_man: Normal[SubRep]
+    """The sub-manifold with the simpler covariance structure."""
 
     def __post_init__(self):
         if not isinstance(self.sub_man.cov_man.rep, type(self.amb_man.cov_man.rep)):
@@ -140,56 +139,58 @@ class NormalCovarianceEmbedding[SubRep: PositiveDefinite, AmbRep: PositiveDefini
 
 
 @dataclass(frozen=True)
-class BoltzmannEmbedding(LinearEmbedding[DiagonalBoltzmann, FullBoltzmann]):
-    """Embedding of DiagonalBoltzmann (mean-field) into full Boltzmann.
+class BoltzmannCouplingEmbedding(LinearEmbedding[FullBoltzmann, Boltzmann[Any]]):
+    """Embedding of a Boltzmann machine with fewer coupled pairs into the dense Boltzmann machine on the same neurons.
 
-    This embedding connects the mean-field approximation (independent binary units)
-    to the full Boltzmann machine (with pairwise coupling).
-
-    - DiagonalBoltzmann has n parameters (biases only, no coupling)
-    - Boltzmann has n(n+1)/2 parameters (biases absorbed into diagonal + off-diagonal coupling)
-
-    The embedding places DiagonalBoltzmann parameters on the diagonal of the coupling matrix
-    (as bias terms) with zero off-diagonal coupling.
+    The analogue of :class:`NormalCovarianceEmbedding`: the biases are kept, the couplings
+    of the coupled pairs (:attr:`~goal.models.base.gaussian.boltzmann.Boltzmann.coupled_pairs`)
+    are placed on those pairs, and every other pair has coupling zero. Projection reads
+    the first moments and the second moments of the coupled pairs.
     """
 
-    _sub_man: DiagonalBoltzmann
-    """The mean-field Boltzmann (diagonal/independent units)."""
+    # Fields
 
     _amb_man: FullBoltzmann
-    """The full Boltzmann machine with coupling."""
+    """The dense Boltzmann machine."""
 
-    @property
-    @override
-    def sub_man(self) -> DiagonalBoltzmann:
-        return self._sub_man
+    _sub_man: Boltzmann[Any]
+    """The Boltzmann machine whose coupled pairs are a subset of the dense ones (diagonal, chordal, chain, dense)."""
+
+    # Overrides
 
     @property
     @override
     def amb_man(self) -> FullBoltzmann:
         return self._amb_man
 
+    @property
     @override
-    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Extract first moment (location) from full Boltzmann means."""
-        loc, _ = self._amb_man.split_mean_second_moment(means)
-        return loc
+    def sub_man(self) -> Boltzmann[Any]:
+        return self._sub_man
 
     @override
     def embed(self, params: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Embed DiagonalBoltzmann params into full Boltzmann with zero coupling."""
-        zero_prec = self._amb_man.shp_man.zeros()
-        return self._amb_man.join_location_precision(params, zero_prec)
+        diag, off_diag = self._sub_man.split_couplings(params)
+        n_pairs = len(self._amb_man.coupled_pairs)
+        amb_off_diag = (
+            jnp.zeros(n_pairs, dtype=params.dtype).at[self._pair_idxs].set(off_diag)
+        )
+        return self._amb_man.join_couplings(diag, amb_off_diag)
 
     @override
-    def translate(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self,
-        params: Array,
-        delta: Array,
-    ) -> Array:
-        """Add DiagonalBoltzmann delta to Boltzmann params (location/bias only)."""
-        loc, prec = self._amb_man.split_location_precision(params)
-        return self._amb_man.join_location_precision(loc + delta, prec)
+    def project(self, means: Array) -> Array:  # pyright: ignore[reportIncompatibleMethodOverride]
+        diag, off_diag = self._amb_man.split_couplings(means)
+        return self._sub_man.join_couplings(diag, off_diag[self._pair_idxs])
+
+    # Methods
+
+    @property
+    def _pair_idxs(self) -> np.ndarray:
+        """Position of each coupled pair of the submanifold among the dense pairs."""
+        index = {pair: k for k, pair in enumerate(self._amb_man.coupled_pairs)}
+        return np.array(
+            [index[pair] for pair in self._sub_man.coupled_pairs], dtype=int
+        )
 
 
 @dataclass(frozen=True)
@@ -247,22 +248,15 @@ class LGM[
         return Normal(self.obs_dim, self.obs_rep)
 
     @property
-    def int_obs_emb(self) -> GeneralizedGaussianLocationEmbedding[Normal[ObsRep]]:
-        return GeneralizedGaussianLocationEmbedding(self.obs_man)
-
-    @property
-    def int_pst_emb(self) -> LinearEmbedding[Euclidean, PostGaussian]:
-        """Embedding of Euclidean location into posterior latent - general for all GeneralizedGaussians."""
-        return GeneralizedGaussianLocationEmbedding(self.pst_man)
-
-    @property
     @override
-    def int_man(self) -> EmbeddedMap[PostGaussian, Normal[ObsRep]]:
-        return EmbeddedMap(
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """The observable and the latent, coupled through their locations."""
+        int_map = CliqueMap(
             Rectangular(),
-            self.int_pst_emb,
-            self.int_obs_emb,
+            GeneralizedGaussianLocationEmbedding(self.obs_man),
+            GeneralizedGaussianLocationEmbedding(self.pst_man),
         )
+        return (CrossTerm((0,), (0,), int_map),)
 
     @override
     def conjugation_parameters(
@@ -281,7 +275,7 @@ class LGM[
 
         # Conjugation parameters
 
-        im = self.int_man
+        (im,) = self.crs_maps
         int_mat_trn = im.transpose(int_mat)
         rho_mean = im.trn_man.rep.matvec(im.trn_man.matrix_shape, int_mat_trn, obs_mean)
 
@@ -323,10 +317,10 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
     @property
     @override
-    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PstRep, PositiveDefinite]:
+    def pst_prr_emb(self) -> NormalCovarianceEmbedding[PositiveDefinite, PstRep]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         prior_gau = full_normal(self.lat_dim)
-        return NormalCovarianceEmbedding(self.pst_man, prior_gau)
+        return NormalCovarianceEmbedding(prior_gau, self.pst_man)
 
     # Methods
 
@@ -371,14 +365,15 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         lat_mean, lat_cov = self.prr_man.split_mean_covariance(lat_means)
 
         # W \Sigma_z = E[x \otimes z] - E[x] \otimes E[z]
-        int_mat = self.int_man.to_matrix(int_means)  # (obs_dim, lat_dim)
+        (im,) = self.crs_maps
+        int_mat = im.to_matrix(int_means)  # (obs_dim, lat_dim)
         cross_cov = int_mat - jnp.outer(obs_loc, lat_mean)  # W \Sigma_z
 
         # WL = W \Sigma_z @ L^{-T},  L = chol(\Sigma_z)
         chol = jnp.linalg.cholesky(self.prr_man.cov_man.to_matrix(lat_cov))
         wl_mat = jax.scipy.linalg.solve_triangular(chol, cross_cov.T, lower=True).T
 
-        new_int_means = self.int_man.from_matrix(wl_mat)
+        new_int_means = im.from_matrix(wl_mat)
         new_lat_means = self.prr_man.standard_normal()
         return self.join_coords(obs_means, new_int_means, new_lat_means)
 
@@ -401,7 +396,8 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
         nor_loc = jnp.concatenate([obs_loc, lat_loc])
         obs_prs_array = new_man.obs_man.cov_man.to_matrix(obs_prs)
         lat_prs_array = new_man.prr_man.cov_man.to_matrix(lat_prs)
-        int_array = -self.int_man.to_matrix(int_params)
+        (xz_map,) = self.crs_maps
+        int_array = -xz_map.to_matrix(int_params)
         joint_shape_array = jnp.block(
             [[obs_prs_array, int_array], [int_array.T, lat_prs_array]]
         )
@@ -411,75 +407,39 @@ class NormalLGM[ObsRep: PositiveDefinite, PstRep: PositiveDefinite](
 
 
 @dataclass(frozen=True)
-class BoltzmannLGM[ObsRep: PositiveDefinite](
-    SymmetricConjugated[Normal[ObsRep], FullBoltzmann],
-    LGM[ObsRep, FullBoltzmann, FullBoltzmann],
+class NormalBoltzmannMachine[ObsRep: PositiveDefinite, Shape: ExponentialFamily](
+    LGM[ObsRep, Boltzmann[Shape], FullBoltzmann],
 ):
-    """Differentiable Linear Gaussian Model with Boltzmann latent variables.
+    """Linear Gaussian model with a Normal observable and Boltzmann (binary) latent variables.
 
-    This model combines a Normal observable distribution with Boltzmann (binary)
-    latent variables. The latent states are discrete binary vectors, making this
-    suitable for discrete representation learning and binary latent factor models.
-
-    The observable distribution remains Gaussian (continuous), while the latent
-    distribution is a Boltzmann machine (discrete binary). This enables learning
-    discrete latent representations of continuous data.
+    The Boltzmann analogue of :class:`NormalLGM`. The posterior is the given Boltzmann
+    machine, whose coupled pairs may be any of its family (independent units, chordal,
+    chain, dense), and the prior is the dense :class:`FullBoltzmann` on the same neurons:
+    since the interaction couples only the observable location to the node activities, the
+    posterior keeps the couplings of the latent bias, while the conjugation parameters add
+    a pairwise term from $W^\\top \\Sigma W$ on every pair. The model is exactly conjugated
+    for every posterior family; exact computations on the prior enumerate its $2^n$ states.
     """
 
-    lat_dim: int
-    """Number of binary latent units."""
+    # Fields
+
+    boltzmann: Boltzmann[Shape]
+    """The posterior Boltzmann machine."""
 
     # Overrides
 
     @property
     @override
-    def pst_man(self) -> FullBoltzmann:
-        """Override to construct directly from fields, avoiding circular dependency."""
-        return FullBoltzmann(self.lat_dim)
+    def pst_man(self) -> Boltzmann[Shape]:
+        return self.boltzmann
 
     @property
     @override
-    def pst_prr_emb(self) -> LinearEmbedding[FullBoltzmann, FullBoltzmann]:
-        """Embedding of posterior Boltzmann into prior Boltzmann.
-
-        For Boltzmann machines, both posterior and prior use the same manifold
-        structure (no covariance simplification like in Normal case), so we use
-        the identity embedding.
-        """
-        return IdentityEmbedding(self.pst_man)
-
-    @property
-    @override
-    def lat_man(self) -> FullBoltzmann:
-        """The latent manifold is a Boltzmann machine."""
-        return FullBoltzmann(self.lat_dim)
-
-
-@dataclass(frozen=True)
-class DifferentiableBoltzmannLGM[ObsRep: PositiveDefinite](
-    LGM[ObsRep, DiagonalBoltzmann, FullBoltzmann],
-):
-    """Differentiable Linear Gaussian Model with mean-field Boltzmann latent variables.
-
-    Combines a Normal observable distribution with Boltzmann (binary) latent variables, using a mean-field (independent units) approximation for the posterior while keeping the full Boltzmann prior with pairwise coupling. The posterior uses ``DiagonalBoltzmann`` for O(n) log-partition computation; conjugation parameters naturally produce coupling terms even when the posterior is mean-field. The asymmetric structure enables efficient inference while preserving the prior's expressiveness for modeling complex dependencies.
-    """
-
-    lat_dim: int
-    """Number of binary latent units."""
-
-    # Overrides
-
-    @property
-    @override
-    def pst_man(self) -> DiagonalBoltzmann:
-        """Mean-field posterior (diagonal Boltzmann, independent units)."""
-        return DiagonalBoltzmann(self.lat_dim)
-
-    @property
-    @override
-    def pst_prr_emb(self) -> BoltzmannEmbedding:
-        """Embedding from mean-field DiagonalBoltzmann to full Boltzmann."""
-        return BoltzmannEmbedding(self.pst_man, FullBoltzmann(self.lat_dim))
+    def pst_prr_emb(self) -> BoltzmannCouplingEmbedding:
+        """Embedding of the posterior Boltzmann machine into the dense one."""
+        return BoltzmannCouplingEmbedding(
+            FullBoltzmann(self.boltzmann.data_dim), self.boltzmann
+        )
 
 
 @dataclass(frozen=True)
@@ -510,7 +470,7 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
     ) -> NormalCovarianceEmbedding[PositiveDefinite, PositiveDefinite]:
         """Embedding of posterior Normal into prior Normal via covariance structure."""
         prior_gau = full_normal(self.lat_dim)
-        return NormalCovarianceEmbedding(self.pst_man, prior_gau)
+        return NormalCovarianceEmbedding(prior_gau, self.pst_man)
 
     @override
     def expectation_maximization(self, params: Array, xs: Array) -> Array:
@@ -536,7 +496,8 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         obs_params = om.to_natural(om.join_mean_covariance(means, noise_cov))
         obs_prs = om.split_location_precision(obs_params)[1]
         dns_prs = om.cov_man.to_matrix(obs_prs)
-        int_mat = self.int_man.from_matrix(dns_prs @ loadings)
+        (xz_map,) = self.crs_maps
+        int_mat = xz_map.from_matrix(dns_prs @ loadings)
         return self.lkl_fun_man.join_coords(obs_params, int_mat)
 
     def initialize_from_loadings(
@@ -559,7 +520,7 @@ class NormalAnalyticLGM[ObsRep: PositiveDefinite](
         # Get relevant manifolds
         ocm = self.obs_man.cov_man
         lcm = self.lat_man.cov_man
-        im = self.int_man
+        (im,) = self.crs_maps
 
         # Deconstruct parameters
         obs_means, int_means, lat_means = self.split_coords(means)

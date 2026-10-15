@@ -37,17 +37,7 @@ Linear Maps
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.manifold.map.EmbeddedMap
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.map.BlockMap
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.manifold.map.AmbientMap
+.. autoclass:: goal.geometry.manifold.map.MatrixMap
    :members:
    :undoc-members:
    :show-inheritance:

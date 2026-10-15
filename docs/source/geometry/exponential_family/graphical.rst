@@ -13,44 +13,25 @@ Class Hierarchy
 
 \
 
-Embeddings
-----------
+Graphical Harmoniums
+--------------------
 
-.. autoclass:: goal.geometry.exponential_family.graphical.ObservableEmbedding
+.. autoclass:: goal.geometry.exponential_family.graphical.GraphicalHarmonium
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.graphical.InteractionEmbedding
+.. autoclass:: goal.geometry.exponential_family.graphical.GraphicalLevel
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.graphical.PosteriorEmbedding
+.. autoclass:: goal.geometry.exponential_family.graphical.DifferentiableGraphical
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: goal.geometry.exponential_family.graphical.LatentHarmoniumEmbedding
+.. autoclass:: goal.geometry.exponential_family.graphical.AnalyticGraphical
    :members:
    :undoc-members:
    :show-inheritance:
-
-Hierarchical Harmoniums
------------------------
-
-.. autoclass:: goal.geometry.exponential_family.graphical.DifferentiableHierarchical
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.exponential_family.graphical.SymmetricHierarchical
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: goal.geometry.exponential_family.graphical.AnalyticHierarchical
-   :members:
-   :undoc-members:
-   :show-inheritance:
-

@@ -1,252 +1,132 @@
-"""Population codes, Poisson-VonMises and Boltzmann-Normal harmoniums, and Poisson mixture models."""
+"""Population codes as harmoniums: Poisson or Boltzmann neurons over any latent family, and Poisson mixture models.
 
-from __future__ import annotations
+The harmoniums here are exact families. The variational models built on them are in
+:mod:`goal.models.variational`.
+"""
 
-from collections.abc import Sequence
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import override
-
-import jax.numpy as jnp
-from jax import Array
+from typing import Any, override
 
 from ...geometry import (
-    EmbeddedMap,
+    CliqueMap,
+    CrossTerm,
     IdentityEmbedding,
+    LinearEmbedding,
     Rectangular,
 )
-from ...geometry.exponential_family.base import Differentiable
+from ...geometry.exponential_family.base import Differentiable, ExponentialFamily
 from ...geometry.exponential_family.harmonium import Harmonium
-from ...geometry.exponential_family.variational import (
-    VariationalSymmetric,
-    regress_conjugation_parameters,
-)
-from ..base.categorical import Bernoullis
-from ..base.gaussian.boltzmann import (
-    Boltzmann,
-    ChordalBoltzmann,
-    ChordalCouplingMatrix,
-    DiagonalBoltzmann,
-)
-from ..base.gaussian.normal import FullNormal, full_normal
+from ..base.gaussian.boltzmann import Boltzmann
 from ..base.poisson import CoMPoissons, Poissons, PopulationLocationEmbedding
-from ..base.von_mises import VonMisesProduct
+from .lgm import GeneralizedGaussianLocationEmbedding
 from .mixture import AnalyticMixture, Mixture
 
-# --- Poisson-VonMises Harmonium ---
+# --- Population codes ---
 
 
 @dataclass(frozen=True)
-class PoissonVonMisesHarmonium(Harmonium[Poissons, VonMisesProduct]):
-    """Harmonium with Poisson observables and VonMises latents."""
+class PopulationCode[Observable: Differentiable, Latent: Differentiable](
+    Harmonium[Observable, Latent], ABC
+):
+    """Harmonium with a population of neurons as its observable, coupled to every clique of a latent model.
+
+    A subclass declares the population (:attr:`obs_man`), the latent model (:attr:`pst_man`) and
+    the statistics of the neurons that the latent modulates (:attr:`nrn_emb`). Each clique of the
+    latent model is coupled to those statistics by one crossing over its whole coordinate block, so
+    the neurons depend on every sufficient statistic of the latent. On a latent whose cliques are
+    its nodes, e.g. a tuple of independent families, each tuning curve is a product over the nodes;
+    a clique of several nodes adds terms that couple them.
+
+    Mathematically, given $z$ the neurons have natural parameters $\\theta_N + \\iota(\\Theta_{NZ}
+    \\cdot \\mathbf s_Z(z))$, with $\\iota$ the embedding :attr:`nrn_emb`, so the shape of each
+    tuning curve is set by the sufficient statistics of the latent: a von Mises node gives a cosine
+    bump in an angle, a Normal node a Gaussian bump.
+    """
+
+    # Fields
+
+    _pst_man: Latent
+
+    # Contract
+
+    @property
+    @abstractmethod
+    def nrn_emb(self) -> LinearEmbedding[Observable, Any]:
+        """The statistics of the neurons that the latent modulates, as a subspace of the population."""
+
+    # Overrides
+
+    @property
+    @override
+    def pst_man(self) -> Latent:
+        return self._pst_man
+
+    @property
+    @override
+    def crs_trms(self) -> tuple[CrossTerm, ...]:
+        """One crossing per clique of the latent, over its whole coordinate block."""
+        return tuple(
+            CrossTerm(
+                (0,),
+                clique,
+                CliqueMap(
+                    Rectangular(),
+                    self.nrn_emb,
+                    IdentityEmbedding(self.pst_man.clq_man(clique)),
+                ),
+            )
+            for clique in self.pst_man.cliques
+        )
+
+
+@dataclass(frozen=True)
+class PoissonPopulationCode[Latent: Differentiable](PopulationCode[Poissons, Latent]):
+    """Population code of independent Poisson neurons, whose log-rates the latent modulates."""
 
     # Fields
 
     n_neurons: int
-    """Number of Poisson observable neurons."""
-
-    n_latent: int
-    """Number of VonMises latent dimensions."""
 
     # Overrides
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[VonMisesProduct, Poissons]:
-        obs = Poissons(self.n_neurons)
-        lat = VonMisesProduct(self.n_latent)
-        return EmbeddedMap(
-            Rectangular(), IdentityEmbedding(lat), IdentityEmbedding(obs)
-        )
+    def obs_man(self) -> Poissons:
+        return Poissons(self.n_neurons)
 
-
-# --- Von Mises Population Code (unified variational model) ---
+    @property
+    @override
+    def nrn_emb(self) -> IdentityEmbedding[Poissons]:
+        return IdentityEmbedding(self.obs_man)
 
 
 @dataclass(frozen=True)
-class VonMisesPopulationCode(
-    VariationalSymmetric[Poissons, VonMisesProduct, VonMisesProduct]
+class BoltzmannPopulationCode[Shape: ExponentialFamily, Latent: Differentiable](
+    PopulationCode[Boltzmann[Shape], Latent]
 ):
-    """Variational population code with Poisson observables and VonMises latents.
+    """Population code of binary neurons with noise correlations, given by a Boltzmann machine.
 
-    Unifies 1D population codes and multi-dimensional toroidal models under
-    the variational conjugation framework. Posterior = prior = conjugation =
-    ``VonMisesProduct``, so :meth:`~goal.geometry.exponential_family.variational.VariationalConjugated.conjugation_parameters` returns the stored $\\rho$ unchanged.
-    """
-
-    _gen_hrm: PoissonVonMisesHarmonium
-
-    # Overrides
-
-    @property
-    @override
-    def gen_hrm(self) -> PoissonVonMisesHarmonium:
-        return self._gen_hrm
-
-    @property
-    @override
-    def lat_man(self) -> VonMisesProduct:
-        return self._gen_hrm.pst_man
-
-    @property
-    @override
-    def cnj_man(self) -> VonMisesProduct:
-        return self.lat_man
-
-    # Methods
-
-    @property
-    def n_neurons(self) -> int:
-        """Number of Poisson observable neurons."""
-        return self.gen_hrm.n_neurons
-
-    @property
-    def n_latent(self) -> int:
-        """Number of VonMises latent dimensions."""
-        return self.gen_hrm.n_latent
-
-    def initialize_from_tuning_curves(
-        self,
-        key: Array,
-        gains: Array,
-        preferred: Array,
-        baselines: Array,
-        prior_mean: float = 0.0,
-        prior_concentration: float = 0.0,
-        n_regression_samples: int = 5000,
-    ) -> Array:
-        """Initialize parameters from tuning curve specification.
-
-        Builds likelihood and prior parameters from gains, preferred directions, and baselines,
-        then fits conjugation parameters $\\rho$ via least-squares regression.
-        """
-        vm = self.pst_man.rep_man  # underlying VonMises
-
-        # Build likelihood params from tuning curves
-        obs_params = baselines
-        int_col_1 = gains * jnp.cos(preferred)
-        int_col_2 = gains * jnp.sin(preferred)
-        int_params = jnp.stack([int_col_1, int_col_2], axis=1).ravel()
-        lkl_params = self.gen_hrm.lkl_fun_man.join_coords(obs_params, int_params)
-        prior_nat = vm.join_mean_concentration(prior_mean, prior_concentration)
-
-        # Fit rho via regression
-        zero_rho = jnp.zeros(self.cnj_man.dim)
-        init_params = self.join_coords(prior_nat, lkl_params, zero_rho)
-        rho, _, _, _ = regress_conjugation_parameters(
-            self, key, init_params, n_regression_samples
-        )
-
-        return self.join_coords(prior_nat, lkl_params, rho)
-
-
-# --- Boltzmann Population Code (Gaussian latent) ---
-
-
-@dataclass(frozen=True)
-class BoltzmannNormalHarmonium[Shape: Differentiable](
-    Harmonium[Boltzmann[Shape], FullNormal]
-):
-    """Harmonium with a Boltzmann observable and a full-covariance Normal latent.
-
-    The opposite orientation to :class:`~goal.models.harmonium.lgm.BoltzmannLGM`
-    (Gaussian observable, Boltzmann latent): here a population of correlated
-    binary neurons encodes a continuous Gaussian. Only ``int_man`` is supplied;
-    the base derives everything else. The observable is a field because a
-    :class:`~goal.models.base.gaussian.boltzmann.ChordalBoltzmann` carries its
-    junction tree.
-
-    The interaction uses ``IdentityEmbedding`` on both sides, so it carries the
-    latent's full sufficient statistic $\\mathbf s_Z(z) = (z, z z^\\top)$ into the
-    Boltzmann natural parameters --- a genuine second-order coupling: the Gaussian
-    second moments drive the Boltzmann couplings, and the posterior over $z$
-    acquires an observation-dependent precision.
+    The latent modulates the biases of the neurons only, so their couplings, and with them the
+    noise correlations, do not depend on the latent. The population is a field because a
+    :class:`~goal.models.base.gaussian.boltzmann.ChordalBoltzmann` carries its junction tree.
     """
 
     # Fields
 
-    boltzmann: Boltzmann[Shape]
-    """The Boltzmann observable (chordal, diagonal, ...)."""
-
-    lat_dim: int
-    """Dimension of the Gaussian latent."""
+    pop_man: Boltzmann[Shape]
 
     # Overrides
 
     @property
     @override
-    def int_man(self) -> EmbeddedMap[FullNormal, Boltzmann[Shape]]:
-        lat = full_normal(self.lat_dim)
-        return EmbeddedMap(
-            Rectangular(), IdentityEmbedding(lat), IdentityEmbedding(self.boltzmann)
-        )
-
-
-@dataclass(frozen=True)
-class BoltzmannPopulationCode[Shape: Differentiable](
-    VariationalSymmetric[Boltzmann[Shape], FullNormal, FullNormal]
-):
-    """Variational population code with a Boltzmann observable and a Normal latent.
-
-    Posterior = prior = conjugation = ``FullNormal``, so
-    :meth:`~goal.geometry.exponential_family.variational.VariationalConjugated.conjugation_parameters`
-    returns the stored $\\rho$ unchanged. Trained via the variational ELBO with the
-    conjugation residual regularized; inherits ``mean_elbo``,
-    ``conjugation_residual``, ``prior_conjugation_loss``, and joint ``sample``.
-    """
-
-    _gen_hrm: BoltzmannNormalHarmonium[Shape]
-
-    # Overrides
+    def obs_man(self) -> Boltzmann[Shape]:
+        return self.pop_man
 
     @property
     @override
-    def gen_hrm(self) -> BoltzmannNormalHarmonium[Shape]:
-        return self._gen_hrm
-
-    @property
-    @override
-    def lat_man(self) -> FullNormal:
-        return self._gen_hrm.pst_man
-
-    @property
-    @override
-    def cnj_man(self) -> FullNormal:
-        return self.lat_man
-
-    # Methods
-
-    @property
-    def n_neurons(self) -> int:
-        """Number of Boltzmann observable neurons."""
-        return self._gen_hrm.boltzmann.data_dim
-
-    @property
-    def n_latent(self) -> int:
-        """Dimension of the Gaussian latent."""
-        return self._gen_hrm.lat_dim
-
-
-def chordal_boltzmann_population_code(
-    n_neurons: int,
-    edges: Sequence[tuple[int, int]],
-    lat_dim: int,
-    max_treewidth: int | None = None,
-) -> BoltzmannPopulationCode[ChordalCouplingMatrix]:
-    """Population code whose observable is a chordal Boltzmann machine.
-
-    ``edges`` seeds the chordal graph; triangulation fill-in becomes genuine
-    couplings (see :meth:`ChordalBoltzmann.from_edges`).
-    """
-    boltzmann = ChordalBoltzmann.from_edges(n_neurons, edges, max_treewidth)
-    return BoltzmannPopulationCode(BoltzmannNormalHarmonium(boltzmann, lat_dim))
-
-
-def diagonal_boltzmann_population_code(
-    n_neurons: int, lat_dim: int
-) -> BoltzmannPopulationCode[Bernoullis]:
-    """Population code whose observable is an independent-Bernoulli baseline."""
-    boltzmann = DiagonalBoltzmann(n_neurons=n_neurons)
-    return BoltzmannPopulationCode(BoltzmannNormalHarmonium(boltzmann, lat_dim))
+    def nrn_emb(self) -> GeneralizedGaussianLocationEmbedding[Boltzmann[Shape]]:
+        return GeneralizedGaussianLocationEmbedding(self.pop_man)
 
 
 # --- COM-Poisson Population ---

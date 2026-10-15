@@ -1,9 +1,7 @@
-"""Harmonium models: product exponential families over observable and latent variables coupled through an interaction matrix.
+"""Harmoniums: exponential families over observable and latent variables, coupled by an interaction.
 
-Natural parameters of a harmonium are the concatenation ``[obs_params, int_params, lat_params]`` of observable biases, interaction matrix, and latent biases. The conjugated subclasses add structure that decomposes the joint into a likelihood and a prior, enabling exact density evaluation and EM.
+The natural parameters of a harmonium are ``[obs_params, int_params, lat_params]``: the observable biases, the interaction, and the latent biases. A conjugated harmonium also factors the joint into a likelihood and a prior, which gives the marginal density of the observable in closed form.
 """
-
-from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -13,8 +11,9 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ..manifold.combinators import Triple
-from ..manifold.embedding import IdentityEmbedding, LinearEmbedding
+from ..manifold.base import Manifold
+from ..manifold.clique import CrossMap, RecursiveLinearCliques
+from ..manifold.embedding import IdentityEmbedding, LinearEmbedding, TupleEmbedding
 from ..manifold.map import AffineMap, LinearMap
 from ..manifold.util import batched_mean
 from .base import (
@@ -30,11 +29,15 @@ class Harmonium[
     Observable: Gibbs,
     Posterior: Gibbs,
 ](
+    RecursiveLinearCliques[Observable, Posterior],
     Gibbs,
-    Triple[Observable, LinearMap[Posterior, Observable], Posterior],
     ABC,
 ):
-    """A product exponential family over observable $x$ and latent $z$ variables coupled through an interaction matrix.
+    """An exponential family over observable variables $x$ and latent variables $z$, coupled by an interaction.
+
+    A subclass declares the observable family (:attr:`obs_man`), the posterior family (:attr:`pst_man`), and the crossing cliques between them, each with its coordinate block (:meth:`crs_trms`; see :class:`~goal.geometry.manifold.clique.RecursiveLinearCliques`). Either family may have several nodes. The parameter layout and the interaction :attr:`int_man` are derived. The observable, interaction and posterior are the root, cross and deep partitions of the layout, so :meth:`~goal.geometry.manifold.combinators.Triple.split_coords` returns ``(obs_params, int_params, lat_params)``.
+
+    ``RecursiveLinearCliques`` is listed before ``Gibbs`` among the bases, so that the composed graph overrides the single-node default of :class:`~goal.geometry.exponential_family.base.ExponentialFamily`.
 
     Mathematically, the joint log-density is $\\log p(x,z) = \\theta_X \\cdot \\mathbf s_X(x) + \\theta_Z \\cdot \\mathbf s_Z(z) + \\mathbf s_X(x) \\cdot \\Theta_{XZ} \\cdot \\mathbf s_Z(z) - \\psi(\\theta)$, where $\\theta_X$, $\\theta_Z$ are observable and latent biases, and $\\Theta_{XZ}$ is the interaction matrix.
     """
@@ -43,30 +46,44 @@ class Harmonium[
 
     @property
     @abstractmethod
-    def int_man(self) -> LinearMap[Posterior, Observable]:
-        """Manifold of the interaction matrix $\\Theta_{XZ}$."""
+    def obs_man(self) -> Observable:
+        """Manifold of observable biases --- the root partition."""
+
+    @property
+    @abstractmethod
+    def pst_man(self) -> Posterior:
+        """Manifold of latent biases --- the deep partition."""
+
+    # Overrides
+
+    @property
+    @override
+    def rot_man(self) -> Observable:
+        """The root partition is the observable biases."""
+        return self.obs_man
+
+    @property
+    @override
+    def dep_man(self) -> Posterior:
+        """The deep partition is the latent biases."""
+        return self.pst_man
 
     # Methods
 
     @property
-    def obs_man(self) -> Observable:
-        """Manifold of observable biases."""
-        return self.int_man.cod_man
+    def int_man(self) -> CrossMap[Observable, Posterior]:
+        """The interaction: the cross partition."""
+        return self.crs_man
 
     @property
-    def pst_man(self) -> Posterior:
-        """Manifold of posterior specific latent biases."""
-        return self.int_man.dom_man
-
-    @property
-    def lkl_fun_man(self) -> AffineMap[Posterior, Observable]:
+    def lkl_fun_man(self) -> AffineMap[Observable, Posterior]:
         """Manifold of likelihood distributions $p(x \\mid z)$."""
-        return AffineMap(self.int_man, self.int_man.dom_man)
+        return AffineMap(self.int_man, self.pst_man)
 
     @property
-    def pst_fun_man(self) -> AffineMap[Observable, Posterior]:
+    def pst_fun_man(self) -> AffineMap[Posterior, Observable]:
         """Manifold of conditional posterior distributions $p(z \\mid x)$."""
-        return AffineMap(self.int_man.trn_man, self.int_man.cod_man)
+        return AffineMap(self.int_man.trn_man, self.obs_man)
 
     def likelihood_function(self, params: Array) -> Array:
         """Extract the likelihood affine map $\\eta \\mapsto \\theta_X + \\Theta_{XZ} \\cdot \\eta$ from the given natural parameters."""
@@ -90,21 +107,6 @@ class Harmonium[
         return self.pst_fun_man(self.posterior_function(params), mx)
 
     # Overrides
-
-    @property
-    @override
-    def fst_man(self) -> Observable:
-        return self.obs_man
-
-    @property
-    @override
-    def snd_man(self) -> LinearMap[Posterior, Observable]:
-        return self.int_man
-
-    @property
-    @override
-    def trd_man(self) -> Posterior:
-        return self.pst_man
 
     @property
     @override
@@ -238,7 +240,7 @@ class Conjugated[
     Generative,
     ABC,
 ):
-    """A harmonium whose prior $p(z)$ belongs to the same exponential family as the posterior $p(z \\mid x)$, enabling exact computation of the prior via conjugation parameters $\\rho$.
+    """A harmonium whose prior family contains its posterior family (:attr:`pst_prr_emb`), so that the prior $p(z)$ is computed from conjugation parameters $\\rho$.
 
     Mathematically, conjugation holds when $\\psi_X(\\theta_X + \\Theta_{XZ} \\cdot \\mathbf s_Z(z)) = \\rho \\cdot \\mathbf s_Z(z) + \\chi$ for all $z$, with $\\rho$ from :meth:`conjugation_parameters` and $\\chi$ from :meth:`conjugation_offset`."""
 
@@ -246,7 +248,7 @@ class Conjugated[
 
     @property
     @abstractmethod
-    def pst_prr_emb(self) -> LinearEmbedding[Posterior, Prior]:
+    def pst_prr_emb(self) -> LinearEmbedding[Prior, Posterior]:
         """Embedding of the posterior latent submanifold into the prior latent manifold."""
 
     @abstractmethod
@@ -258,7 +260,7 @@ class Conjugated[
     def conjugation_offset(self, lkl_params: Array) -> Array:
         """Compute the conjugation offset $\\chi$ from the given likelihood natural parameters.
 
-        Evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. Override in models whose latent sufficient statistic has no zero --- :class:`~goal.models.base.von_mises.VonMises` and :class:`~goal.models.base.dirichlet.Dirichlet` --- where $\\chi$ must be solved for alongside $\\rho$.
+        Evaluating the conjugation equation at any $z_0$ with $\\mathbf s_Z(z_0) = 0$ gives $\\chi = \\psi_X(\\theta_X)$, which is what this returns. A model whose latent sufficient statistic has no zero (e.g. a von Mises latent, with $\\mathbf s_Z(z) = (\\cos z, \\sin z)$) must override this and solve for $\\chi$ alongside $\\rho$.
         """
         obs_params, _ = self.lkl_fun_man.split_coords(lkl_params)
         return self.obs_man.log_partition_function(obs_params)
@@ -280,13 +282,6 @@ class Conjugated[
         lkl_params = self.likelihood_function(params)
         return lkl_params, self.prior(params)
 
-    def extract_likelihood_input(self, prr_sample: Array) -> Array:
-        """Extract the variables needed to condition the likelihood from a prior sample.
-
-        Returns the full sample by default. Hierarchical models override to extract only the immediate child latent (e.g., $y$ from a joint $yz$ sample).
-        """
-        return prr_sample
-
     def observable_sample(self, key: Array, params: Array, n: int = 1) -> Array:
         """Sample from the observable marginal $p(x)$ by discarding latent components."""
         xzs = self.sample(key, params, n)
@@ -301,9 +296,8 @@ class Conjugated[
 
         nat_prior = self.prior(params)
         z_sample = self.prr_man.sample(key1, nat_prior, n)
-        z0_sample = self.extract_likelihood_input(z_sample)
 
-        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z0_sample)
+        x_params = jax.vmap(self.likelihood_at, in_axes=(None, 0))(params, z_sample)
         x_keys = jax.random.split(key2, n)
         x_sample = jax.vmap(self.obs_man.sample, in_axes=(0, 0, None))(
             x_keys, x_params, 1
@@ -475,3 +469,89 @@ class AnalyticConjugated[
         """Perform one EM iteration: E-step computes expected sufficient statistics, M-step converts to natural parameters."""
         q = self.mean_posterior_statistics(params, xs)
         return self.to_natural(q)
+
+
+### Block Embeddings ###
+
+
+@dataclass(frozen=True)
+class HarmoniumEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+    Component: Manifold,
+](TupleEmbedding[Harmonium[Observable, Posterior], Component], ABC):
+    """Embeds one of a harmonium's three parameter blocks into the full harmonium space.
+
+    The blocks are those of :meth:`~goal.geometry.manifold.combinators.Triple.split_coords`. The posterior block holds every latent parameter, however many cliques the posterior has.
+    """
+
+    # Fields
+
+    hrm_man: Harmonium[Observable, Posterior]
+
+    # Overrides
+
+    @property
+    @override
+    def amb_man(self) -> Harmonium[Observable, Posterior]:
+        return self.hrm_man
+
+
+@dataclass(frozen=True)
+class ObservableEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+](HarmoniumEmbedding[Observable, Posterior, Observable]):
+    """Embeds the observable manifold of a harmonium into the full harmonium space (index 0)."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(self) -> int:
+        return 0
+
+    @property
+    @override
+    def sub_man(self) -> Observable:
+        return self.hrm_man.obs_man
+
+
+@dataclass(frozen=True)
+class InteractionEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+](HarmoniumEmbedding[Observable, Posterior, LinearMap[Observable, Posterior]]):
+    """Embeds the interaction manifold of a harmonium into the full harmonium space (index 1)."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(self) -> int:
+        return 1
+
+    @property
+    @override
+    def sub_man(self) -> LinearMap[Observable, Posterior]:
+        return self.hrm_man.int_man
+
+
+@dataclass(frozen=True)
+class PosteriorEmbedding[
+    Observable: Gibbs,
+    Posterior: Gibbs,
+](HarmoniumEmbedding[Observable, Posterior, Posterior]):
+    """Embeds the posterior manifold of a harmonium into the full harmonium space (index 2)."""
+
+    # Overrides
+
+    @property
+    @override
+    def tup_idx(self) -> int:
+        return 2
+
+    @property
+    @override
+    def sub_man(self) -> Posterior:
+        return self.hrm_man.pst_man
