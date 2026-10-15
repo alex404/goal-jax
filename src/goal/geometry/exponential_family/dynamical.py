@@ -385,7 +385,7 @@ class VariationalLatentProcess[
 ):
     """State-space model with a ``VariationalConjugated`` emission and a (deterministic) belief-space transition.
 
-    Parameters are laid out as ``[prior | ems_lkl | rho | trns]``: the prior over $z_0$, the emission's affine likelihood, the variational conjugation parameter $\\rho$, and the transition map. Both compound slots store only the variational pieces that vary independently of the predicted prior --- the underlying harmonium's stored latent-bias slot is omitted because the transition supplies that slot dynamically at every filter step.
+    Parameters are laid out as ``[prior | ems_lkl | cnj_fun | trns]``: the prior over $z_0$, the emission's affine likelihood, the parameters of the emission's conjugation functions, and the transition map. Both compound slots store only the variational pieces that vary independently of the predicted prior --- the underlying harmonium's stored latent-bias slot is omitted because the transition supplies that slot dynamically at every filter step.
 
     Filtering returns ``(beliefs, total_elbo)``: the scan iterates predict $\\to$ approximate-conjugate update, accumulating the per-step ELBO of the variational emission under the predicted prior. Smoothing, exact EM, and joint trajectory sampling are not provided --- they are not generally well-defined when the transition is a deterministic belief-space map and the emission posterior is approximate.
     """
@@ -452,7 +452,7 @@ class VariationalLatentProcess[
     ) -> tuple[Array, Array]:
         """Forward filter: returns ``(beliefs, total_elbo)``.
 
-        At each step, the transition map predicts the next belief, the emission's variational machinery computes the approximate posterior given the new observation, and the per-step ELBO is accumulated. Differentiable end-to-end --- ``jax.grad`` of ``-total_elbo`` w.r.t. (prior, emission, $\\rho$, transition) flows through the scan. Callers wanting $\\beta$-VAE-style KL warmup wrap this and add $(1-\\beta) \\cdot \\sum_t$ :meth:`ems_hrm.elbo_divergence` externally.
+        At each step, the transition map predicts the next belief, the emission's variational machinery computes the approximate posterior given the new observation, and the per-step ELBO is accumulated. Differentiable end-to-end --- ``jax.grad`` of ``-total_elbo`` w.r.t. (prior, emission, conjugation functions, transition) flows through the scan. Callers wanting $\\beta$-VAE-style KL warmup wrap this and add $(1-\\beta) \\cdot \\sum_t$ :meth:`ems_hrm.elbo_divergence` externally.
         """
         prior_params, ems_lkl, cnj_fun_params, trns_params = self.split_coords(params)
         ems_hrm = self.ems_hrm

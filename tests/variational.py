@@ -1,7 +1,7 @@
 """Tests for geometry/exponential_family/variational.py, on shipped models.
 
 A single level: ground-truth verification of the variational estimators and their
-stop_gradient policy, on a ``PoissonPopulationCode`` with a single VonMises latent, a
+stop_gradient policy, on a ``PoissonPopulationCode`` with a single VonMises latent,
 and a ``BoltzmannPopulationCode`` with a one-dimensional Normal latent, both fit as a
 ``VariationalPopulationCode``.
 Every latent expectation is then an integral over a grid: over [0, 2pi) for
@@ -15,6 +15,10 @@ This pins down the stop_gradient sites: a missing sg would double-count the
 direct gradient, a spurious sg would drop the score correction, and either
 error shifts the MC gradient mean away from the exact gradient by far more
 than its standard error.
+
+A level with exact conjugation functions: its residuals vanish, and its ELBO and $\\tilde\\Psi$ are
+the log-marginal and log-partition function of the conjugated harmonium (a Boltzmann posterior also
+by enumeration, and factor analysis).
 
 Nested levels: the canonical circuit (models/variational/population_codes.py) in both variants,
 its ELBO decomposition at depths 1 and 2, and at depth 1 its ELBO against enumeration of the neurons
@@ -31,17 +35,23 @@ from jax import Array
 
 from goal.geometry import JunctionTree, PositiveDefinite
 from goal.geometry.exponential_family.variational import (
+    DifferentiableDeepModel,
     DifferentiableVariationalConjugated,
+    ExactConjugationFunction,
     regress_conjugation_parameters,
+    variational_level,
 )
 from goal.models import (
     BoltzmannPopulationCode,
     CanonicalCircuit,
     ChordalBoltzmann,
+    FullBoltzmann,
     Normal,
+    NormalBoltzmannMachine,
     PoissonPopulationCode,
     VonMisesProduct,
     canonical_circuit,
+    factor_analysis,
     variational_population_code,
 )
 
@@ -289,6 +299,72 @@ class TestRegression:
         assert _exact_var_p_r(case, at_prior(rho_fit)) < 0.5 * _exact_var_p_r(
             case, at_prior(rho_zero)
         )
+
+
+# --- A level with exact conjugation ---
+
+EXACT_HARMONIUMS = [
+    NormalBoltzmannMachine(3, PositiveDefinite(), FullBoltzmann(4)),
+    factor_analysis(4, 2),
+]
+
+
+class TestExactLevel:
+    """A level whose conjugation function is exact is the conjugated harmonium: every residual vanishes, and the ELBO is the log-marginal."""
+
+    @pytest.mark.parametrize("hrm", EXACT_HARMONIUMS, ids=["boltzmann", "fa"])
+    def test_level_is_the_harmonium(self, hrm: Any):
+        """Residuals at prior samples, $\\tilde\\Psi$ against $\\psi$, and $c(x)$ and the ELBO against the closed-form log-marginal."""
+        level = variational_level(
+            ((hrm, ExactConjugationFunction(hrm)),),
+            DifferentiableDeepModel(hrm.prr_man),
+        )
+        params = level.initialize(jax.random.PRNGKey(0), shape=0.5)
+        hrm_params, _ = level.split_coords(params)
+        prior, _ = level.dep_man.split_coords(level.conjugated_prior_params(params))
+        zs = level.pst_man.sample(jax.random.PRNGKey(1), prior, 50)
+        residuals = jax.vmap(lambda z: level.conjugation_residual(params, z))(zs)
+        assert jnp.allclose(residuals, 0.0, atol=1e-10)
+        assert jnp.allclose(
+            level.conjugated_log_partition_function(params),
+            hrm.log_partition_function(hrm_params),
+            rtol=1e-10,
+        )
+
+        xs = level.observable_sample(jax.random.PRNGKey(2), params, 10)
+        log_ps = jax.vmap(lambda x: hrm.log_observable_density(hrm_params, x))(xs)
+        baselines = jax.vmap(lambda x: level.conjugation_baseline(params, x))(xs)
+        elbos = jax.vmap(lambda x: level.elbo_at(jax.random.PRNGKey(3), params, x, 8))(
+            xs
+        )
+        assert jnp.allclose(baselines, log_ps, rtol=1e-10, atol=1e-10)
+        assert jnp.allclose(elbos, log_ps, rtol=1e-10, atol=1e-10)
+
+    def test_log_marginal_by_enumeration(self):
+        """The ELBO of the Boltzmann level against $\\log p(x)$ by summing the joint density of the harmonium over the binary states."""
+        hrm = EXACT_HARMONIUMS[0]
+        level = variational_level(
+            ((hrm, ExactConjugationFunction(hrm)),),
+            DifferentiableDeepModel(hrm.prr_man),
+        )
+        params = level.initialize(jax.random.PRNGKey(0), shape=0.5)
+        hrm_params, _ = level.split_coords(params)
+        states = jnp.array(
+            [[(i >> k) & 1 for k in range(4)] for i in range(16)], dtype=float
+        )
+        xs = level.observable_sample(jax.random.PRNGKey(2), params, 10)
+
+        def log_p(x: Array) -> Array:
+            return jax.nn.logsumexp(
+                jax.vmap(
+                    lambda z: hrm.log_density(hrm_params, jnp.concatenate([x, z]))
+                )(states)
+            )
+
+        elbos = jax.vmap(lambda x: level.elbo_at(jax.random.PRNGKey(3), params, x, 8))(
+            xs
+        )
+        assert jnp.allclose(elbos, jax.vmap(log_p)(xs), rtol=1e-8, atol=1e-8)
 
 
 # --- Nested levels: the canonical circuit ---

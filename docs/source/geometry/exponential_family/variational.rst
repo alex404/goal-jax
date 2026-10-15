@@ -10,7 +10,7 @@ Class Hierarchy
 
 .. inheritance-diagram:: goal.geometry.exponential_family.variational
    :parts: 2
-   :top-classes: goal.geometry.manifold.combinators.Triple
+   :top-classes: goal.geometry.manifold.combinators.Pair, goal.geometry.manifold.map.Map
 
 \
 
@@ -36,6 +36,8 @@ Variational Conjugated
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autofunction:: goal.geometry.exponential_family.variational.variational_level
 
 Conjugation Functions
 ---------------------

@@ -218,7 +218,9 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
     cnj_funs: tuple[Map[Any, Any], ...]
     """The conjugation function of each observable harmonium of :attr:`gph_hrm`, in order: a map from its likelihood parameters to its $\\rho$, in natural coordinates of its posterior.
 
-    A function of the likelihood alone, so the prior and the recognition model of a nested model
+    $\\rho$ is placed on the latent model at the harmonium's nodes, which is the harmonium's
+    posterior family, so the harmonium's prior family plays no role in a level. A function of the likelihood
+    alone, so the prior and the recognition model of a nested model
     use the same one. Its parameters may be none (:class:`ExactConjugationFunction`, where the
     harmonium is conjugated), $\\rho$ itself (:class:`ConstantConjugationFunction`), or
     those of a learned approximation, usually of the observable bias alone
@@ -245,6 +247,83 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
     def data_dim(self) -> int:
         """Dimension of a joint datapoint $(x, z)$."""
         return self.obs_man.data_dim + self.dep_man.data_dim
+
+    @override
+    def conjugated_log_partition_function(self, params: Array) -> Array:
+        """$\\tilde\\Psi(\\theta) = \\tilde\\Psi_Z(\\theta_Z + \\rho) + \\psi_X(\\theta_X)$: the normalizer of $\\tilde p$ against the joint density of :attr:`gph_hrm`.
+
+        That is, $\\log \\tilde p(x, z) = \\theta \\cdot \\mathbf s(x, z) + \\log h(x, z) - \\tilde\\Psi(\\theta) +
+        \\sum r(z)$, with $r$ the residuals of every level (:meth:`conjugation_residuals`). It differs
+        from the log-partition function by $\\psi(\\theta) - \\tilde\\Psi(\\theta) = \\log \\mathbb
+        E_{\\tilde p}[e^{-\\sum r(Z)}]$, and equals it when every residual vanishes. An exact $\\rho$
+        makes each residual constant, and zero when $\\mathbf s_Z$ vanishes at some $z$ (Gaussian and
+        Boltzmann latents), not otherwise (e.g. von Mises latents).
+        """
+        obs_params, _ = self.gph_hrm.lkl_fun_man.split_coords(
+            self.likelihood_function(params)
+        )
+        return self.dep_man.conjugated_log_partition_function(
+            self.conjugated_prior_params(params)
+        ) + self.obs_man.log_partition_function(obs_params)
+
+    @override
+    def log_density(self, params: Array, xz: Array) -> Array:
+        """$\\log \\tilde p(x, z) = \\log \\tilde p_Z(z) + \\log p(x \\mid z)$ of a joint datapoint."""
+        x = xz[..., : self.obs_man.data_dim]
+        z = xz[..., self.obs_man.data_dim :]
+        dep_params = self.conjugated_prior_params(params)
+        return self.dep_man.log_density(dep_params, z) + self.obs_man.log_density(
+            self.likelihood_at(params, z), x
+        )
+
+    @override
+    def sample(self, key: Array, params: Array, n: int) -> Array:
+        """Ancestral samples of $\\tilde p(x, z)$: $z$ from the deep model at the prior, then $x \\sim p(x \\mid z)$."""
+        key_z, key_x = jax.random.split(key)
+        dep_params = self.conjugated_prior_params(params)
+        zs = self.dep_man.sample(key_z, dep_params, n)
+
+        def sample_x(k: Array, z: Array) -> Array:
+            return self.obs_man.sample(k, self.likelihood_at(params, z), 1)[0]
+
+        xs = jax.vmap(sample_x)(jax.random.split(key_x, n), zs)
+        return jnp.concatenate([xs, zs], axis=-1)
+
+    @override
+    def conjugation_residuals(self, params: Array, xz: Array) -> tuple[Array, ...]:
+        """The residual of each level of $\\tilde p$ at a joint datapoint, bottom first."""
+        z = xz[..., self.obs_man.data_dim :]
+        return (
+            self.conjugation_residual(params, z),
+            *self.dep_man.conjugation_residuals(
+                self.conjugated_prior_params(params), z
+            ),
+        )
+
+    @override
+    def conjugation_residual_variances(
+        self, key: Array, params: Array, n_samples: int
+    ) -> tuple[Array, ...]:
+        """The variance under $\\tilde p$ of the residual of each level, bottom first.
+
+        The variance of each level is under samples of its own deep model, with a
+        score-function term for the dependence of their distribution on the parameters
+        (:meth:`DeepModel.score_variance`). Needs ``n_samples >= 2``.
+        """
+        key_own, key_deep = jax.random.split(key)
+        dep_prior = self.conjugated_prior_params(params)
+        var = self.dep_man.score_variance(
+            key_own,
+            dep_prior,
+            lambda z: self.conjugation_residual(params, z),
+            n_samples,
+        )
+        return (
+            var,
+            *self.dep_man.conjugation_residual_variances(
+                key_deep, dep_prior, n_samples
+            ),
+        )
 
     # Methods
 
@@ -331,26 +410,13 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
             self.posterior_at(params, x), cnj_fun_tup_params[self.cnj_fun_man.dim :]
         )
 
-    @override
-    def conjugated_log_partition_function(self, params: Array) -> Array:
-        """$\\tilde\\Psi(\\theta) = \\tilde\\Psi_Z(\\theta_Z + \\rho) + \\psi_X(\\theta_X)$: the log-partition function of :attr:`gph_hrm` under exact conjugation.
-
-        It differs from the exact one by $\\psi(\\theta) - \\tilde\\Psi(\\theta) = \\log \\mathbb E_{\\tilde p}[e^{-\\sum r(Z)}]$.
-        """
-        obs_params, _ = self.gph_hrm.lkl_fun_man.split_coords(
-            self.likelihood_function(params)
-        )
-        return self.dep_man.conjugated_log_partition_function(
-            self.conjugated_prior_params(params)
-        ) + self.obs_man.log_partition_function(obs_params)
-
     def conjugation_baseline(self, params: Array, x: Array) -> Array:
-        """The latent-independent ELBO term $c(x) = \\mathbf s_X(x) \\cdot \\theta_X + \\log h_X(x) - \\psi_X(\\theta_X) + \\tilde\\Psi_Z(\\theta^X) - \\tilde\\Psi_Z(\\theta^0)$, the log-marginal under exact conjugation, with $\\theta^0$ the prior and $\\theta^X$ the posterior.
+        """The latent-independent ELBO term $c(x) = \\mathbf s_X(x) \\cdot \\theta_X + \\log h_X(x) - \\psi_X(\\theta_X) + \\tilde\\Psi_Z(\\theta^X) - \\tilde\\Psi_Z(\\theta^0)$, with $\\theta^0$ the prior and $\\theta^X$ the posterior.
 
         It is the formula of
         :meth:`~goal.geometry.exponential_family.harmonium.DifferentiableConjugated.log_observable_density`
         with $\\tilde\\Psi_Z$ in place of $\\psi_Z$, and equals $\\log \\tilde p(x)$ when every
-        conjugation is exact.
+        residual vanishes (:meth:`conjugated_log_partition_function`).
         """
         obs_params, _ = self.gph_hrm.lkl_fun_man.split_coords(
             self.likelihood_function(params)
@@ -364,29 +430,6 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
             + self.dep_man.conjugated_log_partition_function(dep_post)
             - self.dep_man.conjugated_log_partition_function(dep_prior)
         )
-
-    @override
-    def log_density(self, params: Array, xz: Array) -> Array:
-        """$\\log \\tilde p(x, z) = \\log \\tilde p_Z(z) + \\log p(x \\mid z)$ of a joint datapoint."""
-        x = xz[..., : self.obs_man.data_dim]
-        z = xz[..., self.obs_man.data_dim :]
-        dep_params = self.conjugated_prior_params(params)
-        return self.dep_man.log_density(dep_params, z) + self.obs_man.log_density(
-            self.likelihood_at(params, z), x
-        )
-
-    @override
-    def sample(self, key: Array, params: Array, n: int) -> Array:
-        """Ancestral samples of $\\tilde p(x, z)$: $z$ from the deep model at the prior, then $x \\sim p(x \\mid z)$."""
-        key_z, key_x = jax.random.split(key)
-        dep_params = self.conjugated_prior_params(params)
-        zs = self.dep_man.sample(key_z, dep_params, n)
-
-        def sample_x(k: Array, z: Array) -> Array:
-            return self.obs_man.sample(k, self.likelihood_at(params, z), 1)[0]
-
-        xs = jax.vmap(sample_x)(jax.random.split(key_x, n), zs)
-        return jnp.concatenate([xs, zs], axis=-1)
 
     def observable_sample(self, key: Array, params: Array, n: int) -> Array:
         """Samples of $\\tilde p(x)$."""
@@ -416,17 +459,6 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
             jnp.dot(rho, self.pst_man.sufficient_statistic(z))
             - self.obs_man.log_partition_function(self.likelihood_at(params, z))
             + self.obs_man.log_partition_function(obs_params)
-        )
-
-    @override
-    def conjugation_residuals(self, params: Array, xz: Array) -> tuple[Array, ...]:
-        """The residual of each level of $\\tilde p$ at a joint datapoint, bottom first."""
-        z = xz[..., self.obs_man.data_dim :]
-        return (
-            self.conjugation_residual(params, z),
-            *self.dep_man.conjugation_residuals(
-                self.conjugated_prior_params(params), z
-            ),
         )
 
     def elbo_residual(self, params: Array, x: Array, z: Array) -> Array:
@@ -470,31 +502,6 @@ class VariationalConjugated[Graphical: GraphicalHarmonium[Any]](DeepModel[Graphi
         keys = jax.random.split(key, xs.shape[0])
         return jnp.mean(
             jax.vmap(lambda k, x: self.elbo_at(k, params, x, n_samples))(keys, xs)
-        )
-
-    @override
-    def conjugation_residual_variances(
-        self, key: Array, params: Array, n_samples: int
-    ) -> tuple[Array, ...]:
-        """The variance under $\\tilde p$ of the residual of each level, bottom first.
-
-        The variance of each level is under samples of its own deep model, with a
-        score-function term for the dependence of their distribution on the parameters
-        (:meth:`DeepModel.score_variance`). Needs ``n_samples >= 2``.
-        """
-        key_own, key_deep = jax.random.split(key)
-        dep_prior = self.conjugated_prior_params(params)
-        var = self.dep_man.score_variance(
-            key_own,
-            dep_prior,
-            lambda z: self.conjugation_residual(params, z),
-            n_samples,
-        )
-        return (
-            var,
-            *self.dep_man.conjugation_residual_variances(
-                key_deep, dep_prior, n_samples
-            ),
         )
 
     def recognition_residual_variances_at(
@@ -607,7 +614,11 @@ def variational_level(
 
 @dataclass(frozen=True)
 class ExactConjugationFunction[Prior: Generative](Map[Prior, Any]):
-    """The conjugation function of a conjugated harmonium: its closed-form $\\rho$, with no parameters."""
+    """The conjugation function of a conjugated harmonium: its closed-form $\\rho$, with no parameters.
+
+    The closed-form $\\rho$ lies in the harmonium's prior family, and a level places it on the
+    harmonium's posterior family, so the two must be the same family.
+    """
 
     # Fields
 
